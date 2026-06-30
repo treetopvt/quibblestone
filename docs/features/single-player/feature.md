@@ -14,7 +14,10 @@ no-friction entry point ... and the funnel into group play") and section 7
 - [ ] 01 - Solo play (Classic blind end to end)
 
 ## Dependencies
-- template-model, game-modes (Classic blind), the-reveal, child-safety.
+- template-model
+- game-modes (Classic blind)
+- the-reveal
+- child-safety.
 
 ## Design notes
 - Solo reuses the same engine as group play (game-modes), just with one filler
