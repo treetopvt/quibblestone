@@ -1,6 +1,6 @@
 # Story: Template schema (typed blanks, optional word bank, tags)
 
-**Feature:** Template & Content Model  ·  **Status:** Not Started
+**Feature:** Template & Content Model  ·  **Status:** In Progress
 
 ## Context
 Every game mode plays the same underlying thing: a template with typed blanks.
@@ -46,6 +46,15 @@ This story defines that shape so the engine and the modes can build on it. See
   runtime. This keeps the schema self-contained and easy to hand-author.
 - The assembled result should carry per-word attribution (playerSessionId +
   word) so the reveal and round-complete screens can color and count correctly.
+
+## Tests
+Pure-logic specs run under the minimal Vitest seed (`web/vitest.config.ts`; the
+canonical harness is `platform-devops/01`). Run with `npm run test:unit` in `web/`.
+- `web/src/engine/assemble.test.ts` - in-order replacement, determinism (same
+  inputs produce the same output), per-word attribution (each filled word maps to
+  its `playerSessionId`), and both word-count-mismatch directions (AC-06).
+- `web/src/engine/template.test.ts` - `getBlanks` ordering, optional `wordBank`
+  validity, and the typed-blank shape (AC-01 / AC-02 / AC-03).
 
 ## Dependencies
 None.
