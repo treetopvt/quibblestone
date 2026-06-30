@@ -1,6 +1,6 @@
 # Story: Authoring format + seed library
 
-**Feature:** Template & Content Model  ·  **Status:** Not Started
+**Feature:** Template & Content Model  ·  **Status:** In Progress
 
 ## Context
 Slice 1 ships a tiny hand-written library so there is something genuinely funny
@@ -26,6 +26,16 @@ seeds 10-15 of them. See [feature.md](./feature.md).
 - Store the seed library as data the app loads (later this can move behind the
   API / Table Storage; for Slice 1 a bundled data file is fine).
 - Keep the authoring format readable so writing a funny template is quick.
+
+## Tests
+Validation specs run under the same minimal Vitest seed as story 01
+(`npm run test:unit` in `web/`):
+- `web/src/content/seedLibrary.test.ts` - asserts the library holds 10-15
+  templates (AC-02), every id is unique, every template is `familySafe` /
+  `all-ages` (AC-03), every blank carries exactly 3 non-empty spark words plus a
+  prompt / sub-hint / category label, and every template `assemble()`s without
+  throwing via the real engine assembler. Confirms both word-bank and free-text
+  templates exist.
 
 ## Dependencies
 - template-model/01-template-schema

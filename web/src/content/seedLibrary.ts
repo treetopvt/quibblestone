@@ -8,7 +8,7 @@
 //  `text()` / `blank()` constructors exported from `../engine/template`
 //  (template-model/01). This file is PURE DATA - no AI generation, no
 //  authoring UI, no back-office content factory (those are explicitly out of
-//  scope here; see docs/features/template-model/02-seed-library.md). Adding a
+//  scope here; see docs/features/template-model/02-authoring-and-seed-library.md). Adding a
 //  new template is a single, documented step: append one object literal to
 //  `seedLibrary` below. See ./README.md for the full authoring guide and a
 //  copy-paste starter template.
@@ -175,7 +175,7 @@ export const seedLibrary: readonly Template[] = [
         categoryLabel: 'PLACE',
         prompt: 'Give me a place',
         subHint: 'A location, real or made up.',
-        sparkWords: ['Grandma’s house', 'the moon', 'Pancake City'],
+        sparkWords: ["Grandma's house", 'the moon', 'Pancake City'],
       }),
       text('. Halfway there, Dad started to '),
       blank({
@@ -561,7 +561,7 @@ export const seedLibrary: readonly Template[] = [
         subHint: 'A first name for our birthday star.',
         sparkWords: ['Sunny', 'Biscuit', 'Theo'],
       }),
-      text('’s birthday party, someone brought '),
+      text("'s birthday party, someone brought "),
       blank({
         id: 'b2',
         category: 'number',
