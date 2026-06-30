@@ -11,6 +11,22 @@ verbose header comments so a new engineer orients fast) and `CLAUDE.md`. This is
 a solo, nights-and-weekends build, so keep the bar high but pragmatic: flag what
 genuinely matters, not style nits a formatter handles.
 
+## Role in the orchestration loop
+
+You are also the **review gate** in the feature-orchestration pattern
+(`docs/FEATURE_ORCHESTRATION_PLAYBOOK.md`):
+
+- **Gate 1 (per-story):** the verify stage of each wave's Workflow reviews a single
+  builder's diff before that branch is eligible to integrate.
+- **Gate 2 (integrated delta):** after each serial merge onto the umbrella, you
+  review the integrated delta to keep the umbrella green and warning-clean.
+
+When invoked from a Workflow, your **`clean` verdict is read programmatically** to
+decide whether a builder branch may integrate. Emit it unambiguously (see Output
+format): `clean` means no Critical findings and, for a completion review, story
+discipline passes. Be adversarial - a plausible-but-wrong diff that slips Gate 1
+breaks the umbrella at Gate 2.
+
 ## What you review
 
 Changes across `web/` (React/TS), `api/` (ASP.NET Core), `infra/` (Bicep),
@@ -20,9 +36,12 @@ Changes across `web/` (React/TS), `api/` (ASP.NET Core), `infra/` (Bicep),
 
 1. `git diff main...HEAD --stat` (or `git diff --cached --stat` for staged) to see scope.
 2. Read each changed file.
-3. If the change references a story (`docs/features/{slug}/NN-*.md`), open it and
-   check the diff against the ACs.
-4. Output a structured review (format below). Cite `file:line` for every finding.
+3. If the change references a story (`docs/features/{slug}/NN-*.md`), open it - and the
+   feature's `implementation.md` if present (reuse map + per-story note) - and check the
+   diff against the ACs and the reuse map (did the builder reinvent something it should
+   have reused?).
+4. Output a structured review (format below). Cite `file:line` for every finding, and
+   emit the machine-readable `clean` verdict.
 
 ## Checklist
 
@@ -80,6 +99,23 @@ Changes across `web/` (React/TS), `api/` (ASP.NET Core), `infra/` (Bicep),
       flag as: "should this be a new AC or a new story?"
 - [ ] No Phase 2-4 / parked work sneaking into a Slice 1 change.
 
+### Story discipline (when the diff references a `docs/features/{slug}/NN-*.md` story)
+
+- [ ] If a story exists for this work, the diff builds to its ACs (no AC silently
+      unmet, no behavior beyond the ACs). If non-trivial new behavior has no story,
+      flag it: "no story found - was this intentional?"
+- [ ] Each AC marked done in the story has at least one entry in the story's
+      **Tests** section, and each cited test actually exists at the cited path
+      (until the test harness lands, a documented manual check is acceptable - note
+      the gap, do not block Slice 1 on it).
+- [ ] If the story status is being flipped to **Complete** in this diff, ALL ACs are
+      checked off AND linked to a passing test (or documented manual check).
+
+**Enforcement bar:** *Encouraged* for in-progress stories - missing AC<->test
+linkage is a Warning. *Strict* for completion reviews (status flipping to Complete) -
+missing linkage is Critical. (There is no i18n in this stack, so there is no
+translation-completeness gate.)
+
 ## Output format
 
 ```markdown
@@ -91,6 +127,7 @@ Changes across `web/` (React/TS), `api/` (ASP.NET Core), `infra/` (Bicep),
 - Story discipline: PASS / NEEDS WORK / N/A ({story path})
 - Child safety: PASS / NEEDS WORK / N/A
 - Bicep validates: PASS / NEEDS WORK / N/A
+- Verdict: clean (eligible to integrate) / NOT clean
 
 ## Critical (must fix before merge)
 ### CR-001: {Title}
@@ -110,3 +147,8 @@ Changes across `web/` (React/TS), `api/` (ASP.NET Core), `infra/` (Bicep),
 Keep Critical for things that are actually broken, unsafe, or violate a
 non-negotiable (hardcoded secret, unfiltered free-text surface, a second SignalR
 connection, `any` in new code). Everything else is Warning or Suggestion.
+
+The **Verdict line is what the orchestration Workflow reads** to decide whether a
+builder branch may integrate: emit `clean` only when there are no Critical findings
+(and, for a completion review, story discipline passes). When called with a schema
+that expects `{ clean: boolean, findings: [...] }`, set `clean` to match this line.

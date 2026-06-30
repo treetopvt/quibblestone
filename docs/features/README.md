@@ -9,16 +9,24 @@ hand a coding agent one at a time.
 
 ```
 docs/features/
+  _template/           copy-from templates (feature.md, NN-story.md, implementation.md)
   <feature-slug>/
     feature.md         what the feature is + why (links back to a README section)
+    implementation.md  the bridge to orchestration: reuse map + DAG-ready Wave Plan
     01-<story>.md      order-prefixed story files, in build sequence
     02-<story>.md
 ```
 
 - One folder per feature.
-- Each feature folder has a `feature.md` plus one markdown file per story.
+- Each feature folder has a `feature.md`, an `implementation.md`, plus one markdown
+  file per story.
 - **Story files are order-prefixed** (`01-`, `02-`, ...) so a feature reads
   top-to-bottom in build order.
+- **`implementation.md`** is the planning -> orchestration bridge (per-story tech
+  notes + reuse map + a file-footprint Wave Plan). It is what the
+  `orchestrate-feature` skill reads to fan out parallel builders; see
+  `docs/FEATURE_ORCHESTRATION_PLAYBOOK.md`. Required for every fully-specified
+  feature.
 
 ## What is here now
 
@@ -48,5 +56,6 @@ actually ready to build.
 ## Templates
 
 See README section 11 for the canonical `feature.md` and story (`NN-<slug>.md`)
-templates. The `story-agent` (`.claude/agents/story-agent.md`) authors and
-maintains these files.
+templates; `docs/features/_template/` holds copy-from versions of those plus the
+`implementation.md` template. The `story-agent` (`.claude/agents/story-agent.md`)
+authors and maintains these files.
