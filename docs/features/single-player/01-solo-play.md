@@ -18,10 +18,18 @@ that sells someone on starting a group. See [feature.md](./feature.md).
 - [ ] AC-05: Given solo play, then I am never asked for an account or any personal
       information.
 - [ ] AC-06: Given I finish a story, then I can start another in one tap (the
-      "bored in line" replay loop).
+      "bored in line" replay loop) via the Reveal screen's "Play another round".
+- [ ] AC-07: Given I finish a solo story, then I land on the Reveal screen with a
+      personal summary (story title and my word count) and the "Share the tale"
+      (Web Share) and "Play another round" actions; I do NOT see the group Round
+      Complete crew recap (group-play/04) - there is no crew to recap and no
+      per-player attribution to show.
 
 ## Out of Scope
-- Accounts, saving / keepsake export (later).
+- Accounts; saving the tale as an image / keepsake export (Phase 3). Sharing the
+  story text via the Web Share API is in scope (reuses the Reveal screen's
+  "Share the tale" - the-reveal/01).
+- The group Round Complete crew recap screen (group-play/04) - solo skips it.
 - AI content; modes other than Classic blind.
 - Any multiplayer / room behavior (that is group-play).
 
