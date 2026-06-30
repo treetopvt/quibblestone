@@ -1,18 +1,33 @@
 // ----------------------------------------------------------------------------
-//  vitest.config.ts - minimal Vitest wiring for the pure engine logic under
-//  web/src/engine/ (template-model/01's AC-06 determinism tests).
+//  vitest.config.ts - the CANONICAL unit-test harness for QuibbleStone.
 //
-//  NOTE: this is a MINIMAL SEED, not the canonical harness. platform-devops/01
-//  (CLAUDE.md section 9 / README section 7) owns the project-wide test
-//  harness (Vitest for engine logic, Playwright for the 2-player real-time
-//  flow) and is not built yet. This config exists only so
-//  web/src/engine/assemble.test.ts can run today via `npm run test:unit`.
-//  Expect platform-devops/01 to fold this into (or replace it with) the
-//  canonical setup later - keep this file disposable.
+//  This is the project-wide Vitest setup owned by platform-devops/01 (the test
+//  harness story - CLAUDE.md section 9, README section 7). It supersedes the
+//  minimal seed that template-model/01 dropped in earlier: same shape, now the
+//  blessed home for all pure-logic specs, not a disposable stopgap.
 //
-//  Environment is `node`, not `jsdom`: everything under web/src/engine/ is
-//  pure TS with no DOM dependency (no React, no MUI), so there is no need to
-//  pay jsdom's cost here.
+//  Scope and intent:
+//    - Vitest covers the PURE logic - the "one engine, many thin modes" core
+//      (template parsing, blank typing, word collection, reveal assembly, mode
+//      config) plus the seed content library. That logic is the natural unit-test
+//      target (README section 4): extract pure functions and test those directly
+//      rather than rendering React components. Component / real-time behavior is
+//      Playwright's job (see ../playwright.config.ts + ../tests/smoke.spec.ts),
+//      NOT this config's.
+//    - `include` stays `src/**/*.test.ts`: specs live next to the code they
+//      cover (e.g. src/engine/template.test.ts, src/engine/assemble.test.ts,
+//      src/content/seedLibrary.test.ts). Add new pure-logic specs the same way.
+//    - `*.spec.ts` is deliberately NOT matched here - that suffix is reserved
+//      for Playwright e2e under tests/, so the two runners never collide.
+//
+//  Environment is `node`, not `jsdom`: everything under src/engine/ and
+//  src/content/ is pure TS with no DOM dependency (no React, no MUI), so there is
+//  no reason to pay jsdom's startup cost. If a future spec needs the DOM, give it
+//  jsdom locally via a per-file `// @vitest-environment jsdom` pragma rather than
+//  flipping the whole suite (keep the fast pure-logic path the default).
+//
+//  Commands (see web/README.md and CLAUDE.md section 9):
+//    npm run test:unit   -> vitest run (CI uses this; it is wired into ci.yml).
 // ----------------------------------------------------------------------------
 
 import { defineConfig } from 'vitest/config';

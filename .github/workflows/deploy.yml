@@ -1,14 +1,23 @@
-# Deploy - build, then deploy both projects to Azure.
+# Deploy - build, then deploy both projects to Azure (dev).
 #
 # Manual (workflow_dispatch) for now: the production wiring (Azure secrets,
 # environments, resource names) is set up as the project matures. The build
 # steps mirror CI so we never deploy an unbuilt tree.
 #
-# Required repository configuration before this can run:
+# Required repository configuration before this can run (see the runbook at
+# docs/runbooks/deploy-to-dev.md for how to obtain each value):
 #   secrets.AZURE_API_PUBLISH_PROFILE        - App Service publish profile (XML)
-#   secrets.AZURE_API_APP_NAME               - App Service name (from infra output apiAppName)
+#   secrets.AZURE_API_APP_NAME               - App Service name (infra output apiAppName)
 #   secrets.AZURE_STATIC_WEB_APPS_API_TOKEN  - Static Web App deployment token
-#   vars.API_BASE_URL / vars.SIGNALR_HUB_URL - the deployed API URLs, baked into the web build
+#   vars.API_BASE_URL                        - deployed API origin, e.g.
+#                                              https://quibblestone-dev-api-xxxx.azurewebsites.net
+#   vars.SIGNALR_HUB_URL                     - optional. The hub URL. If unset it is
+#                                              derived as ${API_BASE_URL}/hubs/game.
+#
+# Secrets and URLs live in GitHub repo settings, never in committed config and
+# never in VITE_* source. Vite only bakes VITE_-prefixed vars into the bundle at
+# build time, so the deployed web client must be built with the deployed API URL
+# present here (AC-04) - a build with these unset would ship pointing at nothing.
 name: Deploy
 
 on:
@@ -43,14 +52,41 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Resolve the build-time API URLs (AC-04). API_BASE_URL is required - fail
+      # fast with a clear message rather than shipping a bundle that points at an
+      # empty URL. SIGNALR_HUB_URL is optional: when unset we derive it from the
+      # API base so the common case needs only one variable set, and a trailing
+      # slash on API_BASE_URL is trimmed so we never produce a "//hubs/game" URL.
+      - name: Resolve web build URLs
+        id: urls
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          SIGNALR_HUB_URL: ${{ vars.SIGNALR_HUB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${API_BASE_URL}" ]; then
+            echo "::error::vars.API_BASE_URL is not set. Set it to the deployed API origin (see docs/runbooks/deploy-to-dev.md) before deploying."
+            exit 1
+          fi
+          api_base="${API_BASE_URL%/}"
+          hub_url="${SIGNALR_HUB_URL}"
+          if [ -z "${hub_url}" ]; then
+            hub_url="${api_base}/hubs/game"
+          fi
+          echo "api_base=${api_base}" >> "$GITHUB_OUTPUT"
+          echo "hub_url=${hub_url}" >> "$GITHUB_OUTPUT"
+          echo "Building web against API ${api_base} (hub ${hub_url})."
+
       - name: Build
         working-directory: web
         env:
-          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
-          VITE_SIGNALR_HUB_URL: ${{ vars.SIGNALR_HUB_URL }}
+          VITE_API_BASE_URL: ${{ steps.urls.outputs.api_base }}
+          VITE_SIGNALR_HUB_URL: ${{ steps.urls.outputs.hub_url }}
         run: |
           npm ci
           npm run build
+
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
