@@ -19,4 +19,16 @@
     <AssemblyName>QuibbleStone.Api</AssemblyName>
   </PropertyGroup>
 
+  <!--
+    Child-safety baseline blocklist (child-safety/01). Bundled INTO the assembly
+    as an embedded resource so the safety filter has no external file dependency
+    at runtime (it ships with the binary). LogicalName is set EXPLICITLY so the
+    resource name is deterministic and decoupled from the on-disk path - the
+    default name would fold the "src/" folder into the identifier. The filter
+    loads it by this exact name (see ContentSafetyFilter.BlocklistResourceName).
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="src/Safety/blocklist.txt" LogicalName="QuibbleStone.Api.Safety.blocklist.txt" />
+  </ItemGroup>
+
 </Project>
