@@ -17,8 +17,11 @@ real-time sync early de-risks the scariest part").
 - [ ] 03 - Collect words and ready the reveal
 
 ## Dependencies
-- session-engine (room + roster), game-modes (Classic blind), template-model,
-  the-reveal, child-safety.
+- session-engine (room + roster)
+- game-modes (Classic blind)
+- template-model
+- the-reveal
+- child-safety.
 
 ## Design notes
 - Everything runs over the one SignalR connection: round start, blank
