@@ -47,10 +47,34 @@ engine, that is a smell to flag.
 
 ## Where stories live
 
-`docs/features/{feature-slug}/` - one folder per feature, with a `feature.md` plus
-one order-prefixed `NN-<slug>.md` per story. Slice 1 features are fully specified;
-later-phase features exist as a `feature.md` stub only, decomposed when their
-phase comes up. Keep the tree honest about what is actually ready to build.
+`docs/features/{feature-slug}/` - one folder per feature, with a `feature.md`, an
+`implementation.md`, plus one order-prefixed `NN-<slug>.md` per story. Slice 1
+features are fully specified; later-phase features exist as a `feature.md` stub
+only, decomposed when their phase comes up. Keep the tree honest about what is
+actually ready to build. Copy-from templates live in `docs/features/_template/`.
+
+## The implementation.md (required for every feature)
+
+Every fully-specified feature also carries an `implementation.md` - the bridge
+between planning and orchestration (`docs/FEATURE_ORCHESTRATION_PLAYBOOK.md`).
+Template: `docs/features/_template/implementation.md`. It has three parts:
+
+1. **Per-story tech notes** - approach, key files, what each story exports that
+   others import.
+2. **Reuse map** - the existing components/hooks/utilities each story must reuse
+   instead of reinventing (the theme in `web/src/theme.ts`, the shared AppBar/Button,
+   `web/src/signalr/useGameHub.ts`, the child-safety filter, ...). This is what keeps
+   parallel builders consistent and faithful to "one engine, many thin modes".
+3. **A DAG-ready Wave Plan table** - per story: `Files it owns | Depends-on |
+   Can-run-with | Wave | Effort`. Size by **file-footprint disjointness** so a wave
+   can fan out with no further analysis; the orchestrator's Phase 1 validates and
+   adjusts it rather than deriving it. Foundation first; the API/hub -> consuming-web
+   chain is serial (the hub signature is the contract - there is no codegen step).
+
+Write it whenever you fully specify a feature (alongside the stories), so the
+feature is orchestration-ready. A `feature.md`-stub-only later-phase feature does
+not need one until it is decomposed. A stub `implementation.md` is fine for a
+single-story feature - record the one story's footprint and note "single wave".
 
 ## Templates (from README section 11 - do not drift from these)
 
@@ -132,20 +156,50 @@ Testable.
 
 | Ask | Action |
 |---|---|
-| "Write a story for X" | Create `feature.md` if missing, then `NN-<slug>.md` with full ACs. |
+| "Write a story for X" | Create `feature.md` if missing, then `NN-<slug>.md` with full ACs; create/update `implementation.md` (reuse map + Wave Plan row) so the feature stays orchestration-ready. |
 | "Update the status of NN" | Edit Status; note the change. |
 | "Mark AC-N done" | Tick the checkbox; if all ACs are ticked and verified, prompt to flip to Complete. |
 | "Split NN" | Create a new `NN-<slug>.md`, move ACs, update `feature.md`, note "split from NN". |
 | "What's the status of feature X" | Read `feature.md`, summarize each story, flag blocked/stale work. |
 | "Can we add <idea>?" | If it is in the current slice's ACs, no. Otherwise park it (Phase 2-4 stub) per README section 12. |
 
-## GitHub tracking (optional, lightweight)
+## GitHub tracking (Epic / Feature / Story hierarchy)
 
-This repo uses **GitHub** (Issues / PRs / Projects), not Azure DevOps. Markdown
-story files are canonical. If the user wants external visibility, mirror a story
-to a GitHub Issue with `gh issue create` and link the issue from the story
-header - but do not over-invest in sync; the repo is the source of truth. Always
-print any `gh` command before running it.
+This repo uses **GitHub** (Issues / PRs), not Azure DevOps. **Markdown story files
+are canonical**; the issues mirror them for visibility (status, the work queue). The
+full cheat sheet + status mapping is `docs/GITHUB_TRACKER.md` - read it before
+running any `gh` command. The live model is a three-level **sub-issue hierarchy**:
+
+- **Epic** = an Issue labeled `epic`, one per build phase.
+- **Feature** = an Issue labeled `feature` + `feature:{slug}`, a sub-issue of an Epic.
+- **Story** = an Issue labeled `story` + `feature:{slug}`, a sub-issue of a Feature.
+
+Status is carried in the markdown `**Status:**` line (canonical) **and** mirrored by a
+`status:*` label on the issue (`status:todo` / `status:in-progress` / `status:in-review`
+/ `status:blocked`; removed when closed). Issue bodies link the canonical markdown via
+`**Source of truth:** docs/features/.../NN-<slug>.md`.
+
+You may **auto-execute the create/update `gh` commands** for a feature (create the
+Feature + Story issues, label them, link them as sub-issues, swap a `status:*` label
+when the markdown status changes, update an issue body when the markdown changes).
+**Print each command before running it** and show the resulting issue number/URL.
+Record the issue number in the story header (`**Issue:** #<n>`) and the `feature.md`
+Stories table.
+
+Do **not** auto-close an Epic, bulk-edit many issues, or remove a `feature:*` label
+without prompting. Status mapping:
+
+| Markdown `**Status:**` | GitHub |
+|---|---|
+| Not Started | open + `status:todo` |
+| In Progress | open + `status:in-progress` |
+| In Review | open + `status:in-review` |
+| Complete | closed (completed) + remove `status:*` |
+| Blocked | open + `status:blocked` + a comment with the reason |
+| Dropped | closed (not planned) + remove `status:*` |
+
+There is **no i18n** in this stack, so there is no translation/locale gate and no
+`i18n-pending` label - do not add i18n ACs.
 
 ## What you do NOT do
 
@@ -157,6 +211,9 @@ print any `gh` command before running it.
 ## Output requirements
 
 1. Story files use the README section 11 templates exactly.
-2. Status changes are reflected in the file.
-3. Child-safety and entitlement ACs are present where the story warrants them.
-4. The `docs/features/` tree stays honest: Slice 1 specified, later phases as stubs.
+2. A fully-specified feature also has an `implementation.md` (reuse map + Wave Plan)
+   so it is orchestration-ready.
+3. Status changes are reflected in the file (and mirrored to the issue's `status:*`
+   label when syncing to GitHub).
+4. Child-safety and entitlement ACs are present where the story warrants them.
+5. The `docs/features/` tree stays honest: Slice 1 specified, later phases as stubs.
