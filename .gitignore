@@ -456,6 +456,10 @@ infra/*.json
 # ============================================================================
 .claude/settings.local.json
 
+# Ephemeral feature-orchestration worktrees (builder subagents on isolated
+# checkouts) - never source; auto-created/removed by the orchestrate-feature loop.
+.claude/worktrees/
+
 # ============================================================================
 #  OS / editor
 # ============================================================================
