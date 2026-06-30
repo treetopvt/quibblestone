@@ -1,5 +1,5 @@
 <Solution>
   <Folder Name="/api/">
-    <Project Path="api/Quibbler.Api.csproj" />
+    <Project Path="api/QuibbleStone.Api.csproj" />
   </Folder>
 </Solution>

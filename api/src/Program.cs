@@ -1,5 +1,5 @@
 // ----------------------------------------------------------------------------
-//  Program.cs - Quibbler API composition root.
+//  Program.cs - QuibbleStone API composition root.
 //
 //  This is the SINGLE ASP.NET Core application that hosts BOTH the request/
 //  response REST API (controllers) AND the real-time SignalR hub, per the
@@ -24,7 +24,7 @@
 //  Azure setup.
 // ----------------------------------------------------------------------------
 
-using Quibbler.Api.Hubs;
+using QuibbleStone.Api.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 

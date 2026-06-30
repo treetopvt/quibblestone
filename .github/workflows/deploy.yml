@@ -27,7 +27,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Publish
-        run: dotnet publish api/Quibbler.Api.csproj -c Release -o ./publish
+        run: dotnet publish api/QuibbleStone.Api.csproj -c Release -o ./publish
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@v3
         with:

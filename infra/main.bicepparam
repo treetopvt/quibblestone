@@ -3,6 +3,6 @@
 //   az deployment group create -g <rg> -f infra/main.bicep -p infra/main.bicepparam
 using './main.bicep'
 
-param namePrefix = 'quibbler'
+param namePrefix = 'quibblestone'
 param environmentName = 'dev'
 // location defaults to the resource group's location.

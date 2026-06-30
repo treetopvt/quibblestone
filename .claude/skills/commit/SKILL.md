@@ -1,11 +1,11 @@
 ---
 name: commit
-description: Stage changes and create a conventional-commit-style commit for Quibbler. Detects type and scope from the changed files. Use when the user says "commit", "commit changes", or wants to create a commit.
+description: Stage changes and create a conventional-commit-style commit for QuibbleStone. Detects type and scope from the changed files. Use when the user says "commit", "commit changes", or wants to create a commit.
 disable-model-invocation: true
 allowed-tools: Bash, Read, Edit, Grep, Glob
 ---
 
-# Commit (Quibbler)
+# Commit (QuibbleStone)
 
 Create a clean conventional commit. Keeps history readable and easy to scan.
 

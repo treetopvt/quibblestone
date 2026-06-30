@@ -1,5 +1,5 @@
 // ----------------------------------------------------------------------------
-//  HealthController - liveness probe for the Quibbler API.
+//  HealthController - liveness probe for the QuibbleStone API.
 //
 //  GET /health returns a tiny JSON document that the web client, the deploy
 //  pipeline, and the Azure App Service health check can all poll to confirm the
@@ -11,7 +11,7 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Quibbler.Api.Controllers;
+namespace QuibbleStone.Api.Controllers;
 
 [ApiController]
 [Route("health")]
@@ -28,7 +28,7 @@ public sealed class HealthController : ControllerBase
         return Ok(new
         {
             status = "ok",
-            service = "quibbler-api",
+            service = "quibblestone-api",
             version,
             utc = DateTimeOffset.UtcNow,
         });

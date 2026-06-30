@@ -1,4 +1,4 @@
-# infra - Quibbler infrastructure (Bicep)
+# infra - QuibbleStone infrastructure (Bicep)
 
 The tiny footprint from README section 9. The bar is **"deploys cleanly to dev"** -
 this is intentionally not gold-plated.
@@ -25,9 +25,9 @@ az bicep build --file infra/main.bicep
 ## Deploy to a dev resource group
 
 ```bash
-az group create -n quibbler-dev-rg -l eastus
+az group create -n quibblestone-dev-rg -l eastus
 az deployment group create \
-  -g quibbler-dev-rg \
+  -g quibblestone-dev-rg \
   -f infra/main.bicep \
   -p infra/main.bicepparam
 ```

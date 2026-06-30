@@ -1,11 +1,11 @@
 ---
 name: ci-check
-description: Run full local CI for Quibbler (API build, web type-check + build, Bicep validate) and fix issues iteratively. Use when the user says "ci check", "run ci", "validate ci", or wants to prep a branch before a PR.
+description: Run full local CI for QuibbleStone (API build, web type-check + build, Bicep validate) and fix issues iteratively. Use when the user says "ci check", "run ci", "validate ci", or wants to prep a branch before a PR.
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob
 ---
 
-# CI Check (Quibbler)
+# CI Check (QuibbleStone)
 
 Run the local validation that mirrors `.github/workflows/ci.yml`, fix what breaks,
 and report a clean status. Run from the repo root.
@@ -14,7 +14,7 @@ and report a clean status. Run from the repo root.
 
 1. **API builds:**
    ```bash
-   dotnet build Quibbler.slnx --configuration Release
+   dotnet build QuibbleStone.slnx --configuration Release
    ```
 2. **Web type-checks and builds:**
    ```bash

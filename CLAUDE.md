@@ -1,10 +1,10 @@
-# CLAUDE.md - Quibbler
+# CLAUDE.md - QuibbleStone
 
 > Guidance for Claude Code working in this repository. The **`README.md` is the
 > charter and the source of truth** for vision, stack, and architecture. If
 > anything here conflicts with it, the README wins - flag the discrepancy.
 
-Quibbler is a multiplayer, multi-device, fill-in-the-blank word game built for
+QuibbleStone is a multiplayer, multi-device, fill-in-the-blank word game built for
 "hilarity and easy fun" with friends and family - same car or different houses.
 It is a **toy, not a system of record** (README section 4): most data is mutable,
 sessions are ephemeral, and audit/immutability ceremony from prior apps does
@@ -120,8 +120,8 @@ slice ships. The engine abstraction is what keeps parked ideas cheap to add late
 
 ```bash
 # API
-dotnet build Quibbler.slnx
-dotnet run --project api/Quibbler.Api.csproj      # http://localhost:5180
+dotnet build QuibbleStone.slnx
+dotnet run --project api/QuibbleStone.Api.csproj      # http://localhost:5180
 
 # Web
 cd web && npm install && npm run dev               # http://localhost:5173

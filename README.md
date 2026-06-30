@@ -1,9 +1,12 @@
-# Quibbler
+# QuibbleStone
 
-> **Working title — not final.** "Quibbler" is a placeholder pending a trademark
-> and domain/app-store availability check (note: "The Quibbler" is a Harry Potter
-> reference, so verify there's no conflict before committing). The name **must not**
-> be "Mad Libs" or contain it; that is a registered trademark (Penguin Random House /
+> **Working title - not final.** **QuibbleStone** is the current working title,
+> pending the brand-clearance gate (trademark, domain, and app-store checks - see
+> [docs/launch-readiness/brand-clearance-checklist.md](docs/launch-readiness/brand-clearance-checklist.md)).
+> It replaces the earlier "Quibbler", which leaned too close to *The Quibbler* (a
+> Harry Potter reference); note the faint "...Stone" echo of *Philosopher's /
+> Sorcerer's Stone* and judge if that ever feels too close. The name **must not** be
+> "Mad Libs" or contain it; that is a registered trademark (Penguin Random House /
 > Mattel). The fill-in-the-blank *mechanic* is not protectable, but the brand must be
 > original.
 
