@@ -15,6 +15,26 @@ import {
   faPlug,
   faCircleCheck,
   faCircleXmark,
+  // App-bar icons (design-system/01, AC-03): the shared <AppBar> renders
+  // these for its left/right action slots across screens (back, close,
+  // settings, help, home, share).
+  faArrowLeft,
+  faXmark,
+  faGear,
+  faCircleQuestion,
+  faHouse,
+  faShareNodes,
 } from '@fortawesome/free-solid-svg-icons';
 
-library.add(faBolt, faPlug, faCircleCheck, faCircleXmark);
+library.add(
+  faBolt,
+  faPlug,
+  faCircleCheck,
+  faCircleXmark,
+  faArrowLeft,
+  faXmark,
+  faGear,
+  faCircleQuestion,
+  faHouse,
+  faShareNodes,
+);
