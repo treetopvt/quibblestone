@@ -1,5 +1,5 @@
 // ----------------------------------------------------------------------------
-//  main.bicep - Quibbler dev infrastructure ("get it up first, keep it tiny",
+//  main.bicep - QuibbleStone dev infrastructure ("get it up first, keep it tiny",
 //  README section 9).
 //
 //  Provisions the five resources the charter calls for, plus the App Service
@@ -22,7 +22,7 @@
 param location string = resourceGroup().location
 
 @description('Short prefix used to name resources.')
-param namePrefix string = 'quibbler'
+param namePrefix string = 'quibblestone'
 
 @description('Environment moniker (dev, test, prod).')
 param environmentName string = 'dev'

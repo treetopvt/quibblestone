@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------------------
 //  GameHub - the single SignalR hub for the walking skeleton.
 //
-//  Real-time is first-class in Quibbler: lobby, presence, live session state,
+//  Real-time is first-class in QuibbleStone: lobby, presence, live session state,
 //  and reveal broadcast all ride on SignalR (README section 4). This skeleton
 //  hub exposes ONE method, Ping, so the web client can prove an end-to-end
 //  real-time round trip: client invokes Ping -> server echoes back.
@@ -12,7 +12,7 @@
 
 using Microsoft.AspNetCore.SignalR;
 
-namespace Quibbler.Api.Hubs;
+namespace QuibbleStone.Api.Hubs;
 
 public sealed class GameHub : Hub
 {

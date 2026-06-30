@@ -1,4 +1,4 @@
-# web - Quibbler client
+# web - QuibbleStone client
 
 **React 19 + Vite + TypeScript (strict) + Material UI + FontAwesome.** Delivered
 **PWA-first** (README section 4): no app-store friction, installable to a home

@@ -1,6 +1,6 @@
 # docs/features - the backlog, as code
 
-Quibbler's backlog lives **in the repo** (docs-as-code, README section 11) so
+QuibbleStone's backlog lives **in the repo** (docs-as-code, README section 11) so
 stories version and travel through pull requests alongside the code that
 satisfies them. Each story file is a single PR-sized unit - the natural thing to
 hand a coding agent one at a time.

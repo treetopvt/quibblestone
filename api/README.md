@@ -1,4 +1,4 @@
-# api - Quibbler backend
+# api - QuibbleStone backend
 
 The single **ASP.NET Core** application that hosts **both** the REST API and the
 **SignalR** hub (README section 4). One project, one deploy, one debugging story.
@@ -9,7 +9,7 @@ appears (async AI generation, Stripe webhooks).
 
 ```
 api/
-  Quibbler.Api.csproj      project + content root (net10.0)
+  QuibbleStone.Api.csproj      project + content root (net10.0)
   appsettings*.json        configuration (CORS allowlist, logging)
   Properties/              launchSettings.json (dev ports)
   src/                     C# source
@@ -21,7 +21,7 @@ api/
 ## Run
 
 ```bash
-dotnet run --project api/Quibbler.Api.csproj
+dotnet run --project api/QuibbleStone.Api.csproj
 ```
 
 Dev URLs (see `Properties/launchSettings.json`):

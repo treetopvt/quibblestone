@@ -1,5 +1,5 @@
 // ----------------------------------------------------------------------------
-//  theme.ts - the single home for Quibbler's look and feel.
+//  theme.ts - the single home for QuibbleStone's look and feel.
 //
 //  Per the design brief (README section 10) the target is bright, playful,
 //  chunky, high-contrast, big-tap-target: a deliberate departure from

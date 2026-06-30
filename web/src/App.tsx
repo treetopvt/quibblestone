@@ -1,5 +1,5 @@
 // ----------------------------------------------------------------------------
-//  App - placeholder landing page for the Quibbler walking skeleton.
+//  App - placeholder landing page for the QuibbleStone walking skeleton.
 //
 //  This is intentionally NOT a game. Its only job is to prove the web client
 //  can reach the API in real time: it opens the SignalR connection (useGameHub),
@@ -40,7 +40,7 @@ export default function App() {
         </Box>
 
         <Typography variant="h3" component="h1" fontWeight={800}>
-          Quibbler
+          QuibbleStone
         </Typography>
 
         <Typography variant="body1" color="text.secondary">
