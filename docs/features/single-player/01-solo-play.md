@@ -34,4 +34,5 @@ that sells someone on starting a group. See [feature.md](./feature.md).
 - template-model/01-template-schema
 - game-modes/02-classic-blind
 - the-reveal/01-text-reveal
-- child-safety/01-profanity-filter, child-safety/02-family-safe-toggle
+- child-safety/01-profanity-filter
+- child-safety/02-family-safe-toggle
