@@ -1,0 +1,83 @@
+# ----------------------------------------------------------------------------
+#  blocklist.txt - the bundled baseline safety blocklist for QuibbleStone.
+#
+#  This file is embedded into the API assembly (see QuibbleStone.Api.csproj,
+#  <EmbeddedResource>) and loaded once by ContentSafetyFilter at startup. It is
+#  the slice-1 baseline (CLAUDE.md section 7): a SOLID starting set, deliberately
+#  NOT locale-complete or exhaustive coverage (that is out of scope for the slice;
+#  AI / remote moderation is parked in the backlog, README section 12).
+#
+#  Format:
+#    - One blocked term per line, lower-case.
+#    - Blank lines are ignored.
+#    - Lines starting with '#' are comments (like this header) and are ignored.
+#    - Matching is done on normalized text (lower-cased, common leet-speak
+#      substitutions folded, runs of repeats collapsed) - see ContentSafetyFilter.
+#      So you do NOT need to list every spelling variant here; the normalizer
+#      handles the obvious ones (e.g. "@" -> "a", "0" -> "o", "$" -> "s").
+#
+#  To extend coverage: add terms here, lower-case, one per line. No code change
+#  is needed - the filter reads whatever ships in this resource. Keep it tasteful
+#  and child-appropriate: this is the floor that keeps the game safe to hand to a
+#  kid, not a comprehensive linguistic database.
+#
+#  No em dashes anywhere (project prose rule).
+# ----------------------------------------------------------------------------
+
+# --- General profanity (kept brief; the normalizer folds common obfuscations) ---
+arse
+arsehole
+ass
+asshole
+bastard
+bitch
+bollocks
+bugger
+crap
+damn
+dick
+dickhead
+douche
+douchebag
+fuck
+fucker
+goddamn
+jackass
+piss
+prick
+shit
+shite
+slut
+twat
+wank
+wanker
+whore
+
+# --- Slurs and hateful terms (zero tolerance for a kid-facing game) ---
+# Intentionally minimal in this baseline resource - a fuller, carefully curated
+# slur list is a follow-up. The strongest, most common ones are covered.
+coon
+fag
+faggot
+kike
+nigger
+nigga
+retard
+spic
+tranny
+
+# --- Sexual / adult terms ---
+boner
+cock
+cum
+cunt
+dildo
+horny
+porn
+pussy
+sex
+tits
+titties
+
+# --- Self-harm / violence cues (block so they are not surfaced to kids) ---
+kys
