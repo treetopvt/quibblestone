@@ -26,12 +26,17 @@ These folders are the **Phase 0-1 / Slice 1** features (README sections 7-8) -
 the thin vertical slice that gets the family laughing in a car:
 
 - `platform-devops/` - CI/CD, environments, IaC (this scaffold is its first cut)
-- `session-engine/` - SignalR backbone: create room, join code, roster
-- `template-model/` - templates, typed blanks, optional word banks
+- `design-system/` - MUI theme from brand tokens, AppBar + Button contracts,
+  Guardian avatar component; UI prerequisite for all screen stories
+- `session-engine/` - SignalR backbone: create room, join code, roster, copy/share
+  code, Guardian avatar selection at join
+- `template-model/` - templates, typed blanks, category/prompt/spark model,
+  optional word banks
 - `game-modes/` - the "one engine, many thin modes" abstraction + Classic blind
 - `single-player/`
-- `group-play/` - host controls, blank distribution, collection
-- `the-reveal/` - animated text reveal + host-read-aloud
+- `group-play/` - host controls, blank distribution, collection, waiting
+  interstitial, round-complete replay loop
+- `the-reveal/` - coral-highlighted text reveal
 - `child-safety/` - profanity filter, family-safe toggle (cross-cutting)
 
 Each is **now specified** with a `feature.md` and order-prefixed story files -

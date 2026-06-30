@@ -15,10 +15,13 @@ Architecture: section 4 (cloud real-time, SignalR).
 - [ ] 01 - Create a room and get a join code
 - [ ] 02 - Join a room with a code and nickname
 - [ ] 03 - See a live player roster
+- [ ] 04 - Copy and share the room code from the Lobby
+- [ ] 05 - Guardian avatar selection at join
 
 ## Dependencies
 - platform-devops (the real-time backbone must be deployable and reachable).
 - child-safety (nicknames are free text and must be filtered before display).
+- design-system (Guardian component is used in avatar selection and the roster).
 
 ## Design notes
 - Real-time runs over the one SignalR hub in `api/` (the skeleton's `GameHub`
@@ -27,10 +30,20 @@ Architecture: section 4 (cloud real-time, SignalR).
 - Rooms are **ephemeral session state** (README section 4 - this is a toy, not a
   system of record). No durable persistence is required for Slice 1; a room can
   live in memory / short-lived storage and expire when idle.
-- **Identity is anonymous** (README section 3): a player is a nickname in a room,
-  no account and no PII. The account hooks come later (Phase 2), but Slice 1
-  collects nothing about players beyond an in-session nickname.
+- **Identity is anonymous** (README section 3): a player is a nickname + a
+  Guardian variant, no account and no PII. The account hooks come later (Phase
+  2), but Slice 1 collects nothing about players beyond an in-session nickname
+  and chosen avatar variant.
 - Join codes are short and human-friendly (easy to read aloud in a car): a few
-  characters, no ambiguous glyphs (no O/0, I/1/l).
-- Reconnect tolerance (the car "dead zone" case) is a Phase-later hardening pass,
-  not Slice 1. Keep the seams clean so it can be added without a rewrite.
+  characters, no ambiguous glyphs (no O/0, I/1/l). The design spec shows a
+  4-character code (e.g. "MOSS") in carved slots on the Join screen and
+  prominently on the Lobby. See `docs/design/README.md` Screens 2 and 3.
+- The Lobby's share widget (story 04) covers the "different houses" use case
+  without requiring accounts: copy or Web Share.
+- Reconnect tolerance (the car "dead zone" case) is a Phase-later hardening
+  pass, not Slice 1. Keep the seams clean so it can be added without a rewrite.
+
+## Parked - Phase 2+
+- Device-local remembered profile (name + variant pre-filled on return visit)
+  and room reconnection after a dropped connection (design pack Expansion 5).
+- "Tales we've carved" local history (design pack Expansion 5).

@@ -36,3 +36,4 @@ that sells someone on starting a group. See [feature.md](./feature.md).
 - the-reveal/01-text-reveal
 - child-safety/01-profanity-filter
 - child-safety/02-family-safe-toggle
+- design-system/01-mui-theme-and-app-shell
