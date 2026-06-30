@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Box, Container, Stack, Typography } from '@mui/material';
 import { useGameHub } from './signalr/useGameHub';
-import { ConnectionStatus } from './components/ConnectionStatus';
+import { ConnectionStatus } from './components';
 
 export default function App() {
   const { status, ping } = useGameHub();
