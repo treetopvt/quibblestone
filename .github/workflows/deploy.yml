@@ -1,0 +1,60 @@
+# Deploy - build, then deploy both projects to Azure.
+#
+# Manual (workflow_dispatch) for now: the production wiring (Azure secrets,
+# environments, resource names) is set up as the project matures. The build
+# steps mirror CI so we never deploy an unbuilt tree.
+#
+# Required repository configuration before this can run:
+#   secrets.AZURE_API_PUBLISH_PROFILE        - App Service publish profile (XML)
+#   secrets.AZURE_API_APP_NAME               - App Service name (from infra output apiAppName)
+#   secrets.AZURE_STATIC_WEB_APPS_API_TOKEN  - Static Web App deployment token
+#   vars.API_BASE_URL / vars.SIGNALR_HUB_URL - the deployed API URLs, baked into the web build
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: Build + deploy API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish
+        run: dotnet publish api/Quibbler.Api.csproj -c Release -o ./publish
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_API_APP_NAME }}
+          publish-profile: ${{ secrets.AZURE_API_PUBLISH_PROFILE }}
+          package: ./publish
+
+  web:
+    name: Build + deploy web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
+          VITE_SIGNALR_HUB_URL: ${{ vars.SIGNALR_HUB_URL }}
+        run: |
+          npm ci
+          npm run build
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: web/dist
+          skip_app_build: true

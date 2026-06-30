@@ -427,3 +427,37 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# ============================================================================
+#  Node / Vite (web/)
+# ============================================================================
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local env overrides (web/.env.development IS committed; .local files are not)
+.env.local
+.env.*.local
+
+# ============================================================================
+#  Bicep / Azure
+# ============================================================================
+# Compiled ARM JSON from `az bicep build` (the .bicep files are the source of truth)
+infra/*.json
+
+# ============================================================================
+#  Claude Code (per-developer local settings)
+# ============================================================================
+.claude/settings.local.json
+
+# ============================================================================
+#  OS / editor
+# ============================================================================
+.DS_Store
+Thumbs.db

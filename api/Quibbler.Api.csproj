@@ -1,0 +1,22 @@
+<!--
+  Quibbler.Api - the single ASP.NET Core application that hosts BOTH the REST
+  API (controllers) and the SignalR hub, per README section 4 ("one ASP.NET Core
+  app instead of Azure Functions, for now").
+
+  - Microsoft.NET.Sdk.Web brings in ASP.NET Core. Controllers and SignalR both
+    live in the Microsoft.AspNetCore.App shared framework, so no extra NuGet
+    package references are needed for the walking skeleton.
+  - TargetFramework net10.0 is the latest LTS .NET (matches the team's stack).
+    The exact SDK is pinned in /global.json.
+-->
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Quibbler.Api</RootNamespace>
+    <AssemblyName>Quibbler.Api</AssemblyName>
+  </PropertyGroup>
+
+</Project>

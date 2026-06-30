@@ -1,0 +1,8 @@
+{
+  "//": "Pins the .NET major for reproducible builds. rollForward=latestFeature + allowPrerelease lets the build use whatever 10.0.x SDK is installed (this machine currently has a 10.0 preview SDK; CI installs the latest 10.0.x). Bump when .NET 11 LTS lands.",
+  "sdk": {
+    "version": "10.0.100",
+    "rollForward": "latestFeature",
+    "allowPrerelease": true
+  }
+}
