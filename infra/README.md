@@ -32,6 +32,11 @@ az deployment group create \
   -p infra/main.bicepparam
 ```
 
+For the full end-to-end procedure (provision, capture outputs, set the Deploy
+workflow secrets/vars, the one cross-origin App Service setting, and the
+`/health` + "Connected" smoke check), see the runbook:
+[`docs/runbooks/deploy-to-dev.md`](../docs/runbooks/deploy-to-dev.md).
+
 ## Deliberately deferred (do not gold-plate yet)
 
 - VNet / private endpoints / diagnostic settings.
