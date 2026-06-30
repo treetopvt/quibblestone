@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @keyframes qsCaret { 0%,49% { opacity:1; } 50%,100% { opacity:0; } }
+  @keyframes qsSegGlow { 0%,100% { box-shadow:0 0 0 0 rgba(255,178,46,.5); } 50% { box-shadow:0 0 10px 1px rgba(255,178,46,.75); } }
+  @keyframes qsFloat { 0%,100% { transform:translateY(0) rotate(-4deg); } 50% { transform:translateY(-8px) rotate(-4deg); } }
+  @keyframes qsFloat2 { 0%,100% { transform:translateY(0) rotate(6deg); } 50% { transform:translateY(-6px) rotate(6deg); } }
+  @keyframes qsRune { 0%,100% { opacity:.06; } 50% { opacity:.12; } }
+</style>
+</helmet>
+<div style="min-height:100%; display:flex; align-items:center; justify-content:center; padding:34px 20px; background:radial-gradient(120% 90% at 50% 0%, #34294f 0%, #241c38 55%, #1c1630 100%); font-family:'Nunito',sans-serif; box-sizing:border-box;">
+
+  <div style="position:relative; width:390px; height:844px; border-radius:54px; background:#15101f; padding:11px; box-shadow:0 40px 90px -30px rgba(0,0,0,.7), 0 0 0 2px rgba(255,255,255,.04); box-sizing:border-box;">
+    <div style="position:relative; width:100%; height:100%; border-radius:44px; overflow:hidden; background:linear-gradient(180deg, #F8F1E2 0%, #F6EEDD 50%, #F0E6D0 100%);">
+
+      <!-- ambient glow -->
+      <div style="position:absolute; top:-90px; left:50%; transform:translateX(-50%); width:430px; height:400px; border-radius:50%; background:radial-gradient(circle, rgba(108,75,216,.20) 0%, rgba(255,178,46,.10) 45%, rgba(246,238,221,0) 70%); pointer-events:none;"></div>
+
+      <!-- subtle stone-tablet motif behind -->
+      <svg viewBox="0 0 200 280" style="position:absolute; top:150px; left:50%; transform:translateX(-50%); width:300px; height:auto; animation:qsRune 6s ease-in-out infinite; pointer-events:none;">
+        <path d="M30 60 Q30 14 100 14 Q170 14 170 60 L170 250 Q170 264 156 264 L44 264 Q30 264 30 250 Z" fill="none" stroke="#6C4BD8" stroke-width="3"/>
+        <line x1="58" y1="120" x2="142" y2="120" stroke="#6C4BD8" stroke-width="3" stroke-linecap="round"/>
+        <line x1="58" y1="150" x2="120" y2="150" stroke="#6C4BD8" stroke-width="3" stroke-linecap="round"/>
+        <line x1="58" y1="180" x2="142" y2="180" stroke="#6C4BD8" stroke-width="3" stroke-linecap="round"/>
+        <line x1="58" y1="210" x2="104" y2="210" stroke="#6C4BD8" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+
+      <!-- floating runes -->
+      <div style="position:absolute; top:140px; left:34px; font-family:'Fredoka',sans-serif; font-size:22px; color:rgba(47,184,160,.5); animation:qsFloat 5s ease-in-out infinite;">✦</div>
+      <div style="position:absolute; top:170px; right:30px; font-family:'Fredoka',sans-serif; font-size:18px; color:rgba(255,107,87,.5); animation:qsFloat2 5.6s ease-in-out infinite;">◈</div>
+
+      <!-- status bar -->
+      <div style="position:relative; display:flex; align-items:center; justify-content:space-between; padding:16px 28px 4px; font-family:'Nunito',sans-serif;">
+        <span style="font-size:15px; font-weight:800; color:#2B2622;">9:41</span>
+        <div style="display:flex; align-items:center; gap:7px; color:#2B2622;">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="4" width="3" height="8" rx="1"/><rect x="10" y="1.5" width="3" height="10.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1" opacity=".35"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 2.5c2.4 0 4.6.9 6.2 2.4l1.4-1.5A11 11 0 0 0 8.5.5 11 11 0 0 0 .9 3.4l1.4 1.5A9 9 0 0 1 8.5 2.5z"/><path d="M8.5 6c1.3 0 2.5.5 3.4 1.3l1.4-1.5A8 8 0 0 0 8.5 3.8a8 8 0 0 0-4.8 2l1.4 1.5A5 5 0 0 1 8.5 6z"/><circle cx="8.5" cy="10" r="1.8"/></svg>
+          <div style="display:flex; align-items:center; gap:2px;"><div style="width:23px; height:12px; border:1.6px solid #2B2622; border-radius:3.5px; padding:1.6px; box-sizing:border-box;"><div style="width:75%; height:100%; background:#2B2622; border-radius:1.5px;"></div></div><div style="width:1.8px; height:5px; background:#2B2622; border-radius:0 1px 1px 0;"></div></div>
+        </div>
+      </div>
+
+      <!-- app bar -->
+      <div style="position:relative; display:flex; align-items:center; gap:10px; padding:6px 16px 8px;">
+        <button style="display:flex; align-items:center; justify-content:center; width:42px; height:42px; border:none; border-radius:14px; background:rgba(43,38,34,.07); cursor:pointer;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h1 style="flex:1; margin:0; text-align:center; font-family:'Fredoka',sans-serif; font-weight:600; font-size:21px; color:#2B2622;">Your turn</h1>
+        <button style="display:flex; align-items:center; justify-content:center; width:42px; height:42px; border:none; border-radius:14px; background:rgba(43,38,34,.07); cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.5 1.5c0 1.7-2.5 2-2.5 3.5"/><circle cx="12" cy="17.5" r=".6" fill="#2B2622" stroke-width="1.4"/></svg>
+        </button>
+      </div>
+
+      <!-- content -->
+      <div style="position:relative; height:calc(100% - 96px); display:flex; flex-direction:column; padding:8px 22px 0; box-sizing:border-box;">
+
+        <!-- progress -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin:4px 2px 8px;">
+          <span style="display:inline-flex; align-items:center; gap:7px; font-family:'Nunito',sans-serif; font-size:13px; font-weight:800; color:rgba(43,38,34,.6);">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B07908" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-9 9-6 1 1-6z"/></svg>
+            Word <strong style="color:#2B2622;">3</strong> of 8
+          </span>
+          <span style="font-family:'Nunito',sans-serif; font-size:12px; font-weight:800; color:#1f8a78;">5 to go</span>
+        </div>
+        <div style="display:flex; gap:5px; margin-bottom:4px;">
+          <div style="flex:1; height:9px; border-radius:5px; background:linear-gradient(180deg,#FFC24E,#FFB22E);"></div>
+          <div style="flex:1; height:9px; border-radius:5px; background:linear-gradient(180deg,#FFC24E,#FFB22E);"></div>
+          <div style="flex:1; height:9px; border-radius:5px; background:linear-gradient(180deg,#FFC24E,#FFB22E); animation:qsSegGlow 1.8s ease-in-out infinite;"></div>
+          <div style="flex:1; height:9px; border-radius:5px; background:#DFD2B4;"></div>
+          <div style="flex:1; height:9px; border-radius:5px; background:#DFD2B4;"></div>
+          <div style="flex:1; height:9px; border-radius:5px; background:#DFD2B4;"></div>
+          <div style="flex:1; height:9px; border-radius:5px; background:#DFD2B4;"></div>
+          <div style="flex:1; height:9px; border-radius:5px; background:#DFD2B4;"></div>
+        </div>
+
+        <!-- STONE TABLET PROMPT CARD -->
+        <div style="position:relative; margin-top:18px; padding:26px 22px 24px; border-radius:64px 64px 28px 28px; background:linear-gradient(168deg, #EFE3C7 0%, #E3D2AC 55%, #D6C194 100%); box-shadow:0 22px 44px -22px rgba(108,75,216,.5), inset 0 3px 0 rgba(255,255,255,.55), inset 0 -5px 14px rgba(120,96,52,.4); box-sizing:border-box;">
+          <div style="position:absolute; inset:8px; border-radius:56px 56px 22px 22px; border:2px solid rgba(120,96,52,.28); box-shadow:inset 0 0 16px rgba(255,178,46,.22); pointer-events:none;"></div>
+
+          <!-- category chip -->
+          <div style="display:flex; justify-content:center;">
+            <span style="display:inline-flex; align-items:center; gap:7px; padding:7px 16px; background:rgba(108,75,216,.13); border:1.5px solid rgba(108,75,216,.3); border-radius:999px; font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:800; letter-spacing:1.4px; text-transform:uppercase; color:#6C4BD8;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="#6C4BD8"><path d="M12 2l2.4 7.2L22 9.6l-6 4.5 2.2 7.4L12 17.4 5.8 21.5 8 14.1 2 9.6l7.6-.4z"/></svg>
+              Adjective
+            </span>
+          </div>
+
+          <!-- prompt -->
+          <h2 style="margin:16px 4px 6px; text-align:center; font-family:'Fredoka',sans-serif; font-weight:600; font-size:29px; line-height:1.18; color:#2B2622; text-wrap:balance; text-shadow:0 1px 0 rgba(255,255,255,.4);">Give me a <span style="color:#6C4BD8;">silly</span> describing word</h2>
+          <p style="margin:0 6px 18px; text-align:center; font-family:'Nunito',sans-serif; font-size:13.5px; font-weight:700; color:rgba(43,38,34,.55);">Something that describes a thing — anything goes!</p>
+
+          <!-- input (carved slot) -->
+          <div style="display:flex; align-items:center; gap:10px; height:66px; padding:0 18px; background:#DCCFB0; border-radius:18px; box-shadow:inset 0 3px 8px rgba(120,96,52,.45), inset 0 -2px 0 rgba(255,255,255,.4);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-9 9-6 1 1-6z"/></svg>
+            <input value="{{ word }}" onInput="{{ onWord }}" maxLength="20" placeholder="type a fun word…" style="flex:1; min-width:0; border:none; outline:none; background:transparent; font-family:'Fredoka',sans-serif; font-weight:500; font-size:24px; color:#2B2622;"/>
+          </div>
+
+          <!-- example chips -->
+          <div style="display:flex; align-items:center; gap:8px; margin-top:16px; flex-wrap:wrap; justify-content:center;">
+            <span style="font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:800; color:rgba(43,38,34,.5);">Need a spark?</span>
+            <sc-for list="{{ examples }}" as="ex" hint-placeholder-count="3">
+              <button onClick="{{ ex.pick }}" style="padding:7px 14px; border:1.5px solid rgba(47,184,160,.45); border-radius:999px; background:rgba(47,184,160,.10); cursor:pointer; font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:#1f8a78;">{{ ex.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- blind-mode reassurance -->
+        <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-top:18px; padding:11px 16px; background:rgba(108,75,216,.07); border-radius:16px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7M9.9 4.2l4.2 15.6"/><circle cx="12" cy="12" r="2.5"/></svg>
+          <span style="font-family:'Nunito',sans-serif; font-size:13px; font-weight:700; color:rgba(43,38,34,.66); text-wrap:pretty;">Blind mode — no peeking at the story. The big reveal comes at the end!</span>
+        </div>
+
+      </div>
+
+      <!-- bottom action bar -->
+      <div style="position:absolute; left:0; right:0; bottom:0; padding:12px 22px 22px; background:linear-gradient(180deg, rgba(246,238,221,0) 0%, #F2E8D2 30%);">
+        <button style="display:flex; align-items:center; justify-content:center; gap:11px; width:100%; height:62px; border:none; border-radius:20px; cursor:pointer; background:linear-gradient(180deg, #FFC24E 0%, #FFB22E 100%); color:#2B2622; font-family:'Fredoka',sans-serif; font-weight:600; font-size:20px; box-shadow:0 12px 22px -8px rgba(255,178,46,.85), inset 0 2px 0 rgba(255,255,255,.5);">
+          Next word
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+        <button style="display:block; margin:10px auto 0; padding:4px 10px; border:none; background:none; cursor:pointer; font-family:'Nunito',sans-serif; font-size:13px; font-weight:800; color:#6C4BD8;">Stuck? Skip this word</button>
+      </div>
+
+      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:128px; height:5px; border-radius:3px; background:rgba(43,38,34,.32); z-index:5;"></div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = { word: '' };
+  renderVals() {
+    const pick = (w) => () => this.setState({ word: w });
+    return {
+      word: this.state.word,
+      onWord: (e) => this.setState({ word: e.target.value }),
+      examples: [
+        { label: 'squishy', pick: pick('squishy') },
+        { label: 'gigantic', pick: pick('gigantic') },
+        { label: 'sparkly', pick: pick('sparkly') },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

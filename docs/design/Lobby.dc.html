@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @keyframes qsArrive { 0% { transform:scale(.55); } 60% { transform:scale(1.1); } 100% { transform:scale(1); } }
+  @keyframes qsToastIn { 0% { transform:translateY(28px); opacity:0; } 18% { transform:translateY(0); opacity:1; } 82% { transform:translateY(0); opacity:1; } 100% { transform:translateY(-8px); opacity:0; } }
+  @keyframes qsDots { 0%,100% { opacity:.3; } 50% { opacity:1; } }
+  @keyframes qsRing { 0%,100% { box-shadow:0 0 0 0 rgba(255,178,46,.45); } 50% { box-shadow:0 0 0 6px rgba(255,178,46,0); } }
+  @keyframes qsPulse { 0%,100% { border-color:rgba(120,96,52,.30); } 50% { border-color:rgba(108,75,216,.5); } }
+</style>
+</helmet>
+<div style="min-height:100%; display:flex; align-items:center; justify-content:center; padding:34px 20px; background:radial-gradient(120% 90% at 50% 0%, #34294f 0%, #241c38 55%, #1c1630 100%); font-family:'Nunito',sans-serif; box-sizing:border-box;">
+
+  <div style="position:relative; width:390px; height:844px; border-radius:54px; background:#15101f; padding:11px; box-shadow:0 40px 90px -30px rgba(0,0,0,.7), 0 0 0 2px rgba(255,255,255,.04); box-sizing:border-box;">
+    <div style="position:relative; width:100%; height:100%; border-radius:44px; overflow:hidden; background:linear-gradient(180deg, #F8F1E2 0%, #F6EEDD 50%, #F0E6D0 100%);">
+
+      <div style="position:absolute; top:-110px; left:50%; transform:translateX(-50%); width:430px; height:400px; border-radius:50%; background:radial-gradient(circle, rgba(108,75,216,.24) 0%, rgba(255,178,46,.10) 45%, rgba(246,238,221,0) 70%); pointer-events:none;"></div>
+
+      <!-- status bar -->
+      <div style="position:relative; display:flex; align-items:center; justify-content:space-between; padding:16px 28px 4px; font-family:'Nunito',sans-serif;">
+        <span style="font-size:15px; font-weight:800; color:#2B2622;">9:41</span>
+        <div style="display:flex; align-items:center; gap:7px; color:#2B2622;">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="4" width="3" height="8" rx="1"/><rect x="10" y="1.5" width="3" height="10.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1" opacity=".35"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 2.5c2.4 0 4.6.9 6.2 2.4l1.4-1.5A11 11 0 0 0 8.5.5 11 11 0 0 0 .9 3.4l1.4 1.5A9 9 0 0 1 8.5 2.5z"/><path d="M8.5 6c1.3 0 2.5.5 3.4 1.3l1.4-1.5A8 8 0 0 0 8.5 3.8a8 8 0 0 0-4.8 2l1.4 1.5A5 5 0 0 1 8.5 6z"/><circle cx="8.5" cy="10" r="1.8"/></svg>
+          <div style="display:flex; align-items:center; gap:2px;"><div style="width:23px; height:12px; border:1.6px solid #2B2622; border-radius:3.5px; padding:1.6px; box-sizing:border-box;"><div style="width:75%; height:100%; background:#2B2622; border-radius:1.5px;"></div></div><div style="width:1.8px; height:5px; background:#2B2622; border-radius:0 1px 1px 0;"></div></div>
+        </div>
+      </div>
+
+      <!-- app bar -->
+      <div style="position:relative; display:flex; align-items:center; gap:10px; padding:6px 16px 8px;">
+        <button style="display:flex; align-items:center; justify-content:center; width:42px; height:42px; border:none; border-radius:14px; background:rgba(43,38,34,.07); cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+        <h1 style="flex:1; margin:0; text-align:center; font-family:'Fredoka',sans-serif; font-weight:600; font-size:21px; color:#2B2622;">Waiting room</h1>
+        <button style="display:flex; align-items:center; justify-content:center; width:42px; height:42px; border:none; border-radius:14px; background:rgba(43,38,34,.07); cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H2a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 5 6.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3 1.6 1.6 0 0 0 1-1.5V2a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1H22a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+        </button>
+      </div>
+
+      <!-- content -->
+      <div style="position:relative; height:calc(100% - 88px); display:flex; flex-direction:column; padding:4px 22px 0; box-sizing:border-box;">
+
+        <!-- ROOM CODE / SHARE TABLET -->
+        <div style="position:relative; padding:16px 18px; border-radius:26px; background:linear-gradient(168deg, #EFE3C7 0%, #E3D2AC 55%, #D6C194 100%); box-shadow:0 18px 36px -22px rgba(108,75,216,.5), inset 0 2px 0 rgba(255,255,255,.5), inset 0 -4px 12px rgba(120,96,52,.35);">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div>
+              <div style="font-family:'Nunito',sans-serif; font-size:11px; font-weight:800; letter-spacing:1.6px; text-transform:uppercase; color:rgba(43,38,34,.5);">Room code</div>
+              <div style="font-family:'Fredoka',sans-serif; font-weight:700; font-size:38px; line-height:1; letter-spacing:5px; color:#6C4BD8; text-shadow:0 2px 0 rgba(255,255,255,.45), 0 -1px 1px rgba(110,84,40,.35);">MOSS</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <button onClick="{{ onCopy }}" style="display:flex; align-items:center; gap:7px; padding:9px 13px; border:2px solid #6C4BD8; border-radius:13px; background:rgba(108,75,216,.06); cursor:pointer; font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:#6C4BD8;">
+                <sc-if value="{{ copied }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2FB8A0" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></sc-if>
+                <sc-if value="{{ notCopied }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></sc-if>
+                {{ copyLabel }}
+              </button>
+              <button style="display:flex; align-items:center; gap:7px; padding:9px 13px; border:none; border-radius:13px; background:#6C4BD8; cursor:pointer; font-family:'Nunito',sans-serif; font-weight:800; font-size:13px; color:#fff; box-shadow:0 8px 16px -8px rgba(108,75,216,.9);">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+                Share
+              </button>
+            </div>
+          </div>
+          <div style="margin-top:12px; display:flex; align-items:center; gap:7px; padding-top:11px; border-top:1.5px dashed rgba(120,96,52,.3);">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FF6B57" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12s2-7 8-7 8 7 8 7-2 7-8 7-8-7-8-7z"/><circle cx="12" cy="12" r="2.5"/></svg>
+            <span style="font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:700; color:rgba(43,38,34,.62);">Share this code so friends can gather round the stone</span>
+          </div>
+        </div>
+
+        <!-- players header -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin:18px 2px 14px;">
+          <h2 style="margin:0; font-family:'Fredoka',sans-serif; font-weight:600; font-size:18px; color:#2B2622;">Carvers gathered</h2>
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:5px 12px; background:rgba(47,184,160,.16); border-radius:999px; font-family:'Nunito',sans-serif; font-size:13px; font-weight:800; color:#1f8a78;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2FB8A0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13A4 4 0 0 1 16 11"/></svg>
+            {{ countLabel }}
+          </span>
+        </div>
+
+        <!-- players grid -->
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:18px 8px; align-content:start;">
+          <sc-for list="{{ players }}" as="p" hint-placeholder-count="4">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:8px; animation:qsArrive .45s ease both;">
+              <div style="position:relative; width:74px; height:74px; border-radius:50%; background:#FBF6EA; border:2.5px solid #E0CDA0; box-shadow:0 8px 16px -10px rgba(120,96,52,.7); display:flex; align-items:center; justify-content:center;">
+                <dc-import name="Guardian" variant="{{ p.color }}" hint-size="52px,52px" style="width:52px; height:52px;"></dc-import>
+                <sc-if value="{{ p.host }}" hint-placeholder-val="{{ false }}">
+                  <span style="position:absolute; inset:-2.5px; border-radius:50%; border:2.5px solid #FFB22E; animation:qsRing 2.4s ease-in-out infinite; pointer-events:none;"></span>
+                  <span style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); color:#FFB22E;"><svg width="22" height="22" viewBox="0 0 24 24" fill="#FFB22E" stroke="#E89A12" stroke-width="1.2" stroke-linejoin="round"><path d="M3 8l4.5 3.5L12 5l4.5 6.5L21 8l-1.6 10H4.6L3 8z"/></svg></span>
+                </sc-if>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-family:'Fredoka',sans-serif; font-weight:500; font-size:15px; color:#2B2622; line-height:1.1;">{{ p.name }}</div>
+                <sc-if value="{{ p.host }}" hint-placeholder-val="{{ false }}"><span style="display:inline-block; margin-top:4px; padding:2px 9px; background:rgba(255,178,46,.22); border-radius:999px; font-family:'Nunito',sans-serif; font-size:10.5px; font-weight:800; letter-spacing:.4px; color:#B07908;">HOST</span></sc-if>
+                <sc-if value="{{ p.notHost }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex; align-items:center; gap:3px; margin-top:4px; padding:2px 9px; background:rgba(47,184,160,.18); border-radius:999px; font-family:'Nunito',sans-serif; font-size:10.5px; font-weight:800; letter-spacing:.3px; color:#1f8a78;"><span style="width:5px; height:5px; border-radius:50%; background:#2FB8A0;"></span>READY</span></sc-if>
+              </div>
+            </div>
+          </sc-for>
+
+          <sc-for list="{{ emptySlots }}" as="e" hint-placeholder-count="2">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+              <div style="width:74px; height:74px; border-radius:50%; background:rgba(232,220,196,.35); border:2.5px dashed rgba(120,96,52,.32); display:flex; align-items:center; justify-content:center; animation:qsPulse 2.6s ease-in-out infinite;">
+                <div style="display:flex; gap:4px;">
+                  <span style="width:6px; height:6px; border-radius:50%; background:#A6906A; animation:qsDots 1.4s ease-in-out infinite;"></span>
+                  <span style="width:6px; height:6px; border-radius:50%; background:#A6906A; animation:qsDots 1.4s ease-in-out .2s infinite;"></span>
+                  <span style="width:6px; height:6px; border-radius:50%; background:#A6906A; animation:qsDots 1.4s ease-in-out .4s infinite;"></span>
+                </div>
+              </div>
+              <div style="font-family:'Nunito',sans-serif; font-weight:700; font-size:12.5px; color:rgba(43,38,34,.4);">waiting…</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- toast -->
+        <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; left:0; right:0; bottom:128px; display:flex; justify-content:center; pointer-events:none;">
+            <div style="display:flex; align-items:center; gap:9px; padding:11px 18px; background:#2B2622; border-radius:999px; box-shadow:0 14px 28px -10px rgba(43,38,34,.7); animation:qsToastIn 2.6s ease both;">
+              <span style="width:9px; height:9px; border-radius:50%; background:#2FB8A0; box-shadow:0 0 8px #2FB8A0;"></span>
+              <span style="font-family:'Nunito',sans-serif; font-weight:800; font-size:14px; color:#F6EEDD;">{{ toast }}</span>
+            </div>
+          </div>
+        </sc-if>
+
+      </div>
+
+      <!-- bottom action bar -->
+      <div style="position:absolute; left:0; right:0; bottom:0; padding:10px 22px 24px; background:linear-gradient(180deg, rgba(246,238,221,0) 0%, #F2E8D2 30%);">
+        <button style="display:flex; align-items:center; justify-content:center; gap:11px; width:100%; height:62px; border:none; border-radius:20px; cursor:pointer; background:linear-gradient(180deg, #FFC24E 0%, #FFB22E 100%); color:#2B2622; font-family:'Fredoka',sans-serif; font-weight:600; font-size:20px; box-shadow:0 12px 22px -8px rgba(255,178,46,.85), inset 0 2px 0 rgba(255,255,255,.5);">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+          Start game
+        </button>
+        <div style="display:flex; align-items:center; justify-content:center; gap:6px; margin-top:9px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="#FFB22E" stroke="#E89A12" stroke-width="1.2" stroke-linejoin="round"><path d="M3 8l4.5 3.5L12 5l4.5 6.5L21 8l-1.6 10H4.6L3 8z"/></svg>
+          <span style="font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:700; color:rgba(43,38,34,.6);">You're the host — start whenever your crew's ready</span>
+        </div>
+      </div>
+
+      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:128px; height:5px; border-radius:3px; background:rgba(43,38,34,.32); z-index:5;"></div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = {
+    copied: false,
+    toast: null,
+    players: [
+      { name: 'Pip', color: 'teal', host: true },
+      { name: 'Maple', color: 'gold', host: false },
+      { name: 'Bramble', color: 'coral', host: false },
+      { name: 'Wren', color: 'plum', host: false },
+    ],
+  };
+  capacity = 6;
+  timers = [];
+
+  componentDidMount() {
+    const arrivals = [
+      { name: 'Flint', color: 'sand', host: false, at: 2200 },
+      { name: 'Juniper', color: 'purple', host: false, at: 4400 },
+    ];
+    arrivals.forEach((a) => {
+      this.timers.push(setTimeout(() => {
+        this.setState((s) => ({ players: [...s.players, { name: a.name, color: a.color, host: a.host }], toast: a.name + ' pulled up a stone' }));
+        const t = setTimeout(() => this.setState({ toast: null }), 2600);
+        this.timers.push(t);
+      }, a.at));
+    });
+  }
+  componentWillUnmount() { this.timers.forEach(clearTimeout); }
+
+  copy() {
+    this.setState({ copied: true });
+    const t = setTimeout(() => this.setState({ copied: false }), 1800);
+    this.timers.push(t);
+  }
+
+  renderVals() {
+    const players = this.state.players.map((p) => ({ ...p, notHost: !p.host }));
+    const empties = [];
+    for (let i = 0; i < Math.max(0, this.capacity - players.length); i++) empties.push({ i });
+    return {
+      players,
+      emptySlots: empties,
+      countLabel: this.state.players.length + ' of ' + this.capacity,
+      copied: this.state.copied,
+      notCopied: !this.state.copied,
+      copyLabel: this.state.copied ? 'Copied!' : 'Copy',
+      onCopy: () => this.copy(),
+      toast: this.state.toast,
+    };
+  }
+}
+</script>
+</body>
+</html>

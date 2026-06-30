@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @keyframes qsEye { 0%,100% { opacity:.85; } 50% { opacity:1; } }
+  @keyframes qsCaret { 0%,49% { opacity:1; } 50%,100% { opacity:0; } }
+  @keyframes qsPop { 0% { transform:scale(.4); opacity:0; } 60% { transform:scale(1.15); } 100% { transform:scale(1); opacity:1; } }
+</style>
+</helmet>
+<div style="min-height:100%; display:flex; align-items:center; justify-content:center; padding:34px 20px; background:radial-gradient(120% 90% at 50% 0%, #34294f 0%, #241c38 55%, #1c1630 100%); font-family:'Nunito',sans-serif; box-sizing:border-box;">
+
+  <div style="position:relative; width:390px; height:844px; border-radius:54px; background:#15101f; padding:11px; box-shadow:0 40px 90px -30px rgba(0,0,0,.7), 0 0 0 2px rgba(255,255,255,.04); box-sizing:border-box;">
+    <div style="position:relative; width:100%; height:100%; border-radius:44px; overflow:hidden; background:linear-gradient(180deg, #F8F1E2 0%, #F6EEDD 50%, #F0E6D0 100%);">
+
+      <!-- ambient glow -->
+      <div style="position:absolute; top:-110px; left:50%; transform:translateX(-50%); width:420px; height:380px; border-radius:50%; background:radial-gradient(circle, rgba(108,75,216,.22) 0%, rgba(246,238,221,0) 70%); pointer-events:none;"></div>
+
+      <!-- status bar -->
+      <div style="position:relative; display:flex; align-items:center; justify-content:space-between; padding:16px 28px 4px; font-family:'Nunito',sans-serif;">
+        <span style="font-size:15px; font-weight:800; color:#2B2622;">9:41</span>
+        <div style="display:flex; align-items:center; gap:7px; color:#2B2622;">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="4" width="3" height="8" rx="1"/><rect x="10" y="1.5" width="3" height="10.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1" opacity=".35"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 2.5c2.4 0 4.6.9 6.2 2.4l1.4-1.5A11 11 0 0 0 8.5.5 11 11 0 0 0 .9 3.4l1.4 1.5A9 9 0 0 1 8.5 2.5z"/><path d="M8.5 6c1.3 0 2.5.5 3.4 1.3l1.4-1.5A8 8 0 0 0 8.5 3.8a8 8 0 0 0-4.8 2l1.4 1.5A5 5 0 0 1 8.5 6z"/><circle cx="8.5" cy="10" r="1.8"/></svg>
+          <div style="display:flex; align-items:center; gap:2px;"><div style="width:23px; height:12px; border:1.6px solid #2B2622; border-radius:3.5px; padding:1.6px; box-sizing:border-box;"><div style="width:75%; height:100%; background:#2B2622; border-radius:1.5px;"></div></div><div style="width:1.8px; height:5px; background:#2B2622; border-radius:0 1px 1px 0;"></div></div>
+        </div>
+      </div>
+
+      <!-- app bar -->
+      <div style="position:relative; display:flex; align-items:center; gap:10px; padding:6px 16px 8px;">
+        <button style="display:flex; align-items:center; justify-content:center; width:42px; height:42px; border:none; border-radius:14px; background:rgba(43,38,34,.07); cursor:pointer;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <h1 style="flex:1; margin:0; text-align:center; font-family:'Fredoka',sans-serif; font-weight:600; font-size:21px; color:#2B2622;">Join a game</h1>
+        <div style="width:42px; height:42px;"></div>
+      </div>
+
+      <!-- content -->
+      <div style="position:relative; height:calc(100% - 152px); display:flex; flex-direction:column; padding:6px 22px 0; box-sizing:border-box; overflow:hidden;">
+
+        <!-- ROOM CODE CARD -->
+        <div style="background:#ECE2CC; border:1.5px solid rgba(120,96,52,.20); border-radius:24px; padding:18px 18px 20px; box-shadow:0 10px 24px -16px rgba(120,96,52,.6);">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+            <span style="font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:800; letter-spacing:1.6px; text-transform:uppercase; color:#6C4BD8;">Room code</span>
+            <span style="display:inline-flex; align-items:center; gap:5px; padding:4px 10px; background:rgba(47,184,160,.14); border-radius:999px; font-size:11.5px; font-weight:800; color:#1f8a78;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2FB8A0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7H4M4 7l3-3M4 7l3 3"/></svg>
+              from the host
+            </span>
+          </div>
+          <div style="display:flex; gap:10px; justify-content:center;">
+            <div style="flex:1; height:64px; display:flex; align-items:center; justify-content:center; background:#DFD2B4; border-radius:16px; box-shadow:inset 0 3px 7px rgba(120,96,52,.45), inset 0 -2px 0 rgba(255,255,255,.4); font-family:'Fredoka',sans-serif; font-weight:600; font-size:32px; color:#6C4BD8;">M</div>
+            <div style="flex:1; height:64px; display:flex; align-items:center; justify-content:center; background:#DFD2B4; border-radius:16px; box-shadow:inset 0 3px 7px rgba(120,96,52,.45), inset 0 -2px 0 rgba(255,255,255,.4); font-family:'Fredoka',sans-serif; font-weight:600; font-size:32px; color:#6C4BD8;">O</div>
+            <div style="flex:1; height:64px; display:flex; align-items:center; justify-content:center; background:#DFD2B4; border-radius:16px; box-shadow:inset 0 3px 7px rgba(120,96,52,.45), inset 0 -2px 0 rgba(255,255,255,.4); font-family:'Fredoka',sans-serif; font-weight:600; font-size:32px; color:#6C4BD8;">S</div>
+            <div style="flex:1; height:64px; display:flex; align-items:center; justify-content:center; background:#DFD2B4; border-radius:16px; box-shadow:inset 0 3px 7px rgba(120,96,52,.45), inset 0 -2px 0 rgba(255,255,255,.4); font-family:'Fredoka',sans-serif; font-weight:600; font-size:32px; color:#6C4BD8;">S</div>
+          </div>
+        </div>
+
+        <!-- CHARACTER CARD -->
+        <div style="margin-top:14px; flex:1; background:#ECE2CC; border:1.5px solid rgba(120,96,52,.20); border-radius:24px; padding:20px 18px 18px; box-shadow:0 10px 24px -16px rgba(120,96,52,.6);">
+
+          <!-- name field (MUI outlined) -->
+          <div style="position:relative; margin-top:2px;">
+            <label style="position:absolute; top:-8px; left:14px; padding:0 6px; background:#ECE2CC; font-family:'Nunito',sans-serif; font-size:12px; font-weight:800; color:#6C4BD8; letter-spacing:.3px;">Display name</label>
+            <div style="display:flex; align-items:center; gap:10px; height:56px; padding:0 16px; background:#FBF6EA; border:2px solid #6C4BD8; border-radius:16px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+              <input value="{{ name }}" onInput="{{ onName }}" maxLength="14" placeholder="Pick a fun name" style="flex:1; border:none; outline:none; background:transparent; font-family:'Fredoka',sans-serif; font-weight:500; font-size:19px; color:#2B2622;"/>
+              <span style="font-family:'Nunito',sans-serif; font-size:12px; font-weight:700; color:rgba(43,38,34,.4);">{{ nameCount }}/14</span>
+            </div>
+          </div>
+
+          <div style="margin:18px 2px 12px; font-family:'Fredoka',sans-serif; font-weight:600; font-size:16px; color:#2B2622;">Choose your guardian</div>
+
+          <!-- avatar grid -->
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:14px; justify-items:center;">
+
+            <!-- purple -->
+            <button onClick="{{ pickPurple }}" style="position:relative; width:78px; height:78px; border:none; cursor:pointer; border-radius:22px; background:rgba(108,75,216,.12); display:flex; align-items:center; justify-content:center;">
+              <svg width="52" height="52" viewBox="0 0 56 56">
+                <rect x="23" y="6" width="10" height="9" rx="2.5" fill="#C9B488"/>
+                <rect x="10" y="12" width="36" height="36" rx="14" fill="#E0CDA0" stroke="#B49B6E" stroke-width="1.6"/>
+                <g style="animation:qsEye 3.4s ease-in-out infinite;"><rect x="18" y="26" width="7" height="11" rx="3.5" fill="#6C4BD8"/><rect x="31" y="26" width="7" height="11" rx="3.5" fill="#6C4BD8"/></g>
+                <path d="M22 41 q6 6 12 0" stroke="#7C6442" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              </svg>
+              <sc-if value="{{ selPurple }}" hint-placeholder-val="{{ true }}"><span style="position:absolute; inset:-3px; border:3px solid #FFB22E; border-radius:25px; pointer-events:none;"></span><span style="position:absolute; top:-7px; right:-7px; width:24px; height:24px; border-radius:50%; background:#FFB22E; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px -2px rgba(255,178,46,.9); animation:qsPop .25s ease;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span></sc-if>
+            </button>
+
+            <!-- gold -->
+            <button onClick="{{ pickGold }}" style="position:relative; width:78px; height:78px; border:none; cursor:pointer; border-radius:22px; background:rgba(255,178,46,.14); display:flex; align-items:center; justify-content:center;">
+              <svg width="52" height="52" viewBox="0 0 56 56">
+                <path d="M16 14 l4 -8 l4 6 l4 -7 l4 7 l4 -6 l4 8 z" fill="#FFB22E"/>
+                <rect x="10" y="12" width="36" height="36" rx="14" fill="#E0CDA0" stroke="#B49B6E" stroke-width="1.6"/>
+                <g style="animation:qsEye 3.7s ease-in-out infinite;"><rect x="18" y="26" width="7" height="11" rx="3.5" fill="#E89A12"/><rect x="31" y="26" width="7" height="11" rx="3.5" fill="#E89A12"/></g>
+                <path d="M22 41 q6 6 12 0" stroke="#7C6442" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              </svg>
+              <sc-if value="{{ selGold }}" hint-placeholder-val="{{ false }}"><span style="position:absolute; inset:-3px; border:3px solid #FFB22E; border-radius:25px; pointer-events:none;"></span><span style="position:absolute; top:-7px; right:-7px; width:24px; height:24px; border-radius:50%; background:#FFB22E; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px -2px rgba(255,178,46,.9); animation:qsPop .25s ease;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span></sc-if>
+            </button>
+
+            <!-- coral -->
+            <button onClick="{{ pickCoral }}" style="position:relative; width:78px; height:78px; border:none; cursor:pointer; border-radius:22px; background:rgba(255,107,87,.13); display:flex; align-items:center; justify-content:center;">
+              <svg width="52" height="52" viewBox="0 0 56 56">
+                <path d="M18 14 l-2 -8 l8 6 z" fill="#FF6B57"/><path d="M38 14 l2 -8 l-8 6 z" fill="#FF6B57"/>
+                <rect x="10" y="12" width="36" height="36" rx="14" fill="#E0CDA0" stroke="#B49B6E" stroke-width="1.6"/>
+                <g style="animation:qsEye 3.2s ease-in-out infinite;"><rect x="18" y="26" width="7" height="11" rx="3.5" fill="#FF6B57"/><rect x="31" y="26" width="7" height="11" rx="3.5" fill="#FF6B57"/></g>
+                <path d="M22 41 q6 6 12 0" stroke="#7C6442" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              </svg>
+              <sc-if value="{{ selCoral }}" hint-placeholder-val="{{ false }}"><span style="position:absolute; inset:-3px; border:3px solid #FFB22E; border-radius:25px; pointer-events:none;"></span><span style="position:absolute; top:-7px; right:-7px; width:24px; height:24px; border-radius:50%; background:#FFB22E; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px -2px rgba(255,178,46,.9); animation:qsPop .25s ease;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span></sc-if>
+            </button>
+
+            <!-- teal -->
+            <button onClick="{{ pickTeal }}" style="position:relative; width:78px; height:78px; border:none; cursor:pointer; border-radius:22px; background:rgba(47,184,160,.14); display:flex; align-items:center; justify-content:center;">
+              <svg width="52" height="52" viewBox="0 0 56 56">
+                <path d="M28 14 q-1 -8 -8 -9 q3 7 8 9z" fill="#2FB8A0"/><rect x="26.5" y="7" width="3" height="7" rx="1.5" fill="#1f8a78"/>
+                <rect x="10" y="12" width="36" height="36" rx="14" fill="#E0CDA0" stroke="#B49B6E" stroke-width="1.6"/>
+                <g style="animation:qsEye 4s ease-in-out infinite;"><rect x="18" y="26" width="7" height="11" rx="3.5" fill="#2FB8A0"/><rect x="31" y="26" width="7" height="11" rx="3.5" fill="#2FB8A0"/></g>
+                <path d="M22 41 q6 6 12 0" stroke="#7C6442" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              </svg>
+              <sc-if value="{{ selTeal }}" hint-placeholder-val="{{ true }}"><span style="position:absolute; inset:-3px; border:3px solid #FFB22E; border-radius:25px; pointer-events:none;"></span><span style="position:absolute; top:-7px; right:-7px; width:24px; height:24px; border-radius:50%; background:#FFB22E; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px -2px rgba(255,178,46,.9); animation:qsPop .25s ease;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span></sc-if>
+            </button>
+
+            <!-- sand (ears) -->
+            <button onClick="{{ pickSand }}" style="position:relative; width:78px; height:78px; border:none; cursor:pointer; border-radius:22px; background:rgba(120,96,52,.10); display:flex; align-items:center; justify-content:center;">
+              <svg width="52" height="52" viewBox="0 0 56 56">
+                <circle cx="13" cy="28" r="6" fill="#D3BE92" stroke="#B49B6E" stroke-width="1.4"/><circle cx="43" cy="28" r="6" fill="#D3BE92" stroke="#B49B6E" stroke-width="1.4"/>
+                <rect x="12" y="12" width="32" height="36" rx="14" fill="#E0CDA0" stroke="#B49B6E" stroke-width="1.6"/>
+                <g style="animation:qsEye 3.6s ease-in-out infinite;"><rect x="19" y="26" width="7" height="11" rx="3.5" fill="#7C6442"/><rect x="30" y="26" width="7" height="11" rx="3.5" fill="#7C6442"/></g>
+                <path d="M23 41 q5 6 10 0" stroke="#7C6442" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              </svg>
+              <sc-if value="{{ selSand }}" hint-placeholder-val="{{ false }}"><span style="position:absolute; inset:-3px; border:3px solid #FFB22E; border-radius:25px; pointer-events:none;"></span><span style="position:absolute; top:-7px; right:-7px; width:24px; height:24px; border-radius:50%; background:#FFB22E; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px -2px rgba(255,178,46,.9); animation:qsPop .25s ease;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span></sc-if>
+            </button>
+
+            <!-- plum (antenna) -->
+            <button onClick="{{ pickPlum }}" style="position:relative; width:78px; height:78px; border:none; cursor:pointer; border-radius:22px; background:rgba(155,123,224,.14); display:flex; align-items:center; justify-content:center;">
+              <svg width="52" height="52" viewBox="0 0 56 56">
+                <path d="M28 13 q4 -5 9 -9" stroke="#9B7BE0" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="38" cy="4" r="3.4" fill="#9B7BE0"/>
+                <rect x="10" y="12" width="36" height="36" rx="14" fill="#E0CDA0" stroke="#B49B6E" stroke-width="1.6"/>
+                <g style="animation:qsEye 3.9s ease-in-out infinite;"><rect x="18" y="26" width="7" height="11" rx="3.5" fill="#9B7BE0"/><rect x="31" y="26" width="7" height="11" rx="3.5" fill="#9B7BE0"/></g>
+                <path d="M22 41 q6 6 12 0" stroke="#7C6442" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              </svg>
+              <sc-if value="{{ selPlum }}" hint-placeholder-val="{{ false }}"><span style="position:absolute; inset:-3px; border:3px solid #FFB22E; border-radius:25px; pointer-events:none;"></span><span style="position:absolute; top:-7px; right:-7px; width:24px; height:24px; border-radius:50%; background:#FFB22E; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 8px -2px rgba(255,178,46,.9); animation:qsPop .25s ease;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span></sc-if>
+            </button>
+
+          </div>
+        </div>
+
+        <!-- reassurance -->
+        <div style="display:flex; align-items:center; justify-content:center; gap:7px; padding:12px 0 0;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2FB8A0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span style="font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:700; color:rgba(43,38,34,.6);">100% anonymous — no email, no account</span>
+        </div>
+
+      </div>
+
+      <!-- bottom action bar -->
+      <div style="position:absolute; left:0; right:0; bottom:0; padding:12px 22px 26px; background:linear-gradient(180deg, rgba(246,238,221,0) 0%, #F2E8D2 32%); ">
+        <button style="display:flex; align-items:center; justify-content:center; gap:11px; width:100%; height:62px; border:none; border-radius:20px; cursor:pointer; background:linear-gradient(180deg, #FFC24E 0%, #FFB22E 100%); color:#2B2622; font-family:'Fredoka',sans-serif; font-weight:600; font-size:20px; box-shadow:0 12px 22px -8px rgba(255,178,46,.85), inset 0 2px 0 rgba(255,255,255,.5);">
+          Join {{ codeLabel }}
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:128px; height:5px; border-radius:3px; background:rgba(43,38,34,.32); z-index:5;"></div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = { name: 'Pip', sel: 'teal' };
+  renderVals() {
+    const s = this.state.sel;
+    const set = (id) => () => this.setState({ sel: id });
+    return {
+      name: this.state.name,
+      nameCount: this.state.name.length,
+      onName: (e) => this.setState({ name: e.target.value }),
+      codeLabel: 'MOSS',
+      selPurple: s === 'purple', selGold: s === 'gold', selCoral: s === 'coral',
+      selTeal: s === 'teal', selSand: s === 'sand', selPlum: s === 'plum',
+      pickPurple: set('purple'), pickGold: set('gold'), pickCoral: set('coral'),
+      pickTeal: set('teal'), pickSand: set('sand'), pickPlum: set('plum'),
+    };
+  }
+}
+</script>
+</body>
+</html>
