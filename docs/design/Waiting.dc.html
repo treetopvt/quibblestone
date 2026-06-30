@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @keyframes qsTwinkle { 0%,100% { opacity:.3; transform:scale(.8); } 50% { opacity:1; transform:scale(1.2); } }
+  @keyframes qsBobSlow { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-6px); } }
+  @keyframes qsDots { 0%,100% { opacity:.3; } 50% { opacity:1; } }
+</style>
+</helmet>
+<div style="min-height:100%; display:flex; align-items:center; justify-content:center; padding:34px 20px; background:radial-gradient(120% 90% at 50% 0%, #34294f 0%, #241c38 55%, #1c1630 100%); font-family:'Nunito',sans-serif; box-sizing:border-box;">
+
+  <div style="position:relative; width:390px; height:844px; border-radius:54px; background:#15101f; padding:11px; box-shadow:0 40px 90px -30px rgba(0,0,0,.7), 0 0 0 2px rgba(255,255,255,.04); box-sizing:border-box;">
+    <div style="position:relative; width:100%; height:100%; border-radius:44px; overflow:hidden; background:linear-gradient(180deg, #F8F1E2 0%, #F6EEDD 50%, #F0E6D0 100%);">
+
+      <!-- ambient glow -->
+      <div style="position:absolute; top:40px; left:50%; transform:translateX(-50%); width:420px; height:380px; border-radius:50%; background:radial-gradient(circle, rgba(108,75,216,.18) 0%, rgba(255,178,46,.10) 45%, rgba(246,238,221,0) 70%); pointer-events:none;"></div>
+
+      <!-- floating sparkles -->
+      <div style="position:absolute; top:150px; left:48px; width:10px; height:10px; color:#FFB22E; animation:qsTwinkle 3.4s ease-in-out infinite;"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0l2.4 7.6L22 12l-7.6 2.4L12 24l-2.4-9.6L2 12l7.6-2.4z"/></svg></div>
+      <div style="position:absolute; top:210px; right:42px; width:13px; height:13px; color:#2FB8A0; animation:qsTwinkle 4.1s ease-in-out .6s infinite;"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0l2.4 7.6L22 12l-7.6 2.4L12 24l-2.4-9.6L2 12l7.6-2.4z"/></svg></div>
+
+      <!-- status bar -->
+      <div style="position:relative; display:flex; align-items:center; justify-content:space-between; padding:16px 28px 4px; font-family:'Nunito',sans-serif;">
+        <span style="font-size:15px; font-weight:800; color:#2B2622;">9:41</span>
+        <div style="display:flex; align-items:center; gap:7px; color:#2B2622;">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="4" width="3" height="8" rx="1"/><rect x="10" y="1.5" width="3" height="10.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1" opacity=".35"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 2.5c2.4 0 4.6.9 6.2 2.4l1.4-1.5A11 11 0 0 0 8.5.5 11 11 0 0 0 .9 3.4l1.4 1.5A9 9 0 0 1 8.5 2.5z"/><path d="M8.5 6c1.3 0 2.5.5 3.4 1.3l1.4-1.5A8 8 0 0 0 8.5 3.8a8 8 0 0 0-4.8 2l1.4 1.5A5 5 0 0 1 8.5 6z"/><circle cx="8.5" cy="10" r="1.8"/></svg>
+          <div style="display:flex; align-items:center; gap:2px;"><div style="width:23px; height:12px; border:1.6px solid #2B2622; border-radius:3.5px; padding:1.6px; box-sizing:border-box;"><div style="width:75%; height:100%; background:#2B2622; border-radius:1.5px;"></div></div><div style="width:1.8px; height:5px; background:#2B2622; border-radius:0 1px 1px 0;"></div></div>
+        </div>
+      </div>
+
+      <!-- app bar -->
+      <div style="position:relative; display:flex; align-items:center; gap:10px; padding:6px 16px 8px;">
+        <button style="display:flex; align-items:center; justify-content:center; width:42px; height:42px; border:none; border-radius:14px; background:rgba(43,38,34,.07); cursor:pointer;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+        <h1 style="flex:1; margin:0; text-align:center; font-family:'Fredoka',sans-serif; font-weight:600; font-size:21px; color:#2B2622;">Your words are in!</h1>
+        <div style="width:42px; height:42px;"></div>
+      </div>
+
+      <!-- content -->
+      <div style="position:relative; height:calc(100% - 94px); display:flex; flex-direction:column; padding:4px 22px 22px; box-sizing:border-box;">
+
+        <!-- HERO: mascot juggling letters -->
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:0;">
+          <div style="animation:qsBobSlow 5s ease-in-out infinite;">
+            <svg width="244" height="262" viewBox="0 0 220 240">
+              <defs>
+                <radialGradient id="wAura" cx="50%" cy="55%" r="55%">
+                  <stop offset="0%" stop-color="#FFB22E" stop-opacity=".42"/>
+                  <stop offset="48%" stop-color="#2FB8A0" stop-opacity=".18"/>
+                  <stop offset="100%" stop-color="#2FB8A0" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="wBody" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#F1E6CC"/><stop offset="55%" stop-color="#DECBA0"/><stop offset="100%" stop-color="#C7B083"/>
+                </linearGradient>
+                <linearGradient id="wTile" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#F3E9D2"/><stop offset="100%" stop-color="#E2D0A8"/>
+                </linearGradient>
+                <filter id="wGlow" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              </defs>
+
+              <ellipse cx="110" cy="150" rx="92" ry="82" fill="url(#wAura)"/>
+
+              <!-- juggling arc (motion implied) -->
+              <path d="M55 78 Q110 6 165 70" fill="none" stroke="#6C4BD8" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="2 9" opacity=".4"/>
+
+              <!-- letter tiles -->
+              <g transform="rotate(-14 56 64)" filter="url(#wGlow)">
+                <rect x="40" y="48" width="34" height="34" rx="9" fill="url(#wTile)" stroke="#B49B6E" stroke-width="1.6"/>
+                <text x="57" y="72" font-family="Fredoka, sans-serif" font-weight="700" font-size="22" fill="#2FB8A0" text-anchor="middle">W</text>
+              </g>
+              <g transform="rotate(7 110 34)" filter="url(#wGlow)">
+                <rect x="92" y="16" width="36" height="36" rx="9" fill="url(#wTile)" stroke="#B49B6E" stroke-width="1.6"/>
+                <text x="110" y="42" font-family="Fredoka, sans-serif" font-weight="700" font-size="23" fill="#FFB22E" text-anchor="middle">O</text>
+              </g>
+              <g transform="rotate(15 164 66)" filter="url(#wGlow)">
+                <rect x="148" y="50" width="34" height="34" rx="9" fill="url(#wTile)" stroke="#B49B6E" stroke-width="1.6"/>
+                <text x="165" y="74" font-family="Fredoka, sans-serif" font-weight="700" font-size="22" fill="#FF6B57" text-anchor="middle">W</text>
+              </g>
+              <!-- little glints -->
+              <circle cx="78" cy="46" r="2.4" fill="#FFB22E"/><circle cx="132" cy="20" r="2.4" fill="#2FB8A0"/><circle cx="186" cy="52" r="2.4" fill="#FF6B57"/>
+
+              <!-- feet (left one tapping) -->
+              <ellipse cx="92" cy="214" rx="16" ry="9" fill="#BFA87C"/>
+              <ellipse cx="130" cy="206" rx="16" ry="9" fill="#C7B083"/>
+              <path d="M150 210 q7 -1 12 -5" stroke="#B49B6E" stroke-width="2" fill="none" stroke-linecap="round" opacity=".55"/>
+              <path d="M152 216 q8 0 14 -3" stroke="#B49B6E" stroke-width="2" fill="none" stroke-linecap="round" opacity=".4"/>
+
+              <!-- raised arms -->
+              <path d="M76 130 Q56 102 52 78" stroke="#D9C49A" stroke-width="15" fill="none" stroke-linecap="round"/>
+              <path d="M144 130 Q164 102 166 76" stroke="#D9C49A" stroke-width="15" fill="none" stroke-linecap="round"/>
+              <circle cx="52" cy="76" r="9" fill="#E7D6B0" stroke="#B49B6E" stroke-width="1.4"/>
+              <circle cx="166" cy="74" r="9" fill="#E7D6B0" stroke="#B49B6E" stroke-width="1.4"/>
+
+              <!-- body -->
+              <rect x="62" y="100" width="96" height="96" rx="36" fill="url(#wBody)" stroke="#B49B6E" stroke-width="2"/>
+              <!-- cracks + moss -->
+              <path d="M84 110 l7 12 l-5 9" stroke="#B49B6E" stroke-width="2" fill="none" stroke-linecap="round" opacity=".5"/>
+              <ellipse cx="72" cy="114" rx="9" ry="5" fill="#2FB8A0" opacity=".5"/>
+              <ellipse cx="150" cy="182" rx="8" ry="4.5" fill="#2FB8A0" opacity=".45"/>
+              <!-- forehead rune -->
+              <path d="M110 112 l6 6 l-6 6 l-6 -6 z" fill="#FFB22E" opacity=".9" filter="url(#wGlow)"/>
+              <!-- brows (raised, looking up) -->
+              <rect x="80" y="132" width="16" height="4.5" rx="2.2" fill="#9C815A" transform="rotate(-6 88 134)"/>
+              <rect x="124" y="132" width="16" height="4.5" rx="2.2" fill="#9C815A" transform="rotate(6 132 134)"/>
+              <!-- eyes looking up -->
+              <g filter="url(#wGlow)"><rect x="80" y="138" width="16" height="20" rx="8" fill="#2FB8A0"/><rect x="124" y="138" width="16" height="20" rx="8" fill="#2FB8A0"/></g>
+              <circle cx="85" cy="144" r="3.2" fill="#EAFBF6"/><circle cx="129" cy="144" r="3.2" fill="#EAFBF6"/>
+              <!-- cheeks -->
+              <circle cx="76" cy="166" r="4" fill="#FF6B57" opacity=".45"/><circle cx="144" cy="166" r="4" fill="#FF6B57" opacity=".45"/>
+              <!-- happy open smile -->
+              <path d="M96 168 q14 16 28 0 q-14 6 -28 0z" fill="#7C6442"/>
+            </svg>
+          </div>
+          <p style="margin:8px 8px 0; text-align:center; font-family:'Fredoka',sans-serif; font-weight:500; font-size:18px; color:rgba(43,38,34,.72);">Juggling letters while the others carve…</p>
+        </div>
+
+        <!-- STATUS CARD -->
+        <div style="background:#ECE2CC; border:1.5px solid rgba(120,96,52,.20); border-radius:24px; padding:18px 18px 16px; box-shadow:0 10px 24px -16px rgba(120,96,52,.6);">
+
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="display:inline-flex; align-items:center; gap:8px; font-family:'Fredoka',sans-serif; font-weight:600; font-size:17px; color:#2B2622;">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#2FB8A0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="M22 4L12 14.1l-3-3"/></svg>
+              <strong style="color:#1f8a78;">3</strong> of 5 quibblers done
+            </span>
+            <span style="font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:800; color:rgba(43,38,34,.5);">2 still writing</span>
+          </div>
+
+          <!-- avatar row -->
+          <div style="display:flex; justify-content:space-between; gap:6px;">
+            <sc-for list="{{ players }}" as="p" hint-placeholder-count="5">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:6px; flex:1;">
+                <div style="position:relative; width:54px; height:54px; border-radius:50%; background:#FBF6EA; border:2px solid #E0CDA0; display:flex; align-items:center; justify-content:center;">
+                  <div style="width:40px; height:40px; opacity:{{ p.opacity }};"><dc-import name="Guardian" variant="{{ p.color }}" hint-size="40px,40px" style="width:40px; height:40px;"></dc-import></div>
+                  <sc-if value="{{ p.done }}" hint-placeholder-val="{{ false }}">
+                    <span style="position:absolute; bottom:-3px; right:-3px; width:21px; height:21px; border-radius:50%; background:#2FB8A0; border:2px solid #FBF6EA; display:flex; align-items:center; justify-content:center;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+                  </sc-if>
+                  <sc-if value="{{ p.writing }}" hint-placeholder-val="{{ true }}">
+                    <span style="position:absolute; bottom:-3px; right:-3px; width:21px; height:21px; border-radius:50%; background:#E8DCC4; border:2px solid #FBF6EA; display:flex; align-items:center; justify-content:center; gap:2px;">
+                      <span style="width:3.4px; height:3.4px; border-radius:50%; background:#9C815A; animation:qsDots 1.4s ease-in-out infinite;"></span>
+                      <span style="width:3.4px; height:3.4px; border-radius:50%; background:#9C815A; animation:qsDots 1.4s ease-in-out .25s infinite;"></span>
+                    </span>
+                  </sc-if>
+                </div>
+                <span style="font-family:'Nunito',sans-serif; font-size:11.5px; font-weight:800; color:{{ p.nameColor }};">{{ p.name }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:center; gap:7px; margin-top:14px; padding-top:13px; border-top:1.5px dashed rgba(120,96,52,.25);">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9M12 7v5l3 2"/></svg>
+            <span style="font-family:'Nunito',sans-serif; font-size:13px; font-weight:700; color:rgba(43,38,34,.6);">No rush — the stone waits for everyone.</span>
+          </div>
+        </div>
+
+        <!-- gentle secondary action -->
+        <button style="display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:54px; margin-top:14px; border:2.5px solid #6C4BD8; border-radius:18px; cursor:pointer; background:rgba(108,75,216,.06); color:#6C4BD8; font-family:'Fredoka',sans-serif; font-weight:600; font-size:18px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-9 9-6 1 1-6z"/></svg>
+          Review my words
+        </button>
+
+      </div>
+
+      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:128px; height:5px; border-radius:3px; background:rgba(43,38,34,.32); z-index:5;"></div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() {
+    const base = [
+      { name: 'Pip', color: 'teal', done: true },
+      { name: 'Maple', color: 'gold', done: true },
+      { name: 'Bramble', color: 'coral', done: true },
+      { name: 'Wren', color: 'plum', done: false },
+      { name: 'Flint', color: 'sand', done: false },
+    ];
+    return {
+      players: base.map((p) => ({
+        ...p,
+        writing: !p.done,
+        opacity: p.done ? 1 : 0.55,
+        nameColor: p.done ? '#2B2622' : 'rgba(43,38,34,.45)',
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

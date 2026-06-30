@@ -9,8 +9,15 @@ This story defines that shape so the engine and the modes can build on it. See
 
 ## Acceptance Criteria
 - [ ] AC-01: A template has a title/subject and body text containing ordered,
-      typed blanks (for example: plural noun, verb, adjective, name, place).
-- [ ] AC-02: Each blank carries the prompt shown to a player ("a plural noun").
+      typed blanks (for example: plural noun, verb, adjective, name, place,
+      exclamation, number).
+- [ ] AC-02: Each blank carries: a category label (displayed as the purple
+      category chip on the FillBlank screen, e.g. "ADJECTIVE"), a human-facing
+      prompt sentence (e.g. "Give me a silly describing word"), a sub-hint
+      (e.g. "Something that describes a thing - anything goes!"), and a short list
+      of 3 example "spark" words for that category (e.g. "squishy", "gigantic",
+      "sparkly"). See `docs/design/README.md` Screens screen 4 (FillBlank) for
+      how these fields render on the prompt card.
 - [ ] AC-03: A template may optionally carry a word bank (a list of suggested
       words) for word-bank modes; templates without one are still valid.
 - [ ] AC-04: A template carries theme and age-appropriateness tags, usable by the
@@ -19,18 +26,26 @@ This story defines that shape so the engine and the modes can build on it. See
       mode without modification.
 - [ ] AC-06: Given a template and an ordered set of words, then assembling them
       produces the final story text deterministically (each blank replaced in
-      order).
+      order); per-word attribution is preserved so each word is associated with
+      the player who submitted it (used in the Waiting progress row and Round
+      Complete per-player word counts).
 
 ## Out of Scope
 - AI-generated templates (Phase 2).
 - Owner-curated / per-host word banks (a later game mode).
 - Rich media (images, audio) inside templates.
+- Dynamic / AI-personalized spark chips per player (design pack Expansion 1;
+  Slice 1 spark chips are hardcoded in the template schema).
 
 ## Technical Notes
 - Define the type in shared, pure TS so assembly is unit-testable (Vitest); keep
   it free of UI/real-time concerns.
-- Blank "types" are a small, extensible set; the prompt string is what the player
-  actually sees.
+- The blank type is a small, extensible enum (adjective / noun / verb / name /
+  place / exclamation / number / plural-noun). Category label, prompt, sub-hint,
+  and spark words are properties of each blank definition - not derived at
+  runtime. This keeps the schema self-contained and easy to hand-author.
+- The assembled result should carry per-word attribution (playerSessionId +
+  word) so the reveal and round-complete screens can color and count correctly.
 
 ## Dependencies
 None.

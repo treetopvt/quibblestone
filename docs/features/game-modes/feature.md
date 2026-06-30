@@ -18,6 +18,7 @@ README section 4 ("one engine, many thin modes" - the three axes) and section 7
 ## Dependencies
 - template-model (a mode plays a template).
 - child-safety (free-text answers are filtered regardless of mode).
+- design-system (Classic blind screen uses the theme, buttons, and AppBar).
 
 ## Design notes
 - The three axes (README section 4):

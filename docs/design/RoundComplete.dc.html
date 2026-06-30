@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @keyframes qsTwinkle { 0%,100% { opacity:.3; transform:scale(.8); } 50% { opacity:1; transform:scale(1.2); } }
+  @keyframes qsConfetti { 0% { transform:translateY(-8px) rotate(0deg); } 100% { transform:translateY(14px) rotate(210deg); } }
+  @keyframes qsTabletGlow { 0%,100% { box-shadow:0 22px 44px -22px rgba(108,75,216,.5), inset 0 3px 0 rgba(255,255,255,.55), inset 0 -5px 14px rgba(120,96,52,.4); } 50% { box-shadow:0 26px 50px -20px rgba(255,178,46,.5), inset 0 3px 0 rgba(255,255,255,.6), inset 0 -5px 14px rgba(120,96,52,.4); } }
+</style>
+</helmet>
+<div style="min-height:100%; display:flex; align-items:center; justify-content:center; padding:34px 20px; background:radial-gradient(120% 90% at 50% 0%, #34294f 0%, #241c38 55%, #1c1630 100%); font-family:'Nunito',sans-serif; box-sizing:border-box;">
+
+  <div style="position:relative; width:390px; height:844px; border-radius:54px; background:#15101f; padding:11px; box-shadow:0 40px 90px -30px rgba(0,0,0,.7), 0 0 0 2px rgba(255,255,255,.04); box-sizing:border-box;">
+    <div style="position:relative; width:100%; height:100%; border-radius:44px; overflow:hidden; background:linear-gradient(180deg, #F8F1E2 0%, #F6EEDD 50%, #F0E6D0 100%);">
+
+      <!-- celebratory glow -->
+      <div style="position:absolute; top:-60px; left:50%; transform:translateX(-50%); width:460px; height:400px; border-radius:50%; background:radial-gradient(circle, rgba(255,178,46,.26) 0%, rgba(108,75,216,.16) 42%, rgba(246,238,221,0) 70%); pointer-events:none;"></div>
+
+      <!-- confetti -->
+      <div style="position:absolute; inset:0 0 auto 0; height:260px; overflow:hidden; pointer-events:none;">
+        <span style="position:absolute; top:84px; left:44px; width:9px; height:14px; background:#FF6B57; border-radius:2px; transform:rotate(20deg); animation:qsConfetti 2.6s ease-in-out infinite alternate;"></span>
+        <span style="position:absolute; top:110px; left:96px; width:8px; height:8px; background:#2FB8A0; border-radius:50%; animation:qsConfetti 3.1s ease-in-out .3s infinite alternate;"></span>
+        <span style="position:absolute; top:74px; left:160px; width:10px; height:10px; background:#6C4BD8; border-radius:2px; transform:rotate(40deg); animation:qsConfetti 2.9s ease-in-out .5s infinite alternate;"></span>
+        <span style="position:absolute; top:122px; right:118px; width:8px; height:13px; background:#FFB22E; border-radius:2px; transform:rotate(-15deg); animation:qsConfetti 3.3s ease-in-out .2s infinite alternate;"></span>
+        <span style="position:absolute; top:90px; right:62px; width:9px; height:9px; background:#FF6B57; border-radius:50%; animation:qsConfetti 2.7s ease-in-out .6s infinite alternate;"></span>
+        <span style="position:absolute; top:116px; right:36px; width:9px; height:14px; background:#6C4BD8; border-radius:2px; transform:rotate(25deg); animation:qsConfetti 3.0s ease-in-out .15s infinite alternate;"></span>
+      </div>
+
+      <!-- status bar -->
+      <div style="position:relative; display:flex; align-items:center; justify-content:space-between; padding:16px 28px 4px; font-family:'Nunito',sans-serif;">
+        <span style="font-size:15px; font-weight:800; color:#2B2622;">9:41</span>
+        <div style="display:flex; align-items:center; gap:7px; color:#2B2622;">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="4" width="3" height="8" rx="1"/><rect x="10" y="1.5" width="3" height="10.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1" opacity=".35"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 2.5c2.4 0 4.6.9 6.2 2.4l1.4-1.5A11 11 0 0 0 8.5.5 11 11 0 0 0 .9 3.4l1.4 1.5A9 9 0 0 1 8.5 2.5z"/><path d="M8.5 6c1.3 0 2.5.5 3.4 1.3l1.4-1.5A8 8 0 0 0 8.5 3.8a8 8 0 0 0-4.8 2l1.4 1.5A5 5 0 0 1 8.5 6z"/><circle cx="8.5" cy="10" r="1.8"/></svg>
+          <div style="display:flex; align-items:center; gap:2px;"><div style="width:23px; height:12px; border:1.6px solid #2B2622; border-radius:3.5px; padding:1.6px; box-sizing:border-box;"><div style="width:75%; height:100%; background:#2B2622; border-radius:1.5px;"></div></div><div style="width:1.8px; height:5px; background:#2B2622; border-radius:0 1px 1px 0;"></div></div>
+        </div>
+      </div>
+
+      <!-- app bar -->
+      <div style="position:relative; display:flex; align-items:center; gap:10px; padding:6px 16px 6px;">
+        <button style="display:flex; align-items:center; justify-content:center; width:42px; height:42px; border:none; border-radius:14px; background:rgba(43,38,34,.07); cursor:pointer;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5M5 9v11h14V9"/></svg>
+        </button>
+        <h1 style="flex:1; margin:0; text-align:center; font-family:'Fredoka',sans-serif; font-weight:600; font-size:21px; color:#2B2622;">Round complete</h1>
+        <div style="width:42px; height:42px;"></div>
+      </div>
+
+      <!-- content -->
+      <div style="position:relative; height:calc(100% - 94px); display:flex; flex-direction:column; padding:2px 22px 22px; box-sizing:border-box;">
+
+        <!-- header -->
+        <div style="text-align:center; padding:4px 0 2px;">
+          <div style="display:inline-flex; align-items:center; gap:7px; padding:5px 14px; background:rgba(47,184,160,.16); border-radius:999px; margin-bottom:8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1f8a78" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+            <span style="font-family:'Nunito',sans-serif; font-size:12px; font-weight:800; letter-spacing:1.2px; text-transform:uppercase; color:#1f8a78;">Round 1 carved</span>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:center; gap:9px; font-family:'Fredoka',sans-serif; font-weight:700; font-size:29px; color:#2B2622;">
+            <span style="color:#FFB22E; animation:qsTwinkle 2.4s ease-in-out infinite;">✦</span>
+            Round complete!
+            <span style="color:#FFB22E; animation:qsTwinkle 2.4s ease-in-out .8s infinite;">✦</span>
+          </div>
+        </div>
+
+        <!-- STONE TABLET KEEPSAKE -->
+        <div style="position:relative; margin-top:16px; padding:20px 22px 18px; border-radius:54px 54px 26px 26px; background:linear-gradient(168deg, #EFE3C7 0%, #E3D2AC 55%, #D6C194 100%); animation:qsTabletGlow 4.2s ease-in-out infinite; box-sizing:border-box;">
+          <div style="position:absolute; inset:7px; border-radius:47px 47px 20px 20px; border:2px solid rgba(120,96,52,.26); box-shadow:inset 0 0 14px rgba(255,178,46,.2); pointer-events:none;"></div>
+
+          <div style="display:flex; justify-content:center; gap:10px; color:rgba(108,75,216,.5); margin-bottom:2px;">
+            <span style="font-family:'Fredoka',sans-serif; font-size:12px;">✦</span>
+            <span style="font-family:'Nunito',sans-serif; font-size:10.5px; font-weight:800; letter-spacing:1.6px; color:rgba(43,38,34,.45);">YOUR TALE</span>
+            <span style="font-family:'Fredoka',sans-serif; font-size:12px; color:rgba(255,178,46,.85);">◈</span>
+          </div>
+          <h2 style="margin:0; text-align:center; font-family:'Fredoka',sans-serif; font-weight:700; font-size:22px; line-height:1.18; color:#6C4BD8; text-wrap:balance; text-shadow:0 1px 0 rgba(255,255,255,.4);">The Wobbly Wizard &amp; the Golden Sock</h2>
+
+          <div style="display:flex; justify-content:center; gap:8px; margin-top:12px;">
+            <span style="display:inline-flex; align-items:center; gap:5px; padding:5px 11px; background:rgba(43,38,34,.06); border-radius:999px; font-family:'Nunito',sans-serif; font-size:12px; font-weight:800; color:rgba(43,38,34,.62);">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#B07908" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-9 9-6 1 1-6z"/></svg>8 words</span>
+            <span style="display:inline-flex; align-items:center; gap:5px; padding:5px 11px; background:rgba(43,38,34,.06); border-radius:999px; font-family:'Nunito',sans-serif; font-size:12px; font-weight:800; color:rgba(43,38,34,.62);">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1f8a78" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>5 carvers</span>
+            <button style="display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border:1.5px solid rgba(108,75,216,.4); background:rgba(108,75,216,.08); border-radius:999px; cursor:pointer; font-family:'Nunito',sans-serif; font-size:12px; font-weight:800; color:#6C4BD8;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>Share</button>
+          </div>
+        </div>
+
+        <!-- crew recap -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin:20px 2px 12px;">
+          <h3 style="margin:0; font-family:'Fredoka',sans-serif; font-weight:600; font-size:17px; color:#2B2622;">Carved by your crew</h3>
+          <span style="font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:800; color:rgba(43,38,34,.5);">all 5 staying on</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; gap:6px;">
+          <sc-for list="{{ players }}" as="p" hint-placeholder-count="5">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:5px; flex:1;">
+              <div style="width:56px; height:56px; border-radius:50%; background:#FBF6EA; border:2px solid #E0CDA0; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 14px -10px rgba(120,96,52,.7);">
+                <div style="width:42px; height:42px;"><dc-import name="Guardian" variant="{{ p.color }}" hint-size="42px,42px" style="width:42px; height:42px;"></dc-import></div>
+              </div>
+              <span style="font-family:'Fredoka',sans-serif; font-weight:500; font-size:13px; color:#2B2622; line-height:1;">{{ p.name }}</span>
+              <span style="font-family:'Nunito',sans-serif; font-size:10.5px; font-weight:800; color:#1f8a78;">{{ p.wordsLabel }}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- actions -->
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:12px;">
+          <button style="display:flex; align-items:center; justify-content:center; gap:11px; width:100%; height:62px; border:none; border-radius:20px; cursor:pointer; background:linear-gradient(180deg, #FFC24E 0%, #FFB22E 100%); color:#2B2622; font-family:'Fredoka',sans-serif; font-weight:600; font-size:20px; box-shadow:0 12px 22px -8px rgba(255,178,46,.85), inset 0 2px 0 rgba(255,255,255,.5);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5"/></svg>
+            Play another round
+          </button>
+          <button style="display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:60px; border:2.5px solid #6C4BD8; border-radius:20px; cursor:pointer; background:rgba(108,75,216,.06); color:#6C4BD8; font-family:'Fredoka',sans-serif; font-weight:600; font-size:20px;">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l-6-6 6-6M3 12h13a5 5 0 0 1 5 5v1"/></svg>
+            Back to lobby
+          </button>
+        </div>
+
+      </div>
+
+      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:128px; height:5px; border-radius:3px; background:rgba(43,38,34,.32); z-index:5;"></div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() {
+    const base = [
+      { name: 'Pip', color: 'teal', words: 2 },
+      { name: 'Maple', color: 'gold', words: 2 },
+      { name: 'Bramble', color: 'coral', words: 1 },
+      { name: 'Wren', color: 'plum', words: 2 },
+      { name: 'Flint', color: 'sand', words: 1 },
+    ];
+    return {
+      players: base.map((p) => ({ ...p, wordsLabel: p.words === 1 ? '1 word' : p.words + ' words' })),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+# Story: Copy and share the room code from the Lobby
+
+**Feature:** Session & Room Engine  ·  **Status:** Not Started
+
+## Context
+Players joining remotely need to receive the room code without the host having
+to read it aloud. The Lobby provides two affordances: a one-tap copy (with a
+"Copied!" confirmation) and the Web Share API so the host can send the code via
+any installed share target (Messages, WhatsApp, etc.). This is the "different
+houses" use case. See [feature.md](./feature.md) and
+`docs/design/README.md` Screens - screen 3 (Lobby).
+
+## Acceptance Criteria
+- [ ] AC-01: Given I am on the Lobby screen, then the room code is displayed
+      prominently in the stone-tablet share widget alongside "Copy" and "Share"
+      buttons.
+- [ ] AC-02: Given I tap "Copy", then the room code is copied to the clipboard
+      and the button label changes to a teal-check "Copied!" confirmation for
+      approximately 1.8 seconds, then reverts to "Copy". See
+      `docs/design/README.md` Screens - screen 3 and
+      `docs/design/screens/03-lobby.png`.
+- [ ] AC-03: Given I tap "Share", then the browser's Web Share API is invoked
+      with the room code and a short human-readable message (e.g. "Join my
+      QuibbleStone game! Room code: MOSS").
+- [ ] AC-04: Given the Web Share API is not available on the current browser
+      (e.g. desktop Chrome without share support), then the "Share" button is
+      hidden or falls back gracefully (e.g. the Copy affordance remains and no
+      JS error is thrown).
+- [ ] AC-05: Given the room code is shown in the Lobby, then it displays in
+      Fredoka 700, 38px, purple (`#6C4BD8`) with letter-spacing per the design
+      spec, and reads as plain text (no PII, just the code). See
+      `docs/design/README.md` Screens - screen 3.
+
+## Out of Scope
+- Sharing a link with the code pre-filled in the URL (a later enhancement).
+- QR code generation.
+- Deep-link / app-install flow.
+
+## Technical Notes
+- Web only (`web/src/`). No API change needed - the code is already in client
+  state from session-engine/01.
+- `navigator.clipboard.writeText()` for copy; check
+  `navigator.share && navigator.canShare()` for Web Share availability before
+  rendering the Share button.
+- The "Copied!" state is purely local component state (a boolean + a
+  `setTimeout` to revert); no server round-trip.
+- The "Copy" button is the outlined-purple secondary variant; the "Share"
+  button is the filled-purple style per the design spec (note: this is a
+  third button style - filled purple, not the outlined variant - see
+  `docs/design/README.md` Screens screen 3: "Share (filled purple, white text,
+  share-nodes icon)"). Add this variant to the MUI theme if it is not already
+  present.
+- See `docs/design/README.md` Interactions & Behavior - Copy/Share.
+
+## Dependencies
+- session-engine/01-create-room
+- session-engine/03-player-roster (Lobby screen must exist)
+- design-system/01-mui-theme-and-app-shell

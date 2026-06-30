@@ -9,7 +9,11 @@ See [feature.md](./feature.md).
 
 ## Acceptance Criteria
 - [ ] AC-01: Given a round has started with N players and a template with M blanks,
-      then the blanks are distributed across the players so the work is shared.
+      then the blanks are distributed **round-robin** (deal blanks out in player
+      order, wrapping around) so the work is shared: every blank assigned exactly
+      once, everyone contributes, and per-player counts differ by at most one (e.g.
+      8 blanks / 5 players -> 2/2/2/1/1). Round-robin (not chunked) spreads each
+      player's words across the story, which reads funnier on reveal.
 - [ ] AC-02: Given distribution, then each player is told which blank(s) they owe,
       by prompt only ("give me a plural noun") - no story context (Classic blind).
 - [ ] AC-03: Given the Slice-1 target of 2 players, then distribution works for 2
@@ -20,7 +24,8 @@ See [feature.md](./feature.md).
 ## Out of Scope
 - Letting players choose which blank they fill.
 - Re-assignment when a player disconnects (reconnect handling deferred).
-- Fairness/round-robin tuning beyond "shared and complete".
+- Weighted/skill-based allocation or letting the host tune the split - round-robin
+  is the fixed Slice-1 rule.
 
 ## Technical Notes
 - Distribution is pure logic over (players, blanks) - unit-test it (Vitest).

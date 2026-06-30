@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet">
+<style>
+  @keyframes qsGlow { 0%,100% { opacity:.55; transform:scale(1); } 50% { opacity:1; transform:scale(1.06); } }
+  @keyframes qsEye { 0%,100% { opacity:.85; } 50% { opacity:1; } }
+  @keyframes qsFloat { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-7px); } }
+  @keyframes qsTwinkle { 0%,100% { opacity:.25; transform:scale(.8); } 50% { opacity:.9; transform:scale(1.15); } }
+  @keyframes qsBob { 0%,100% { transform:translateY(0) rotate(0deg); } 50% { transform:translateY(-4px) rotate(-1.2deg); } }
+</style>
+</helmet>
+<div style="min-height:100%; display:flex; align-items:center; justify-content:center; padding:34px 20px; background:radial-gradient(120% 90% at 50% 0%, #34294f 0%, #241c38 55%, #1c1630 100%); font-family:'Nunito',sans-serif; box-sizing:border-box;">
+
+  <!-- PHONE -->
+  <div style="position:relative; width:390px; height:844px; border-radius:54px; background:#15101f; padding:11px; box-shadow:0 40px 90px -30px rgba(0,0,0,.7), 0 0 0 2px rgba(255,255,255,.04); box-sizing:border-box;">
+    <div style="position:relative; width:100%; height:100%; border-radius:44px; overflow:hidden; background:linear-gradient(180deg, #F8F1E2 0%, #F6EEDD 42%, #F0E6D0 100%);">
+
+      <!-- ambient magic glow -->
+      <div style="position:absolute; top:-90px; left:50%; transform:translateX(-50%); width:430px; height:430px; border-radius:50%; background:radial-gradient(circle, rgba(108,75,216,.30) 0%, rgba(255,178,46,.14) 42%, rgba(246,238,221,0) 70%); pointer-events:none;"></div>
+
+      <!-- floating sparkles -->
+      <div style="position:absolute; top:120px; left:46px; width:10px; height:10px; color:#FFB22E; animation:qsTwinkle 3.4s ease-in-out infinite;">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0l2.4 7.6L22 12l-7.6 2.4L12 24l-2.4-9.6L2 12l7.6-2.4z"/></svg>
+      </div>
+      <div style="position:absolute; top:188px; right:40px; width:14px; height:14px; color:#2FB8A0; animation:qsTwinkle 4.1s ease-in-out .6s infinite;">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0l2.4 7.6L22 12l-7.6 2.4L12 24l-2.4-9.6L2 12l7.6-2.4z"/></svg>
+      </div>
+      <div style="position:absolute; top:96px; right:78px; width:7px; height:7px; color:#FF6B57; animation:qsTwinkle 3.8s ease-in-out 1.1s infinite;">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0l2.4 7.6L22 12l-7.6 2.4L12 24l-2.4-9.6L2 12l7.6-2.4z"/></svg>
+      </div>
+
+      <!-- status bar -->
+      <div style="position:relative; display:flex; align-items:center; justify-content:space-between; padding:16px 28px 4px; font-family:'Nunito',sans-serif;">
+        <span style="font-size:15px; font-weight:800; color:#2B2622; letter-spacing:.2px;">9:41</span>
+        <div style="display:flex; align-items:center; gap:7px; color:#2B2622;">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="4" width="3" height="8" rx="1"/><rect x="10" y="1.5" width="3" height="10.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1" opacity=".35"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 2.5c2.4 0 4.6.9 6.2 2.4l1.4-1.5A11 11 0 0 0 8.5.5 11 11 0 0 0 .9 3.4l1.4 1.5A9 9 0 0 1 8.5 2.5z"/><path d="M8.5 6c1.3 0 2.5.5 3.4 1.3l1.4-1.5A8 8 0 0 0 8.5 3.8a8 8 0 0 0-4.8 2l1.4 1.5A5 5 0 0 1 8.5 6z"/><circle cx="8.5" cy="10" r="1.8"/></svg>
+          <div style="display:flex; align-items:center; gap:2px;"><div style="width:23px; height:12px; border:1.6px solid #2B2622; border-radius:3.5px; padding:1.6px; box-sizing:border-box;"><div style="width:75%; height:100%; background:#2B2622; border-radius:1.5px;"></div></div><div style="width:1.8px; height:5px; background:#2B2622; border-radius:0 1px 1px 0;"></div></div>
+        </div>
+      </div>
+
+      <!-- content -->
+      <div style="position:relative; height:calc(100% - 50px); display:flex; flex-direction:column; align-items:center; padding:8px 26px 26px; box-sizing:border-box;">
+
+        <!-- kicker -->
+        <div style="display:inline-flex; align-items:center; gap:7px; margin-top:6px; padding:6px 14px; background:rgba(108,75,216,.10); border:1px solid rgba(108,75,216,.22); border-radius:999px;">
+          <span style="width:6px; height:6px; border-radius:50%; background:#2FB8A0; box-shadow:0 0 8px #2FB8A0;"></span>
+          <span style="font-size:12.5px; font-weight:800; letter-spacing:1.4px; text-transform:uppercase; color:#6C4BD8;">Family Word Quest</span>
+        </div>
+
+        <!-- STONE TABLET HERO -->
+        <div style="position:relative; margin-top:20px; width:296px; padding:30px 26px 22px; border-radius:96px 96px 30px 30px; background:linear-gradient(168deg, #EFE3C7 0%, #E3D2AC 52%, #D6C194 100%); box-shadow:0 26px 50px -22px rgba(108,75,216,.55), inset 0 3px 0 rgba(255,255,255,.55), inset 0 -5px 14px rgba(120,96,52,.4), 0 0 0 6px rgba(255,255,255,.30); box-sizing:border-box;">
+          <!-- glowing carved rim -->
+          <div style="position:absolute; inset:9px; border-radius:84px 84px 22px 22px; border:2.5px solid rgba(120,96,52,.32); box-shadow:inset 0 0 18px rgba(255,178,46,.30); pointer-events:none;"></div>
+
+          <!-- top rune inscription -->
+          <div style="display:flex; justify-content:center; gap:11px; margin-bottom:6px; color:rgba(108,75,216,.55);">
+            <span style="font-family:'Fredoka',sans-serif; font-size:13px; font-weight:600;">✦</span>
+            <span style="font-family:'Fredoka',sans-serif; font-size:13px; font-weight:600; color:rgba(255,178,46,.85); text-shadow:0 0 8px rgba(255,178,46,.6);">◈</span>
+            <span style="font-family:'Fredoka',sans-serif; font-size:13px; font-weight:600;">✦</span>
+          </div>
+
+          <!-- wordmark -->
+          <div style="text-align:center; font-family:'Fredoka',sans-serif; font-weight:700; font-size:39px; line-height:.98; letter-spacing:.5px; text-shadow:0 2px 0 rgba(255,255,255,.45), 0 -1.5px 1px rgba(110,84,40,.4), 0 3px 6px rgba(110,84,40,.25);">
+            <span style="color:#6C4BD8;">Quibble</span><span style="color:#FFB22E;">Stone</span>
+          </div>
+          <div style="text-align:center; margin-top:4px; font-family:'Nunito',sans-serif; font-size:12.5px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:rgba(43,38,34,.5);">Carve a silly tale</div>
+
+          <!-- MASCOT -->
+          <div style="display:flex; justify-content:center; margin-top:10px; animation:qsBob 5s ease-in-out infinite;">
+            <svg width="158" height="150" viewBox="0 0 158 150">
+              <defs>
+                <radialGradient id="qsAura" cx="50%" cy="48%" r="55%">
+                  <stop offset="0%" stop-color="#FFB22E" stop-opacity=".55"/>
+                  <stop offset="45%" stop-color="#2FB8A0" stop-opacity=".22"/>
+                  <stop offset="100%" stop-color="#2FB8A0" stop-opacity="0"/>
+                </radialGradient>
+                <linearGradient id="qsBody" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#F1E6CC"/>
+                  <stop offset="55%" stop-color="#DECBA0"/>
+                  <stop offset="100%" stop-color="#C7B083"/>
+                </linearGradient>
+                <linearGradient id="qsArm" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#E7D6B0"/>
+                  <stop offset="100%" stop-color="#CBB488"/>
+                </linearGradient>
+                <filter id="qsEyeGlow" x="-60%" y="-60%" width="220%" height="220%">
+                  <feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <!-- aura -->
+              <ellipse cx="79" cy="78" rx="70" ry="64" fill="url(#qsAura)" style="animation:qsGlow 4.5s ease-in-out infinite; transform-origin:79px 78px;"/>
+              <!-- feet -->
+              <ellipse cx="60" cy="135" rx="17" ry="10" fill="#BFA87C"/>
+              <ellipse cx="98" cy="135" rx="17" ry="10" fill="#BFA87C"/>
+              <!-- arms -->
+              <rect x="22" y="86" width="20" height="40" rx="10" fill="url(#qsArm)"/>
+              <rect x="116" y="86" width="20" height="40" rx="10" fill="url(#qsArm)"/>
+              <!-- body -->
+              <rect x="33" y="40" width="92" height="92" rx="34" fill="url(#qsBody)" stroke="#B49B6E" stroke-width="2"/>
+              <!-- carved cracks -->
+              <path d="M52 48 l7 12 l-5 9" stroke="#B49B6E" stroke-width="2" fill="none" stroke-linecap="round" opacity=".55"/>
+              <path d="M112 70 l-9 7" stroke="#B49B6E" stroke-width="2" fill="none" stroke-linecap="round" opacity=".5"/>
+              <!-- moss accents -->
+              <ellipse cx="42" cy="52" rx="9" ry="5" fill="#2FB8A0" opacity=".55"/>
+              <ellipse cx="118" cy="120" rx="8" ry="4.5" fill="#2FB8A0" opacity=".5"/>
+              <!-- forehead rune -->
+              <path d="M79 52 l6 6 l-6 6 l-6 -6 z" fill="#FFB22E" opacity=".9" filter="url(#qsEyeGlow)"/>
+              <!-- brows -->
+              <rect x="50" y="74" width="16" height="4.5" rx="2.2" fill="#9C815A"/>
+              <rect x="92" y="74" width="16" height="4.5" rx="2.2" fill="#9C815A"/>
+              <!-- eyes -->
+              <g filter="url(#qsEyeGlow)" style="animation:qsEye 3.5s ease-in-out infinite;">
+                <rect x="50" y="80" width="16" height="20" rx="8" fill="#2FB8A0"/>
+                <rect x="92" y="80" width="16" height="20" rx="8" fill="#2FB8A0"/>
+              </g>
+              <circle cx="55" cy="86" r="3.2" fill="#EAFBF6"/>
+              <circle cx="97" cy="86" r="3.2" fill="#EAFBF6"/>
+              <!-- cheeks -->
+              <circle cx="46" cy="106" r="4" fill="#FF6B57" opacity=".5"/>
+              <circle cx="112" cy="106" r="4" fill="#FF6B57" opacity=".5"/>
+              <!-- smile -->
+              <path d="M64 110 q15 13 30 0" stroke="#7C6442" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- tagline -->
+        <p style="margin:20px 6px 0; text-align:center; font-family:'Nunito',sans-serif; font-size:16px; line-height:1.45; font-weight:600; color:rgba(43,38,34,.78); text-wrap:pretty;">
+          Fill in the blanks together and watch a wild story get carved into stone — perfect for car rides &amp; kitchen tables.
+        </p>
+
+        <!-- actions -->
+        <div style="width:100%; margin-top:auto; display:flex; flex-direction:column; gap:14px;">
+          <button style="display:flex; align-items:center; justify-content:center; gap:11px; width:100%; height:62px; border:none; border-radius:20px; cursor:pointer; background:linear-gradient(180deg, #FFC24E 0%, #FFB22E 100%); color:#2B2622; font-family:'Fredoka',sans-serif; font-weight:600; font-size:20px; letter-spacing:.3px; box-shadow:0 12px 22px -8px rgba(255,178,46,.85), inset 0 2px 0 rgba(255,255,255,.5);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2B2622" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            Create a game
+          </button>
+          <button style="display:flex; align-items:center; justify-content:center; gap:11px; width:100%; height:60px; border:2.5px solid #6C4BD8; border-radius:20px; cursor:pointer; background:rgba(108,75,216,.06); color:#6C4BD8; font-family:'Fredoka',sans-serif; font-weight:600; font-size:20px; letter-spacing:.3px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6C4BD8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7h3a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3"/></svg>
+            Join a game
+          </button>
+          <div style="display:flex; align-items:center; justify-content:center; gap:7px; margin-top:2px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2FB8A0" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+            <span style="font-family:'Nunito',sans-serif; font-size:13.5px; font-weight:700; color:rgba(43,38,34,.62);">No account needed — just pick a name &amp; play</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- home indicator -->
+      <div style="position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:128px; height:5px; border-radius:3px; background:rgba(43,38,34,.32);"></div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:440,&quot;height&quot;:900}}"></script>
+</body>
+</html>
