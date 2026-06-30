@@ -128,11 +128,20 @@ cd web && npm install && npm run dev               # http://localhost:5173
 
 # Infra (no Azure login needed)
 az bicep build --file infra/main.bicep
+
+# Tests (the harness lives in platform-devops/01)
+cd web && npm run test:unit       # Vitest - pure engine + content logic (src/**/*.test.ts)
+cd web && npm run test:e2e        # Playwright - browser smoke test (loads app, sees "Connected")
 ```
 
-There is **no test framework yet** - the walking skeleton has none. Setting one up
-(Vitest for the engine logic; Playwright for the 2-player real-time flow) is an
-early `platform-devops` task. See `.claude/agents/testing-agent.md`.
+The canonical test harness is **Vitest** (pure logic, config `web/vitest.config.ts`)
+plus **Playwright** (browser smoke test, config `playwright.config.ts` at the repo
+root, specs in `tests/`). `npm run test:unit` is the CI gate
+(`.github/workflows/ci.yml`): a failing spec fails the run. `npm run test:e2e` needs
+a running full stack - it boots the web dev server but the smoke test asserts
+"Connected", so the **API hub must be up on `:5180`** (start it first); Playwright's
+Chromium is pre-provisioned (do **not** run `playwright install`). See
+`.claude/agents/testing-agent.md` for strategy and `web/README.md` for details.
 
 ## 10. Things that look wrong but aren't
 

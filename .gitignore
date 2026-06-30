@@ -461,6 +461,16 @@ infra/*.json
 .claude/worktrees/
 
 # ============================================================================
+#  Playwright (e2e test harness - platform-devops/01)
+# ============================================================================
+# Run output and reports are regenerated on every run; the browsers live in
+# the pre-installed PLAYWRIGHT_BROWSERS_PATH, never in the repo.
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
+# ============================================================================
 #  OS / editor
 # ============================================================================
 .DS_Store
