@@ -25,6 +25,7 @@
 // ----------------------------------------------------------------------------
 
 using QuibbleStone.Api.Hubs;
+using QuibbleStone.Api.Safety;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +33,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 // REST controllers (attribute-routed). See Controllers/HealthController.cs.
 builder.Services.AddControllers();
+
+// Child safety (README section 6, non-negotiable). The ONE server-side content
+// safety filter: every free-text surface (nicknames, blank answers) resolves
+// IContentSafetyFilter and routes player text through it BEFORE storing or showing
+// it (child-safety/01). Registered as a singleton because the implementation is
+// stateless after construction and loads its bundled baseline blocklist once - so
+// the hub and any future REST controller share ONE instance and ONE blocklist
+// (AC-05). The check is authoritative / server-side (AC-04). Consuming surfaces
+// (nicknames, answers) call it in their own later stories; this story owns the
+// contract + the single registration.
+builder.Services.AddSingleton<IContentSafetyFilter, ContentSafetyFilter>();
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
