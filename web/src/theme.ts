@@ -181,19 +181,10 @@ export const theme = createTheme({
         },
       },
     },
-    // App-bar icon buttons: 42x42, radius 14, translucent warm-brown fill
-    // (AC-03). IconButton is also used elsewhere, so this targets the
-    // dedicated "appBarIcon" size/color combo via a variant-free override is
-    // not possible globally - the <AppBar> component applies these via sx
-    // using theme tokens (see AppBar.tsx) to avoid leaking this recipe onto
-    // unrelated icon buttons across the app.
-    MuiIconButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 14,
-        },
-      },
-    },
+    // App-bar icon buttons (42x42, radius 14, translucent warm-brown fill,
+    // AC-03) are styled locally in <AppBar> via sx + theme tokens, NOT a global
+    // MuiIconButton override - that would leak the app-bar recipe onto every
+    // IconButton across the app. Keep the recipe where it belongs (AppBar.tsx).
     // Button family (AC-04 gold CTA / AC-05 outlined purple secondary).
     // DESIGN_RULES "Consistent Buttons" - fixed contracts, never re-specified
     // per screen. Every <Button variant="contained"> is the gold primary CTA;
@@ -247,13 +238,6 @@ export const theme = createTheme({
             border: `2.5px solid ${tokens.textMutedSoft}`,
             color: tokens.textMutedSoft,
           },
-        },
-        // Filled purple (used for e.g. the Lobby "Share" action per the design
-        // pack) - not one of this story's two mandated contracts, but kept
-        // here alongside its siblings so any future usage stays theme-driven.
-        text: {
-          height: 60,
-          color: tokens.purple,
         },
       },
     },

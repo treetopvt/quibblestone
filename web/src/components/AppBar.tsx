@@ -44,6 +44,8 @@ export interface AppBarProps {
 
 /** The fixed 42x42 footprint shared by every icon button and its balancing spacer. */
 const ICON_SLOT_SIZE = 42;
+/** App-bar icon-button corner radius (AC-03). Kept local so it does not leak onto other IconButtons. */
+const ICON_SLOT_RADIUS = 14;
 
 function AppBarSlot({ action }: { action: AppBarAction | undefined }): ReactNode {
   const theme = useTheme();
@@ -61,6 +63,7 @@ function AppBarSlot({ action }: { action: AppBarAction | undefined }): ReactNode
       sx={{
         width: ICON_SLOT_SIZE,
         height: ICON_SLOT_SIZE,
+        borderRadius: `${ICON_SLOT_RADIUS}px`,
         bgcolor: theme.palette.appBarIcon.fill,
         '&:hover': { bgcolor: theme.palette.appBarIcon.hoverFill },
       }}
