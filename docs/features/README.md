@@ -34,10 +34,10 @@ the thin vertical slice that gets the family laughing in a car:
 - `the-reveal/` - animated text reveal + host-read-aloud
 - `child-safety/` - profanity filter, family-safe toggle (cross-cutting)
 
-They are **empty on purpose**: story files (and `feature.md`) are written in a
-**separate backlog pass**, decomposing one slice at a time. Phase 2-4 feature
-folders (accounts, billing, AI content/illustration/voice, add-on packs) get
-created when their phase comes up, so the tree stays honest about what is
+Each is **now specified** with a `feature.md` and order-prefixed story files -
+this was the separate backlog pass that decomposes one slice at a time. Phase 2-4
+feature folders (accounts, billing, AI content/illustration/voice, add-on packs)
+are created when their phase comes up, so the tree stays honest about what is
 actually ready to build.
 
 ## Templates
