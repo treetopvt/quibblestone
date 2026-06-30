@@ -41,5 +41,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: npm ci
+      # Unit tests (Vitest) gate the build: a failing pure-logic spec fails the
+      # run (platform-devops/01 AC-03). Playwright e2e is NOT in CI yet - the
+      # smoke test needs the API hub running; that lands with a runnable stack.
+      - name: Unit tests
+        run: npm run test:unit
       - name: Build
         run: npm run build
