@@ -201,6 +201,15 @@ public sealed record RevealWordDto(string Word, string Nickname, string Variant)
 /// <param name="Words">The ordered reveal words (one per blank position, blank order).</param>
 public sealed record RevealReadyDto(string TemplateId, IReadOnlyList<RevealWordDto> Words);
 
+/// <summary>
+/// Broadcast as "RoundAborted" when a player leaves (a dropped connection or a
+/// deliberate leave) DURING collection, so the round can no longer complete. Carries
+/// a friendly reason the remaining players see on the lobby they are dropped back to.
+/// A small group-play recovery beyond Slice-1's parked reconnect handling.
+/// </summary>
+/// <param name="Reason">A friendly, kid-readable explanation shown on the lobby.</param>
+public sealed record RoundAbortedDto(string Reason);
+
 public sealed class GameHub : Hub
 {
     // The largest a display name may be (AC-03). Kept in sync with the web
@@ -362,10 +371,7 @@ public sealed class GameHub : Hub
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var room = _rooms.RemoveConnection(Context.ConnectionId);
-        if (room is not null)
-        {
-            await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
-        }
+        await HandlePlayerLeftAsync(room);
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -393,10 +399,7 @@ public sealed class GameHub : Hub
         }
 
         var room = _rooms.RemoveConnection(Context.ConnectionId);
-        if (room is not null)
-        {
-            await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
-        }
+        await HandlePlayerLeftAsync(room);
     }
 
     /// <summary>
@@ -671,6 +674,37 @@ public sealed class GameHub : Hub
         }
 
         return new SubmitWordResultDto(true, null);
+    }
+
+    /// <summary>
+    /// group-play recovery: shared teardown when a player leaves a room (via a
+    /// dropped connection or a deliberate LeaveRoom). If the room still has members
+    /// and its round is mid-collection ("prompting"), that round can no longer
+    /// complete - the departed player's assigned blanks will never be submitted, so
+    /// the reveal would never fire and the survivors would hang. Reset the round and
+    /// broadcast "RoundAborted" so every remaining player drops back to the still-live
+    /// lobby with a friendly notice, then always re-broadcast the trimmed roster. A
+    /// round already at "reveal" is effectively done (everyone is on the reveal /
+    /// recap), so it is left untouched. Small recovery beyond Slice-1's parked
+    /// reconnect handling; host migration (if the HOST leaves) is still parked.
+    /// </summary>
+    private async Task HandlePlayerLeftAsync(Room? room)
+    {
+        if (room is null)
+        {
+            return;
+        }
+
+        var round = room.CurrentRound;
+        if (round is not null && string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
+        {
+            room.BackToLobby();
+            await Clients.Group(room.Code).SendAsync(
+                "RoundAborted",
+                new RoundAbortedDto("A carver left, so we headed back to the lobby. Start a fresh round when your crew's ready."));
+        }
+
+        await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
     }
 
     /// <summary>

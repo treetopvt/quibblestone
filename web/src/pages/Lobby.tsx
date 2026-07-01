@@ -79,6 +79,14 @@ export interface LobbyProps {
    * / AC-04). Only ever invoked from the host-only Start CTA below.
    */
   onStart: (familySafe: boolean) => void;
+  /**
+   * Optional notice shown at the top of the lobby - e.g. "a carver left, so the
+   * round was reset" when the hub aborts a round mid-collection (group-play
+   * recovery). Omitted/null renders nothing.
+   */
+  notice?: string | null;
+  /** Dismiss the notice banner (optional; only wired when a notice can appear). */
+  onDismissNotice?: () => void;
 }
 
 // A tile scales in from nothing when a new player fills a slot (AC-02). Transform
@@ -471,7 +479,7 @@ function ShareWidget({ code }: { code: string }) {
   );
 }
 
-export function Lobby({ room, isHost, onLeave, onStart }: LobbyProps) {
+export function Lobby({ room, isHost, onLeave, onStart, notice, onDismissNotice }: LobbyProps) {
   const theme = useTheme();
   const players = room.players;
   const emptyCount = Math.max(0, MAX_PLAYERS - players.length);
@@ -529,6 +537,54 @@ export function Lobby({ room, isHost, onLeave, onStart }: LobbyProps) {
       />
 
       <Stack sx={{ px: 5.5, pt: 1 }} spacing={0}>
+        {/* Group-play recovery notice: shown when a round was reset because a carver
+            left mid-collection (the hub's "RoundAborted"). Dismissible; theme-driven. */}
+        {notice && (
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.25,
+              px: 2,
+              py: 1.5,
+              mb: 3,
+              borderRadius: '14px',
+              bgcolor: alpha(theme.palette.coral.main, 0.14),
+              border: `1.5px solid ${alpha(theme.palette.coral.main, 0.35)}`,
+            }}
+          >
+            <Typography
+              sx={{
+                flex: 1,
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 13,
+                color: 'text.primary',
+              }}
+            >
+              {notice}
+            </Typography>
+            {onDismissNotice && (
+              <Box
+                component="button"
+                type="button"
+                onClick={onDismissNotice}
+                aria-label="Dismiss notice"
+                sx={{
+                  border: 'none',
+                  bgcolor: 'transparent',
+                  cursor: 'pointer',
+                  color: 'text.secondary',
+                  display: 'flex',
+                  p: 0.5,
+                }}
+              >
+                <FontAwesomeIcon icon="xmark" style={{ width: 16, height: 16 }} />
+              </Box>
+            )}
+          </Box>
+        )}
+
         {/* Stone-tablet share widget (session-engine/04): room code + Copy/Share. */}
         <ShareWidget code={room.code} />
 

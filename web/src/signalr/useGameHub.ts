@@ -295,6 +295,10 @@ export interface UseGameHub {
    * roster preserved. Returns a not-connected failure if the hub is not ready.
    */
   backToLobby: () => Promise<{ ok: boolean; error: string | null }>;
+  /** A friendly notice to show on the lobby when a round was reset (a player left mid-round), or null. */
+  roundNotice: string | null;
+  /** Dismiss the round-aborted lobby notice. */
+  dismissRoundNotice: () => void;
   /**
    * Create a room and become its host (session-engine/01). On success updates
    * `room` and resolves with the created room's state, or undefined if the
@@ -337,6 +341,10 @@ export function useGameHub(): UseGameHub {
   // The shared reveal payload (group-play/03), set from "RevealReady" and cleared
   // on leave / round reset. Non-null routes every player into the shared Reveal.
   const [reveal, setReveal] = useState<RevealInfo | null>(null);
+  // A friendly notice shown on the lobby when a round was reset because a player
+  // left mid-collection (group-play recovery, "RoundAborted"). Cleared when a fresh
+  // round starts, on leave, and on manual dismiss.
+  const [roundNotice, setRoundNotice] = useState<string | null>(null);
   // Whether this client is currently seated in a room, plus that room's code.
   // Kept as refs (not state) so the stable RosterChanged handler and clearRoom
   // read the latest value without re-binding. The handler guards on inRoomRef so
@@ -388,6 +396,7 @@ export function useGameHub(): UseGameHub {
       setAssignedBlankIndices(null);
       setCollectProgress(null);
       setReveal(null);
+      setRoundNotice(null); // a fresh round clears any prior "someone left" notice.
       setRound(info);
     };
     connection.on('RoundStarted', handleRoundStarted);
@@ -441,6 +450,21 @@ export function useGameHub(): UseGameHub {
     };
     connection.on('BackToLobby', handleBackToLobby);
 
+    // Round aborted (group-play recovery): a player left mid-collection, so the hub
+    // reset the round and broadcasts "RoundAborted" with a friendly reason. Every
+    // remaining player drops the round/reveal/progress/assignment (like BackToLobby)
+    // and falls back to the still-live Lobby, where the reason shows as a notice.
+    // Guarded by inRoomRef so a broadcast racing a leave cannot touch a gone-Home client.
+    const handleRoundAborted = (payload: { reason: string }) => {
+      if (cancelled || !inRoomRef.current) return;
+      setRound(null);
+      setReveal(null);
+      setCollectProgress(null);
+      setAssignedBlankIndices(null);
+      setRoundNotice(payload.reason);
+    };
+    connection.on('RoundAborted', handleRoundAborted);
+
     connection.onreconnecting(() => {
       if (!cancelled) setStatus('connecting');
     });
@@ -469,6 +493,7 @@ export function useGameHub(): UseGameHub {
       connection.off('CollectProgress', handleCollectProgress);
       connection.off('RevealReady', handleRevealReady);
       connection.off('BackToLobby', handleBackToLobby);
+      connection.off('RoundAborted', handleRoundAborted);
       void connection.stop();
     };
   }, []);
@@ -582,6 +607,8 @@ export function useGameHub(): UseGameHub {
     [],
   );
 
+  const dismissRoundNotice = useCallback(() => setRoundNotice(null), []);
+
   const clearRoom = useCallback(() => {
     const connection = connectionRef.current;
     const code = roomCodeRef.current;
@@ -594,6 +621,7 @@ export function useGameHub(): UseGameHub {
     setAssignedBlankIndices(null); // group-play/02: drop this client's blanks on leave.
     setCollectProgress(null); // group-play/03: drop collection progress on leave.
     setReveal(null); // group-play/03: drop any shared reveal on leave.
+    setRoundNotice(null); // group-play recovery: drop any round-aborted notice on leave.
     // Tell the server so this connection leaves the room group and drops off the
     // roster for everyone else (AC-04). Fire-and-forget: returning Home must not
     // block on the network, and a failure (e.g. already disconnected) is harmless.
@@ -615,6 +643,8 @@ export function useGameHub(): UseGameHub {
     joinRoom,
     startRound,
     backToLobby,
+    roundNotice,
+    dismissRoundNotice,
     clearRoom,
   };
 }

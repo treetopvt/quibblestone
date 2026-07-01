@@ -182,6 +182,8 @@ export default function App() {
     joinRoom,
     startRound,
     backToLobby,
+    roundNotice,
+    dismissRoundNotice,
     clearRoom,
   } = useGameHub();
   const [view, setView] = useState<View>('home');
@@ -368,6 +370,8 @@ export default function App() {
         isHost={isHost}
         onLeave={handleGoHome}
         onStart={handleStartRound}
+        notice={roundNotice}
+        onDismissNotice={dismissRoundNotice}
       />
     );
   }
