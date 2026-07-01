@@ -1,0 +1,93 @@
+# Story: Sign-in and restore on a new device
+
+**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** TBD
+
+## Context
+A purchaser who bought the family plan on their phone should not have to
+re-buy it on a tablet, a laptop, or after reinstalling the PWA. This story
+lets a returning purchaser sign back into their lightweight account
+(accounts-identity/02) on a new device, which is the read-side trigger for
+billing-entitlements/05's restore of what they own. Anonymous play is
+untouched - no player is ever asked to sign in to join a room. See
+[feature.md](./feature.md) and README section 3 ("the account hooks go in
+early even if the UI is minimal").
+
+## Acceptance Criteria
+- [ ] AC-01: Given a purchaser has an existing account (accounts-identity/02)
+      and opens QuibbleStone on a new device, when they choose to sign in and
+      provide their email/OAuth identity, then their existing account is
+      recognized and no duplicate account is created.
+- [ ] AC-02: Given a purchaser signs in successfully, when
+      billing-entitlements/05's restore view is opened, then it can look up
+      that purchaser's entitlements without any device-specific state - the
+      new device now behaves identically to the original purchasing device
+      for entitlement purposes.
+- [ ] AC-03: Given a device where no one has signed in, when a player opens
+      the app and plays (single-player or joins a group by code), then they
+      are never prompted to sign in, and declining/ignoring any visible
+      sign-in affordance has zero effect on their ability to play the free
+      tier.
+- [ ] AC-04: Given the sign-in surface, when it is placed in the app, then it
+      lives in a purchaser-facing area (Home's settings/account entry point or
+      the restore/manage screen) - never inside the join code, lobby, word
+      entry, or reveal flow a child would be using.
+- [ ] AC-05: Given a sign-in attempt with an email/OAuth identity that has no
+      matching account, then the system does not leak whether an account
+      exists for that identity beyond what is functionally necessary (no
+      account is silently created as a side effect of a failed sign-in
+      attempt; the user is guided to purchase, not left in an ambiguous
+      state).
+- [ ] AC-06: Given no accounts or purchases exist anywhere yet (day one of
+      this feature shipping), then this story's sign-in surface is inert
+      (nothing to restore) without erroring - graceful for the common case of
+      a family that has never paid for anything.
+
+## Out of Scope
+- Any password-reset / account-recovery flow beyond what the chosen minimal
+  auth mechanism (accounts-identity/02) already provides natively (e.g. OAuth
+  provider or magic-link handles this outside our app).
+- Multi-device *simultaneous* session management (seeing "signed in on 2
+  devices," remote sign-out) - a single sign-in-and-restore is enough for
+  Phase 2.
+- The entitlement list UI itself and the "what's unlocked" rendering
+  (billing-entitlements/05 owns that view; this story owns getting the
+  purchaser signed in so that view has an identity to query).
+- Any change to how players join rooms - AC-03 is a guard, not new join-flow
+  work.
+
+## Technical Notes
+- Web: a small `SignIn`/`Account` surface (new `web/src/pages/` component,
+  named to avoid clashing with existing screens) reachable only from a
+  clearly purchaser-labeled entry point (e.g. a small "Account" affordance in
+  the AppBar or Home's settings area - reuse `web/src/components/AppBar.tsx`,
+  do not fork a second app-bar variant per CLAUDE.md section 4). Styled from
+  `web/src/theme.ts` tokens only, consistent with the stone-tablet/Guardian
+  visual language - no separate "corporate account page" look.
+- API: a sign-in endpoint (REST controller, `api/src/Controllers/`) that takes
+  the same minimal identity used at account creation (accounts-identity/02)
+  and resolves it to the existing `Account` record via `IAccountStore` - it
+  does not create a new record on a match (AC-01) and does not create one on a
+  miss (AC-05).
+- Session/token handling for "signed in as this purchaser" should be a
+  short-lived, purchaser-scoped credential (e.g. a signed cookie or bearer
+  token) - it must never be required by, or checked in, the SignalR game hub
+  or any player-facing endpoint (AC-03/AC-04). Keep it fully separate from
+  room/player state (`api/src/Rooms/`).
+- No secrets in `VITE_*` (CLAUDE.md section 4/6); any signing key for the
+  purchaser credential lives in Azure Key Vault alongside the Stripe keys from
+  billing-entitlements/03.
+
+## Tests
+| AC | Test |
+|---|---|
+| AC-01 | `api/tests/Accounts/SignInTests.cs (to be created): sign-in with a known identity resolves the same account id twice.` |
+| AC-02 | `manual: sign in on a second simulated device/browser profile - confirm billing-entitlements/05's restore view shows the same entitlements.` |
+| AC-03 | `tests/*.spec.ts (Playwright smoke, extended): full free-play round with the sign-in affordance visible but untouched.` |
+| AC-04 | `manual: UI audit - confirm the sign-in entry point does not appear on Join, Lobby, FillBlank, or Reveal.` |
+| AC-05 | `api/tests/Accounts/SignInTests.cs: sign-in with an unknown identity creates no account row.` |
+| AC-06 | `manual: fresh environment with zero accounts/entitlements - open the restore view, confirm an empty-but-friendly state, no error.` |
+
+## Dependencies
+- accounts-identity/02 (the account this story signs back into).
+- billing-entitlements/01 (the entitlement model story 03 restores).
+- billing-entitlements/05 (the restore/manage view this sign-in feeds).
