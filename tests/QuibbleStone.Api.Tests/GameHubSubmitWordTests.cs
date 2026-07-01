@@ -44,7 +44,7 @@ public class GameHubSubmitWordTests
         SpySafetyFilter safety,
         string connectionId)
     {
-        var hub = new GameHub(registry, safety, new TemplateCatalog(), new FamilySafeContentSelector());
+        var hub = new GameHub(registry, safety, new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector());
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
         hub.Clients = clients;

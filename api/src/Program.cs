@@ -60,6 +60,16 @@ builder.Services.AddSingleton<IContentSafetyFilter, ContentSafetyFilter>();
 builder.Services.AddSingleton<TemplateCatalog>();
 builder.Services.AddSingleton<FamilySafeContentSelector>();
 
+// story-selection/01: the server-side story-LENGTH content stage - the second
+// stage of the ONE selection pipeline, sitting NEXT TO the family-safe gate. It
+// classifies a template as quick (<= 6 blanks) or full (>= 7) purely from
+// TemplateCatalogEntry.BlankCount (length is DERIVED, never authored) and applies
+// the empty-pool fallback that degrades to the family-safe pool rather than
+// failing a round (AC-06). Pure + stateless, so it is a singleton like the
+// family-safe selector. It is the server mirror of web/src/content/length.ts
+// (kept in sync BY HAND) and NEVER runs before or around the family-safe gate.
+builder.Services.AddSingleton<LengthContentSelector>();
+
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
 // so every transient GameHub instance (SignalR builds a fresh hub per
 // invocation) shares the SAME set of active rooms. This is the toy's ONLY room

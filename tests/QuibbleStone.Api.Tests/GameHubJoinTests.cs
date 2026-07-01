@@ -37,7 +37,7 @@ public class GameHubJoinTests
         BuildHub(string connectionId)
     {
         var registry = new RoomRegistry();
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector());
 
         var clients = new RecordingClients();
         var groups = new RecordingGroups();

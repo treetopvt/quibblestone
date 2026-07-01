@@ -250,21 +250,30 @@ public sealed class GameHub : Hub
     // Classic-blind mode config. A mode PICKER is out of scope here.
     private const string ClassicBlindMode = "classic-blind";
 
+    // story-selection/01: the default length preference until story-selection/02
+    // wires a UI to pick one. "any" means the length stage does not filter, so
+    // the pick draws from the WHOLE family-safe pool (both quick and full) -
+    // observable behavior is unchanged from before this stage existed (AC-05).
+    private const string DefaultLengthPreference = LengthContentSelector.Any;
+
     private readonly RoomRegistry _rooms;
     private readonly IContentSafetyFilter _safety;
     private readonly TemplateCatalog _catalog;
     private readonly FamilySafeContentSelector _familySafe;
+    private readonly LengthContentSelector _length;
 
     public GameHub(
         RoomRegistry rooms,
         IContentSafetyFilter safety,
         TemplateCatalog catalog,
-        FamilySafeContentSelector familySafe)
+        FamilySafeContentSelector familySafe,
+        LengthContentSelector length)
     {
         _rooms = rooms;
         _safety = safety;
         _catalog = catalog;
         _familySafe = familySafe;
+        _length = length;
     }
 
     /// <summary>
@@ -524,24 +533,40 @@ public sealed class GameHub : Hub
                 "You need at least one more carver before you can start.");
         }
 
-        // 4. Select a template: the family-safe toggle the host sent decides which
-        //    catalog entries are allowed (AC-04), and the server auto-picks one at
-        //    random from that subset (no picker UI in Slice 1). Filtering happens
-        //    HERE, server-side, so the toggle is authoritative - the client never
-        //    sends a template id.
-        var allowed = _familySafe.SelectAllowed(_catalog.Entries, familySafe);
-        if (allowed.Count == 0)
+        // 4. Select a template through the ONE explicit selection pipeline
+        //    (story-selection/01 AC-03). The stages run in a FIXED order and the
+        //    family-safe gate is ALWAYS FIRST - no path around it:
+        //
+        //    Stage 1 - FAMILY-SAFE GATE (always first, AC-04): the family-safe
+        //    toggle the host sent decides which catalog entries are allowed.
+        //    Filtering happens HERE, server-side, so the toggle is authoritative -
+        //    the client never sends a template id.
+        var familySafePool = _familySafe.SelectAllowed(_catalog.Entries, familySafe);
+        if (familySafePool.Count == 0)
         {
             // Defensive: every current seed template is family-safe, so this is
             // structurally unreachable today - but fail friendly rather than throw
             // if the catalog is ever emptied or fully non-family-safe under a
-            // family-safe round.
+            // family-safe round. This is the ONLY empty-pool that fails the round;
+            // an empty LENGTH pool degrades instead (Stage 2), never errors.
             return new StartRoundResultDto(
                 false,
                 "No tales are available right now - please try again.");
         }
 
-        var chosen = allowed[Random.Shared.Next(allowed.Count)];
+        //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
+        //    family-safe pool to the requested length class. This story adds NO
+        //    length UI, so the preference is "any" (no length filtering) and the
+        //    pool is unchanged from Stage 1 - observable behavior is identical to
+        //    before this stage existed (AC-05). story-selection/02 will pass a real
+        //    preference here. If a length preference would leave an EMPTY pool, the
+        //    selector DEGRADES to the family-safe pool rather than failing the round
+        //    (a longer story, never an error) - the fallback lives in THIS pipeline,
+        //    not in callers.
+        var pool = _length.SelectByLengthOrFallback(familySafePool, DefaultLengthPreference);
+
+        //    Stage 3 - RANDOM PICK from the final pool (no picker UI in Slice 1).
+        var chosen = pool[Random.Shared.Next(pool.Count)];
 
         // 5. Set the room's round state (round 1, Classic blind, "prompting") AND
         //    compute the round-robin blank assignment (group-play/02). The deal

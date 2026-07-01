@@ -52,15 +52,33 @@ string value here.
 
 ### How long should a story be?
 
-Aim for **9-10 blanks spread across 4-6 sentences**. This matters for
-multiplayer: group play deals blanks round-robin across the roster
+Most stories should aim for **9-10 blanks spread across 4-6 sentences** (a
+"full" story - see quick vs full below). This matters for multiplayer: group
+play deals blanks round-robin across the roster
 (`web/src/engine/distribute.ts`), so a story only gives every player a turn
 when it has at least as many blanks as there are players - and it only gives
-everyone SEVERAL turns when it has 2-3x that. A 4-blank story leaves half of
-a 6-player room with nothing to do. Longer prose between the blanks also
-makes the reveal read like an actual story instead of a caption. Don't go
+everyone SEVERAL turns when it has 2-3x that. Longer prose between the blanks
+also makes the reveal read like an actual story instead of a caption. Don't go
 past ~12 blanks though: a solo player fills every blank alone, and that
 starts to feel like homework.
+
+### Quick vs full (story length classes)
+
+The selection pipeline (`web/src/content/length.ts`) sorts every template into
+one of two **length classes**, and the class is **derived from the blank count,
+never authored** - there is no length tag on a template:
+
+- **quick** - **6 blanks or fewer** (`QUICK_MAX_BLANKS`). A short story a solo
+  player or a tiny group finishes fast. Aim for **4-6 blanks**.
+- **full** - **7 or more blanks**. The longer stories above; aim for **8+**.
+
+So when you write a NEW template, land it clearly in one class: a quick story
+at 4-6 blanks, or a full story at 8+. Avoid the 7-blank borderline unless you
+have a reason. The seed library ships at least four quick stories (see the
+`QUICK stories` block at the bottom of `seedLibrary.ts`) alongside the full
+ones; both clear the exact same family-safe / all-ages / exactly-3-spark-words
+bar. If you add or resize a quick story, update its `BlankCount` in the server
+mirror `api/src/Content/TemplateCatalog.cs` too.
 
 If two blanks sit near each other, give the later one a prompt that
 distinguishes it ("Give me ANOTHER describing word") and a `subHint` that

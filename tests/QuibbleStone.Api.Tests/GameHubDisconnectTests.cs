@@ -33,7 +33,7 @@ public class GameHubDisconnectTests
     private static (GameHub Hub, RoomRegistry Registry, RecordingClients Clients)
         BuildHub(string connectionId, RoomRegistry registry)
     {
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector());
         var clients = new RecordingClients();
         hub.Clients = clients;
         hub.Groups = new NoopGroups();
@@ -96,7 +96,7 @@ public class GameHubDisconnectTests
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector());
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
         hub.Clients = clients;
@@ -121,7 +121,7 @@ public class GameHubDisconnectTests
         var registry = new RoomRegistry();
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
 
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector());
         var clients = new RecordingClients();
         hub.Clients = clients;
         hub.Groups = new RecordingGroups();
@@ -140,7 +140,7 @@ public class GameHubDisconnectTests
         var registry = new RoomRegistry();
         registry.CreateRoom("conn-host", "Mossy", "teal");
 
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector());
         var clients = new RecordingClients();
         hub.Clients = clients;
         hub.Groups = new RecordingGroups();

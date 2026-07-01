@@ -55,13 +55,18 @@ public sealed record TemplateCatalogEntry(string Id, bool FamilySafe, int BlankC
 public sealed class TemplateCatalog
 {
     // Mirrors web/src/content/seedLibrary.ts (id, tags.familySafe, blank count).
-    // Every current seed template is family-safe (blank counts vary 9-10 - long
-    // on purpose, so round-robin distribution gives every player in a full room
-    // multiple blanks; see the seedLibrary.ts header). If a NON-family-safe
-    // template is ever added to seedLibrary, add it here with FamilySafe: false
-    // so the server gate filters it correctly (AC-04).
+    // Every current seed template is family-safe. The FULL stories run 9-10
+    // blanks (long on purpose, so round-robin distribution gives every player in
+    // a full room multiple blanks; see the seedLibrary.ts header). The QUICK
+    // stories (story-selection/01) run 4-6 blanks - the LengthContentSelector
+    // classifies quick (<= 6) vs full (>= 7) from these counts, so keeping each
+    // BlankCount exact here is what keeps the server length filter in lockstep
+    // with the web one. If a NON-family-safe template is ever added to
+    // seedLibrary, add it here with FamilySafe: false so the family-safe gate
+    // filters it correctly (AC-04).
     private static readonly IReadOnlyList<TemplateCatalogEntry> Catalog =
     [
+        // Full stories (9-10 blanks).
         new TemplateCatalogEntry("wobbly-wizard", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("space-llama", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("road-trip-disaster", FamilySafe: true, BlankCount: 10),
@@ -77,6 +82,11 @@ public sealed class TemplateCatalog
         new TemplateCatalogEntry("grandmas-secret-recipe", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("how-to-be-famous", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("the-new-neighbor", FamilySafe: true, BlankCount: 10),
+        // Quick stories (4-6 blanks) - story-selection/01.
+        new TemplateCatalogEntry("sneezy-dinosaur", FamilySafe: true, BlankCount: 5),
+        new TemplateCatalogEntry("invisible-sandwich", FamilySafe: true, BlankCount: 5),
+        new TemplateCatalogEntry("grumpy-goldfish", FamilySafe: true, BlankCount: 4),
+        new TemplateCatalogEntry("dancing-broom", FamilySafe: true, BlankCount: 6),
     ];
 
     /// <summary>The full catalog (host first ordering is irrelevant - selection is random).</summary>
