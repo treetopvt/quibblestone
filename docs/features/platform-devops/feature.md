@@ -13,6 +13,7 @@ README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
 ## Stories
 - [ ] 01 - Test harness (Vitest + Playwright)
 - [ ] 02 - Deploy to a dev environment
+- [ ] 03 - Continuous delivery to UAT on merge to main
 
 ## Dependencies
 None. This is the base of the stack.

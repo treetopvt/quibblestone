@@ -40,7 +40,7 @@ suffix (see `infra/main.bicep`), so they are stable per resource group.
 az bicep build --file infra/main.bicep
 
 # Create the dev resource group and deploy:
-az group create -n quibblestone-dev-rg -l eastus
+az group create -n quibblestone-dev-rg -l eastus2  # a Static-Web-Apps region (eastus does not host them)
 az deployment group create \
   -g quibblestone-dev-rg \
   -f infra/main.bicep \

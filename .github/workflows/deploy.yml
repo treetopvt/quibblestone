@@ -1,96 +1,198 @@
-# Deploy - build, then deploy both projects to Azure (dev).
+# Deploy - build, then deploy both projects to Azure UAT.
 #
-# Manual (workflow_dispatch) for now: the production wiring (Azure secrets,
-# environments, resource names) is set up as the project matures. The build
-# steps mirror CI so we never deploy an unbuilt tree.
+# Fires automatically on every push to main (i.e. right after an approved PR
+# merges) so main is continuously delivered to UAT, plus a manual
+# workflow_dispatch for re-runs. The build steps mirror CI (build + unit tests)
+# so a broken tree never reaches the cloud.
 #
-# Required repository configuration before this can run (see the runbook at
-# docs/runbooks/deploy-to-dev.md for how to obtain each value):
-#   secrets.AZURE_API_PUBLISH_PROFILE        - App Service publish profile (XML)
-#   secrets.AZURE_API_APP_NAME               - App Service name (infra output apiAppName)
-#   secrets.AZURE_STATIC_WEB_APPS_API_TOKEN  - Static Web App deployment token
-#   vars.API_BASE_URL                        - deployed API origin, e.g.
-#                                              https://quibblestone-dev-api-xxxx.azurewebsites.net
-#   vars.SIGNALR_HUB_URL                     - optional. The hub URL. If unset it is
-#                                              derived as ${API_BASE_URL}/hubs/game.
+# First deploy auto-provisions: if the Azure footprint is not there yet, this
+# workflow stands it up from infra/main.bicep (default SKU F1 = Free/$0) before
+# deploying, so a fresh repo needs nothing beyond the one-time OIDC bootstrap.
+# The Provision UAT workflow is still there for explicit provisioning or to
+# scale the plan SKU up/down.
 #
-# Secrets and URLs live in GitHub repo settings, never in committed config and
-# never in VITE_* source. Vite only bakes VITE_-prefixed vars into the bundle at
-# build time, so the deployed web client must be built with the deployed API URL
-# present here (AC-04) - a build with these unset would ship pointing at nothing.
+# Auth is OIDC (federated) - GitHub logs into Azure with a short-lived token, so
+# there are NO long-lived publish profiles or Static Web Apps tokens stored in
+# the repo. Because we are logged into Azure, the workflow DISCOVERS the resource
+# names and URLs from the resource group at run time (they carry a
+# uniqueString() suffix), so there are no hand-copied URL variables to keep in
+# sync either. The only repo configuration is the three OIDC identifiers below.
+#
+# Required repository configuration (one-time - see docs/runbooks/deploy-to-uat.md):
+#   secrets.AZURE_CLIENT_ID        - the federated app registration's client id
+#   secrets.AZURE_TENANT_ID        - the Azure AD tenant id
+#   secrets.AZURE_SUBSCRIPTION_ID  - the target subscription id
+#   vars.AZURE_RESOURCE_GROUP      - optional; defaults to quibblestone-uat-rg
+#
+# Nothing secret is committed, and no secret goes into a VITE_* var: Vite bakes
+# VITE_-prefixed vars into the public bundle, so only the (public) deployed API
+# URL is passed there, and it is discovered here rather than hardcoded (AC-04).
 name: Deploy
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+# Queue overlapping deploys instead of racing them onto the same environment.
+concurrency:
+  group: deploy-uat
+  cancel-in-progress: false
 
 permissions:
   contents: read
+  id-token: write # required for OIDC federated login to Azure
 
 jobs:
-  api:
-    name: Build + deploy API
+  deploy:
+    name: Build + deploy to UAT
     runs-on: ubuntu-latest
+    environment:
+      name: uat
+      url: ${{ steps.discover.outputs.web_url }}
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'quibblestone-uat-rg' }}
+      # First-deploy auto-provision knobs (both default to $0 / a SWA-supported
+      # region). Override with repo variables to scale up or move region without
+      # touching this file.
+      PROVISION_SKU: ${{ vars.APP_SERVICE_PLAN_SKU || 'F1' }}
+      PROVISION_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
     steps:
       - uses: actions/checkout@v4
+
+      # --- Build + test gate (mirrors CI so we never deploy an unbuilt tree) ---
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Publish
-        run: dotnet publish api/QuibbleStone.Api.csproj -c Release -o ./publish
-      - name: Deploy to Azure App Service
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ secrets.AZURE_API_APP_NAME }}
-          publish-profile: ${{ secrets.AZURE_API_PUBLISH_PROFILE }}
-          package: ./publish
+      - name: Build + test API
+        run: |
+          dotnet restore QuibbleStone.slnx
+          dotnet build QuibbleStone.slnx --configuration Release --no-restore
+          dotnet test QuibbleStone.slnx --configuration Release --no-build
 
-  web:
-    name: Build + deploy web
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      # Resolve the build-time API URLs (AC-04). API_BASE_URL is required - fail
-      # fast with a clear message rather than shipping a bundle that points at an
-      # empty URL. SIGNALR_HUB_URL is optional: when unset we derive it from the
-      # API base so the common case needs only one variable set, and a trailing
-      # slash on API_BASE_URL is trimmed so we never produce a "//hubs/game" URL.
-      - name: Resolve web build URLs
-        id: urls
-        env:
-          API_BASE_URL: ${{ vars.API_BASE_URL }}
-          SIGNALR_HUB_URL: ${{ vars.SIGNALR_HUB_URL }}
-        run: |
-          set -euo pipefail
-          if [ -z "${API_BASE_URL}" ]; then
-            echo "::error::vars.API_BASE_URL is not set. Set it to the deployed API origin (see docs/runbooks/deploy-to-dev.md) before deploying."
-            exit 1
-          fi
-          api_base="${API_BASE_URL%/}"
-          hub_url="${SIGNALR_HUB_URL}"
-          if [ -z "${hub_url}" ]; then
-            hub_url="${api_base}/hubs/game"
-          fi
-          echo "api_base=${api_base}" >> "$GITHUB_OUTPUT"
-          echo "hub_url=${hub_url}" >> "$GITHUB_OUTPUT"
-          echo "Building web against API ${api_base} (hub ${hub_url})."
-
-      - name: Build
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web unit tests
         working-directory: web
-        env:
-          VITE_API_BASE_URL: ${{ steps.urls.outputs.api_base }}
-          VITE_SIGNALR_HUB_URL: ${{ steps.urls.outputs.hub_url }}
         run: |
           npm ci
-          npm run build
+          npm run test:unit
 
-      - name: Deploy to Azure Static Web Apps
+      # --- Publish the API package (built above) ------------------------------
+      - name: Publish API
+        run: dotnet publish api/QuibbleStone.Api.csproj -c Release -o ./publish --no-build
+
+      # --- Log into Azure via OIDC (no stored secret) -------------------------
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # --- Auto-provision on the FIRST deploy ---------------------------------
+      # If the footprint is not there yet, stand it up (idempotent Bicep) so a
+      # brand-new repo goes from "merge to main" to a running app with zero
+      # manual steps beyond the one-time OIDC bootstrap. On every later deploy
+      # the resources already exist, so this is a fast no-op. To provision
+      # explicitly (or to scale the SKU up/down) use the Provision UAT workflow.
+      - name: Ensure UAT is provisioned
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          az group create -n "$rg" -l "$PROVISION_LOCATION" --output none
+          existing="$(az webapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv 2>/dev/null || true)"
+          if [ -z "$existing" ]; then
+            echo "No app found in '$rg' - first deploy, provisioning the footprint (SKU $PROVISION_SKU, $PROVISION_LOCATION)..."
+            az deployment group create \
+              -g "$rg" \
+              -n "auto-provision-${{ github.run_number }}" \
+              -f infra/main.bicep \
+              -p namePrefix=quibblestone \
+                 environmentName=uat \
+                 appServicePlanSku="$PROVISION_SKU" \
+                 location="$PROVISION_LOCATION" \
+              --output none
+            echo "Provisioned."
+          else
+            echo "Resources already present ($existing) - skipping provision."
+          fi
+
+      # --- Discover the resources in the group (names carry a unique suffix) ---
+      # The UAT resource group holds exactly one App Service and one Static Web
+      # App (see infra/main.bicep), both tagged app=quibblestone. We read their
+      # names + hostnames rather than storing them, so re-provisioning never
+      # requires touching repo config.
+      - name: Discover Azure resources
+        id: discover
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+
+          api_name="$(az webapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv)"
+          web_name="$(az staticwebapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv)"
+          if [ -z "$api_name" ] || [ -z "$web_name" ]; then
+            echo "::error::Could not find the API/web resources in '$rg' even after auto-provision. Check the 'Ensure UAT is provisioned' step and the OIDC role assignment (see docs/runbooks/deploy-to-uat.md)."
+            exit 1
+          fi
+
+          api_host="$(az webapp show -g "$rg" -n "$api_name" --query defaultHostName -o tsv)"
+          web_host="$(az staticwebapp show -g "$rg" -n "$web_name" --query defaultHostname -o tsv)"
+
+          {
+            echo "api_name=$api_name"
+            echo "web_name=$web_name"
+            echo "api_base=https://$api_host"
+            echo "web_origin=https://$web_host"
+            echo "web_url=https://$web_host"
+          } >> "$GITHUB_OUTPUT"
+          echo "API -> https://$api_host  |  Web -> https://$web_host"
+
+      # --- Let the API accept the web origin for REST + the SignalR hub -------
+      # AllowCredentials is on for the hub transport, so CORS cannot use a
+      # wildcard - it must be the exact web origin (see api/src/Program.cs).
+      - name: Set API CORS origin
+        run: |
+          az webapp config appsettings set \
+            -g "$AZURE_RESOURCE_GROUP" \
+            -n "${{ steps.discover.outputs.api_name }}" \
+            --settings Cors__AllowedOrigins__0="${{ steps.discover.outputs.web_origin }}" \
+            --output none
+
+      # --- Deploy the API (uses the OIDC session, no publish profile) ---------
+      - name: Deploy API to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.discover.outputs.api_name }}
+          package: ./publish
+
+      # --- Build the web bundle pointed at the DEPLOYED API (AC-04) -----------
+      # SIGNALR hub URL is derived from the API base (the /hubs/game route).
+      - name: Build web
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: ${{ steps.discover.outputs.api_base }}
+          VITE_SIGNALR_HUB_URL: ${{ steps.discover.outputs.api_base }}/hubs/game
+        run: npm run build
+
+      # --- Deploy the web bundle; fetch the SWA token at run time via OIDC ----
+      - name: Get Static Web Apps token
+        id: swa
+        run: |
+          token="$(az staticwebapp secrets list \
+            -g "$AZURE_RESOURCE_GROUP" \
+            -n "${{ steps.discover.outputs.web_name }}" \
+            --query "properties.apiKey" -o tsv)"
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy web to Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
           action: upload
           app_location: web/dist
           skip_app_build: true
