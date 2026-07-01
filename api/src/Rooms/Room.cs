@@ -135,13 +135,15 @@ public sealed record PlayerProgress(string Nickname, string Variant, bool Done);
 ///   - group-play/03 adds collected submissions (<see cref="Submissions"/>) + moves
 ///     <see cref="Phase"/> from "prompting" to "reveal".
 ///   - group-play/04 increments <see cref="RoundNumber"/> and resets the phase for
-///     the replay loop, and reads <see cref="Assignments"/> for word-count
-///     attribution.
+///     the replay loop (a play-again in the SAME room -> round 2, 3, ...), and
+///     reads <see cref="Assignments"/> for word-count attribution. A back-to-lobby
+///     that clears the round (<see cref="Room.BackToLobby"/>) resets the next
+///     start back to round 1.
 /// group-play/01 only sets the opening shape below.
 /// </summary>
 public sealed class RoundState
 {
-    /// <summary>1-based round number; group-play/04 increments it on replay.</summary>
+    /// <summary>1-based round number; group-play/04 increments it on replay (round 2, 3, ...).</summary>
     public required int RoundNumber { get; set; }
 
     /// <summary>The selected template's id - the key the client resolves full content from (seedLibrary).</summary>
@@ -387,9 +389,14 @@ public sealed class Room
     /// for the round-robin rule (blank index k -> player index k % N, host first),
     /// which MIRRORS the pure TS reference web/src/engine/distribute.ts.
     ///
-    /// group-play/01 always opens round 1 in the "prompting" phase; later stories
-    /// grow this (group-play/04 increments the round number for the replay loop,
-    /// group-play/03 layers submissions onto the same <see cref="RoundState"/>).
+    /// group-play/04: the round number now INCREMENTS off the previous round rather
+    /// than being hardcoded to 1 - RoundNumber = (_round?.RoundNumber ?? 0) + 1. So a
+    /// fresh room (no prior round) opens round 1, a play-again in the SAME room opens
+    /// round 2, 3, ..., and a <see cref="BackToLobby"/> that clears _round back to null
+    /// resets the NEXT start to round 1. The phase always resets to "prompting" and a
+    /// fresh empty submission store is dealt, so the replay loop reuses this one method
+    /// (no parallel "restart" path). group-play/03 layers submissions onto the same
+    /// <see cref="RoundState"/>.
     /// </summary>
     /// <param name="templateId">The auto-selected template's id (resolved to content client-side).</param>
     /// <param name="mode">The play mode ("classic-blind" for Slice 1).</param>
@@ -403,7 +410,10 @@ public sealed class Room
 
             _round = new RoundState
             {
-                RoundNumber = 1,
+                // group-play/04: increment off the previous round (or 0 when the room
+                // has never started one), so a play-again in the same room -> round 2,
+                // 3, ... and a BackToLobby (which nulls _round) resets the next to 1.
+                RoundNumber = (_round?.RoundNumber ?? 0) + 1,
                 TemplateId = templateId,
                 Mode = mode,
                 Phase = "prompting",
@@ -428,6 +438,28 @@ public sealed class Room
                 // a fresh empty copy so this snapshot never aliases the live store.
                 Submissions = new Dictionary<int, Submission>(),
             };
+        }
+    }
+
+    /// <summary>
+    /// Ends the current round and returns the room to the LOBBY (group-play/04,
+    /// AC-05). Clears <see cref="_round"/> back to null under the room lock so the
+    /// room is once again "in the lobby" - but WITHOUT touching the roster or the
+    /// code: the room stays live and every player is preserved, so the host can
+    /// start a fresh round without anyone re-joining or re-entering a code. Because
+    /// the round number lives on <see cref="RoundState"/> (now null), the NEXT
+    /// <see cref="StartRound"/> increments off 0 and opens round 1 again.
+    ///
+    /// Idempotent: calling this when the room is already in the lobby (_round is
+    /// null) is a harmless no-op. Guarded by the same <see cref="_gate"/> lock as
+    /// every other round mutation, so it never races a submission or a start.
+    /// </summary>
+    public void BackToLobby()
+    {
+        lock (_gate)
+        {
+            _round = null;
+            LastActiveUtc = DateTimeOffset.UtcNow;
         }
     }
 

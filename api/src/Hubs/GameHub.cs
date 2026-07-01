@@ -24,6 +24,13 @@
 //                    then (group-play/02) computes the ROUND-ROBIN blank
 //                    distribution and sends EACH player "YourBlanks" - only its own
 //                    blank indices, blind (prompt only), never another player's.
+//    - BackToLobby : group-play/04. HOST-ONLY (server-enforced) return to the
+//                    lobby: clears the room's round WITHOUT touching the roster or
+//                    code (the room stays live, roster preserved) and broadcasts a
+//                    bare "BackToLobby" to the room group so every player drops the
+//                    round/reveal locally and lands back on the Lobby (AC-05). The
+//                    replay counterpart is just StartRound again (same room, no
+//                    re-join) - the Room increments the round number for the badge.
 //
 //  Room state lives in the RoomRegistry singleton (injected below), NOT in this
 //  hub instance - SignalR builds a fresh hub per invocation, so per-hub fields
@@ -104,7 +111,7 @@ public sealed record StartRoundResultDto(bool Ok, string? Error);
 /// </summary>
 /// <param name="TemplateId">The selected template's id; the client resolves full content from seedLibrary.</param>
 /// <param name="Mode">The play mode ("classic-blind" for Slice 1).</param>
-/// <param name="RoundNumber">1-based round number (always 1 in group-play/01).</param>
+/// <param name="RoundNumber">1-based round number; group-play/04 increments it on replay (2, 3, ...), and it drives the Round Complete "ROUND N CARVED" badge.</param>
 public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNumber);
 
 /// <summary>
@@ -497,6 +504,62 @@ public sealed class GameHub : Hub
                 "YourBlanks",
                 new YourBlanksDto(assignment.BlankIndices));
         }
+
+        return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// group-play/04: the HOST ends the round and sends everyone back to the LOBBY
+    /// (AC-05).
+    ///
+    /// HOST-ONLY and SERVER-ENFORCED, mirroring <see cref="StartRound"/>'s host gate:
+    /// the UI only shows "Back to lobby" to the host, but this method is the
+    /// authoritative check - it verifies the calling connection owns the room's host
+    /// player before doing anything, so a crafted non-host client cannot yank the
+    /// whole group out of the round. It reuses the same friendly
+    /// <see cref="StartRoundResultDto"/> envelope (never throws for an expected
+    /// failure):
+    ///
+    ///   1. Unknown / expired code -> friendly fail (nothing to return to a lobby).
+    ///   2. Caller is not the host -> reject (server-authoritative).
+    ///
+    /// On success it clears the room's round via <see cref="Room.BackToLobby"/> (which
+    /// preserves the roster and code - the room stays live, AC-05) and broadcasts a
+    /// BARE "BackToLobby" to the whole room group. The roster is unchanged, so no
+    /// payload is needed: each client's handler simply drops its round/reveal state
+    /// and falls back to the Lobby it already holds (code + roster intact). The
+    /// replay counterpart ("Play another round") is just <see cref="StartRound"/>
+    /// again on the same room - no separate restart method.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    public async Task<StartRoundResultDto> BackToLobby(string code)
+    {
+        // 1. Look up the room first (an unknown / expired code has no lobby to return to).
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new StartRoundResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
+        }
+
+        // 2. Server-enforced host check (AC-05): only the host may move the whole
+        //    group back to the lobby, matching group-play/01's host-driven start.
+        if (!room.IsHost(Context.ConnectionId))
+        {
+            return new StartRoundResultDto(
+                false,
+                "Only the host can head back to the lobby.");
+        }
+
+        // 3. Clear the round (roster + code preserved - the room stays live, AC-05).
+        room.BackToLobby();
+
+        // 4. Broadcast a bare signal to the whole room group so EVERY player drops
+        //    the round/reveal locally and lands back on the Lobby. The roster has not
+        //    changed, so there is nothing to carry - the client already holds the
+        //    lobby state (RosterChanged keeps it current).
+        await Clients.Group(room.Code).SendAsync("BackToLobby");
 
         return new StartRoundResultDto(true, null);
     }

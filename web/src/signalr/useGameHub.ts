@@ -53,6 +53,18 @@
 //  types MIRROR the hub's SubmitWordResultDto / CollectProgressDto / RevealReadyDto
 //  wire contracts - keep them in sync BY HAND (no codegen). All three states clear
 //  on leave and reset on a fresh RoundStarted so a prior round never bleeds through.
+//
+//  group-play/04 adds the replay-loop seam on the SAME connection: (a) backToLobby
+//  (a host-only invoke - the server enforces the host check - that ends the round
+//  and returns EVERYONE to the lobby, same room + roster) and (b) a bare
+//  "BackToLobby" handler that CLEARS round + reveal + collectProgress +
+//  assignedBlankIndices so every client falls back to the Lobby it still holds
+//  (room + roster stay set). "Play another round" needs no new invoke - it is just
+//  startRound again on the same room; the server increments the round number and the
+//  existing RoundStarted broadcast resets reveal + routes everyone into the new round.
+//  NOTE: `round` is deliberately kept set THROUGH the reveal (RevealReady does NOT
+//  clear it) so Round Complete can read round.roundNumber for its "ROUND N CARVED"
+//  badge; round is cleared only on leave or on BackToLobby.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -274,6 +286,16 @@ export interface UseGameHub {
    */
   startRound: (familySafe: boolean) => Promise<StartRoundResult>;
   /**
+   * Return the whole group to the lobby as the host (group-play/04, AC-05).
+   * Invokes the hub's host-only BackToLobby with the current room code (from
+   * roomCodeRef); the SERVER enforces the host check. Resolves with { ok, error }
+   * (a friendly, kid-readable message on an expected rejection). Does NOT clear
+   * round/reveal itself - the server's bare "BackToLobby" broadcast drives that for
+   * EVERYONE (host included) so all players land back on the Lobby with the code +
+   * roster preserved. Returns a not-connected failure if the hub is not ready.
+   */
+  backToLobby: () => Promise<{ ok: boolean; error: string | null }>;
+  /**
    * Create a room and become its host (session-engine/01). On success updates
    * `room` and resolves with the created room's state, or undefined if the
    * connection is not ready. Uses the ONE shared connection - never a second.
@@ -404,6 +426,21 @@ export function useGameHub(): UseGameHub {
     };
     connection.on('RevealReady', handleRevealReady);
 
+    // Back to lobby (group-play/04, AC-05): the host ended the round, so the hub
+    // broadcasts a BARE "BackToLobby" to the whole room group. Every player drops
+    // the round/reveal/progress/assignment locally and falls back to the Lobby it
+    // STILL holds (room + roster stay set - the round ending does not change the
+    // roster). Registered ONCE, guarded by inRoomRef so a broadcast racing a leave
+    // cannot touch state for a player who has already gone Home.
+    const handleBackToLobby = () => {
+      if (cancelled || !inRoomRef.current) return;
+      setRound(null);
+      setReveal(null);
+      setCollectProgress(null);
+      setAssignedBlankIndices(null);
+    };
+    connection.on('BackToLobby', handleBackToLobby);
+
     connection.onreconnecting(() => {
       if (!cancelled) setStatus('connecting');
     });
@@ -431,6 +468,7 @@ export function useGameHub(): UseGameHub {
       connection.off('YourBlanks', handleYourBlanks);
       connection.off('CollectProgress', handleCollectProgress);
       connection.off('RevealReady', handleRevealReady);
+      connection.off('BackToLobby', handleBackToLobby);
       void connection.stop();
     };
   }, []);
@@ -496,6 +534,29 @@ export function useGameHub(): UseGameHub {
     [],
   );
 
+  const backToLobby = useCallback(
+    async (): Promise<{ ok: boolean; error: string | null }> => {
+      const connection = connectionRef.current;
+      const code = roomCodeRef.current;
+      if (
+        !connection ||
+        connection.state !== HubConnectionState.Connected ||
+        !code
+      ) {
+        return {
+          ok: false,
+          error: "We're not connected yet - give it a moment and try again.",
+        };
+      }
+      // The server enforces the host check (group-play/04, AC-05). We do NOT clear
+      // round/reveal here on success: the hub's bare "BackToLobby" broadcast drives
+      // that for EVERYONE (host included) so all players fall back to the Lobby
+      // together, with the code + roster preserved.
+      return connection.invoke<{ ok: boolean; error: string | null }>('BackToLobby', code);
+    },
+    [],
+  );
+
   const submitWord = useCallback(
     async (blankIndex: number, word: string): Promise<{ accepted: boolean; message?: string }> => {
       const connection = connectionRef.current;
@@ -553,6 +614,7 @@ export function useGameHub(): UseGameHub {
     createRoom,
     joinRoom,
     startRound,
+    backToLobby,
     clearRoom,
   };
 }
