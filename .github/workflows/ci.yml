@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   api:
-    name: Build API (.NET)
+    name: Build + test API (.NET)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +25,21 @@ jobs:
         run: dotnet restore QuibbleStone.slnx
       - name: Build
         run: dotnet build QuibbleStone.slnx --configuration Release --no-restore
+      # Unit tests (xUnit) gate the build: a failing spec fails the run. Coverage
+      # is collected via coverlet (XPlat Code Coverage) and uploaded as an
+      # artifact (see tests/QuibbleStone.Api.Tests).
+      - name: Test
+        run: >-
+          dotnet test QuibbleStone.slnx --configuration Release --no-build
+          --collect:"XPlat Code Coverage"
+          --results-directory ${{ github.workspace }}/TestResults
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-coverage
+          path: '**/TestResults/**/coverage.cobertura.xml'
+          if-no-files-found: warn
 
   web:
     name: Build web (Vite)

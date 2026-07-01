@@ -123,14 +123,18 @@ public sealed class ContentSafetyFilter : IContentSafetyFilter
             return true;
         }
 
-        // Two passes catch the two evasion shapes:
-        //   1. Per-token exact match on normalized words: blocks "fuck", "F0xx" ->
-        //      "foxx", "shItttt" -> "shit", while leaving innocent words alone.
-        //   2. Whole-string collapsed match (all separators removed): catches
-        //      letters spaced or punctuated apart ("f u c k", "f-u-c-k", "s.h.i.t").
-        // Pass 1 is the low-false-positive path; pass 2 is the obfuscation net.
+        // Two whole-word passes. Crucially, NEITHER does a substring scan, so an
+        // innocent word that merely CONTAINS a short blocked term as a substring
+        // is never blocked (the classic "Scunthorpe problem": "ass" in "class" /
+        // "password", "sex" in "sussex", "cum" in "cucumber", "spic" in "spice",
+        // "coon" in "raccoon", "pussy" in "pussycat"). Those all pass.
 
-        // Pass 1: normalized token equality.
+        // Pass 1: normalized per-token equality. Each whitespace/punctuation-
+        // delimited token is normalized (leet-folded, letters-only, repeated
+        // letters collapsed) and blocked only if it IS a blocked term. Catches
+        // standalone profanity and its obvious spellings ("FUCK", "sh1t",
+        // "shiiit", "a$$"), including one bad word inside an otherwise clean
+        // phrase ("you are a fuck").
         foreach (var token in SplitTokens(candidate))
         {
             var normalizedToken = Normalize(token);
@@ -140,22 +144,23 @@ public sealed class ContentSafetyFilter : IContentSafetyFilter
             }
         }
 
-        // Pass 2: collapse the entire candidate to letters only and look for a
-        // blocked term as a substring. This is the broader net for separator
-        // obfuscation; it can over-match on innocent compounds (the classic
-        // "Scunthorpe problem"), an accepted tradeoff for a kid-safe baseline.
-        var collapsed = CollapseToLetters(candidate);
-        if (collapsed.Length > 0)
+        // Pass 2: separator-obfuscation net. Normalizing the WHOLE candidate
+        // collapses letters spaced or punctuated apart into a single word, so
+        // "f u c k", "f-u-c-k", and "s.h.i.t" reduce to "fuck"/"shit". This is an
+        // EXACT match against the blocklist, not a substring scan, so it stays
+        // free of false positives on innocent multi-word text.
+        var collapsed = Normalize(candidate);
+        if (collapsed.Length > 0 && blockedTerms.Contains(collapsed))
         {
-            foreach (var term in blockedTerms)
-            {
-                if (term.Length > 0 && collapsed.Contains(term, StringComparison.Ordinal))
-                {
-                    return false;
-                }
-            }
+            return false;
         }
 
+        // Known baseline gap (CLAUDE.md section 7 - solid, not exhaustive):
+        // profanity fused inside a longer single token ("fuckface", "dumbass") is
+        // NOT caught, because catching every compound via substring would
+        // re-introduce the Scunthorpe false positives above. Standalone and
+        // obfuscated forms ARE caught; fuller compound / AI moderation is parked
+        // in the backlog (README section 12).
         return true;
     }
 
@@ -205,25 +210,6 @@ public sealed class ContentSafetyFilter : IContentSafetyFilter
         return text.Split(
             (char[]?)null, // null -> split on all Unicode whitespace
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    }
-
-    // Collapses the WHOLE string to normalized letters only (no repeat-collapsing,
-    // so spaced-out terms line up). Used by pass 2's substring scan.
-    private static string CollapseToLetters(string text)
-    {
-        var sb = new StringBuilder(text.Length);
-
-        foreach (var raw in text)
-        {
-            var lowered = char.ToLowerInvariant(raw);
-            var folded = LeetMap.TryGetValue(lowered, out var mapped) ? mapped : lowered;
-            if (char.IsLetter(folded))
-            {
-                sb.Append(folded);
-            }
-        }
-
-        return sb.ToString();
     }
 
     // --- Resource loading --------------------------------------------------------
