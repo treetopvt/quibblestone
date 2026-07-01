@@ -25,7 +25,7 @@ the smallest data that keeps content fresh and curatable.
 | 01 | #91 | Length classes + the one selection pipeline | In Progress |
 | 02 | #92 | Quick story option (solo + group) | In Progress |
 | 03 | #93 | Freshness rotation: no repeats until the pool runs dry | Not Started |
-| 04 | #94 | Story delivery metrics (the anonymous serve log) | Not Started |
+| 04 | #94 | Story delivery metrics (the anonymous serve log) | In Progress |
 | 05 | #95 | Like / dislike a tale (content feedback) | Not Started |
 
 ## Dependencies
