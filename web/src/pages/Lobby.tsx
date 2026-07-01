@@ -362,8 +362,12 @@ function ShareWidget({ code }: { code: string }) {
         position: 'relative',
         p: 2.75,
         borderRadius: 6.5,
-        background: 'tablet.gradient',
-        boxShadow: `0 18px 36px -22px ${alpha(theme.palette.primary.main, 0.5)}, inset 0 2px 0 rgba(255,255,255,.5), inset 0 -4px 12px ${alpha(theme.palette.stoneEdge.main, 0.35)}`,
+        // Resolve the theme gradient explicitly: MUI's sx only maps dotted theme
+        // paths for color-family props (color/bgcolor/borderColor), NOT the
+        // `background` shorthand, so a string 'tablet.gradient' would ship as
+        // invalid CSS. Home.tsx uses the same theme.palette.tablet.gradient.
+        background: theme.palette.tablet.gradient,
+        boxShadow: `0 18px 36px -22px ${alpha(theme.palette.primary.main, 0.5)}, inset 0 2px 0 ${alpha(theme.palette.common.white, 0.5)}, inset 0 -4px 12px ${alpha(theme.palette.stoneEdge.main, 0.35)}`,
         mb: 4,
       }}
     >
