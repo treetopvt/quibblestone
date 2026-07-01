@@ -11,18 +11,22 @@
 //    - shared <AppBar> with a back arrow that returns Home
 //    - a room-code card: "ROOM CODE" label + teal "from the host" chip, then
 //      four carved code slots driven by a single controlled input
-//    - a character card: a "Display name" outlined field (person icon, live
-//      n/14 counter), then "Choose your guardian" and a 3-column, 6-tile
-//      avatar grid (session-engine/05) - single-select, teal pre-selected.
-//      The selected tile shows a gold ring + a gold check badge that pops in.
+//    - a character card: the shared <PlayerIdentityFields> - a "Display name"
+//      outlined field (person icon, live n/14 counter), then "Choose your
+//      guardian" and a 3-column, 6-tile avatar grid (session-engine/05) -
+//      single-select, teal pre-selected. The selected tile shows a gold ring +
+//      a gold check badge that pops in. build/host-identity extracted this markup
+//      into the shared component so HostSetup (the host naming itself) reuses the
+//      SAME controls; here it is wired to this screen's react-hook-form Controllers.
 //    - the shield reassurance line
 //    - a pinned gold CTA (BottomActionBar) reading "Join [CODE] ->", with the
 //      entered code interpolated (falls back to "Join ->" when empty)
 //
 //  Contracts reused (never re-specified here): the gold CTA is just
-//  <Button variant="contained">; the AppBar and BottomActionBar come from the
-//  shared component barrel; the Guardian avatar is the shared <Guardian>
-//  component (never rebuilt here); all colors / radii / spacing come from the
+//  <Button variant="contained">; the AppBar, BottomActionBar, and the identity
+//  controls (PlayerIdentityFields) come from the shared component barrel; the
+//  Guardian avatar is the shared <Guardian> component (never rebuilt here); all
+//  colors / radii / spacing come from the
 //  MUI theme (theme.palette.stoneSlot / stoneEdge / primary / teal / card /
 //  gold / guardianAccent, theme.spacing) - no hardcoded hex or raw-px spacing
 //  here. Icons are FontAwesome only (web/src/fontawesome.ts).
@@ -44,15 +48,14 @@ import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
+import { Box, Button, Stack, Typography } from '@mui/material';
 import {
-  Box,
-  Button,
-  InputAdornment,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, Guardian } from '../components';
+  AppBar,
+  BottomActionBar,
+  BottomActionBarSpacer,
+  PlayerIdentityFields,
+  DEFAULT_VARIANT,
+} from '../components';
 import type { GuardianVariant } from '../components';
 import type { JoinResult } from '../signalr/useGameHub';
 
@@ -67,13 +70,18 @@ export interface JoinProps {
   onBack: () => void;
   /** True until the real-time connection is ready - the CTA needs the hub to act. */
   disabled?: boolean;
+  /**
+   * Pre-fill the display name (build/host-identity): a returning player's
+   * last-used name from device-local storage (App reads it from identity.ts), so
+   * they do not retype. Defaults to '' (a fresh device / no prior play).
+   */
+  initialNickname?: string;
+  /** Pre-fill the Guardian variant (build/host-identity), defaulting to 'teal'. */
+  initialVariant?: GuardianVariant;
 }
 
 /** The number of carved code slots (story-01 codes are 4 chars). */
 const CODE_LENGTH = 4;
-
-/** Max display-name length (AC-03) - kept in sync with the hub's server check. */
-const MAX_NAME_LENGTH = 14;
 
 // The unambiguous code alphabet the server mints codes from (RoomRegistry): A-Z
 // and 2-9 with the look-alike glyphs O, 0, I, 1, l removed. We restrict the code
@@ -91,25 +99,22 @@ function normalizeCode(raw: string): string {
     .slice(0, CODE_LENGTH);
 }
 
-/** The six selectable Guardian variants, in the design's grid order (AC-01). */
-const GUARDIAN_VARIANTS: GuardianVariant[] = ['purple', 'gold', 'coral', 'teal', 'sand', 'plum'];
-
-/** Default avatar selection (AC-01, docs/design/README.md screen 2 State). */
-const DEFAULT_VARIANT: GuardianVariant = 'teal';
-
-/** The avatar tile's edge length (docs/design/Join.dc.html avatar grid: 78x78). */
-const TILE_SIZE = 78;
-
 interface JoinForm {
   code: string;
   displayName: string;
   selectedVariant: GuardianVariant;
 }
 
-export function Join({ onJoin, onBack, disabled = false }: JoinProps) {
+export function Join({
+  onJoin,
+  onBack,
+  disabled = false,
+  initialNickname = '',
+  initialVariant = DEFAULT_VARIANT,
+}: JoinProps) {
   const theme = useTheme();
   const { control, handleSubmit, watch, formState } = useForm<JoinForm>({
-    defaultValues: { code: '', displayName: '', selectedVariant: DEFAULT_VARIANT },
+    defaultValues: { code: '', displayName: initialNickname, selectedVariant: initialVariant },
     mode: 'onChange',
   });
 
@@ -259,8 +264,10 @@ export function Join({ onJoin, onBack, disabled = false }: JoinProps) {
             />
           </Stack>
 
-          {/* CHARACTER CARD: display name only (story 05 adds the avatar grid
-              below the field). */}
+          {/* CHARACTER CARD: the shared identity controls (build/host-identity) -
+              display name + "Choose your guardian" avatar grid. The same
+              <PlayerIdentityFields> HostSetup uses, wired to this screen's
+              react-hook-form Controllers so all Join behavior is unchanged. */}
           <Stack
             spacing={2.5}
             sx={{
@@ -273,128 +280,19 @@ export function Join({ onJoin, onBack, disabled = false }: JoinProps) {
             <Controller
               name="displayName"
               control={control}
-              rules={{ maxLength: MAX_NAME_LENGTH }}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  onChange={(event) =>
-                    field.onChange(event.currentTarget.value.slice(0, MAX_NAME_LENGTH))
-                  }
-                  label="Display name"
-                  variant="outlined"
-                  fullWidth
-                  slotProps={{
-                    htmlInput: { maxLength: MAX_NAME_LENGTH, 'aria-label': 'Display name' },
-                    input: {
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Box sx={{ color: 'primary.main', display: 'flex' }}>
-                            <FontAwesomeIcon icon="user" />
-                          </Box>
-                        </InputAdornment>
-                      ),
-                    },
-                  }}
-                  helperText={`${displayName.length}/${MAX_NAME_LENGTH}`}
-                  sx={{ '& .MuiFormHelperText-root': { textAlign: 'right', fontWeight: 700 } }}
+              render={({ field: nameField }) => (
+                <Controller
+                  name="selectedVariant"
+                  control={control}
+                  render={({ field: variantField }) => (
+                    <PlayerIdentityFields
+                      nickname={nameField.value}
+                      variant={variantField.value}
+                      onNicknameChange={nameField.onChange}
+                      onVariantChange={variantField.onChange}
+                    />
+                  )}
                 />
-              )}
-            />
-
-            {/* Avatar grid (session-engine/05): "Choose your guardian" +
-                a 3-column, 6-tile single-select grid. Selected tile gets a
-                gold ring + a pop-in gold check badge (AC-02). */}
-            <Typography sx={{ fontSize: 16, fontWeight: 600, mt: 1 }}>
-              Choose your guardian
-            </Typography>
-            <Controller
-              name="selectedVariant"
-              control={control}
-              render={({ field }) => (
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: 3.5,
-                    justifyItems: 'center',
-                  }}
-                  role="radiogroup"
-                  aria-label="Choose your guardian"
-                >
-                  {GUARDIAN_VARIANTS.map((v) => {
-                    const selected = field.value === v;
-                    return (
-                      <Box
-                        key={v}
-                        component="button"
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        aria-label={`${v} guardian`}
-                        onClick={() => field.onChange(v)}
-                        sx={{
-                          position: 'relative',
-                          width: TILE_SIZE,
-                          height: TILE_SIZE,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          border: 'none',
-                          borderRadius: '22px',
-                          bgcolor: theme.palette.guardianAccent[v].tileTint,
-                          cursor: 'pointer',
-                          padding: 0,
-                        }}
-                      >
-                        <Guardian variant={v} size={52} />
-                        {selected && (
-                          <>
-                            {/* Gold selection ring (AC-02: 3px solid gold, inset -3px, radius 25). */}
-                            <Box
-                              aria-hidden
-                              sx={{
-                                position: 'absolute',
-                                inset: '-3px',
-                                border: `3px solid ${theme.palette.gold.main}`,
-                                borderRadius: '25px',
-                                pointerEvents: 'none',
-                              }}
-                            />
-                            {/* Gold check badge - pops in with a ~0.25s scale
-                                animation (design pack Gotcha: transform:scale
-                                only, never opacity, for list-item entrances). */}
-                            <Box
-                              aria-hidden
-                              sx={{
-                                position: 'absolute',
-                                top: -7,
-                                right: -7,
-                                width: 24,
-                                height: 24,
-                                borderRadius: '50%',
-                                bgcolor: 'gold.main',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                boxShadow: `0 3px 8px -2px ${alpha(theme.palette.gold.main, 0.9)}`,
-                                fontSize: 12,
-                                color: 'text.primary',
-                                animation: 'qsGuardianCheckPop 0.25s ease',
-                                '@keyframes qsGuardianCheckPop': {
-                                  '0%': { transform: 'scale(0.4)' },
-                                  '60%': { transform: 'scale(1.15)' },
-                                  '100%': { transform: 'scale(1)' },
-                                },
-                              }}
-                            >
-                              <FontAwesomeIcon icon="check" />
-                            </Box>
-                          </>
-                        )}
-                      </Box>
-                    );
-                  })}
-                </Box>
               )}
             />
           </Stack>

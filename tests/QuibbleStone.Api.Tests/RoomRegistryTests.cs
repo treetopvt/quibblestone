@@ -9,8 +9,9 @@
 //    2. AC-02: the join code is 4 chars from the unambiguous alphabet - it never
 //       contains the look-alike glyphs O, 0, I, 1, or l.
 //    3. AC-03: codes are unique among currently active rooms.
-//    4. Host defaults: nickname empty (no name step until story 02), variant
-//       "teal", IsHost true (no PII beyond the anonymous in-session record).
+//    4. Host identity (build/host-identity): the host is seated with the display
+//       name + variant it picked on HostSetup (no longer an empty nickname), IsHost
+//       true (still no PII beyond the anonymous in-session record).
 //
 //  Expiry (AC-05) is time-based (a 30-minute sliding window) and is left to a
 //  manual/integration check rather than a clock-dependent unit test - the sweep
@@ -31,15 +32,15 @@ public class RoomRegistryTests
     {
         var registry = new RoomRegistry();
 
-        var room = registry.CreateRoom("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         var players = room.SnapshotPlayers();
 
         Assert.Single(players);
         var host = players[0];
         Assert.True(host.IsHost);
         Assert.Equal("conn-host", host.ConnectionId);
-        Assert.Equal(string.Empty, host.Nickname); // no name step until story 02
-        Assert.Equal("teal", host.Variant);        // host default variant
+        Assert.Equal("Mossy", host.Nickname); // build/host-identity: host names itself on HostSetup
+        Assert.Equal("teal", host.Variant);   // the variant the host picked
     }
 
     [Fact]
@@ -51,7 +52,7 @@ public class RoomRegistryTests
         // not just by luck on one draw.
         for (var i = 0; i < 500; i++)
         {
-            var code = registry.CreateRoom($"conn-{i}").Code;
+            var code = registry.CreateRoom($"conn-{i}", "Mossy", "teal").Code;
 
             Assert.Equal(4, code.Length);
             foreach (var ch in code)
@@ -71,7 +72,7 @@ public class RoomRegistryTests
 
         for (var i = 0; i < 300; i++)
         {
-            var code = registry.CreateRoom($"conn-{i}").Code;
+            var code = registry.CreateRoom($"conn-{i}", "Mossy", "teal").Code;
             Assert.True(seen.Add(code), $"Duplicate active room code generated: {code}");
         }
 
@@ -82,7 +83,7 @@ public class RoomRegistryTests
     public void TryGet_finds_a_created_room_case_insensitively()
     {
         var registry = new RoomRegistry();
-        var code = registry.CreateRoom("conn-host").Code;
+        var code = registry.CreateRoom("conn-host", "Mossy", "teal").Code;
 
         Assert.NotNull(registry.TryGet(code));
         Assert.NotNull(registry.TryGet(code.ToLowerInvariant()));

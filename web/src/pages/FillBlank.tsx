@@ -54,7 +54,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Link, Stack, TextField, Typography } from '@mui/material';
-import { BottomActionBar, BottomActionBarSpacer } from '../components';
+import { AppBar, BottomActionBar, BottomActionBarSpacer } from '../components';
 import type { Blank } from '../engine/template';
 
 export interface FillBlankProps {
@@ -82,6 +82,15 @@ export interface FillBlankProps {
   onSubmitWord: (word: string) => Promise<{ accepted: boolean; message?: string }>;
   /** Skips this blank, leaving it empty. The parent decides what comes next (AC-07). */
   onSkip: () => void;
+  /**
+   * Optional leave/exit action. When provided, an app bar with a leave (x) icon is
+   * rendered so a player can bail out mid-fill (group play -> leave the room; solo ->
+   * back home) - every other in-game screen has this exit, and without it the
+   * word-entry screen is a trap. Omit to render no app bar (unchanged layout).
+   */
+  onExit?: () => void;
+  /** Accessible label for the leave action (default "Leave game"). */
+  exitLabel?: string;
 }
 
 /** Form values for the single controlled word input (react-hook-form). */
@@ -319,7 +328,7 @@ function BlindReassurance() {
   );
 }
 
-export function FillBlank({ subject, blank, wordNumber, totalWords, onSubmitWord, onSkip }: FillBlankProps) {
+export function FillBlank({ subject, blank, wordNumber, totalWords, onSubmitWord, onSkip, onExit, exitLabel }: FillBlankProps) {
   const theme = useTheme();
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -355,7 +364,16 @@ export function FillBlank({ subject, blank, wordNumber, totalWords, onSubmitWord
 
   return (
     <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto' }}>
-      <Stack component="form" onSubmit={handleSubmit(submit)} sx={{ px: 5.5, pt: 4 }}>
+      {/* Optional leave affordance (matches every other in-game screen). Rendered
+          only when the parent wires onExit, so callers that omit it keep the old
+          no-app-bar layout. */}
+      {onExit && (
+        <AppBar
+          title="Carving words"
+          leftAction={{ icon: 'xmark', label: exitLabel ?? 'Leave game', onClick: onExit }}
+        />
+      )}
+      <Stack component="form" onSubmit={handleSubmit(submit)} sx={{ px: 5.5, pt: onExit ? 2 : 4 }}>
         {subject && <SubjectLabel subject={subject} />}
         <ProgressRow wordNumber={wordNumber} totalWords={totalWords} />
         <SegmentBar wordNumber={wordNumber} totalWords={totalWords} />

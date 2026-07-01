@@ -13,6 +13,7 @@ import {
   collectWord,
   createCollection,
   isCollectionComplete,
+  skipBlank,
   toOrderedWords,
   type SafetyCheck,
 } from './engine';
@@ -182,6 +183,57 @@ describe('collectWord', () => {
         { playerSessionId: 'p2', word: 'sock' },
       ]);
     }
+  });
+});
+
+describe('skipBlank', () => {
+  it('records an empty placeholder against its blank id (AC-02)', () => {
+    const template = makeTemplate();
+    const collected = createCollection();
+
+    const result = skipBlank(collected, template, 'blank-1', 'p1');
+
+    expect(result).toEqual({ accepted: true });
+    expect(collected.get('blank-1')).toEqual({ playerSessionId: 'p1', word: '' });
+  });
+
+  it('keeps the collection size aligned so later words do not shift (positional alignment)', () => {
+    const template = makeTemplate();
+    const collected = createCollection();
+
+    // Skip the FIRST blank, then fill the second. Without the placeholder the
+    // second word would slide into the first blank's slot on assembly.
+    skipBlank(collected, template, 'blank-1', 'p1');
+    collected.set('blank-2', { playerSessionId: 'p2', word: 'sock' });
+
+    expect(collected.size).toBe(2);
+    expect(isCollectionComplete(template, collected)).toBe(true);
+    expect(toOrderedWords(template, collected)).toEqual([
+      { playerSessionId: 'p1', word: '' },
+      { playerSessionId: 'p2', word: 'sock' },
+    ]);
+    // assemble() renders the empty placeholder as literally nothing.
+    expect(assembleStory(template, collected).storyText).toBe('A  wizard found a sock.');
+  });
+
+  it('rejects a skip against an unknown blank id and records nothing', () => {
+    const template = makeTemplate();
+    const collected = createCollection();
+
+    const result = skipBlank(collected, template, 'not-a-real-blank', 'p1');
+
+    expect(result.accepted).toBe(false);
+    expect(collected.size).toBe(0);
+  });
+
+  it('does not count as a filled word (whitespace-only placeholder)', () => {
+    const template = makeTemplate();
+    const collected = createCollection();
+
+    skipBlank(collected, template, 'blank-1', 'p1');
+
+    const placeholder = collected.get('blank-1');
+    expect(placeholder?.word.trim().length).toBe(0);
   });
 });
 

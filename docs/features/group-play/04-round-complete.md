@@ -1,6 +1,6 @@
 # Story: Round complete and replay loop
 
-**Feature:** Group Play Experience  ·  **Status:** Not Started
+**Feature:** Group Play Experience  ·  **Status:** In Review
 
 ## Context
 After the reveal, the group can play again without returning to the home screen.
@@ -13,26 +13,26 @@ scratch after each laugh. See [feature.md](./feature.md) and
 `docs/design/screens/07-roundcomplete.png`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the reveal is complete, when the host (or all players)
+- [x] AC-01: Given the reveal is complete, when the host (or all players)
       triggers "Play another round", then the Round Complete screen is shown
       before starting the next round. The screen shows a teal "ROUND N CARVED"
       badge, confetti, and the header "Round complete!". See
       `docs/design/README.md` Screens screen 7.
-- [ ] AC-02: Given the Round Complete screen, then a stone-tablet keepsake panel
+- [x] AC-02: Given the Round Complete screen, then a stone-tablet keepsake panel
       shows the story title, a word-count pill ("N words"), and a carvers-count
       pill ("N carvers"). See `docs/design/README.md` Screens screen 7.
-- [ ] AC-03: Given the Round Complete screen, then a "Carved by your crew"
+- [x] AC-03: Given the Round Complete screen, then a "Carved by your crew"
       section shows a row of Guardian avatars (56px), each with display name and
       a per-player teal word-count caption ("2 words", "1 word"). The counts sum
       to the total blanks in the template. See `docs/design/README.md` Screens
       screen 7 and `docs/design/screens/07-roundcomplete.png`.
-- [ ] AC-04: Given I tap the gold "Play another round" CTA, then a new round
+- [x] AC-04: Given I tap the gold "Play another round" CTA, then a new round
       begins for the same group (same room, same players) - the group does not
       need to re-join or re-enter a code.
-- [ ] AC-05: Given I tap the secondary outlined-purple "Back to lobby" button,
+- [x] AC-05: Given I tap the secondary outlined-purple "Back to lobby" button,
       then all players return to the Lobby screen where the host can start a fresh
       round (same room code, still live).
-- [ ] AC-06: Given any player name or word count shown on the Round Complete
+- [x] AC-06: Given any player name or word count shown on the Round Complete
       screen, then the names displayed have passed the safety filter and no PII
       is shown.
 

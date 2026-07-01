@@ -76,8 +76,16 @@ export interface RevealProps {
    * it never hardcodes a crew byline, so solo can reuse this screen as-is.
    */
   attribution?: ReactNode;
-  /** Gold "Play another round" CTA handler. The parent owns what happens next. */
+  /** Gold primary CTA handler. The parent owns what happens next. */
   onPlayAgain: () => void;
+  /**
+   * Optional label for the gold primary CTA. Defaults to "Play another round"
+   * (single-player replays in place). Group play repurposes this same CTA to
+   * advance to its Round Complete recap first (group-play/04, AC-01), so it
+   * passes a label like "See the round recap" to avoid two identically-labelled
+   * "Play another round" buttons back to back.
+   */
+  playAgainLabel?: string;
   /** Optional home/close action for the app bar. Omit to render a balancing spacer. */
   onHome?: () => void;
   /**
@@ -274,7 +282,7 @@ function NarrationBar({ title }: { title: string }) {
   );
 }
 
-export function Reveal({ assembled, template, attribution, onPlayAgain, onHome, exitAction }: RevealProps) {
+export function Reveal({ assembled, template, attribution, onPlayAgain, playAgainLabel = 'Play another round', onHome, exitAction }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
 
@@ -429,7 +437,7 @@ export function Reveal({ assembled, template, attribution, onPlayAgain, onHome, 
           onClick={onPlayAgain}
           startIcon={<FontAwesomeIcon icon="arrow-rotate-right" style={{ width: 20, height: 20 }} />}
         >
-          Play another round
+          {playAgainLabel}
         </Button>
         <Button
           variant="outlined"

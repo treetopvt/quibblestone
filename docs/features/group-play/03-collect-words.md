@@ -1,6 +1,6 @@
 # Story: Collect words and ready the reveal
 
-**Feature:** Group Play Experience  ·  **Status:** Not Started
+**Feature:** Group Play Experience  ·  **Status:** In Review
 
 ## Context
 Players submit their assigned words; the host watches progress; once everything is
@@ -8,30 +8,30 @@ in, the room is ready for the shared reveal. This closes the real-time loop that
 makes group play work. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I have been assigned a blank, when I submit a word, then it is
+- [x] AC-01: Given I have been assigned a blank, when I submit a word, then it is
       accepted only after passing the safety filter and is recorded for the round.
       Submitted words are never shown to other players before the reveal.
-- [ ] AC-02: Given I have submitted my last assigned word and other players are
+- [x] AC-02: Given I have submitted my last assigned word and other players are
       still writing, then I see the Waiting interstitial screen: app bar "Your
       words are in!", the hero mascot juggling letter tiles "W O W", and the
       caption "Juggling letters while the others carve...". See
       `docs/design/README.md` Screens - screen 5 (Waiting) and
       `docs/design/screens/05-waiting.png`.
-- [ ] AC-03: Given the Waiting screen, then a status card shows "[N] of [M]
+- [x] AC-03: Given the Waiting screen, then a status card shows "[N] of [M]
       quibblers done" (teal check-circle icon) and "X still writing". A row of
       [M] Guardian avatars (54px circles) shows: done players at full opacity
       with a teal check badge; still-writing players dimmed (`opacity:0.55`,
       muted name) with a pulsing sandstone badge. There is no countdown. See
       `docs/design/README.md` Screens screen 5.
-- [ ] AC-04: Given I am on the Waiting screen, then I see a secondary outlined-
+- [x] AC-04: Given I am on the Waiting screen, then I see a secondary outlined-
       purple "Review my words" button (chisel icon); tapping it takes me back to
       a read-only view of my submitted words. There is no gold CTA on this screen
       (it is intentionally passive). See `docs/design/README.md` Screens screen 5
       and Buttons note "A purely passive screen legitimately has no gold CTA".
-- [ ] AC-05: Given all assigned blanks have been submitted by all players, then
+- [x] AC-05: Given all assigned blanks have been submitted by all players, then
       the room transitions to the reveal in near-real-time for everyone; I do not
       need to refresh.
-- [ ] AC-06: Given any submitted word, then it passed the safety filter before
+- [x] AC-06: Given any submitted word, then it passed the safety filter before
       being recorded or appearing in the waiting status or reveal.
 
 ## Out of Scope

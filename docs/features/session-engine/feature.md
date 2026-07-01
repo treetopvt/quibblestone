@@ -44,6 +44,14 @@ Architecture: section 4 (cloud real-time, SignalR).
   pass, not Slice 1. Keep the seams clean so it can be added without a rewrite.
 
 ## Parked - Phase 2+
-- Device-local remembered profile (name + variant pre-filled on return visit)
-  and room reconnection after a dropped connection (design pack Expansion 5).
+- Device-local remembered profile (name + variant pre-filled on a return visit) is
+  now **delivered** via `localStorage` (`web/src/identity.ts`, host-identity work).
+  What remains parked is **cross-device identity sync** (the same name + variant on a
+  player's other devices), which needs the account/entitlement seam (README section 3,
+  monetization) rather than a standalone player store - see #51.
+- **Host migration**: when the host leaves mid-session, promote a remaining player to
+  host (or otherwise keep the room startable) instead of leaving it hostless - see #50.
+  Part of the deferred reconnect / resilience hardening (design pack Expansion 5).
+- Room reconnection after a dropped connection (the car "dead zone" case; design pack
+  Expansion 5).
 - "Tales we've carved" local history (design pack Expansion 5).

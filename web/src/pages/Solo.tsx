@@ -61,6 +61,7 @@ import {
   collectWord,
   createCollection,
   isCollectionComplete,
+  skipBlank,
   type CollectedWords,
 } from '../engine/engine';
 import { classicBlind } from '../engine/modes/classicBlind';
@@ -251,8 +252,10 @@ export function Solo({ onExit }: SoloProps) {
   const handleSkip = () => {
     if (!currentBlank) return;
     // Record an empty placeholder (see file header) to preserve positional
-    // alignment - never leave a skipped blank absent from the collection.
-    collectionRef.current.set(currentBlank.id, { playerSessionId: SOLO_PLAYER_ID, word: '' });
+    // alignment - never leave a skipped blank absent from the collection. The
+    // "skip = empty placeholder" rule now lives in the engine (skipBlank) so
+    // solo and group-play share it and cannot drift.
+    skipBlank(collectionRef.current, template, currentBlank.id, SOLO_PLAYER_ID);
     advance();
   };
 
@@ -268,6 +271,8 @@ export function Solo({ onExit }: SoloProps) {
         totalWords={blanks.length}
         onSubmitWord={handleSubmitWord}
         onSkip={handleSkip}
+        onExit={onExit}
+        exitLabel="Back to home"
       />
     );
   }

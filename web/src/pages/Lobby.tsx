@@ -25,9 +25,12 @@
 //      whose border pulses purple (AC-03).
 //    - A transient dark bottom-center toast "[Name] pulled up a stone" when a new
 //      player appears (not on the initial roster, not for yourself) (AC-02).
-//    - ONLY when this client is the host: the pinned gold "Start game" CTA + the
-//      crown note "You're the host - start whenever your crew's ready" (AC-05).
-//      Non-hosts see no Start button. onStart is a no-op seam for group-play/01.
+//    - ONLY when this client is the host: the host-only family-safe toggle
+//      (group-play/01), the pinned gold "Start game" CTA, and the crown note
+//      "You're the host - start whenever your crew's ready" (AC-05). Non-hosts see
+//      none of these. Tapping "Start game" calls onStart with the host's
+//      family-safe toggle value (group-play/01) - App wires that to the hub's
+//      host-only startRound, which the SERVER enforces + filters by (AC-03/AC-04).
 //
 //  Child safety (AC-06): names arrive already vetted by the join-time safety
 //  filter (session-engine/02); this screen renders them verbatim and never takes
@@ -45,8 +48,9 @@ import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, Guardian } from '../components';
-import type { GuardianVariant } from '../components';
+import { AppBar, BottomActionBar, FamilySafeToggle, Guardian } from '../components';
+import { toGuardianVariant } from '../components';
+import { FAMILY_SAFE_DEFAULT } from '../content/familySafe';
 import type { Player, RoomState } from '../signalr/useGameHub';
 
 // Room capacity for Slice 1: the roster tops out at six carvers (AC-01). The
@@ -68,8 +72,21 @@ export interface LobbyProps {
   isHost: boolean;
   /** Leave the lobby and return Home (the app-bar close action). */
   onLeave: () => void;
-  /** Start the game (host only). Seam for group-play/01 - a no-op in story 03. */
-  onStart: () => void;
+  /**
+   * Start the game (host only, group-play/01). Called with the host's current
+   * family-safe toggle position; App wires this to the hub's host-only startRound
+   * (the SERVER enforces the host check and filters templates by this flag, AC-03
+   * / AC-04). Only ever invoked from the host-only Start CTA below.
+   */
+  onStart: (familySafe: boolean) => void;
+  /**
+   * Optional notice shown at the top of the lobby - e.g. "a carver left, so the
+   * round was reset" when the hub aborts a round mid-collection (group-play
+   * recovery). Omitted/null renders nothing.
+   */
+  notice?: string | null;
+  /** Dismiss the notice banner (optional; only wired when a notice can appear). */
+  onDismissNotice?: () => void;
 }
 
 // A tile scales in from nothing when a new player fills a slot (AC-02). Transform
@@ -116,7 +133,7 @@ function PlayerTile({ player }: { player: Player }) {
   const theme = useTheme();
   // The variant is a free string on the wire; the server normalizes it to one of
   // the six known values, so treat it as a GuardianVariant for the avatar.
-  const variant = player.variant as GuardianVariant;
+  const variant = toGuardianVariant(player.variant);
 
   return (
     <Stack
@@ -462,10 +479,17 @@ function ShareWidget({ code }: { code: string }) {
   );
 }
 
-export function Lobby({ room, isHost, onLeave, onStart }: LobbyProps) {
+export function Lobby({ room, isHost, onLeave, onStart, notice, onDismissNotice }: LobbyProps) {
   const theme = useTheme();
   const players = room.players;
   const emptyCount = Math.max(0, MAX_PLAYERS - players.length);
+
+  // Host-only family-safe toggle (group-play/01). Safe by default (AC-04): seeded
+  // from FAMILY_SAFE_DEFAULT rather than a hardcoded true, so the safe-by-default
+  // posture is one shared token. Its value is passed to onStart -> the hub's
+  // startRound, where the SERVER filters the template catalog by it. Non-hosts
+  // never render or hold this (the toggle + CTA are inside the isHost block).
+  const [familySafe, setFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
 
   // Join toast (AC-02): a short-lived message shown when a NEW name appears in
   // the roster. We diff the previous player-name set against the current one in
@@ -513,6 +537,54 @@ export function Lobby({ room, isHost, onLeave, onStart }: LobbyProps) {
       />
 
       <Stack sx={{ px: 5.5, pt: 1 }} spacing={0}>
+        {/* Group-play recovery notice: shown when a round was reset because a carver
+            left mid-collection (the hub's "RoundAborted"). Dismissible; theme-driven. */}
+        {notice && (
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.25,
+              px: 2,
+              py: 1.5,
+              mb: 3,
+              borderRadius: '14px',
+              bgcolor: alpha(theme.palette.coral.main, 0.14),
+              border: `1.5px solid ${alpha(theme.palette.coral.main, 0.35)}`,
+            }}
+          >
+            <Typography
+              sx={{
+                flex: 1,
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 13,
+                color: 'text.primary',
+              }}
+            >
+              {notice}
+            </Typography>
+            {onDismissNotice && (
+              <Box
+                component="button"
+                type="button"
+                onClick={onDismissNotice}
+                aria-label="Dismiss notice"
+                sx={{
+                  border: 'none',
+                  bgcolor: 'transparent',
+                  cursor: 'pointer',
+                  color: 'text.secondary',
+                  display: 'flex',
+                  p: 0.5,
+                }}
+              >
+                <FontAwesomeIcon icon="xmark" style={{ width: 16, height: 16 }} />
+              </Box>
+            )}
+          </Box>
+        )}
+
         {/* Stone-tablet share widget (session-engine/04): room code + Copy/Share. */}
         <ShareWidget code={room.code} />
 
@@ -624,10 +696,14 @@ export function Lobby({ room, isHost, onLeave, onStart }: LobbyProps) {
         </Box>
       )}
 
-      {/* Host-only Start CTA + crown note (AC-05). Non-hosts see neither. */}
+      {/* Host-only family-safe toggle + Start CTA + crown note (AC-05, AC-04).
+          Non-hosts see none of these. The toggle sits directly above the CTA so
+          the host sets the family-safe posture right where they start; its value
+          is handed to onStart -> the hub's startRound (server-authoritative). */}
       {isHost && (
         <BottomActionBar>
-          <Button variant="contained" fullWidth onClick={onStart}>
+          <FamilySafeToggle checked={familySafe} onChange={setFamilySafe} />
+          <Button variant="contained" fullWidth onClick={() => onStart(familySafe)}>
             <FontAwesomeIcon icon="play" style={{ width: 22, height: 22 }} />
             Start game
           </Button>

@@ -46,3 +46,16 @@ export type { HeroGuardianProps } from '../assets/HeroGuardian';
 // the profanity filter (child-safety/01).
 export { FamilySafeToggle } from './FamilySafeToggle';
 export type { FamilySafeToggleProps } from './FamilySafeToggle';
+
+// The shared identity controls (build/host-identity): the "Display name" field +
+// "Choose your guardian" avatar grid, used by BOTH Join (a joiner names itself)
+// and HostSetup (the host names itself before the room is minted). Controlled /
+// presentational; also the one source of the shared identity constants.
+export {
+  PlayerIdentityFields,
+  GUARDIAN_VARIANTS,
+  DEFAULT_VARIANT,
+  MAX_NAME_LENGTH,
+  toGuardianVariant,
+} from './PlayerIdentityFields';
+export type { PlayerIdentityFieldsProps } from './PlayerIdentityFields';

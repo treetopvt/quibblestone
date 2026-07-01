@@ -34,7 +34,7 @@ The web client points at these via `web/.env.development`.
 ## Surface
 
 - `GET /health` -> `{ status, service, version, utc }`
-- `GameHub` (real-time, session-engine): `CreateRoom()`, `JoinRoom(code,
+- `GameHub` (real-time, session-engine): `CreateRoom(displayName, variant)`, `JoinRoom(code,
   displayName, variant)`, `LeaveRoom(code)`, and `OnDisconnectedAsync` - rooms
   are ephemeral in-memory (RoomRegistry, no DB); the hub broadcasts
   `"RosterChanged"` to a room's group on every roster change.
