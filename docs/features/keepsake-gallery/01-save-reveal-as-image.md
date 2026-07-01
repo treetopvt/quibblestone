@@ -1,6 +1,6 @@
 # Story: Save the reveal as a stone-tablet image
 
-**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** #63
 
 ## Context
 The finished tale on the Reveal screen - confetti, "Your tale is carved!"

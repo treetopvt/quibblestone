@@ -20,10 +20,10 @@ Progressive reveal, Owner-curated word bank are the next three named variations)
 |---|---|---|---|
 | 01 | #27 | Mode interface (the three axes) | Not Started |
 | 02 | #28 | Classic blind mode | Not Started |
-| 03 | TBD | Progressive reveal ("Whisper mode") | Not Started |
-| 04 | TBD | Blind + word bank | Not Started |
-| 05 | TBD | Owner-curated word bank | Not Started |
-| 06 | TBD | Versus / Duel mode | Not Started |
+| 03 | #52 | Progressive reveal ("Whisper mode") | Not Started |
+| 04 | #53 | Blind + word bank | Not Started |
+| 05 | #54 | Owner-curated word bank | Not Started |
+| 06 | #55 | Versus / Duel mode | Not Started |
 
 ## Dependencies
 - template-model (a mode plays a template).

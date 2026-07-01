@@ -1,6 +1,6 @@
 # Story: Progressive reveal ("Whisper mode")
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** #52
 
 ## Context
 README section 5 names Progressive reveal as one of the engine's core

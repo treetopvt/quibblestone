@@ -1,6 +1,6 @@
 # Story: One-blank remix of a finished tale
 
-**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** #61
 
 ## Context
 A tiny change to a tale that already got a big laugh is an instant second laugh

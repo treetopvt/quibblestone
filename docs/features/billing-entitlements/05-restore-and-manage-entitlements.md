@@ -1,6 +1,6 @@
 # Story: Restore / manage entitlements
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #74
 
 ## Context
 A purchaser should always be able to see what they own and get it back on a

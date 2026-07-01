@@ -1,6 +1,6 @@
 # Story: Stripe integration + entitlement store
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #72
 
 ## Context
 The shared server-side plumbing that both the tip jar (story 02) and the

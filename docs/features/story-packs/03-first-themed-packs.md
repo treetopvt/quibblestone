@@ -1,6 +1,6 @@
 # Story: First themed packs (seed content)
 
-**Feature:** Story Packs (Guardian's Vault)  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Story Packs (Guardian's Vault)  ·  **Status:** Not Started  ·  **Issue:** #77
 
 ## Context
 A pack catalog with nothing in it proves nothing. This story hand-authors

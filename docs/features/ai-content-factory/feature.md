@@ -25,9 +25,9 @@ out later.
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | TBD | Batch generation job | Not Started |
-| 02 | TBD | Vetting / moderation queue | Not Started |
-| 03 | TBD | Publish to library | Not Started |
+| 01 | #78 | Batch generation job | Not Started |
+| 02 | #79 | Vetting / moderation queue | Not Started |
+| 03 | #80 | Publish to library | Not Started |
 
 ## Dependencies
 - template-model (the generation job's output must conform to the `Template` /

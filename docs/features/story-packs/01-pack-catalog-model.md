@@ -1,6 +1,6 @@
 # Story: Pack catalog model + Guardian's Vault browser
 
-**Feature:** Story Packs (Guardian's Vault)  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Story Packs (Guardian's Vault)  ·  **Status:** Not Started  ·  **Issue:** #75
 
 ## Context
 Before anything can be free-or-locked or purchased, there needs to be a

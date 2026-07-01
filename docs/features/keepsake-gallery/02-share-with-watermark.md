@@ -1,6 +1,6 @@
 # Story: Share the tale with watermark
 
-**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** #64
 
 ## Context
 Every saved tale is a chance for word-of-mouth growth (README section 2 - live

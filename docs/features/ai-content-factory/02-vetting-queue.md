@@ -1,6 +1,6 @@
 # Story: Vetting / moderation queue
 
-**Feature:** AI Content Factory (back office)  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** AI Content Factory (back office)  ·  **Status:** Not Started  ·  **Issue:** #79
 
 ## Context
 This is the non-negotiable gate (README section 6: "a strong moderation

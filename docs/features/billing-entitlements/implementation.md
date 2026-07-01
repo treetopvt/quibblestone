@@ -45,11 +45,11 @@ else - it defines the catalog and the store shape every other story writes into 
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 entitlement-model-and-gate (foundation) | TBD | `api/src/Entitlements/*`, one call-site edit in `GameHub.cs` / `Solo.tsx` | accounts-identity/01, accounts-identity/02, session-engine | - | 1 | high |
-| 03 stripe-integration-and-store | TBD | `api/src/Billing/StripeCheckoutService.cs`, `StripeWebhookHandler.cs`, `Controllers/StripeWebhookController.cs` | 01, accounts-identity/02 | - (build before 02/04 need to actually charge) | 2 | high |
-| 02 tip-jar | TBD | `web/src/components/TipJar.tsx` (or `pages/`), one Home entry-point edit | 01 (confirms no-op), 03 (payment call) | 04 (disjoint files) | 3 | medium |
-| 04 gated-purchase-flow | TBD | `web/src/pages/` paywall screen, `api/src/Billing/` pack-to-capability map | 01, 03, accounts-identity/02 | 02 (disjoint files) | 3 | medium |
-| 05 restore-and-manage | TBD | `web/src/pages/` restore/manage view (near accounts-identity/03's screen), a read-only API endpoint | 01, accounts-identity/03 | - (needs 03/04 landed to have anything real to show, though its empty state is independently testable) | 4 | medium |
+| 01 entitlement-model-and-gate (foundation) | #70 | `api/src/Entitlements/*`, one call-site edit in `GameHub.cs` / `Solo.tsx` | accounts-identity/01, accounts-identity/02, session-engine | - | 1 | high |
+| 03 stripe-integration-and-store | #72 | `api/src/Billing/StripeCheckoutService.cs`, `StripeWebhookHandler.cs`, `Controllers/StripeWebhookController.cs` | 01, accounts-identity/02 | - (build before 02/04 need to actually charge) | 2 | high |
+| 02 tip-jar | #71 | `web/src/components/TipJar.tsx` (or `pages/`), one Home entry-point edit | 01 (confirms no-op), 03 (payment call) | 04 (disjoint files) | 3 | medium |
+| 04 gated-purchase-flow | #73 | `web/src/pages/` paywall screen, `api/src/Billing/` pack-to-capability map | 01, 03, accounts-identity/02 | 02 (disjoint files) | 3 | medium |
+| 05 restore-and-manage | #74 | `web/src/pages/` restore/manage view (near accounts-identity/03's screen), a read-only API endpoint | 01, accounts-identity/03 | - (needs 03/04 landed to have anything real to show, though its empty state is independently testable) | 4 | medium |
 
 **Concurrency per wave:** Wave 1 = 1 (01, the seam - must land first, everything else imports its shape). Wave 2 =
 1 (03, the shared Stripe plumbing - technically could start once 01's shape is stable, even before 01 is fully

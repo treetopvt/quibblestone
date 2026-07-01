@@ -1,6 +1,6 @@
 # Story: Tip jar ("Buy the Guardians a coffee")
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #71
 
 ## Context
 Before anything is ever locked, QuibbleStone wants a friendly, ungated way for

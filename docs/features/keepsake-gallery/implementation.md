@@ -41,10 +41,10 @@ every other story's tests and UI depend on (both need a rendered image to share/
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 (foundation) save-reveal-as-image | TBD | `web/src/gallery/renderTablet.ts` (or similar - the client-side render function), edits `web/src/pages/Reveal.tsx` (adds the "Save as image" action) | the-reveal/01 | - | 1 | high |
-| 02 share-with-watermark | TBD | edits `web/src/gallery/renderTablet.ts` (watermark applied at render time), edits `web/src/pages/Reveal.tsx`'s existing `handleShare` (prefers an image payload, keeps the existing text fallback) | 01, session-engine/04 (pattern reuse) | 03 | 2 | medium |
-| 03 tales-weve-carved-history | TBD | `web/src/gallery/localGallery.ts` (storage module), `web/src/pages/Gallery.tsx` (new screen), edits `web/src/pages/Home.tsx` (nav entry point) | 01 | 02 | 2 | medium |
-| 04 shareable-tale-link | TBD | new `api/src/PublishedTales/` (thin controller + service), a public read-only tale page/route, edits `web/src/pages/Reveal.tsx`'s `handleShare` (adds the link to the payload) | 01, 02 | - | 3 | high |
+| 01 (foundation) save-reveal-as-image | #63 | `web/src/gallery/renderTablet.ts` (or similar - the client-side render function), edits `web/src/pages/Reveal.tsx` (adds the "Save as image" action) | the-reveal/01 | - | 1 | high |
+| 02 share-with-watermark | #64 | edits `web/src/gallery/renderTablet.ts` (watermark applied at render time), edits `web/src/pages/Reveal.tsx`'s existing `handleShare` (prefers an image payload, keeps the existing text fallback) | 01, session-engine/04 (pattern reuse) | 03 | 2 | medium |
+| 03 tales-weve-carved-history | #65 | `web/src/gallery/localGallery.ts` (storage module), `web/src/pages/Gallery.tsx` (new screen), edits `web/src/pages/Home.tsx` (nav entry point) | 01 | 02 | 2 | medium |
+| 04 shareable-tale-link | #66 | new `api/src/PublishedTales/` (thin controller + service), a public read-only tale page/route, edits `web/src/pages/Reveal.tsx`'s `handleShare` (adds the link to the payload) | 01, 02 | - | 3 | high |
 
 **Concurrency per wave:** Wave 1 = 1 (foundation - the render function both 02 and 03 need). Wave 2 = {02, 03} in
 parallel: 02 edits the render function's watermark step and `Reveal.tsx`'s existing share handler; 03 adds an

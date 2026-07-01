@@ -19,9 +19,9 @@ safety applies to pack content exactly as it does to base content).
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | TBD | Pack catalog model + Guardian's Vault browser | Not Started |
-| 02 | TBD | Free-vs-locked gating | Not Started |
-| 03 | TBD | First themed packs (seed content) | Not Started |
+| 01 | #75 | Pack catalog model + Guardian's Vault browser | Not Started |
+| 02 | #76 | Free-vs-locked gating | Not Started |
+| 03 | #77 | First themed packs (seed content) | Not Started |
 
 ## Dependencies
 - template-model (a pack is a curated grouping of templates; it reuses the

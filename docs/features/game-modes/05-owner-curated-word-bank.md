@@ -1,6 +1,6 @@
 # Story: Owner-curated word bank
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** #54
 
 ## Context
 README section 5: "Owner-curated word bank - the round's host supplies the word

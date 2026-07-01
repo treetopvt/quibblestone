@@ -22,9 +22,9 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | TBD | Reaction row | Not Started |
-| 02 | TBD | Word-by-word "carving" reveal animation | Not Started |
-| 03 | TBD | "Golden Guardian" funniest-word award | Not Started |
+| 01 | #56 | Reaction row | Not Started |
+| 02 | #57 | Word-by-word "carving" reveal animation | Not Started |
+| 03 | #58 | "Golden Guardian" funniest-word award | Not Started |
 
 ## Dependencies
 - the-reveal (this feature builds on `Reveal.tsx` / `revealParts.ts` - it does

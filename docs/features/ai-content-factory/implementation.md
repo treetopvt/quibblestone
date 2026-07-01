@@ -44,9 +44,9 @@ to exploit within the feature itself, only alongside other features.
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 batch-generation-job | TBD | `api/src/Content/IContentGenerationJob.cs`, `api/src/Content/ContentGenerationJob.cs`, `api/src/Content/AiProviderClient.cs`, `api/src/Content/CandidateTemplate.cs`; edits `api/src/Program.cs` (DI + job registration) | template-model/01 (schema), platform-devops (Key Vault reachable) | story-packs/01 (other feature, disjoint files) | 1 | high |
-| 02 vetting-queue | TBD | `api/src/Content/IVettingQueue.cs`, `api/src/Content/VettingQueue.cs`, `api/src/Controllers/ContentReviewController.cs`; edits `api/src/Program.cs` (DI) | ai-content-factory/01, child-safety/01 (`IContentSafetyFilter`) | none (serializes behind 01; shares `Program.cs` edits) | 2 | medium |
-| 03 publish-to-library | TBD | `api/src/Content/IContentLibrary.cs`, `api/src/Content/TableStorageContentLibrary.cs`; edits `api/src/Program.cs` (DI) | ai-content-factory/02 | story-packs/01-02 (other feature, disjoint files) | 3 | medium |
+| 01 batch-generation-job | #78 | `api/src/Content/IContentGenerationJob.cs`, `api/src/Content/ContentGenerationJob.cs`, `api/src/Content/AiProviderClient.cs`, `api/src/Content/CandidateTemplate.cs`; edits `api/src/Program.cs` (DI + job registration) | template-model/01 (schema), platform-devops (Key Vault reachable) | story-packs/01 (other feature, disjoint files) | 1 | high |
+| 02 vetting-queue | #79 | `api/src/Content/IVettingQueue.cs`, `api/src/Content/VettingQueue.cs`, `api/src/Controllers/ContentReviewController.cs`; edits `api/src/Program.cs` (DI) | ai-content-factory/01, child-safety/01 (`IContentSafetyFilter`) | none (serializes behind 01; shares `Program.cs` edits) | 2 | medium |
+| 03 publish-to-library | #80 | `api/src/Content/IContentLibrary.cs`, `api/src/Content/TableStorageContentLibrary.cs`; edits `api/src/Program.cs` (DI) | ai-content-factory/02 | story-packs/01-02 (other feature, disjoint files) | 3 | medium |
 
 **Concurrency per wave:** Wave 1 = 1 (generation job; can run alongside `story-packs/01`'s catalog-model work in the
 other feature, since they touch disjoint files). Wave 2 = 1 (vetting; strictly behind 01, and it edits

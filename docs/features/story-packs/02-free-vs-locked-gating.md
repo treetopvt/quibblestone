@@ -1,6 +1,6 @@
 # Story: Free-vs-locked gating
 
-**Feature:** Story Packs (Guardian's Vault)  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Story Packs (Guardian's Vault)  ·  **Status:** Not Started  ·  **Issue:** #76
 
 ## Context
 Story 01 lets a locked pack be seen; this story decides what happens when a
