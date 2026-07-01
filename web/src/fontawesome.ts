@@ -41,6 +41,10 @@ import {
   // (users) and the host-only "Start game" CTA glyph (play).
   faUsers,
   faPlay,
+  // Lobby share widget (session-engine/04): the outlined-purple "Copy" CTA's
+  // clipboard glyph. faCheck (already above) becomes the teal confirmation
+  // icon and faShareNodes (already above) is the filled-purple "Share" glyph.
+  faCopy,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -63,4 +67,5 @@ library.add(
   faArrowRight,
   faUsers,
   faPlay,
+  faCopy,
 );

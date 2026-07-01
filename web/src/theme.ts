@@ -25,6 +25,7 @@
 // ----------------------------------------------------------------------------
 
 import { createTheme, alpha } from '@mui/material/styles';
+import type {} from '@mui/material/Button';
 
 // ----------------------------------------------------------------------------
 //  Design tokens - authoritative values from docs/design/README.md (Global
@@ -60,6 +61,10 @@ const tokens = {
   textMutedStrong: 'rgba(43,38,34,.66)',
   textMutedSoft: 'rgba(43,38,34,.5)',
   purple: '#6C4BD8',
+  // Hover shade for the filled-purple button contract (session-engine/04
+  // Lobby share widget "Share" CTA) - a slightly darker purple, matching the
+  // pattern of the gold CTA's own darker-on-hover treatment.
+  purpleDeep: '#5A3BC0',
   goldTop: '#FFC24E',
   goldMain: '#FFB22E',
   goldDeep: '#E89A12',
@@ -137,6 +142,18 @@ declare module '@mui/material/styles' {
     bottomBarScrim?: { main: string };
     guardianAccent?: GuardianAccentPalette;
     rosterTile?: { fill: string; border: string };
+  }
+}
+
+// A third Button contract alongside contained (gold CTA) / outlined (purple
+// secondary): a FILLED-PURPLE, white-text variant (session-engine/04, the
+// Lobby share widget's "Share" CTA, docs/design/Lobby.dc.html). Registered as
+// a genuine MUI custom variant (not an inline sx one-off) so any future
+// filled-purple action reuses the same contract. Use it as
+// <Button variant="sharePurple">.
+declare module '@mui/material/Button' {
+  interface ButtonPropsVariantOverrides {
+    sharePurple: true;
   }
 }
 
@@ -309,6 +326,37 @@ export const theme = createTheme({
           },
         },
       },
+      // Filled-purple white-text CTA (session-engine/04 "Share"). Registered
+      // via MUI's custom-variant `variants` array (matched by the augmented
+      // `variant="sharePurple"` prop) rather than a `styleOverrides` key,
+      // since "sharePurple" is not one of MUI's built-in variant names.
+      // Shares the root contract's radius/typography/disableElevation; height
+      // matches the outlined secondary (60) since Share sits stacked beside
+      // Copy in the share widget, not full-width like the primary CTA.
+      variants: [
+        {
+          props: { variant: 'sharePurple' },
+          style: {
+            height: 60,
+            border: 'none',
+            background: tokens.purple,
+            color: '#fff',
+            boxShadow: '0 8px 16px -8px rgba(108,75,216,.9)',
+            '&:hover': {
+              background: tokens.purpleDeep,
+              boxShadow: '0 10px 20px -8px rgba(108,75,216,.95)',
+            },
+            '&:active': {
+              boxShadow: '0 6px 12px -8px rgba(108,75,216,.85)',
+            },
+            '&.Mui-disabled': {
+              background: tokens.stoneSlotAlt,
+              color: tokens.textMutedSoft,
+              boxShadow: 'none',
+            },
+          },
+        },
+      ],
     },
   },
 });

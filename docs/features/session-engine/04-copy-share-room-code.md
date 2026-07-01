@@ -1,6 +1,6 @@
 # Story: Copy and share the room code from the Lobby
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started
+**Feature:** Session & Room Engine  ·  **Status:** In Review
 
 ## Context
 Players joining remotely need to receive the room code without the host having
@@ -11,22 +11,22 @@ houses" use case. See [feature.md](./feature.md) and
 `docs/design/README.md` Screens - screen 3 (Lobby).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I am on the Lobby screen, then the room code is displayed
+- [x] AC-01: Given I am on the Lobby screen, then the room code is displayed
       prominently in the stone-tablet share widget alongside "Copy" and "Share"
       buttons.
-- [ ] AC-02: Given I tap "Copy", then the room code is copied to the clipboard
+- [x] AC-02: Given I tap "Copy", then the room code is copied to the clipboard
       and the button label changes to a teal-check "Copied!" confirmation for
       approximately 1.8 seconds, then reverts to "Copy". See
       `docs/design/README.md` Screens - screen 3 and
       `docs/design/screens/03-lobby.png`.
-- [ ] AC-03: Given I tap "Share", then the browser's Web Share API is invoked
+- [x] AC-03: Given I tap "Share", then the browser's Web Share API is invoked
       with the room code and a short human-readable message (e.g. "Join my
       QuibbleStone game! Room code: MOSS").
-- [ ] AC-04: Given the Web Share API is not available on the current browser
+- [x] AC-04: Given the Web Share API is not available on the current browser
       (e.g. desktop Chrome without share support), then the "Share" button is
       hidden or falls back gracefully (e.g. the Copy affordance remains and no
       JS error is thrown).
-- [ ] AC-05: Given the room code is shown in the Lobby, then it displays in
+- [x] AC-05: Given the room code is shown in the Lobby, then it displays in
       Fredoka 700, 38px, purple (`#6C4BD8`) with letter-spacing per the design
       spec, and reads as plain text (no PII, just the code). See
       `docs/design/README.md` Screens - screen 3.
@@ -51,6 +51,14 @@ houses" use case. See [feature.md](./feature.md) and
   share-nodes icon)"). Add this variant to the MUI theme if it is not already
   present.
 - See `docs/design/README.md` Interactions & Behavior - Copy/Share.
+
+## Tests
+- Web-only UI behavior (Copy flips to a teal "Copied!" for ~1.8s then reverts -
+  AC-02; Share is feature-detected and hidden when Web Share is unavailable -
+  AC-04; the code renders prominently - AC-01/05) is covered by the Phase 4
+  browser walkthrough. Vitest is pure-logic only and there is no React
+  component-render harness in Slice 1, so there is no unit test for this widget;
+  Playwright coverage of Copy/Share is a candidate for a later testing pass.
 
 ## Dependencies
 - session-engine/01-create-room

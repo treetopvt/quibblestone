@@ -10,8 +10,12 @@
 //
 //  What it shows (design: docs/design/Lobby.dc.html, docs/design/README.md
 //  "Screens" screen 3):
-//    - The room code, kept visible so the host can read it out (story 04 will
-//      wrap a copy/share widget around this spot - left clean for that).
+//    - The stone-tablet share widget (session-engine/04): the room code in big
+//      purple Fredoka type, an outlined-purple "Copy" button (flips to a
+//      teal-check "Copied!" for ~1.8s on tap, no server round-trip - the code
+//      is already local client state) and a filled-purple "Share" button that
+//      invokes the Web Share API when available (hidden otherwise - AC-04),
+//      plus the "share this code" hint line.
 //    - "Carvers gathered" with a live teal count chip "{n} of {MAX_PLAYERS}" (AC-01).
 //    - A 3-column grid, up to MAX_PLAYERS (6). Each present player is a carved
 //      stone tile (theme rosterTile tokens) with their Guardian, name, and a
@@ -52,6 +56,10 @@ const MAX_PLAYERS = 6;
 // How long the "[Name] pulled up a stone" toast stays on screen (AC-02): matches
 // the qsToastIn animation duration so it slides out exactly as it is removed.
 const TOAST_DURATION_MS = 2600;
+
+// How long the "Copy" button shows its teal-check "Copied!" confirmation
+// before reverting (session-engine/04 AC-02) - matches the design spec's ~1.8s.
+const COPIED_CONFIRMATION_MS = 1800;
 
 export interface LobbyProps {
   /** The current room (code + live roster). Roster updates flow in via the hook's RosterChanged handler. */
@@ -293,6 +301,146 @@ function EmptySlot() {
   );
 }
 
+/**
+ * The stone-tablet share widget (session-engine/04, docs/design/Lobby.dc.html):
+ * the room code in big purple type plus Copy + Share actions. The code is
+ * already local client state (useGameHub's `room.code`) so both actions are
+ * pure client-side - no server round-trip.
+ */
+function ShareWidget({ code }: { code: string }) {
+  const theme = useTheme();
+
+  // "Copied!" confirmation (AC-02): local state only, reverts after
+  // COPIED_CONFIRMATION_MS. The timer is cleared on unmount so we never call
+  // setState after the component is gone.
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    // Guard clipboard availability gracefully (e.g. insecure context / an
+    // older browser) - never throw, just skip the confirmation.
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), COPIED_CONFIRMATION_MS);
+    } catch {
+      // Clipboard permission denied or unavailable - fail silently, no error surfaced.
+    }
+  };
+
+  // Feature-detect the Web Share API once (it does not change over the
+  // component's lifetime) - AC-04: hide the Share button entirely when it is
+  // not available (e.g. desktop Chrome) rather than showing a dead button.
+  const [canShare] = useState(
+    () => typeof navigator !== 'undefined' && typeof navigator.share === 'function',
+  );
+
+  const handleShare = async () => {
+    if (!canShare) return;
+    try {
+      await navigator.share({
+        title: 'QuibbleStone',
+        text: `Join my QuibbleStone game! Room code: ${code}`,
+      });
+    } catch {
+      // A user-cancelled share (AbortError) or any other rejection should
+      // never surface as an unhandled error or noisy console log.
+    }
+  };
+
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        p: 2.75,
+        borderRadius: 6.5,
+        background: 'tablet.gradient',
+        boxShadow: `0 18px 36px -22px ${alpha(theme.palette.primary.main, 0.5)}, inset 0 2px 0 rgba(255,255,255,.5), inset 0 -4px 12px ${alpha(theme.palette.stoneEdge.main, 0.35)}`,
+        mb: 4,
+      }}
+    >
+      <Stack direction="row" alignItems="center" justifyContent="space-between">
+        <Box>
+          <Typography
+            variant="overline"
+            sx={{ fontSize: 11, fontWeight: 800, color: 'text.secondary' }}
+          >
+            Room code
+          </Typography>
+          <Typography
+            sx={{
+              fontFamily: '"Fredoka", sans-serif',
+              fontWeight: 700,
+              fontSize: 38,
+              lineHeight: 1,
+              letterSpacing: '5px',
+              color: 'primary.main',
+            }}
+          >
+            {code}
+          </Typography>
+        </Box>
+
+        <Stack spacing={1}>
+          <Button variant="outlined" onClick={handleCopy} sx={{ height: 44, fontSize: 13, px: 2 }}>
+            {copied ? (
+              <Box sx={{ color: 'teal.main', display: 'flex' }}>
+                <FontAwesomeIcon icon="check" style={{ width: 15, height: 15 }} />
+              </Box>
+            ) : (
+              <FontAwesomeIcon icon="copy" style={{ width: 15, height: 15 }} />
+            )}
+            {copied ? 'Copied!' : 'Copy'}
+          </Button>
+          {canShare && (
+            <Button
+              variant="sharePurple"
+              onClick={handleShare}
+              sx={{ height: 44, fontSize: 13, px: 2 }}
+            >
+              <FontAwesomeIcon icon="share-nodes" style={{ width: 15, height: 15 }} />
+              Share
+            </Button>
+          )}
+        </Stack>
+      </Stack>
+
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1}
+        sx={{
+          mt: 1.5,
+          pt: 1.4,
+          borderTop: `1.5px dashed ${alpha(theme.palette.stoneEdge.main, 0.3)}`,
+        }}
+      >
+        <Box sx={{ color: 'coral.main', display: 'flex' }}>
+          <FontAwesomeIcon icon="users" style={{ width: 15, height: 15 }} />
+        </Box>
+        <Typography
+          sx={{
+            fontFamily: '"Nunito", sans-serif',
+            fontWeight: 700,
+            fontSize: 12.5,
+            color: 'text.secondary',
+          }}
+        >
+          Share this code so friends can gather round the stone
+        </Typography>
+      </Stack>
+    </Box>
+  );
+}
+
 export function Lobby({ room, isHost, onLeave, onStart }: LobbyProps) {
   const theme = useTheme();
   const players = room.players;
@@ -344,28 +492,8 @@ export function Lobby({ room, isHost, onLeave, onStart }: LobbyProps) {
       />
 
       <Stack sx={{ px: 5.5, pt: 1 }} spacing={0}>
-        {/* ROOM CODE - kept visible for the host to read out. Story 04 wraps a
-            copy/share widget around this spot; left clean for that. */}
-        <Stack spacing={0.5} sx={{ mb: 4 }}>
-          <Typography
-            variant="overline"
-            sx={{ fontSize: 11, fontWeight: 800, color: 'text.secondary' }}
-          >
-            Room code
-          </Typography>
-          <Typography
-            sx={{
-              fontFamily: '"Fredoka", sans-serif',
-              fontWeight: 700,
-              fontSize: 38,
-              lineHeight: 1,
-              letterSpacing: '5px',
-              color: 'primary.main',
-            }}
-          >
-            {room.code}
-          </Typography>
-        </Stack>
+        {/* Stone-tablet share widget (session-engine/04): room code + Copy/Share. */}
+        <ShareWidget code={room.code} />
 
         {/* "Carvers gathered" header with the live teal count chip (AC-01). */}
         <Stack
