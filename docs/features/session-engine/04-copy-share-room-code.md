@@ -27,9 +27,10 @@ houses" use case. See [feature.md](./feature.md) and
       hidden or falls back gracefully (e.g. the Copy affordance remains and no
       JS error is thrown).
 - [x] AC-05: Given the room code is shown in the Lobby, then it displays in
-      Fredoka 700, 38px, purple (`#6C4BD8`) with letter-spacing per the design
-      spec, and reads as plain text (no PII, just the code). See
-      `docs/design/README.md` Screens - screen 3.
+      Fredoka 700 (40px in the reworked stone-tablet share widget - a touch
+      larger than the original 38px mock so it reads as the panel's hero),
+      purple (`#6C4BD8`), centered and letter-spaced, and reads as plain text
+      (no PII, just the code). See `docs/design/README.md` Screens - screen 3.
 
 ## Out of Scope
 - Sharing a link with the code pre-filled in the URL (a later enhancement).
@@ -39,9 +40,12 @@ houses" use case. See [feature.md](./feature.md) and
 ## Technical Notes
 - Web only (`web/src/`). No API change needed - the code is already in client
   state from session-engine/01.
-- `navigator.clipboard.writeText()` for copy; check
-  `navigator.share && navigator.canShare()` for Web Share availability before
-  rendering the Share button.
+- `navigator.clipboard.writeText()` for copy. For Web Share availability the
+  implementation feature-detects `typeof navigator.share === 'function'` (and
+  hides the Share button when absent). Note: it deliberately does NOT gate on
+  `navigator.canShare()` - that predicate is meant for file/data payloads and
+  can spuriously reject a valid text-only share, so a plain-text code share must
+  not depend on it.
 - The "Copied!" state is purely local component state (a boolean + a
   `setTimeout` to revert); no server round-trip.
 - The "Copy" button is the outlined-purple secondary variant; the "Share"
