@@ -29,9 +29,9 @@ on:
         default: 'F1'
         options: ['F1', 'B1', 'B2', 'S1']
       location:
-        description: 'Azure region for the resource group + resources.'
+        description: 'Azure region. Must support Static Web Apps (e.g. eastus2, centralus, westus2, westeurope, eastasia) - NOT eastus.'
         type: string
-        default: 'eastus'
+        default: 'eastus2'
       resource_group:
         description: 'Resource group name (created if it does not exist).'
         type: string

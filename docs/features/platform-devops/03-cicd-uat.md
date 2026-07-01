@@ -12,12 +12,14 @@ its Free SKU, with a one-input path to scale up. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
 - [ ] AC-01: Given the OIDC federated credential + three repo secrets are set,
-      when the Provision UAT workflow is run, then the resource group and the
-      five-resource footprint are created (or updated) without stored
-      credentials.
-- [ ] AC-02: Given UAT is provisioned, when a PR is approved and merged to
-      `main`, then the Deploy workflow runs automatically and publishes the API
-      to App Service and the web client to the Static Web App.
+      when a PR is approved and merged to `main` for the first time (or the
+      Provision UAT workflow is run), then the resource group and the
+      five-resource footprint are created without stored credentials - no
+      separate manual provisioning step.
+- [ ] AC-02: Given UAT exists (auto-provisioned on the first run), when a PR is
+      approved and merged to `main`, then the Deploy workflow runs automatically
+      and publishes the API to App Service and the web client to the Static Web
+      App.
 - [ ] AC-03: Given the deploy, then the pipeline discovers the resource names and
       URLs from the resource group at run time (no hand-copied publish profiles,
       tokens, or URL variables) and sets the API CORS origin to the web origin.

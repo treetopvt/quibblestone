@@ -16,11 +16,13 @@
 Stands up UAT and makes `main` deploy itself to it. Three parts, run in order:
 
 1. **Bootstrap** the OIDC federated credential + set three repo secrets (Part 1).
-   One-time, owner-only (needs Azure Owner rights).
-2. **Provision** the Azure footprint from GitHub - a button, no local `az`
-   (Part 2).
-3. **Deploy** happens automatically on every merge to `main`; smoke-check it
-   (Parts 3-4).
+   One-time, owner-only (needs Azure Owner rights). **This is the only manual
+   step.**
+2. **Deploy** happens automatically on every merge to `main` - and the *first*
+   deploy auto-provisions the footprint, so there is no separate provisioning
+   chore (Part 3). Part 2 covers the optional explicit-provision button (used to
+   scale the SKU up/down).
+3. **Smoke-check** the running app (Part 4).
 
 ## Cost at a glance
 
@@ -100,24 +102,33 @@ than the default `quibblestone-uat-rg`.
 `Part 1 met` when the three secrets exist and the app registration has the two
 federated credentials + the Contributor assignment.
 
-## Part 2 - Provision the footprint (a button, no local az)
+## Part 2 - Provision the footprint (automatic on first deploy)
 
-GitHub -> Actions -> **Provision UAT** -> Run workflow. Inputs:
+**You do not have to run anything here.** The first time the Deploy workflow
+runs (Part 3), it notices the footprint is missing and stands it up from
+`infra/main.bicep` at the default SKU `F1` (Free/$0) before deploying. So after
+Part 1, the very next merge to `main` provisions *and* deploys in one go.
 
-- `sku` - App Service Plan tier. `F1` (default, Free/$0) or `B1`/`B2`/`S1`.
-- `location` - region (default `eastus`).
-- `resource_group` - group name (default `quibblestone-uat-rg`, created if absent).
+Two knobs, set as repo **variables** only if you want to change the defaults:
 
-It logs in via OIDC and runs `infra/main.bicep`. Idempotent: re-run any time to
-**scale the plan** (pick a different `sku`), change region, or apply infra
-changes. It never deletes anything.
+- `APP_SERVICE_PLAN_SKU` - `F1` (default, Free/$0) or `B1`/`B2`/`S1`.
+- `AZURE_LOCATION` - region (default `eastus2`). Must be a region that supports
+  Static Web Apps (e.g. `eastus2`, `centralus`, `westus2`, `westeurope`,
+  `eastasia`) - **`eastus` does not**.
 
-`Part 2 met` when the run is green (the job summary lists the group + SKU).
+### Provision explicitly (or scale the SKU) - the button
+
+To provision on demand, or to **change the plan SKU up/down** later, use
+GitHub -> Actions -> **Provision UAT** -> Run workflow. Inputs: `sku`
+(default `F1`), `location` (default `eastus2`), `resource_group`
+(default `quibblestone-uat-rg`). It is idempotent and never deletes anything -
+re-running with `sku=B1` flips UAT to Always On + WebSockets; `sku=F1` flips it
+back to $0.
 
 Prefer local `az`? The equivalent is still available:
 
 ```bash
-az group create -n quibblestone-uat-rg -l eastus
+az group create -n quibblestone-uat-rg -l eastus2
 az deployment group create -g quibblestone-uat-rg \
   -f infra/main.bicep -p infra/main.uat.bicepparam
 ```
@@ -128,12 +139,14 @@ Nothing to run. When an approved PR merges to `main`, the **Deploy** workflow:
 
 1. builds + tests both projects (a broken tree never deploys),
 2. logs into Azure via OIDC,
-3. **discovers** the API + web resources in the group (tagged
+3. **auto-provisions on the first run** - if the footprint is missing, stands it
+   up from `infra/main.bicep` (default SKU `F1`); a fast no-op on later runs,
+4. **discovers** the API + web resources in the group (tagged
    `app=quibblestone`) - so there are no publish profiles, tokens, or URLs to
    copy anywhere,
-4. sets the API's CORS origin to the web origin (required for the SignalR hub -
+5. sets the API's CORS origin to the web origin (required for the SignalR hub -
    see `api/src/Program.cs`),
-5. deploys the API to App Service, builds the web bundle pointed at the
+6. deploys the API to App Service, builds the web bundle pointed at the
    discovered API URL, and deploys it to the Static Web App.
 
 To re-run without a merge: Actions -> **Deploy** -> Run workflow.

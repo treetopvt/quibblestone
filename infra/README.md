@@ -44,7 +44,7 @@ Push-button (no local `az`): GitHub -> Actions -> **Provision UAT** -> Run
 workflow (pick the `sku`). Or locally:
 
 ```bash
-az group create -n quibblestone-uat-rg -l eastus
+az group create -n quibblestone-uat-rg -l eastus2  # a Static-Web-Apps region (not eastus)
 az deployment group create \
   -g quibblestone-uat-rg \
   -f infra/main.bicep \

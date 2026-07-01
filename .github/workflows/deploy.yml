@@ -5,6 +5,12 @@
 # workflow_dispatch for re-runs. The build steps mirror CI (build + unit tests)
 # so a broken tree never reaches the cloud.
 #
+# First deploy auto-provisions: if the Azure footprint is not there yet, this
+# workflow stands it up from infra/main.bicep (default SKU F1 = Free/$0) before
+# deploying, so a fresh repo needs nothing beyond the one-time OIDC bootstrap.
+# The Provision UAT workflow is still there for explicit provisioning or to
+# scale the plan SKU up/down.
+#
 # Auth is OIDC (federated) - GitHub logs into Azure with a short-lived token, so
 # there are NO long-lived publish profiles or Static Web Apps tokens stored in
 # the repo. Because we are logged into Azure, the workflow DISCOVERS the resource
@@ -46,6 +52,11 @@ jobs:
       url: ${{ steps.discover.outputs.web_url }}
     env:
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'quibblestone-uat-rg' }}
+      # First-deploy auto-provision knobs (both default to $0 / a SWA-supported
+      # region). Override with repo variables to scale up or move region without
+      # touching this file.
+      PROVISION_SKU: ${{ vars.APP_SERVICE_PLAN_SKU || 'F1' }}
+      PROVISION_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -82,6 +93,34 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # --- Auto-provision on the FIRST deploy ---------------------------------
+      # If the footprint is not there yet, stand it up (idempotent Bicep) so a
+      # brand-new repo goes from "merge to main" to a running app with zero
+      # manual steps beyond the one-time OIDC bootstrap. On every later deploy
+      # the resources already exist, so this is a fast no-op. To provision
+      # explicitly (or to scale the SKU up/down) use the Provision UAT workflow.
+      - name: Ensure UAT is provisioned
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          az group create -n "$rg" -l "$PROVISION_LOCATION" --output none
+          existing="$(az webapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv 2>/dev/null || true)"
+          if [ -z "$existing" ]; then
+            echo "No app found in '$rg' - first deploy, provisioning the footprint (SKU $PROVISION_SKU, $PROVISION_LOCATION)..."
+            az deployment group create \
+              -g "$rg" \
+              -n "auto-provision-${{ github.run_number }}" \
+              -f infra/main.bicep \
+              -p namePrefix=quibblestone \
+                 environmentName=uat \
+                 appServicePlanSku="$PROVISION_SKU" \
+                 location="$PROVISION_LOCATION" \
+              --output none
+            echo "Provisioned."
+          else
+            echo "Resources already present ($existing) - skipping provision."
+          fi
+
       # --- Discover the resources in the group (names carry a unique suffix) ---
       # The UAT resource group holds exactly one App Service and one Static Web
       # App (see infra/main.bicep), both tagged app=quibblestone. We read their
@@ -96,7 +135,7 @@ jobs:
           api_name="$(az webapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv)"
           web_name="$(az staticwebapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv)"
           if [ -z "$api_name" ] || [ -z "$web_name" ]; then
-            echo "::error::Could not find the API/web resources in '$rg'. Run the Provision UAT workflow first (see docs/runbooks/deploy-to-uat.md)."
+            echo "::error::Could not find the API/web resources in '$rg' even after auto-provision. Check the 'Ensure UAT is provisioned' step and the OIDC role assignment (see docs/runbooks/deploy-to-uat.md)."
             exit 1
           fi
 
