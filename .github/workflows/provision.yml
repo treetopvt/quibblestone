@@ -1,0 +1,102 @@
+# Provision UAT - stand up (or update) the Azure footprint from infra/main.bicep.
+#
+# Push-button provisioning so you never have to run `az` locally: pick the SKU
+# and region, click Run. The deployment is idempotent (ARM incremental mode), so
+# re-running it is how you SCALE the plan up or down later - e.g. run it with
+# sku=B1 to switch UAT from Free to Always On + WebSockets, or back to F1 to stop
+# paying. It never deletes anything; teardown is a manual `az group delete`.
+#
+# Auth is OIDC (federated) - same short-lived-token login as the Deploy workflow,
+# no stored credentials. One-time setup (create the app registration + federated
+# credential + role assignment, then set the three secrets below) is in
+# docs/runbooks/deploy-to-uat.md.
+#
+# Required repository configuration:
+#   secrets.AZURE_CLIENT_ID        - the federated app registration's client id
+#   secrets.AZURE_TENANT_ID        - the Azure AD tenant id
+#   secrets.AZURE_SUBSCRIPTION_ID  - the target subscription id
+#
+# The federated app registration needs a role that can create resource groups +
+# resources (Contributor at the subscription, or on a pre-created group).
+name: Provision UAT
+
+on:
+  workflow_dispatch:
+    inputs:
+      sku:
+        description: 'App Service Plan SKU (cost lever). F1 = Free/$0; B1+ = Always On + WebSockets.'
+        type: choice
+        default: 'F1'
+        options: ['F1', 'B1', 'B2', 'S1']
+      location:
+        description: 'Azure region for the resource group + resources.'
+        type: string
+        default: 'eastus'
+      resource_group:
+        description: 'Resource group name (created if it does not exist).'
+        type: string
+        default: 'quibblestone-uat-rg'
+
+concurrency:
+  group: provision-uat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC federated login to Azure
+
+jobs:
+  provision:
+    name: Provision Azure UAT
+    runs-on: ubuntu-latest
+    environment:
+      name: uat
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create resource group (idempotent)
+        run: |
+          az group create \
+            -n "${{ inputs.resource_group }}" \
+            -l "${{ inputs.location }}" \
+            --output none
+
+      # Pass params inline (not the *.bicepparam file) so the SKU input can drive
+      # the plan tier - the two cannot be combined on one deployment command.
+      - name: Deploy Bicep
+        id: deploy
+        run: |
+          set -euo pipefail
+          az deployment group create \
+            -g "${{ inputs.resource_group }}" \
+            -n "provision-uat-${{ github.run_number }}" \
+            -f infra/main.bicep \
+            -p namePrefix=quibblestone \
+               environmentName=uat \
+               appServicePlanSku="${{ inputs.sku }}" \
+               location="${{ inputs.location }}" \
+            --query "properties.outputs" -o json > outputs.json
+          echo "Deployment succeeded. Outputs:"
+          cat outputs.json
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "## UAT provisioning"
+            echo ""
+            echo "- Resource group: \`${{ inputs.resource_group }}\` (${{ inputs.location }})"
+            echo "- App Service Plan SKU: \`${{ inputs.sku }}\`"
+            if [ -f outputs.json ]; then
+              echo ""
+              echo "Next: run the **Deploy** workflow (or push to main) to ship the app."
+              echo "It discovers these resources automatically - no URLs to copy."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
