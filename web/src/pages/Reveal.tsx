@@ -359,14 +359,25 @@ export function Reveal({ assembled, template, attribution, onPlayAgain, onHome }
                 color: 'text.primary',
               }}
             >
-              {parts.map((part, index) =>
-                part.kind === 'text' ? (
-                  <Box key={index} component="span">
-                    {part.text}
-                  </Box>
-                ) : (
+              {parts.map((part, index) => {
+                if (part.kind === 'text') {
+                  return (
+                    <Box key={`p-${index}`} component="span">
+                      {part.text}
+                    </Box>
+                  );
+                }
+                // A skipped blank arrives as an empty-word part. Render it as
+                // plain nothing (no coral treatment) so it reads as a natural
+                // gap rather than a stray zero-width coral underline artifact
+                // (Gate-2 CR-W-001). Only NON-empty, player-supplied words get
+                // the coral pop.
+                if (part.word === '') {
+                  return <Box key={`p-${index}`} component="span" />;
+                }
+                return (
                   <Box
-                    key={part.blankId}
+                    key={`p-${index}`}
                     component="span"
                     sx={{
                       // AC-02: coral COLOR comes from the theme token (never a
@@ -380,8 +391,8 @@ export function Reveal({ assembled, template, attribution, onPlayAgain, onHome }
                   >
                     {part.word}
                   </Box>
-                ),
-              )}
+                );
+              })}
             </Typography>
           </Box>
         </Box>

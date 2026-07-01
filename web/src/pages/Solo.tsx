@@ -253,6 +253,9 @@ export function Solo({ onExit }: SoloProps) {
   if (phase === 'fill' && currentBlank) {
     return (
       <FillBlank
+        // Key by blank id so each blank gets a structurally fresh FillBlank
+        // (input/error/submitting state reset per blank, not just imperatively).
+        key={currentBlank.id}
         subject={template.title}
         blank={currentBlank}
         wordNumber={blankIndex + 1}
