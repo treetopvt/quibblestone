@@ -1,6 +1,6 @@
 # Story: Guardian avatar component (6 variants)
 
-**Feature:** Design System & UI Foundation  ·  **Status:** Not Started
+**Feature:** Design System & UI Foundation  ·  **Status:** In Review
 
 ## Context
 The stone-guardian mascot appears as a small avatar on four screens: the Join
@@ -12,24 +12,35 @@ their distinguishing features. See [feature.md](./feature.md) and
 `docs/design/README.md` Shared Component: Guardian.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given `<Guardian variant="purple" />` (and each of `gold`, `coral`,
+- [x] AC-01: Given `<Guardian variant="purple" />` (and each of `gold`, `coral`,
       `teal`, `sand`, `plum`), then it renders the correct distinguishing feature
       for that variant: purple - small square block on head; gold - gold zig-zag
       crown; coral - two small horns; teal - leaf sprout; sand - round stone ears;
       plum - single antenna with glowing dot.
-- [ ] AC-02: Given any variant, then the common body renders: a sandstone
+      Implemented in `GuardianFeature` in `web/src/components/Guardian.tsx`,
+      one case per variant matching the spec's distinguishing feature.
+- [x] AC-02: Given any variant, then the common body renders: a sandstone
       rounded-square head (`#E0CDA0`, outline `#B49B6E`), two rounded-rect eyes
       in the variant's eye color, and a curved carved smile (`#7C6442`).
-- [ ] AC-03: Given a `size` prop, then the component scales uniformly (the SVG
+      Implemented in `GuardianBody` (`HEAD_FILL`/`HEAD_STROKE`/`SMILE_STROKE`
+      constants match the spec hexes exactly).
+- [x] AC-03: Given a `size` prop, then the component scales uniformly (the SVG
       viewBox is `0 0 56 56` and the component fills its box); the caller controls
       display size via a numeric pixel value or a CSS size string.
-- [ ] AC-04: Given the component is used for a player tile, then names and
+      `size` prop (default 56) is applied directly to the `<svg>` width/height,
+      viewBox is `0 0 56 56`.
+- [x] AC-04: Given the component is used for a player tile, then names and
       Guardian variants are kept consistent across screens per the canonical set
       (Pip=teal/host, Maple=gold, Bramble=coral, Wren=plum, Flint=sand,
       Juniper=purple); this consistency is enforced by using the same variant
       value the player chose at join, not by hard-coding the canonical names.
-- [ ] AC-05: Given the component, then it renders as inline SVG (no external
+      `Guardian` takes `variant` as a prop with no hard-coded name mapping,
+      satisfying the enforcement mechanism; consuming screens (session-engine)
+      own the actual name-to-variant assignment.
+- [x] AC-05: Given the component, then it renders as inline SVG (no external
       image request) so it works offline and at any resolution.
+      Confirmed - `Guardian` returns a plain inline `<svg>` tree, no `<img>` or
+      external asset reference.
 
 ## Out of Scope
 - The full-size hero mascot (that is in story 01 - it is a separate, more
@@ -61,3 +72,12 @@ their distinguishing features. See [feature.md](./feature.md) and
 ## Dependencies
 - design-system/01-mui-theme-and-app-shell (project must be set up before
   adding components into it).
+
+## Tests
+No dedicated spec exists for `web/src/components/Guardian.tsx` (no
+`Guardian.test.tsx`/`.test.ts`). All 6 variants and the common body are
+implemented and read as complete by inspection, but marking this In Review
+rather than Complete until a render/snapshot test (or at least a per-variant
+assertion) backs AC-01/AC-02. Gap: add a Vitest + Testing Library (or
+Playwright) spec asserting each variant renders its distinguishing feature
+and the shared body colors.
