@@ -45,6 +45,14 @@ import {
   // clipboard glyph. faCheck (already above) becomes the teal confirmation
   // icon and faShareNodes (already above) is the filled-purple "Share" glyph.
   faCopy,
+  // FillBlank icons (game-modes/02): the progress row's chisel/carving glyph,
+  // the category chip's sparkle, the carved input slot's pen-nib, and the
+  // blind-mode reassurance panel's eye-slash. faArrowRight (already above) is
+  // the "Next word ->" CTA's arrow.
+  faHammer,
+  faWandMagicSparkles,
+  faPenNib,
+  faEyeSlash,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -68,4 +76,8 @@ library.add(
   faUsers,
   faPlay,
   faCopy,
+  faHammer,
+  faWandMagicSparkles,
+  faPenNib,
+  faEyeSlash,
 );
