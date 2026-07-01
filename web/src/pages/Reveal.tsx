@@ -58,7 +58,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
-import { Box, Button, Stack, Typography } from '@mui/material';
+import { Box, Button, Link, Stack, Typography } from '@mui/material';
 import { AppBar, BottomActionBar, BottomActionBarSpacer } from '../components';
 import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
@@ -80,6 +80,14 @@ export interface RevealProps {
   onPlayAgain: () => void;
   /** Optional home/close action for the app bar. Omit to render a balancing spacer. */
   onHome?: () => void;
+  /**
+   * Optional low-key "leave this screen" action, rendered as a ghost link below
+   * the two primary CTAs so there is a DISCOVERABLE exit (the app-bar icon alone
+   * is easy to miss under the confetti). Caller supplies the label so the intent
+   * reads right per flow - solo passes "Back to home"; group play routes its exit
+   * through Round Complete ("Back to lobby") and can omit this.
+   */
+  exitAction?: { label: string; onClick: () => void };
 }
 
 // The stone tablet's pulsing glow (docs/design/Reveal.dc.html qsTabletGlow):
@@ -266,7 +274,7 @@ function NarrationBar({ title }: { title: string }) {
   );
 }
 
-export function Reveal({ assembled, template, attribution, onPlayAgain, onHome }: RevealProps) {
+export function Reveal({ assembled, template, attribution, onPlayAgain, onHome, exitAction }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
 
@@ -310,10 +318,15 @@ export function Reveal({ assembled, template, attribution, onPlayAgain, onHome }
     <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto', overflow: 'hidden' }}>
       <Confetti />
 
-      <AppBar
-        title="The Reveal"
-        leftAction={onHome ? { icon: 'house', label: 'Go home', onClick: onHome } : undefined}
-      />
+      {/* Keep the app bar (and its home icon) above the confetti - the confetti
+          is absolutely positioned, so without this it paints over the top-left
+          icon and hides the exit. */}
+      <Box sx={{ position: 'relative', zIndex: 1 }}>
+        <AppBar
+          title="The Reveal"
+          leftAction={onHome ? { icon: 'house', label: 'Go home', onClick: onHome } : undefined}
+        />
+      </Box>
 
       <CelebrationHeader />
 
@@ -426,6 +439,24 @@ export function Reveal({ assembled, template, attribution, onPlayAgain, onHome }
         >
           Share the tale
         </Button>
+        {exitAction && (
+          <Box sx={{ textAlign: 'center' }}>
+            <Link
+              component="button"
+              type="button"
+              onClick={exitAction.onClick}
+              underline="none"
+              sx={{
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 13.5,
+                color: 'primary.main',
+              }}
+            >
+              {exitAction.label}
+            </Link>
+          </Box>
+        )}
       </BottomActionBar>
     </Box>
   );

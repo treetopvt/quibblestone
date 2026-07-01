@@ -283,6 +283,7 @@ export function Solo({ onExit }: SoloProps) {
       attribution={<PersonalSummary title={assembled.title} filledCount={filledCount} />}
       onPlayAgain={handlePlayAgain}
       onHome={onExit}
+      exitAction={{ label: 'Back to home', onClick: onExit }}
     />
   );
 }
