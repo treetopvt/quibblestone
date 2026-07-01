@@ -45,6 +45,24 @@ import {
   // clipboard glyph. faCheck (already above) becomes the teal confirmation
   // icon and faShareNodes (already above) is the filled-purple "Share" glyph.
   faCopy,
+  // FillBlank icons (game-modes/02): the progress row's chisel/carving glyph,
+  // the category chip's sparkle, the carved input slot's pen-nib, and the
+  // blind-mode reassurance panel's eye-slash. faArrowRight (already above) is
+  // the "Next word ->" CTA's arrow.
+  faHammer,
+  faWandMagicSparkles,
+  faPenNib,
+  faEyeSlash,
+  // FamilySafeToggle icon (child-safety/02): the shield-heart glyph reads as
+  // "protected and kid-friendly" beside the "Family-safe" toggle label.
+  faShieldHeart,
+  // Reveal icons (the-reveal/01): twinkling star glyphs flanking the "Your
+  // tale is carved!" header, the narration bar's inactive play glyph (faPlay
+  // is already registered above), and the gold "Play another round" CTA's
+  // redo arrow. faShareNodes (already above) is the outlined-purple "Share
+  // the tale" button's glyph.
+  faStar,
+  faArrowRotateRight,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -68,4 +86,11 @@ library.add(
   faUsers,
   faPlay,
   faCopy,
+  faHammer,
+  faWandMagicSparkles,
+  faPenNib,
+  faEyeSlash,
+  faShieldHeart,
+  faStar,
+  faArrowRotateRight,
 );

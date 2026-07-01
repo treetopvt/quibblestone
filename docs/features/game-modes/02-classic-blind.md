@@ -1,18 +1,18 @@
 # Story: Classic blind mode
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started
+**Feature:** Game Modes Engine  ·  **Status:** In Review
 
 ## Context
 The first mode built (README section 5): no story context, fill the blanks blind,
 laugh at the reveal. It proves the engine end to end. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given Classic blind, when I am prompted for a blank, then I see:
+- [x] AC-01: Given Classic blind, when I am prompted for a blank, then I see:
       a progress row ("Word N of M" with a chisel icon + "X to go" in teal) and
       an 8-segment progress bar (completed/current segments gold, current segment
       glowing, upcoming segments sand `#DFD2B4`). See `docs/design/README.md`
       Screens - screen 4 (FillBlank) and `docs/design/screens/04-fillblank.png`.
-- [ ] AC-02: Given Classic blind, then the blank prompt is shown on a stone-
+- [x] AC-02: Given Classic blind, then the blank prompt is shown on a stone-
       tablet card (arched, carved rim, glow) containing: a centered category chip
       (purple pill, sparkle icon, uppercase label e.g. "ADJECTIVE"); a prompt
       sentence in Fredoka 600 29px where the category word is colored purple (e.g.
@@ -20,27 +20,27 @@ laugh at the reveal. It proves the engine end to end. See [feature.md](./feature
       explaining the category (e.g. "Something that describes a thing - anything
       goes!"). There is no surrounding story context visible. See
       `docs/design/README.md` Screens screen 4.
-- [ ] AC-03: Given the blank prompt card, then a carved input slot (`#DCCFB0`,
+- [x] AC-03: Given the blank prompt card, then a carved input slot (`#DCCFB0`,
       inset shadow, radius 18, height 66px) with a chisel icon accepts free-text
       input (Fredoka 500 24px, placeholder "type a fun word...", maxLength 20).
       Below the input, an "example spark" row shows "Need a spark?" text and 3
       tappable teal chips with example words for the current category; tapping a
       chip fills the input with that word.
-- [ ] AC-04: Given I am on the FillBlank screen, then a blind-mode reassurance
+- [x] AC-04: Given I am on the FillBlank screen, then a blind-mode reassurance
       panel (purple-tint background, eye-off icon) reads "Blind mode - no peeking
       at the story. The big reveal comes at the end!" so I am clear why I cannot
       see the story. See `docs/design/README.md` Screens screen 4.
-- [ ] AC-05: Given I have typed or chosen a word, when I tap the gold "Next word
+- [x] AC-05: Given I have typed or chosen a word, when I tap the gold "Next word
       ->" CTA, then my word is submitted (passing the safety filter first); a
       failing word is rejected with a friendly message and I can try another.
-- [ ] AC-06: Given I am stuck on a blank, then a low-pressure ghost link "Stuck?
+- [x] AC-06: Given I am stuck on a blank, then a low-pressure ghost link "Stuck?
       Skip this word" (purple, below the gold CTA) allows me to skip the current
       blank; the blank is left empty or receives a default placeholder, and I
       advance to the next.
-- [ ] AC-07: Given all my assigned blanks are filled (or skipped), then I
+- [x] AC-07: Given all my assigned blanks are filled (or skipped), then I
       transition to the Waiting interstitial (group play) or immediately to the
       reveal (solo play); I have not seen the story text at any point.
-- [ ] AC-08: Given Classic blind, then it is expressed as a configuration of the
+- [x] AC-08: Given Classic blind, then it is expressed as a configuration of the
       mode interface (subject-only view, free-text answers, end reveal) rather
       than a bespoke code path.
 
@@ -73,6 +73,22 @@ laugh at the reveal. It proves the engine end to end. See [feature.md](./feature
   engine boundary (solo play) before the word is recorded. See
   child-safety/01-profanity-filter.
 - See `docs/design/README.md` Screens screen 4 for full layout details.
+
+## Tests
+- Unit (Vitest): `web/src/engine/modes/classicBlind.test.ts` covers the three
+  axes / id / label (AC-08) and, via `collectWord`, proves free-text answers
+  route through the injected safety check on the mode-agnostic collection path
+  (AC-05).
+- Manual (verified in the solo playthrough, feat/solo-play): FillBlank renders
+  the progress row + adaptive segment bar (AC-01), the subject-only stone-tablet
+  prompt card with category chip / prompt / sub-hint and no story body (AC-02),
+  the carved input + 3 spark chips (AC-03), the blind reassurance panel (AC-04),
+  gold "Next word" submitting after the safety filter with an inline friendly
+  rejection + retry (AC-05), and the "Skip this word" link (AC-06). AC-07's solo
+  transition to the reveal is exercised end to end; the group Waiting
+  interstitial is group-play's screen (this story owns the single-filler
+  mechanics reused by both). No render-test harness exists yet (Vitest is
+  pure-logic only), so the screen ACs rest on this documented manual check.
 
 ## Dependencies
 - game-modes/01-mode-interface

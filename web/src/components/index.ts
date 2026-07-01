@@ -39,3 +39,10 @@ export type { GuardianVariant, GuardianProps } from './Guardian';
 // from one place (Home and Waiting use it).
 export { HeroGuardian } from '../assets/HeroGuardian';
 export type { HeroGuardianProps } from '../assets/HeroGuardian';
+
+// The session-level family-safe toggle (child-safety/02): a controlled
+// switch that gates which curated templates a player is offered. Pair with
+// the pure selection rule in web/src/content/familySafe.ts; never relaxes
+// the profanity filter (child-safety/01).
+export { FamilySafeToggle } from './FamilySafeToggle';
+export type { FamilySafeToggleProps } from './FamilySafeToggle';

@@ -1,20 +1,20 @@
 # Story: Text reveal
 
-**Feature:** The Reveal  ·  **Status:** Not Started
+**Feature:** The Reveal  ·  **Status:** In Review
 
 ## Context
 Once the words are in, the assembled story is revealed - the moment everyone has
 been waiting to laugh at. Text only for Slice 1. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given all words are collected, when the reveal runs, then the
+- [x] AC-01: Given all words are collected, when the reveal runs, then the
       assembled story (template text with blanks replaced by the submitted words)
       is shown on the Reveal screen: confetti, a "Your tale is carved!" header
       (Fredoka 700 26px with twinkling star glyphs), a byline "carved by [names]
       & crew", and the story in a glowing stone-tablet scroll panel. See
       `docs/design/README.md` Screens - screen 6 (Reveal) and
       `docs/design/screens/06-reveal.png`.
-- [ ] AC-02: Given the reveal, then every filled-in word is rendered in coral
+- [x] AC-02: Given the reveal, then every filled-in word is rendered in coral
       (`color:#FF6B57; font-weight:800; border-bottom:2px solid
       rgba(255,107,87,.4)`) against the Nunito 600 17.5px body text (line-height
       1.72), so the player-supplied words pop visually. See `docs/design/README.md`
@@ -22,17 +22,17 @@ been waiting to laugh at. Text only for Slice 1. See [feature.md](./feature.md).
 - [ ] AC-03: Given the reveal is shown to a room, then every player sees the same
       assembled story in near-real-time; the broadcast happens over SignalR so no
       player needs to refresh.
-- [ ] AC-04: Given any submitted word appears in the reveal, then it has passed
+- [x] AC-04: Given any submitted word appears in the reveal, then it has passed
       the safety filter (no unfiltered free text is ever rendered).
-- [ ] AC-05: Given Slice 1, then the reveal is text only; there is no TTS
+- [x] AC-05: Given Slice 1, then the reveal is text only; there is no TTS
       narration audio and no AI illustration.
-- [ ] AC-06: Given the Reveal screen, then a pinned bottom action bar shows: gold
+- [x] AC-06: Given the Reveal screen, then a pinned bottom action bar shows: gold
       "Play another round" CTA (triggers the round-complete / replay flow in
       group-play/04) and secondary outlined-purple "Share the tale" button. The
       story scroll area scrolls independently above the pinned bar and is never
       obscured by it. See `docs/design/README.md` Bottom action bar pattern and
       Screens screen 6.
-- [ ] AC-07: Given the Reveal screen has a narration bar (play/pause, waveform,
+- [x] AC-07: Given the Reveal screen has a narration bar (play/pause, waveform,
       label), then in Slice 1 the play button is visible but triggers a "coming
       soon" state or is disabled; the waveform does not animate. The UI real
       estate is reserved so Phase 3 can wire TTS without a layout change.
@@ -65,6 +65,23 @@ been waiting to laugh at. Text only for Slice 1. See [feature.md](./feature.md).
   back gracefully if Web Share is unavailable.
 - See `docs/design/README.md` Screens screen 6 for full layout, and
   Implementation Gotchas for the pinned bottom bar pattern.
+
+## Tests
+- Unit (Vitest): `web/src/pages/revealParts.test.ts` covers `buildRevealParts`
+  body-order interleaving, attribution preservation, the fewer-words case,
+  determinism, and no-blanks (the highlight-correctness core behind AC-01/AC-02).
+- Manual (verified in the solo playthrough, feat/solo-play): the Reveal shows
+  confetti + "Your tale is carved!" + the caller `attribution` slot + the story
+  in a glowing stone-tablet scroll panel (AC-01), every player word in coral
+  against the body text (AC-02), text only with no audio/illustration (AC-05), a
+  pinned bottom bar with gold "Play another round" + "Share the tale" that never
+  obscures the scroll (AC-06), and an inactive narration bar (AC-07). Skipped
+  blanks render as a clean gap (no coral artifact).
+- AC-03 (group SignalR broadcast) is intentionally NOT in this story: the reveal
+  broadcast is owned by `group-play/03-collect-words`, which routes a room to
+  this screen. This story delivers the screen the solo flow (local assembly) and
+  group play will both render; it introduces no unfiltered free text (AC-04 -
+  words arrive already vetted).
 
 ## Dependencies
 - template-model/01-template-schema

@@ -27,12 +27,19 @@
 //  HeroGuardian; sparkles / ambient-glow pulse) are a delight-tier pass and are
 //  intentionally minimal here (out of scope per the story).
 //
+//  Solo entry (single-player/01, ADDITIVE): a clearly-secondary text link,
+//  "Or play solo right now", sits below the reassurance row and calls
+//  onPlaySolo. It is deliberately NOT gated by `disabled` (the hub connection
+//  state) - Solo has no room, no join code, and no SignalR round-trip at all,
+//  so it works even before (or without) the real-time connection coming up.
+//  The Create/Join CTAs above it are untouched by this addition.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
-import { Box, Button, Stack, Typography } from '@mui/material';
+import { Box, Button, Link, Stack, Typography } from '@mui/material';
 import { HeroGuardian } from '../components';
 
 export interface HomeProps {
@@ -40,13 +47,18 @@ export interface HomeProps {
   onCreateGame: () => void;
   /** Go to the Join screen (story 02). A no-op placeholder until then (AC-01). */
   onJoinGame: () => void;
+  /**
+   * Start a local solo round (single-player/01). Deliberately NOT gated by
+   * `disabled` at the call site below - Solo needs no SignalR connection.
+   */
+  onPlaySolo: () => void;
   /** True while a create-room request is in flight - disables the CTA to avoid double-taps. */
   creating?: boolean;
   /** True until the real-time connection is ready - the CTAs need the hub to act. */
   disabled?: boolean;
 }
 
-export function Home({ onCreateGame, onJoinGame, creating = false, disabled = false }: HomeProps) {
+export function Home({ onCreateGame, onJoinGame, onPlaySolo, creating = false, disabled = false }: HomeProps) {
   const theme = useTheme();
 
   return (
@@ -271,6 +283,22 @@ export function Home({ onCreateGame, onJoinGame, creating = false, disabled = fa
             No account needed - just pick a name &amp; play
           </Typography>
         </Stack>
+
+        {/* Secondary/tertiary affordance (single-player/01): a plain text
+            link, not styled as a Button, so it reads clearly as the lesser
+            option beside the gold/outlined CTAs above. Not gated by
+            `disabled` - Solo needs no hub connection. */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={onPlaySolo}
+            underline="none"
+            sx={{ fontSize: 13.5, fontWeight: 700, color: 'primary.main' }}
+          >
+            Or play solo right now
+          </Link>
+        </Box>
       </Stack>
     </Stack>
   );
