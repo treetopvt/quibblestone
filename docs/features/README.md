@@ -76,6 +76,11 @@ comes after V1, not work in flight. Grouped by intent:
 - `keepsake-gallery/` - save a reveal as a shareable stone-tablet image
   (watermarked - the non-ad growth loop) plus a device-local "Tales we've carved"
   history.
+- `story-selection/` - length-aware story picks (quick tale vs full tale),
+  freshness rotation (no repeats until the pool runs dry, explicit replay
+  excepted), an anonymous serve log, and thumbs up/down tale feedback - the
+  loop that keeps the library feeling fresh and tells content creators which
+  tales land.
 
 **Monetization - donate-first, gate-ready (README section 3, CLAUDE.md section 6)**
 - `accounts-identity/` - anonymous players forever; a lightweight purchaser

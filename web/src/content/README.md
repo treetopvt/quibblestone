@@ -50,6 +50,24 @@ blank({
 isn't on this list, that's a schema change - flag it, don't invent a new
 string value here.
 
+### How long should a story be?
+
+Aim for **9-10 blanks spread across 4-6 sentences**. This matters for
+multiplayer: group play deals blanks round-robin across the roster
+(`web/src/engine/distribute.ts`), so a story only gives every player a turn
+when it has at least as many blanks as there are players - and it only gives
+everyone SEVERAL turns when it has 2-3x that. A 4-blank story leaves half of
+a 6-player room with nothing to do. Longer prose between the blanks also
+makes the reveal read like an actual story instead of a caption. Don't go
+past ~12 blanks though: a solo player fills every blank alone, and that
+starts to feel like homework.
+
+If two blanks sit near each other, give the later one a prompt that
+distinguishes it ("Give me ANOTHER describing word") and a `subHint` that
+anchors it in the story ("Something that describes the troll") - players
+answer blind, but a contextual sub-hint still improves the reveal without
+spoiling it.
+
 **`sparkWords` is a strict 3-tuple.** TypeScript will refuse to compile if you
 give 2 or 4 words - this is intentional (it keeps the prompt card layout
 consistent). Pick 3 fun, family-safe example words that show a stuck player
