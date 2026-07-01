@@ -1,6 +1,6 @@
 # Story: Like / dislike a tale (content feedback)
 
-**Feature:** Story Selection & Freshness  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Story Selection & Freshness  ·  **Status:** Not Started  ·  **Issue:** #95
 
 ## Context
 Content creators (today: whoever hand-writes seedLibrary; tomorrow: the AI

@@ -1,6 +1,6 @@
 # Story: Story delivery metrics (the anonymous serve log)
 
-**Feature:** Story Selection & Freshness  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Story Selection & Freshness  ·  **Status:** Not Started  ·  **Issue:** #94
 
 ## Context
 Over time the questions that matter for the content library are: which stories

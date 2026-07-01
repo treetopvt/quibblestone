@@ -28,11 +28,11 @@ telemetry service + controller + infra) and can run beside 02. 05 needs 04's sin
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 (foundation) | TBD | `web/src/content/length.ts` + test, `web/src/content/seedLibrary.ts` (quick templates), `seedLibrary.test.ts`, `web/src/content/README.md`, `api/src/Content/TemplateCatalog.cs`, `api/src/Safety/LengthContentSelector.cs` + test, `GameHub.cs` (pipeline refactor), `Program.cs` (DI) | - | - | 1 | high |
-| 02 | TBD | `web/src/pages/Solo.tsx`, group lobby screen, `web/src/signalr/useGameHub.ts`, `api/src/Hubs/GameHub.cs` (param), `api/src/Rooms/Room.cs` (length pref) | 01 | 04 | 2 | medium |
-| 04 | TBD | `api/src/Telemetry/*` (sink + implementations), new controller, `Program.cs` (DI), `infra/main.bicep` (app setting/table), API tests | 01 | 02 | 2 | medium |
-| 03 | TBD | `web/src/content/fresh.ts` + history module + tests, `web/src/pages/Solo.tsx`, `api/src/Hubs/GameHub.cs`, `api/src/Rooms/Room.cs` (played ids) | 02 (file overlap, not logic) | - | 3 | medium |
-| 05 | TBD | `web/src/components/TaleFeedback.tsx`, `Reveal.tsx` / `RoundComplete.tsx` wiring, feedback endpoint + table, API tests | 04, 03 (screen/file overlap) | - | 4 | medium |
+| 01 (foundation) | #91 | `web/src/content/length.ts` + test, `web/src/content/seedLibrary.ts` (quick templates), `seedLibrary.test.ts`, `web/src/content/README.md`, `api/src/Content/TemplateCatalog.cs`, `api/src/Safety/LengthContentSelector.cs` + test, `GameHub.cs` (pipeline refactor), `Program.cs` (DI) | - | - | 1 | high |
+| 02 | #92 | `web/src/pages/Solo.tsx`, group lobby screen, `web/src/signalr/useGameHub.ts`, `api/src/Hubs/GameHub.cs` (param), `api/src/Rooms/Room.cs` (length pref) | 01 | 04 | 2 | medium |
+| 04 | #94 | `api/src/Telemetry/*` (sink + implementations), new controller, `Program.cs` (DI), `infra/main.bicep` (app setting/table), API tests | 01 | 02 | 2 | medium |
+| 03 | #93 | `web/src/content/fresh.ts` + history module + tests, `web/src/pages/Solo.tsx`, `api/src/Hubs/GameHub.cs`, `api/src/Rooms/Room.cs` (played ids) | 02 (file overlap, not logic) | - | 3 | medium |
+| 05 | #95 | `web/src/components/TaleFeedback.tsx`, `Reveal.tsx` / `RoundComplete.tsx` wiring, feedback endpoint + table, API tests | 04, 03 (screen/file overlap) | - | 4 | medium |
 
 **Concurrency per wave:** Wave 1 = 01 alone. Wave 2 = {02, 04} in parallel. Wave 3 = 03. Wave 4 = 05.
 
