@@ -42,8 +42,17 @@ import { GroupRound } from './pages/GroupRound';
 type View = 'home' | 'join' | 'lobby' | 'solo';
 
 export default function App() {
-  const { status, room, isHost, round, createRoom, joinRoom, startRound, clearRoom } =
-    useGameHub();
+  const {
+    status,
+    room,
+    isHost,
+    round,
+    assignedBlankIndices,
+    createRoom,
+    joinRoom,
+    startRound,
+    clearRoom,
+  } = useGameHub();
   const [view, setView] = useState<View>('home');
   const [creating, setCreating] = useState(false);
 
@@ -96,7 +105,13 @@ export default function App() {
   // AC-01/AC-02). This takes precedence over the lobby view. Leaving the round
   // clears the room (and the round) and returns Home.
   if (round && room) {
-    return <GroupRound templateId={round.templateId} onLeave={handleGoHome} />;
+    return (
+      <GroupRound
+        templateId={round.templateId}
+        assignedBlankIndices={assignedBlankIndices}
+        onLeave={handleGoHome}
+      />
+    );
   }
 
   if (view === 'lobby' && room) {

@@ -116,6 +116,50 @@ export async function collectWord(
 }
 
 /**
+ * Records a SKIPPED blank as an EMPTY placeholder against its blank id, so a
+ * skip never leaves the blank absent from the collection (AC-02). This promotes
+ * the "skip = empty placeholder" rule that single-player and group-play both
+ * need out of the page layer and INTO the engine, next to `collectWord`, so
+ * multi-player collection cannot silently misalign words.
+ *
+ * Why an empty placeholder and NOT just leaving the blank out: `toOrderedWords`
+ * walks the template's blanks in body order and OMITS any blank with no entry
+ * at all (it does not pad gaps), and `assemble()` then matches the remaining
+ * words to blanks purely by POSITION. If a skipped blank in the MIDDLE of a
+ * template were left absent, every blank after it would shift left and fill
+ * with the wrong word. Recording `{ playerSessionId, word: '' }` keeps the
+ * collection size aligned to the blank count, and `assemble()` renders an
+ * empty-string word as literally nothing - so the blank reads as blank in the
+ * final story (see engine.ts + assemble.ts + Solo.tsx headers for the rationale).
+ *
+ * Unlike `collectWord`, this NEVER runs the safety check: an empty string is not
+ * free text a player wrote, so there is nothing to filter. It DOES validate the
+ * blank id against the template (like `collectWord`) and rejects an unknown id
+ * with `{ accepted: false, message }` so a bad id surfaces rather than silently
+ * recording against nothing.
+ *
+ * A placeholder is NOT a filled word: callers that count "words filled" should
+ * treat a whitespace-only `word` as unfilled (see Solo's countFilledWords).
+ *
+ * Mutates and returns `collected` (via the set) for consistency with
+ * `collectWord`; does not mutate `template`.
+ */
+export function skipBlank(
+  collected: CollectedWords,
+  template: Template,
+  blankId: string,
+  playerSessionId: string,
+): CollectResult {
+  const knownBlankIds = new Set(getBlanks(template).map((b) => b.id));
+  if (!knownBlankIds.has(blankId)) {
+    return { accepted: false, message: `Unknown blank id "${blankId}" for template "${template.id}".` };
+  }
+
+  collected.set(blankId, { playerSessionId, word: '' });
+  return { accepted: true };
+}
+
+/**
  * Converts a `CollectedWords` map into the ordered `SubmittedWord[]` that
  * `assemble()` expects, walking the template's blanks in body order (the
  * same order assemble() itself uses - see assemble.ts). Blanks with no

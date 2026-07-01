@@ -16,11 +16,14 @@
 //                    safety-checked display name (no PII), enforces in-room name
 //                    uniqueness, and broadcasts the updated roster to the room
 //                    group as "RosterChanged" so everyone sees the newcomer live.
-//    - StartRound  : group-play/01. HOST-ONLY (server-enforced) round start:
-//                    auto-selects a template from the minimal server catalog,
-//                    filtered by the family-safe toggle the host sends, sets the
-//                    room's round state, and broadcasts "RoundStarted" to the room
-//                    group so ALL players move into word collection together.
+//    - StartRound  : group-play/01 + /02. HOST-ONLY (server-enforced) round
+//                    start: auto-selects a template from the minimal server
+//                    catalog, filtered by the family-safe toggle the host sends,
+//                    sets the room's round state, broadcasts "RoundStarted" to the
+//                    room group so ALL players move into word collection together,
+//                    then (group-play/02) computes the ROUND-ROBIN blank
+//                    distribution and sends EACH player "YourBlanks" - only its own
+//                    blank indices, blind (prompt only), never another player's.
 //
 //  Room state lives in the RoomRegistry singleton (injected below), NOT in this
 //  hub instance - SignalR builds a fresh hub per invocation, so per-hub fields
@@ -95,13 +98,31 @@ public sealed record StartRoundResultDto(bool Ok, string? Error);
 /// lobby into word collection in near-real-time (AC-01, AC-02). It carries only
 /// the template's ID (each client resolves the full prose/body from its bundled
 /// seedLibrary BY ID - the server never ships template content), the mode, and
-/// the round number. group-play/02 will add per-player blank assignments via a
-/// SEPARATE, per-connection message (each client learns only its own prompts).
+/// the round number. group-play/02 adds per-player blank assignments via a
+/// SEPARATE, per-connection "YourBlanks" message (see <see cref="YourBlanksDto"/>)
+/// so each client learns only its own prompts.
 /// </summary>
 /// <param name="TemplateId">The selected template's id; the client resolves full content from seedLibrary.</param>
 /// <param name="Mode">The play mode ("classic-blind" for Slice 1).</param>
 /// <param name="RoundNumber">1-based round number (always 1 in group-play/01).</param>
 public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNumber);
+
+/// <summary>
+/// Sent to ONE player as "YourBlanks" right after the round starts
+/// (group-play/02). This is the per-connection counterpart to the room-wide
+/// "RoundStarted" broadcast: it tells a single player WHICH blanks it owes,
+/// by blank INDEX into the template's ordered blanks (the client resolves each
+/// index to its prompt via getBlanks(template)[index], Classic blind - prompt
+/// only, no story context, AC-02).
+///
+/// A player is NEVER told another player's blanks: the hub sends this only to
+/// that player's own connection (Clients.Client(connectionId)), and the payload
+/// carries NO connection id, no nickname, no other player - just this player's
+/// blank indices (no PII, README section 6). This is the wire contract
+/// useGameHub mirrors (the TS type YourBlanks) - keep them in sync BY HAND.
+/// </summary>
+/// <param name="BlankIndices">The blank indices (into the round template's ordered blanks) THIS player owes; empty when fewer blanks than players left this player none.</param>
+public sealed record YourBlanksDto(IReadOnlyList<int> BlankIndices);
 
 public sealed class GameHub : Hub
 {
@@ -377,8 +398,13 @@ public sealed class GameHub : Hub
 
         var chosen = allowed[Random.Shared.Next(allowed.Count)];
 
-        // 5. Set the room's round state (round 1, Classic blind, "prompting").
-        var round = room.StartRound(chosen.Id, ClassicBlindMode);
+        // 5. Set the room's round state (round 1, Classic blind, "prompting") AND
+        //    compute the round-robin blank assignment (group-play/02). The deal
+        //    happens under the room lock inside StartRound, using the template's
+        //    BlankCount from the catalog, so it is atomic with the roster snapshot
+        //    it deals to (a join/leave racing this lands fully before or after the
+        //    deal, never mid-deal). The C# deal MIRRORS web/src/engine/distribute.ts.
+        var round = room.StartRound(chosen.Id, ClassicBlindMode, chosen.BlankCount);
 
         // 6. Broadcast to the WHOLE room group (host included) so all players
         //    transition into word collection together (AC-01, AC-02). Full
@@ -387,6 +413,20 @@ public sealed class GameHub : Hub
         await Clients.Group(room.Code).SendAsync(
             "RoundStarted",
             new RoundStartedDto(round.TemplateId, round.Mode, round.RoundNumber));
+
+        // 7. Deal each player ONLY its own blanks (group-play/02, AC-02). This is a
+        //    per-connection send (NOT a group broadcast): a player never learns
+        //    another player's blanks, and the payload carries only blank indices -
+        //    no connection id, no nickname, no PII (README section 6). Each client
+        //    resolves an index to its prompt via getBlanks(template)[index] (Classic
+        //    blind - prompt only). ConnectionId stays server-side; it is the handle
+        //    we address, never a value we send.
+        foreach (var assignment in round.Assignments)
+        {
+            await Clients.Client(assignment.ConnectionId).SendAsync(
+                "YourBlanks",
+                new YourBlanksDto(assignment.BlankIndices));
+        }
 
         return new StartRoundResultDto(true, null);
     }
