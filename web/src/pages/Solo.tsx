@@ -104,6 +104,9 @@ export function pickRandomTemplate(templates: readonly Template[]): Template | u
 function countFilledWords(collected: CollectedWords): number {
   let count = 0;
   for (const entry of collected.values()) {
+    // Treat whitespace-only as unfilled to stay consistent with FillBlank,
+    // which trims and rejects empty submissions - so the only ''/blank entries
+    // here are the placeholders a skip records (which must not count).
     if (entry.word.trim().length > 0) count += 1;
   }
   return count;

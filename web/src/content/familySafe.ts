@@ -37,7 +37,9 @@ import type { Template } from '../engine/template';
  * any screen that owns a family-safe toggle's React state should initialize
  * it to this constant rather than hardcoding `true` locally, so the
  * safe-by-default posture is one token instead of a convention repeated at
- * every call site (a review note on the FamilySafeToggle usage above).
+ * every call site (see ../components/FamilySafeToggle.tsx, which documents the
+ * same safe-by-default contract, and ../pages/Solo.tsx, which initializes from
+ * this token).
  */
 export const FAMILY_SAFE_DEFAULT = true;
 
