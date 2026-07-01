@@ -24,6 +24,7 @@
 //  Azure setup.
 // ----------------------------------------------------------------------------
 
+using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
@@ -45,6 +46,19 @@ builder.Services.AddControllers();
 // (nicknames, answers) call it in their own later stories; this story owns the
 // contract + the single registration.
 builder.Services.AddSingleton<IContentSafetyFilter, ContentSafetyFilter>();
+
+// group-play/01: the minimal server-side template catalog (mirrors
+// web/src/content/seedLibrary.ts by id - kept in sync BY HAND) and the
+// server-side family-safe content gate. Both are PURE + stateless, so they are
+// singletons shared by every transient GameHub instance. The catalog holds only
+// { Id, FamilySafe, BlankCount } - never the template prose (that stays
+// client-side; clients resolve full content by id). The selector is the server
+// analog of the web's selectTemplates gate (child-safety/02) and is
+// authoritative for which templates a family-safe round may offer (AC-04); its
+// only consumer is the host's StartRound template selection. Neither ever
+// relaxes the profanity filter above.
+builder.Services.AddSingleton<TemplateCatalog>();
+builder.Services.AddSingleton<FamilySafeContentSelector>();
 
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
 // so every transient GameHub instance (SignalR builds a fresh hub per

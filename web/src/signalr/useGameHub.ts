@@ -24,6 +24,15 @@
 //  updated roster to a room's group when anyone joins) and exposes the current
 //  `room`, so both the host and existing players see a newcomer appear in
 //  near-real-time. App reads `room` from here instead of holding its own copy.
+//
+//  group-play/01 adds the round START seam on the SAME connection: startRound
+//  (a host-only invoke - the server enforces the host check) and a single
+//  "RoundStarted" handler that the server broadcasts to the whole room group so
+//  every player transitions into word collection together. The hook exposes the
+//  current `round` (the template id + mode + round number the client resolves
+//  full content from) so App can route into the round. StartRoundResult /
+//  RoundInfo below MIRROR the hub's StartRoundResultDto / RoundStartedDto wire
+//  contract (api/src/Hubs/GameHub.cs) - keep them in sync BY HAND (no codegen).
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -72,6 +81,33 @@ export interface JoinResult {
   error: string | null;
 }
 
+/**
+ * The result of the host starting a round (group-play/01), mirroring the hub's
+ * StartRoundResultDto wire contract. On a rejected start (unknown/expired code,
+ * the caller is not the host, too few players, or no template available) ok is
+ * false and error carries a friendly, kid-readable message to show inline. On
+ * success ok is true and error is null - the actual round detail arrives for
+ * EVERY player via the RoundStarted broadcast, not through this envelope.
+ */
+export interface StartRoundResult {
+  ok: boolean;
+  error: string | null;
+}
+
+/**
+ * The current round as broadcast by the hub's RoundStarted event
+ * (RoundStartedDto). Carries ONLY the selected template's id (the client
+ * resolves the full prose/body from its bundled seedLibrary BY ID - the server
+ * never ships template content), the mode ("classic-blind" in Slice 1), and the
+ * 1-based round number. group-play/02 adds a separate per-connection message for
+ * each player's own blank assignments.
+ */
+export interface RoundInfo {
+  templateId: string;
+  mode: string;
+  roundNumber: number;
+}
+
 export interface UseGameHub {
   status: ConnectionStatus;
   /** The current room (code + live roster), or null when not in one. Owned here so RosterChanged updates flow to every screen. */
@@ -85,6 +121,23 @@ export interface UseGameHub {
    * on the wire (no PII), so a client cannot tell which roster row is "me".
    */
   isHost: boolean;
+  /**
+   * The current round (template id + mode + round number), or null while in the
+   * lobby (group-play/01). Set from the hub's "RoundStarted" broadcast so every
+   * player - host and joiners alike - transitions into the round together; App
+   * routes into word collection when this is non-null. Cleared on leave.
+   */
+  round: RoundInfo | null;
+  /**
+   * Start a round as the host (group-play/01). Invokes the hub's host-only
+   * StartRound with the current room code (from roomCodeRef) and the host's
+   * family-safe toggle value; the SERVER enforces the host check and filters the
+   * template catalog by the toggle (authoritative, AC-03/AC-04). Resolves with
+   * the StartRoundResult envelope (ok + friendly error). Returns a not-connected
+   * error envelope if the hub is not ready. Does NOT set `round` itself - the
+   * server's RoundStarted broadcast drives that for everyone, including the host.
+   */
+  startRound: (familySafe: boolean) => Promise<StartRoundResult>;
   /**
    * Create a room and become its host (session-engine/01). On success updates
    * `room` and resolves with the created room's state, or undefined if the
@@ -114,6 +167,9 @@ export function useGameHub(): UseGameHub {
   // Whether this client hosts the current room (set by createRoom / joinRoom,
   // cleared by clearRoom) - the Lobby's host-only Start CTA reads this (AC-05).
   const [isHost, setIsHost] = useState(false);
+  // The current round, set from the "RoundStarted" broadcast (group-play/01) and
+  // cleared on leave. Non-null flips App into word collection for every player.
+  const [round, setRound] = useState<RoundInfo | null>(null);
   // Whether this client is currently seated in a room, plus that room's code.
   // Kept as refs (not state) so the stable RosterChanged handler and clearRoom
   // read the latest value without re-binding. The handler guards on inRoomRef so
@@ -150,6 +206,18 @@ export function useGameHub(): UseGameHub {
     };
     connection.on('RosterChanged', handleRosterChanged);
 
+    // Round start (group-play/01): the hub broadcasts "RoundStarted" to the whole
+    // room group when the host starts a round, so every player - host and joiners
+    // alike - moves into word collection together in near-real-time (AC-01,
+    // AC-02). Registered ONCE here, before start(), so it is never missed, and
+    // guarded by inRoomRef so a broadcast that races a leave cannot pull a player
+    // who has gone Home back into a round.
+    const handleRoundStarted = (info: RoundInfo) => {
+      if (cancelled || !inRoomRef.current) return;
+      setRound(info);
+    };
+    connection.on('RoundStarted', handleRoundStarted);
+
     connection.onreconnecting(() => {
       if (!cancelled) setStatus('connecting');
     });
@@ -173,6 +241,7 @@ export function useGameHub(): UseGameHub {
     return () => {
       cancelled = true;
       connection.off('RosterChanged', handleRosterChanged);
+      connection.off('RoundStarted', handleRoundStarted);
       void connection.stop();
     };
   }, []);
@@ -215,6 +284,29 @@ export function useGameHub(): UseGameHub {
     [],
   );
 
+  const startRound = useCallback(
+    async (familySafe: boolean): Promise<StartRoundResult> => {
+      const connection = connectionRef.current;
+      const code = roomCodeRef.current;
+      if (
+        !connection ||
+        connection.state !== HubConnectionState.Connected ||
+        !code
+      ) {
+        return {
+          ok: false,
+          error: "We're not connected yet - give it a moment and try again.",
+        };
+      }
+      // The server enforces the host check and filters the catalog by familySafe
+      // (AC-03/AC-04). We do NOT set `round` here on success: the hub's
+      // RoundStarted broadcast drives the transition for EVERYONE (host included)
+      // so all players move together (AC-01, AC-02).
+      return connection.invoke<StartRoundResult>('StartRound', code, familySafe);
+    },
+    [],
+  );
+
   const clearRoom = useCallback(() => {
     const connection = connectionRef.current;
     const code = roomCodeRef.current;
@@ -223,6 +315,7 @@ export function useGameHub(): UseGameHub {
     roomCodeRef.current = null;
     setRoom(null);
     setIsHost(false);
+    setRound(null); // group-play/01: drop any in-progress round on leave.
     // Tell the server so this connection leaves the room group and drops off the
     // roster for everyone else (AC-04). Fire-and-forget: returning Home must not
     // block on the network, and a failure (e.g. already disconnected) is harmless.
@@ -231,5 +324,5 @@ export function useGameHub(): UseGameHub {
     }
   }, []);
 
-  return { status, room, isHost, createRoom, joinRoom, clearRoom };
+  return { status, room, isHost, round, createRoom, joinRoom, startRound, clearRoom };
 }

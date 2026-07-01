@@ -16,6 +16,11 @@
 //                    safety-checked display name (no PII), enforces in-room name
 //                    uniqueness, and broadcasts the updated roster to the room
 //                    group as "RosterChanged" so everyone sees the newcomer live.
+//    - StartRound  : group-play/01. HOST-ONLY (server-enforced) round start:
+//                    auto-selects a template from the minimal server catalog,
+//                    filtered by the family-safe toggle the host sends, sets the
+//                    room's round state, and broadcasts "RoundStarted" to the room
+//                    group so ALL players move into word collection together.
 //
 //  Room state lives in the RoomRegistry singleton (injected below), NOT in this
 //  hub instance - SignalR builds a fresh hub per invocation, so per-hub fields
@@ -30,6 +35,7 @@
 // ----------------------------------------------------------------------------
 
 using Microsoft.AspNetCore.SignalR;
+using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
 
@@ -69,6 +75,34 @@ public sealed record RoomStateDto(string Code, IReadOnlyList<PlayerDto> Players)
 /// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
 public sealed record JoinResultDto(bool Ok, RoomStateDto? Room, string? Error);
 
+/// <summary>
+/// The outcome of <see cref="GameHub.StartRound"/> (group-play/01). Like
+/// <see cref="JoinResultDto"/> this is a friendly result envelope, NOT an
+/// exception channel: every EXPECTED failure (unknown/expired code, the caller is
+/// not the host, too few players, or - defensively - no template survives the
+/// family-safe filter) comes back as Ok=false with a kid-readable Error the host
+/// can show inline. On success Ok=true and Error is null; the actual round detail
+/// reaches EVERY player (host included) via the "RoundStarted" broadcast, not
+/// through this envelope, so all clients transition together (AC-01, AC-02).
+/// </summary>
+/// <param name="Ok">True if the round started; false for an expected rejection.</param>
+/// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
+public sealed record StartRoundResultDto(bool Ok, string? Error);
+
+/// <summary>
+/// Broadcast to the whole room group as "RoundStarted" when the host starts a
+/// round (group-play/01). This is the signal that moves every player from the
+/// lobby into word collection in near-real-time (AC-01, AC-02). It carries only
+/// the template's ID (each client resolves the full prose/body from its bundled
+/// seedLibrary BY ID - the server never ships template content), the mode, and
+/// the round number. group-play/02 will add per-player blank assignments via a
+/// SEPARATE, per-connection message (each client learns only its own prompts).
+/// </summary>
+/// <param name="TemplateId">The selected template's id; the client resolves full content from seedLibrary.</param>
+/// <param name="Mode">The play mode ("classic-blind" for Slice 1).</param>
+/// <param name="RoundNumber">1-based round number (always 1 in group-play/01).</param>
+public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNumber);
+
 public sealed class GameHub : Hub
 {
     // The largest a display name may be (AC-03). Kept in sync with the web
@@ -84,13 +118,26 @@ public sealed class GameHub : Hub
         "purple", "gold", "coral", "teal", "sand", "plum",
     };
 
+    // group-play/01: the only mode in Slice 1 (README section 7 - Classic blind
+    // only). The wire value the round carries and the client resolves against its
+    // Classic-blind mode config. A mode PICKER is out of scope here.
+    private const string ClassicBlindMode = "classic-blind";
+
     private readonly RoomRegistry _rooms;
     private readonly IContentSafetyFilter _safety;
+    private readonly TemplateCatalog _catalog;
+    private readonly FamilySafeContentSelector _familySafe;
 
-    public GameHub(RoomRegistry rooms, IContentSafetyFilter safety)
+    public GameHub(
+        RoomRegistry rooms,
+        IContentSafetyFilter safety,
+        TemplateCatalog catalog,
+        FamilySafeContentSelector familySafe)
     {
         _rooms = rooms;
         _safety = safety;
+        _catalog = catalog;
+        _familySafe = familySafe;
     }
 
     /// <summary>
@@ -252,6 +299,96 @@ public sealed class GameHub : Hub
         {
             await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
         }
+    }
+
+    /// <summary>
+    /// group-play/01: the HOST starts a round.
+    ///
+    /// HOST-ONLY and SERVER-ENFORCED (AC-03): the UI hides the "Start game" CTA
+    /// from non-hosts, but this method is the authoritative gate - it verifies the
+    /// calling connection actually owns the room's host player before doing
+    /// anything, so a crafted client cannot start someone else's round.
+    ///
+    /// Validation runs in a FIXED order and every EXPECTED failure returns a
+    /// friendly <see cref="StartRoundResultDto"/> (Ok=false, kid-readable Error)
+    /// rather than throwing, mirroring <see cref="JoinRoom"/>'s envelope style:
+    ///
+    ///   1. Unknown / expired code -> friendly fail (nothing to start).
+    ///   2. Caller is not the host -> reject (AC-03). Server-authoritative.
+    ///   3. Fewer than 2 players -> "you need at least one more carver" (AC-01
+    ///      requires the host plus at least one other player).
+    ///   4. Select a template: filter the server catalog through the family-safe
+    ///      selector using the host's toggle value (AC-04), then auto-pick one at
+    ///      random from the allowed subset (no picker UI in Slice 1). If somehow
+    ///      nothing is allowed, friendly fail rather than throw.
+    ///
+    /// On success it sets the room's round state (round 1, the chosen template,
+    /// Classic blind, "prompting") and broadcasts "RoundStarted" to the whole room
+    /// group so EVERY player (host included) transitions into word collection
+    /// together in near-real-time (AC-01, AC-02), then returns Ok=true.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="familySafe">The host's family-safe toggle position; the SERVER filters the catalog by it (authoritative, AC-04).</param>
+    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe)
+    {
+        // 1. Look up the room first (an unknown / expired code has nothing to start).
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new StartRoundResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
+        }
+
+        // 2. Server-enforced host check (AC-03): only the connection that owns the
+        //    room's host player may start a round. This is authoritative even
+        //    though the client also hides the CTA from non-hosts.
+        if (!room.IsHost(Context.ConnectionId))
+        {
+            return new StartRoundResultDto(
+                false,
+                "Only the host can start the game.");
+        }
+
+        // 3. Need the host plus at least one other player (AC-01).
+        if (room.PlayerCount < 2)
+        {
+            return new StartRoundResultDto(
+                false,
+                "You need at least one more carver before you can start.");
+        }
+
+        // 4. Select a template: the family-safe toggle the host sent decides which
+        //    catalog entries are allowed (AC-04), and the server auto-picks one at
+        //    random from that subset (no picker UI in Slice 1). Filtering happens
+        //    HERE, server-side, so the toggle is authoritative - the client never
+        //    sends a template id.
+        var allowed = _familySafe.SelectAllowed(_catalog.Entries, familySafe);
+        if (allowed.Count == 0)
+        {
+            // Defensive: every current seed template is family-safe, so this is
+            // structurally unreachable today - but fail friendly rather than throw
+            // if the catalog is ever emptied or fully non-family-safe under a
+            // family-safe round.
+            return new StartRoundResultDto(
+                false,
+                "No tales are available right now - please try again.");
+        }
+
+        var chosen = allowed[Random.Shared.Next(allowed.Count)];
+
+        // 5. Set the room's round state (round 1, Classic blind, "prompting").
+        var round = room.StartRound(chosen.Id, ClassicBlindMode);
+
+        // 6. Broadcast to the WHOLE room group (host included) so all players
+        //    transition into word collection together (AC-01, AC-02). Full
+        //    template content is resolved client-side from seedLibrary by id - the
+        //    server ships only the id + mode + round number.
+        await Clients.Group(room.Code).SendAsync(
+            "RoundStarted",
+            new RoundStartedDto(round.TemplateId, round.Mode, round.RoundNumber));
+
+        return new StartRoundResultDto(true, null);
     }
 
     /// <summary>
