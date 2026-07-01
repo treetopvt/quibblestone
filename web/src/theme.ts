@@ -193,7 +193,7 @@ export const theme = createTheme({
     // (purple .12, gold .14, coral .13, teal .14, sand .10, plum .14).
     guardianAccent: {
       purple: { main: tokens.guardianPurple, tileTint: alpha(tokens.guardianPurple, 0.12) },
-      gold: { main: tokens.guardianGold, tileTint: alpha(tokens.goldMain, 0.14) },
+      gold: { main: tokens.guardianGold, tileTint: alpha(tokens.guardianGold, 0.14) },
       coral: { main: tokens.guardianCoral, tileTint: alpha(tokens.guardianCoral, 0.13) },
       teal: { main: tokens.guardianTeal, tileTint: alpha(tokens.guardianTeal, 0.14) },
       sand: { main: tokens.guardianSand, tileTint: alpha(tokens.guardianSand, 0.1) },

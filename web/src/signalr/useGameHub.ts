@@ -131,24 +131,35 @@ export function useGameHub(): UseGameHub {
 
     connectionRef.current = connection;
 
+    // `cancelled` guards EVERY state update below, so a handler that fires during
+    // teardown (StrictMode's dev remount, an HMR swap, or a real unmount racing
+    // an in-flight reconnect/close) can never setState on a torn-down effect.
+    let cancelled = false;
+
     // Live roster updates (session-engine/02): the hub broadcasts the updated
     // roster to a room's group whenever someone joins. Registered ONCE here,
     // before start(), so it is never missed and there is only one handler on
     // the one connection. Whoever is in the room (host + players) gets the new
-    // roster and the UI updates in near-real-time (AC-05).
-    connection.on('RosterChanged', (state: RoomState) => {
+    // roster and the UI updates in near-real-time (AC-05). Detached on cleanup.
+    const handleRosterChanged = (state: RoomState) => {
       // Ignore a broadcast that arrives after we have left (raced our LeaveRoom /
-      // group removal) - otherwise it would resurrect room state and bounce a
-      // player who just went Home back into the lobby.
-      if (!inRoomRef.current) return;
+      // group removal) or during teardown - otherwise it would resurrect room
+      // state and bounce a player who just went Home back into the lobby.
+      if (cancelled || !inRoomRef.current) return;
       setRoom(state);
+    };
+    connection.on('RosterChanged', handleRosterChanged);
+
+    connection.onreconnecting(() => {
+      if (!cancelled) setStatus('connecting');
+    });
+    connection.onreconnected(() => {
+      if (!cancelled) setStatus('connected');
+    });
+    connection.onclose(() => {
+      if (!cancelled) setStatus('disconnected');
     });
 
-    connection.onreconnecting(() => setStatus('connecting'));
-    connection.onreconnected(() => setStatus('connected'));
-    connection.onclose(() => setStatus('disconnected'));
-
-    let cancelled = false;
     connection
       .start()
       .then(() => {
@@ -161,6 +172,7 @@ export function useGameHub(): UseGameHub {
     // Tear the connection down on unmount (and on StrictMode's dev remount).
     return () => {
       cancelled = true;
+      connection.off('RosterChanged', handleRosterChanged);
       void connection.stop();
     };
   }, []);
