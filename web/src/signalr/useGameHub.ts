@@ -10,6 +10,13 @@
 //
 //  Real game features (rooms, rosters, reveal) add more invokes/handlers on
 //  this same connection rather than opening new ones.
+//
+//  session-engine/01 adds the first game invoke, createRoom, which asks the
+//  hub's CreateRoom method to mint a room and returns the created room's state
+//  (the join code + the roster with the host). The Player / RoomState types
+//  below MIRROR the hub's PlayerDto / RoomStateDto wire contract
+//  (api/src/Hubs/GameHub.cs) - keep them in sync. Later stories (02 join,
+//  05 avatar, 03 roster) add joinRoom + a roster-changed handler here.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -24,9 +31,36 @@ const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
+/**
+ * One player in a room, as sent by the hub (PlayerDto). Anonymous by design -
+ * an in-session nickname (empty for the host until story 02 adds a name step),
+ * a Guardian variant, and whether they are the host. No PII (README section 6).
+ */
+export interface Player {
+  nickname: string;
+  variant: string;
+  isHost: boolean;
+}
+
+/**
+ * The state of a room as returned by createRoom (RoomStateDto): the join code
+ * plus the current roster (host first). Story 03 broadcasts this same shape on
+ * roster changes.
+ */
+export interface RoomState {
+  code: string;
+  players: Player[];
+}
+
 export interface UseGameHub {
   status: ConnectionStatus;
   ping: (message: string) => Promise<string | undefined>;
+  /**
+   * Create a room and become its host (session-engine/01). Resolves with the
+   * created room's state (code + roster), or undefined if the connection is not
+   * ready. Uses the ONE shared connection - never opens a second.
+   */
+  createRoom: () => Promise<RoomState | undefined>;
 }
 
 export function useGameHub(): UseGameHub {
@@ -74,5 +108,16 @@ export function useGameHub(): UseGameHub {
     [],
   );
 
-  return { status, ping };
+  const createRoom = useCallback(
+    async (): Promise<RoomState | undefined> => {
+      const connection = connectionRef.current;
+      if (!connection || connection.state !== HubConnectionState.Connected) {
+        return undefined;
+      }
+      return connection.invoke<RoomState>('CreateRoom');
+    },
+    [],
+  );
+
+  return { status, ping, createRoom };
 }

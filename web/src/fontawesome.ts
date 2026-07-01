@@ -24,6 +24,13 @@ import {
   faCircleQuestion,
   faHouse,
   faShareNodes,
+  // Home + Lobby icons (session-engine/01): the gold "Create a game" CTA (plus),
+  // the outlined-purple "Join a game" button (login arrow), the "No account
+  // needed" reassurance check, and the Lobby host indicator (crown).
+  faPlus,
+  faRightToBracket,
+  faCheck,
+  faCrown,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -37,4 +44,8 @@ library.add(
   faCircleQuestion,
   faHouse,
   faShareNodes,
+  faPlus,
+  faRightToBracket,
+  faCheck,
+  faCrown,
 );

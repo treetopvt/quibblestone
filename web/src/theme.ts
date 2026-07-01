@@ -39,6 +39,12 @@ const tokens = {
   },
   sandstone: '#E8DCC4',
   card: '#ECE2CC',
+  // Stone-tablet motif gradient stops (docs/design/README.md "Tablet gradient",
+  // 168deg) - the arched glowing-stone panel used by the Home hero (and later
+  // the Lobby/Reveal tablets). Kept as tokens so screens never hardcode them.
+  tabletTop: '#EFE3C7',
+  tabletMid: '#E3D2AC',
+  tabletBottom: '#D6C194',
   // Bottom action bar fade-scrim target color (docs/design/README.md
   // "Bottom action bar pattern") - distinct from the card fill.
   bottomBarScrim: '#F2E8D2',
@@ -71,6 +77,7 @@ declare module '@mui/material/styles' {
     parchment: { top: string; mid: string; bottom: string; gradient: string };
     sandstone: Palette['primary'];
     card: { main: string };
+    tablet: { top: string; mid: string; bottom: string; gradient: string };
     stoneSlot: { main: string; alt: string };
     gold: Palette['primary'];
     coral: Palette['primary'];
@@ -83,6 +90,7 @@ declare module '@mui/material/styles' {
     parchment?: { top: string; mid: string; bottom: string; gradient: string };
     sandstone?: PaletteOptions['primary'];
     card?: { main: string };
+    tablet?: { top: string; mid: string; bottom: string; gradient: string };
     stoneSlot?: { main: string; alt: string };
     gold?: PaletteOptions['primary'];
     coral?: PaletteOptions['primary'];
@@ -94,6 +102,7 @@ declare module '@mui/material/styles' {
 }
 
 const parchmentGradient = `linear-gradient(180deg, ${tokens.parchment.top} 0%, ${tokens.parchment.mid} 42%, ${tokens.parchment.bottom} 100%)`;
+const tabletGradient = `linear-gradient(168deg, ${tokens.tabletTop} 0%, ${tokens.tabletMid} 52%, ${tokens.tabletBottom} 100%)`;
 
 export const theme = createTheme({
   palette: {
@@ -109,6 +118,12 @@ export const theme = createTheme({
     parchment: { ...tokens.parchment, gradient: parchmentGradient },
     sandstone: { main: tokens.sandstone },
     card: { main: tokens.card },
+    tablet: {
+      top: tokens.tabletTop,
+      mid: tokens.tabletMid,
+      bottom: tokens.tabletBottom,
+      gradient: tabletGradient,
+    },
     stoneSlot: { main: tokens.stoneSlot, alt: tokens.stoneSlotAlt },
     gold: { main: tokens.goldMain, light: tokens.goldTop, dark: tokens.goldDeep },
     coral: { main: tokens.coral },
