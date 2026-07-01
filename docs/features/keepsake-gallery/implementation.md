@@ -10,10 +10,12 @@
 > [`docs/FEATURE_ORCHESTRATION_PLAYBOOK.md`](../../FEATURE_ORCHESTRATION_PLAYBOOK.md).
 
 The share/growth loop (README section 2) and a keepsake delight (README section 7, Phase 4) in one feature, built
-entirely on top of `the-reveal`'s already-assembled, already-filtered story. All three stories are **web-only** - no
-API/hub change anywhere in this feature, since rendering an image and storing it locally touches neither the engine
-nor real-time sync. Story 01 (the image render) is the foundation both 02 (share) and 03 (local history) consume, so
-it lands first; 02 and 03 are then file-disjoint and can run in parallel.
+entirely on top of `the-reveal`'s already-assembled, already-filtered story. Stories 01-03 are **web-only** - no
+API/hub change - since rendering an image and storing it locally touches neither the engine nor real-time sync.
+Story 04 (the shareable tale link) is the one exception: it adds a small, isolated **server** surface (a public
+read-only tale route + a stored tale in Table Storage), kept well away from `GameHub.cs` and the round lifecycle.
+Story 01 (the image render) is the foundation both 02 (share) and 03 (local history) consume, so it lands first; 02
+and 03 are then file-disjoint and can run in parallel, and 04 follows 02 (it extends the same share action).
 
 ## Reuse map
 
@@ -42,11 +44,14 @@ every other story's tests and UI depend on (both need a rendered image to share/
 | 01 (foundation) save-reveal-as-image | TBD | `web/src/gallery/renderTablet.ts` (or similar - the client-side render function), edits `web/src/pages/Reveal.tsx` (adds the "Save as image" action) | the-reveal/01 | - | 1 | high |
 | 02 share-with-watermark | TBD | edits `web/src/gallery/renderTablet.ts` (watermark applied at render time), edits `web/src/pages/Reveal.tsx`'s existing `handleShare` (prefers an image payload, keeps the existing text fallback) | 01, session-engine/04 (pattern reuse) | 03 | 2 | medium |
 | 03 tales-weve-carved-history | TBD | `web/src/gallery/localGallery.ts` (storage module), `web/src/pages/Gallery.tsx` (new screen), edits `web/src/pages/Home.tsx` (nav entry point) | 01 | 02 | 2 | medium |
+| 04 shareable-tale-link | TBD | new `api/src/PublishedTales/` (thin controller + service), a public read-only tale page/route, edits `web/src/pages/Reveal.tsx`'s `handleShare` (adds the link to the payload) | 01, 02 | - | 3 | high |
 
 **Concurrency per wave:** Wave 1 = 1 (foundation - the render function both 02 and 03 need). Wave 2 = {02, 03} in
 parallel: 02 edits the render function's watermark step and `Reveal.tsx`'s existing share handler; 03 adds an
 entirely new storage module and a new screen plus one small nav edit to `Home.tsx` - disjoint from 02's files except
-both conceptually depend on 01's output, which is why 01 must land first.
+both conceptually depend on 01's output, which is why 01 must land first. Wave 3 = 04 (shareable tale link) after 02,
+since it extends the same `handleShare` payload 02 builds and adds the server surface the earlier stories
+deliberately avoid.
 
 ## Per-story tech notes
 
@@ -90,14 +95,28 @@ keeps it disjoint from `the-reveal` and the engine. Clearing browser storage sil
 expected, documented behavior for device-local, account-free storage, not a bug to work around. Out of scope: cloud
 sync, search/filter, per-item delete (a reasonable small follow-up, not core), export-as-collection.
 
+### 04 - Shareable tale link
+**Approach:** the one server-touching story. A thin, dedicated `api/src/PublishedTales/` controller + service exposes
+a public read-only `GET /t/<slug>` that renders the carved tablet from a stored, already-filtered `AssembledStory`
+(text + byline metadata) with a gold "Play QuibbleStone" CTA; publishing is a host-initiated action that stores the
+tale in Azure Table Storage under an unguessable slug with a TTL. `Reveal.tsx`'s existing `handleShare` (extended by
+02) adds the link to the share payload. **Owns / exports:** `PublishedTales/` (server) + the public tale page + the
+`handleShare` link addition. **Gotchas:** this is the ONE exception to the feature's client-only boundary (feature.md
+Decisions) - keep it isolated from `GameHub.cs` and the round lifecycle. Serve `noindex, nofollow`. Never publish
+anything a family-safe session would not have shown; only nickname + Guardian appear (no PII). The link is FREE - no
+entitlement check (README section 3). Out of scope: public gallery/discovery, comments, analytics, server-side image
+render (the shared image stays 01/02's client render).
+
 ## Cross-cutting concerns
 
 - **This feature renders and stores; it does not collect or assemble.** Every story consumes an already-assembled,
   already-filtered `AssembledStory` from `the-reveal`. If any story here seems to need new engine logic, new
   free-text collection, or a change to `assemble()`/`collectWord()`, that is scope creep out of this feature's lane -
   flag it rather than build it here.
-- **No API/hub change anywhere in this feature.** All three stories are `web/`-only. This keeps the feature entirely
-  disjoint from `GameHub.cs` and `useGameHub.ts` - it can be built without touching the real-time backbone at all.
+- **Stories 01-03 make no API/hub change** and are `web/`-only, entirely disjoint from `GameHub.cs` and
+  `useGameHub.ts`. **Story 04 is the one exception:** it adds a small, isolated server surface (a public read-only
+  tale route + Table Storage), deliberately kept separate from the real-time backbone and the round lifecycle - it
+  does not touch `GameHub.cs`/`useGameHub.ts` either, it is its own thin controller.
 - **Anonymous by construction, still.** The only identity ever rendered onto an image or stored in the local gallery
   is the in-session nickname + Guardian variant already shown on the roster/reveal - never a real name, device id,
   account, or any other PII, consistent with README section 3's identity model (players are anonymous forever; only

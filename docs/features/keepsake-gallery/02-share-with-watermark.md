@@ -75,6 +75,11 @@ is also a soft, ad-free growth touch. See [feature.md](./feature.md) and
 - Family-safe / filter compliance (AC-04) is inherited for free from story 01
   (the image only ever contains already-vetted `AssembledStory` content) -
   this story does not add a second content path that could bypass it.
+- The real back-link that turns a share into a new player lives in story 04
+  (shareable tale link): this story shares the watermarked IMAGE; story 04 adds
+  a public tale URL to the same share payload (and is the link alone when a
+  browser cannot share a file/image - AC-01's fallback). Keep the two share
+  outputs in the one `handleShare` path rather than forking a second share flow.
 
 ## Tests
 | AC | Test |

@@ -86,3 +86,10 @@ Progressive reveal, Owner-curated word bank are the next three named variations)
   than pure axis config, so a future builder does not quietly fork the engine
   to ship it. The generalization (many-answers-per-blank + a vote primitive)
   belongs in `web/src/engine/`, shared with `reveal-delight/03`.
+- 2026-07-01: Recorded the Versus/Duel judging model in response to a design
+  question ("how do we decide the best answer?"): the in-room HUMAN vote is the
+  canonical judge (README section 1 - the payoff is people laughing together,
+  not an algorithm's verdict). AI scoring is kept only as an optional,
+  non-authoritative "Guardian's Verdict" for solo play / a second opinion
+  (`ai-on-demand-generation/03`); judging by sharing to an outside person is
+  parked. See 06's Out of Scope.

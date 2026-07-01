@@ -86,6 +86,13 @@ and [feature.md](./feature.md).
 - Any scoring, ranking, or persistent "funniest player" tracking across rounds
   (explicitly rejected by AC-06 and by README section 1's toy-not-competition
   stance).
+- AI or external judging of the winner: the in-room HUMAN vote is the canonical
+  judge for group Versus (people laughing together is the point). An optional,
+  non-authoritative AI "Guardian's Verdict" - a playful second opinion, and the
+  only judge available in SOLO play where there is no room to vote - is
+  specified separately in `ai-on-demand-generation/03`; an async "share it to an
+  outsider to judge" mechanic is parked (it adds latency, a public surface, and
+  moderation the room vote avoids).
 - Host controls to pick WHICH blank becomes the Versus blank or WHICH players
   duel (a simple fixed rule - e.g. the first blank, all present players - is
   enough to prove the mechanic; host curation is a later enhancement).

@@ -90,10 +90,22 @@ comes after V1, not work in flight. Grouped by intent:
 - `ai-content-factory/` - the offline generate -> vet -> publish pipeline (never
   live to kids); the "cheap moat" that keeps the library bottomless.
 
-The delight-tier epics that are still README backlog only (AI illustration, voice
-narration, live on-demand generation) get their own folders when their phase comes
-up - `billing-entitlements` already reserves their capability keys so gating them
-later is a config flip.
+**Delight tier - sketched (README Phase 3-4)**
+
+The word-of-mouth / premium-AI epics now have vision-level `feature.md` sketches
+(no story files or `implementation.md` yet - they are decomposed when their phase
+comes up). `billing-entitlements` already reserves their capability keys so gating
+them later is a config flip.
+- `ai-illustration/` - an AI image of the finished tale (keepsake + share hook).
+- `ai-voice-narration/` - TTS character voices; wires the reveal's
+  already-reserved narration bar (the car-ride killer feature).
+- `ai-on-demand-generation/` - live "a story about our dog in space" generation
+  (ships last, heaviest moderation) plus the optional AI "Guardian's Verdict"
+  funniest-pick judge for solo/Versus.
+
+Keepsake Gallery also gained story 04 (a shareable tale back-link with a "Play
+QuibbleStone" CTA) so a shared tale converts a viewer into a new player, not just
+a brand impression.
 
 ## Templates
 
