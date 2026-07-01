@@ -94,6 +94,44 @@ public sealed class Room
         }
     }
 
+    /// <summary>
+    /// Attempts to add a joiner to the roster (session-engine/02). The nickname
+    /// must be unique within the room, compared case-insensitively (AC-06), so
+    /// "Sam" and "sam" cannot both be in the same room. The uniqueness check and
+    /// the append happen together under the room lock, so two joiners racing for
+    /// the same name cannot both slip in.
+    ///
+    /// The caller (the hub) is responsible for having already routed the nickname
+    /// through the content-safety filter (README section 6) BEFORE calling this -
+    /// this method takes the name as-given and never vets it. It only enforces the
+    /// in-room uniqueness invariant and appends the player.
+    /// </summary>
+    /// <param name="nickname">The vetted, trimmed in-session display name.</param>
+    /// <param name="variant">The chosen Guardian variant.</param>
+    /// <param name="connectionId">The joiner's SignalR connection.</param>
+    /// <returns>True if the player was added; false if the name is already taken.</returns>
+    public bool TryAddPlayer(string nickname, string variant, string connectionId)
+    {
+        lock (_gate)
+        {
+            var taken = _players.Any(p =>
+                string.Equals(p.Nickname, nickname, StringComparison.OrdinalIgnoreCase));
+            if (taken)
+            {
+                return false;
+            }
+
+            _players.Add(new Player(
+                Nickname: nickname,
+                Variant: variant,
+                ConnectionId: connectionId,
+                IsHost: false));
+
+            LastActiveUtc = DateTimeOffset.UtcNow;
+            return true;
+        }
+    }
+
     /// <summary>A point-in-time snapshot of the roster (safe to hand out; a copy).</summary>
     public IReadOnlyList<Player> SnapshotPlayers()
     {

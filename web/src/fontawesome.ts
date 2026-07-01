@@ -31,6 +31,12 @@ import {
   faRightToBracket,
   faCheck,
   faCrown,
+  // Join icons (session-engine/02): the "100% anonymous" reassurance shield,
+  // the display-name field's person icon, and the gold "Join [CODE] ->" CTA
+  // arrow.
+  faShield,
+  faUser,
+  faArrowRight,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -48,4 +54,7 @@ library.add(
   faRightToBracket,
   faCheck,
   faCrown,
+  faShield,
+  faUser,
+  faArrowRight,
 );

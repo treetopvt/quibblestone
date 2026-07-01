@@ -2,65 +2,77 @@
 //  App - the QuibbleStone root, and the app's minimal view router.
 //
 //  There is NO react-router in this project (CLAUDE.md - and deliberately not
-//  added): navigation is a single `view` state switched here. Story 01 has two
-//  views - 'home' and 'lobby'; later stories extend this seam (story 02 adds
-//  'join', story 03 replaces the Lobby placeholder). Keep the switch small and
-//  the room state lifted here so those stories can grow it without a rewrite.
+//  added): navigation is a single `view` state switched here. The views are
+//  'home', 'join', and 'lobby'; later stories extend this seam (story 03
+//  replaces the Lobby placeholder). Keep the switch small so those stories can
+//  grow it without a rewrite.
 //
 //  App owns the ONE SignalR connection via useGameHub (never a second one). The
-//  Home screen's "Create a game" CTA calls the hub's createRoom; when it
-//  resolves with the room state (code + host roster), App stores it and flips
-//  the view to the lobby, landing the host in their room (session-engine/01,
-//  AC-01). "Join a game" is a seam for story 02 and is a no-op for now.
+//  LIVE room state lives IN the hook (so RosterChanged broadcasts update every
+//  screen); App reads `room` from there rather than holding its own copy. The
+//  Home "Create a game" CTA calls createRoom and lands the host in the lobby
+//  (session-engine/01, AC-01). "Join a game" opens the Join screen; a successful
+//  join sets the hook's room and flips App to the lobby (session-engine/02,
+//  AC-01), while a failed join stays on Join showing the friendly error.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useGameHub } from './signalr/useGameHub';
-import type { RoomState } from './signalr/useGameHub';
 import { Home } from './pages/Home';
+import { Join } from './pages/Join';
 import { Lobby } from './pages/Lobby';
 
-// The set of screens App can show. Story 02 adds 'join'.
-type View = 'home' | 'lobby';
+// The set of screens App can show.
+type View = 'home' | 'join' | 'lobby';
 
 export default function App() {
-  const { status, createRoom } = useGameHub();
+  const { status, room, createRoom, joinRoom, clearRoom } = useGameHub();
   const [view, setView] = useState<View>('home');
-  const [room, setRoom] = useState<RoomState | null>(null);
   const [creating, setCreating] = useState(false);
 
-  // "Create a game": ask the hub for a room, then land in the lobby as host.
+  // When a room becomes available (created or joined), land in the lobby. This
+  // is the single place a set room flips the view, so both createRoom and a
+  // successful joinRoom converge here (AC-01).
+  useEffect(() => {
+    if (room) {
+      setView('lobby');
+    }
+  }, [room]);
+
+  // "Create a game": ask the hub for a room; the effect above lands us in the
+  // lobby once the hook's room is set.
   const handleCreateGame = useCallback(async () => {
     if (creating) return;
     setCreating(true);
     try {
-      const created = await createRoom();
-      if (created) {
-        setRoom(created);
-        setView('lobby');
-      }
+      await createRoom();
     } finally {
       setCreating(false);
     }
   }, [creating, createRoom]);
 
-  // "Join a game" is the story-02 seam - a no-op placeholder until the Join
-  // screen exists. Wired now so the Home contract (AC-01) is complete.
+  // "Join a game": open the Join screen (session-engine/02).
   const handleJoinGame = useCallback(() => {
-    // Story 02 will setView('join') here.
+    setView('join');
   }, []);
 
-  // Leave the lobby and return Home (drops the local room state; rooms are
+  // Leave the lobby / Join screen and return Home (drops the room; rooms are
   // ephemeral and the server sweeps idle ones - AC-05).
-  const handleLeaveLobby = useCallback(() => {
-    setRoom(null);
+  const handleGoHome = useCallback(() => {
+    clearRoom();
     setView('home');
-  }, []);
+  }, [clearRoom]);
 
   if (view === 'lobby' && room) {
-    return <Lobby room={room} onLeave={handleLeaveLobby} />;
+    return <Lobby room={room} onLeave={handleGoHome} />;
+  }
+
+  if (view === 'join') {
+    return (
+      <Join onJoin={joinRoom} onBack={handleGoHome} disabled={status !== 'connected'} />
+    );
   }
 
   return (
