@@ -30,8 +30,10 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
 - the-reveal (this feature builds on `Reveal.tsx` / `revealParts.ts` - it does
   not re-architect the text reveal, only layers UI/animation/interaction on
   top of it).
-- game-modes (specifically `game-modes/06` Versus/Duel, for the shared
-  vote-collection primitive that story 03 also consumes).
+- game-modes (specifically the parked Versus/Duel mode - see
+  [`docs/features/game-modes/feature.md`](../game-modes/feature.md) "Parked -
+  Phase 2+/3" - for the shared vote-collection primitive that story 03 also
+  consumes).
 - session-engine (a live room + roster - reactions and the Golden Guardian
   vote are room-wide, real-time, and need to know who is present).
 - child-safety (no free text is introduced by this feature, but the family-safe
@@ -51,9 +53,11 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
   **one** SignalR connection (`web/src/signalr/useGameHub.ts`) the same way
   the roster and reveal broadcast already do.
 - Story 01 (Reaction row) and story 03 (Golden Guardian) are both "tap a small
-  option, tally, show a result" interactions. Story 03 explicitly shares its
-  vote-collection mechanic with `game-modes/06` (Versus/Duel) - see 03's
-  Technical Notes for the coordination note on `web/src/engine/vote.ts`. The
+  option, tally, show a result" interactions. Story 03 explicitly builds its
+  vote-collection mechanic (`web/src/engine/vote.ts`) so it can later be
+  shared with the parked Versus/Duel mode (see
+  [`docs/features/game-modes/feature.md`](../game-modes/feature.md) "Parked -
+  Phase 2+/3") - see 03's Technical Notes for the coordination note. The
   Reaction row (01) is deliberately a SEPARATE, simpler mechanic
   (multi-option, tap-to-increment, no single "winner") and does not use the
   same primitive - do not conflate the two.
@@ -89,8 +93,9 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
   `the-reveal/feature.md`'s Phase 3/4 parking notes and adding a new Golden
   Guardian award story. All three stories are Status "Not Started", Issue
   "TBD" - planned, not scheduled; they park behind `the-reveal/01` and
-  `session-engine` shipping (Slice 1), and story 03 additionally coordinates
-  build order with `game-modes/06` for the shared vote primitive.
+  `session-engine` shipping (Slice 1), and story 03 additionally builds the
+  shared vote primitive that the parked Versus/Duel mode will later import
+  (see `docs/features/game-modes/feature.md` "Parked - Phase 2+/3").
 - 2026-07-01: Golden Guardian (03) deliberately excludes any cumulative
   scoring or leaderboard, per README section 1's "toy, not a system of record"
   / "hilarity, not competition" stance - kept as an explicit Decision (not just

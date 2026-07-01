@@ -37,7 +37,9 @@ section 3 (top paid tier).
 - template-model (generated output conforms to the existing template schema -
   typed blanks, tags - so the engine plays it unchanged).
 - game-modes (a generated template is played by the existing engine and modes;
-  story 03's judge relates to `game-modes/06` Versus).
+  story 03's judge relates to the parked game-modes Versus/Duel mode - see
+  [`docs/features/game-modes/feature.md`](../game-modes/feature.md) "Parked -
+  Phase 2+/3").
 - ai-content-factory (reuses the SAME generate -> vet plumbing and moderation
   queue - on-demand is the "live, self-service" sibling of the offline factory,
   not a fork of it).
@@ -68,14 +70,16 @@ section 3 (top paid tier).
   separate metering concern (not per-request entitlement checks - that stays a
   smell per billing-entitlements).
 - **AI "Guardian's Verdict" (story 03) - answering "have the AI score it?".** For
-  group Versus (`game-modes/06`) the ROOM vote is the canonical judge - the whole
-  point is people laughing together, not an algorithm's verdict. The Guardian's
-  Verdict is an OPTIONAL, non-authoritative "second opinion", and - importantly -
-  the only judge available in SOLO play, where there is no room to vote: it lets a
-  solo player duel and get a laugh plus a one-line reason. It is a lightweight
-  TEXT use of the same AI plumbing, and the reason it prints is generated text, so
-  it must itself pass the safety filter. Never framed as authoritative, never a
-  score. Cross-reference `game-modes/06`.
+  group Versus (the parked game-modes Versus/Duel mode) the ROOM vote is the
+  canonical judge - the whole point is people laughing together, not an
+  algorithm's verdict. The Guardian's Verdict is an OPTIONAL, non-authoritative
+  "second opinion", and - importantly - the only judge available in SOLO play,
+  where there is no room to vote: it lets a solo player duel and get a laugh
+  plus a one-line reason. It is a lightweight TEXT use of the same AI plumbing,
+  and the reason it prints is generated text, so it must itself pass the safety
+  filter. Never framed as authoritative, never a score. Cross-reference
+  [`docs/features/game-modes/feature.md`](../game-modes/feature.md) "Parked -
+  Phase 2+/3" for the Versus/Duel mode itself.
 - **Entitlement at session-creation** via the billing-entitlements seam
   (`ai.onDemand`), top tier. Free and base tiers play the curated library +
   packs; on-demand is the premium magic. Kid-safe, no ads.
@@ -98,6 +102,6 @@ section 3 (top paid tier).
   without a per-item human gate is the prerequisite that makes it safe, which is
   why it ships last; (3) the AI "Guardian's Verdict" judge is optional and
   non-authoritative and primarily a SOLO affordance - the in-room human vote
-  stays canonical for group Versus (`game-modes/06`), with async "share it to an
-  outsider to judge" parked (it adds latency, a public surface, and moderation
-  load the room vote avoids).
+  stays canonical for group Versus (the parked game-modes Versus/Duel mode),
+  with async "share it to an outsider to judge" parked (it adds latency, a
+  public surface, and moderation load the room vote avoids).
