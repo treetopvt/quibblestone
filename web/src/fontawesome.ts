@@ -53,6 +53,9 @@ import {
   faWandMagicSparkles,
   faPenNib,
   faEyeSlash,
+  // FamilySafeToggle icon (child-safety/02): the shield-heart glyph reads as
+  // "protected and kid-friendly" beside the "Family-safe" toggle label.
+  faShieldHeart,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -80,4 +83,5 @@ library.add(
   faWandMagicSparkles,
   faPenNib,
   faEyeSlash,
+  faShieldHeart,
 );
