@@ -33,6 +33,13 @@
 //  full content from) so App can route into the round. StartRoundResult /
 //  RoundInfo below MIRROR the hub's StartRoundResultDto / RoundStartedDto wire
 //  contract (api/src/Hubs/GameHub.cs) - keep them in sync BY HAND (no codegen).
+//
+//  group-play/02 adds one more handler on the SAME connection: "YourBlanks", a
+//  PER-CONNECTION message the hub sends right after RoundStarted telling THIS
+//  client only its own blank indices for the round (never another player's, no
+//  PII). The hook exposes `assignedBlankIndices` (null until it arrives, cleared
+//  on leave / round reset) so GroupRound fills only the blanks this player owes.
+//  The YourBlanks type MIRRORS the hub's YourBlanksDto - keep it in sync BY HAND.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -108,6 +115,20 @@ export interface RoundInfo {
   roundNumber: number;
 }
 
+/**
+ * The blanks THIS client owes for the current round (group-play/02), mirroring
+ * the hub's YourBlanksDto wire contract. Sent per-connection as "YourBlanks"
+ * right after RoundStarted - it carries ONLY this player's blank INDICES into
+ * the round template's ordered blanks (the client resolves each to its prompt
+ * via getBlanks(template)[index], Classic blind - prompt only, AC-02). It never
+ * carries another player's blanks and no PII. The hook exposes just the indices;
+ * they are null until "YourBlanks" arrives (a brief "dealing your blanks" beat
+ * after the round starts) and cleared on leave / when a round resets.
+ */
+interface YourBlanks {
+  blankIndices: number[];
+}
+
 export interface UseGameHub {
   status: ConnectionStatus;
   /** The current room (code + live roster), or null when not in one. Owned here so RosterChanged updates flow to every screen. */
@@ -128,6 +149,15 @@ export interface UseGameHub {
    * routes into word collection when this is non-null. Cleared on leave.
    */
   round: RoundInfo | null;
+  /**
+   * The blank INDICES this client owes for the current round (group-play/02),
+   * or null until the hub's per-connection "YourBlanks" message arrives (a brief
+   * beat after `round` is set). GroupRound renders FillBlank over ONLY these
+   * blanks, resolved to prompts via getBlanks(template)[index] (Classic blind -
+   * prompt only, AC-02). Cleared on leave and whenever `round` resets, so a stale
+   * assignment never bleeds into the next round.
+   */
+  assignedBlankIndices: number[] | null;
   /**
    * Start a round as the host (group-play/01). Invokes the hub's host-only
    * StartRound with the current room code (from roomCodeRef) and the host's
@@ -170,6 +200,10 @@ export function useGameHub(): UseGameHub {
   // The current round, set from the "RoundStarted" broadcast (group-play/01) and
   // cleared on leave. Non-null flips App into word collection for every player.
   const [round, setRound] = useState<RoundInfo | null>(null);
+  // This client's own blank indices for the round (group-play/02), set from the
+  // per-connection "YourBlanks" message and cleared on leave / round reset. Null
+  // until it arrives (a brief "dealing your blanks" beat after `round` is set).
+  const [assignedBlankIndices, setAssignedBlankIndices] = useState<number[] | null>(null);
   // Whether this client is currently seated in a room, plus that room's code.
   // Kept as refs (not state) so the stable RosterChanged handler and clearRoom
   // read the latest value without re-binding. The handler guards on inRoomRef so
@@ -214,9 +248,23 @@ export function useGameHub(): UseGameHub {
     // who has gone Home back into a round.
     const handleRoundStarted = (info: RoundInfo) => {
       if (cancelled || !inRoomRef.current) return;
+      // Reset any prior round's assignment so a stale one never shows for the new
+      // round; "YourBlanks" (below) fills it in a beat later (group-play/02).
+      setAssignedBlankIndices(null);
       setRound(info);
     };
     connection.on('RoundStarted', handleRoundStarted);
+
+    // Per-player blank assignment (group-play/02): right after RoundStarted the
+    // hub sends THIS connection its own blanks as "YourBlanks" (only its indices,
+    // no other player, no PII). Registered ONCE here, before start(), so it is
+    // never missed, and guarded by inRoomRef so a message racing a leave cannot
+    // set an assignment for a player who has gone Home.
+    const handleYourBlanks = (payload: YourBlanks) => {
+      if (cancelled || !inRoomRef.current) return;
+      setAssignedBlankIndices(payload.blankIndices);
+    };
+    connection.on('YourBlanks', handleYourBlanks);
 
     connection.onreconnecting(() => {
       if (!cancelled) setStatus('connecting');
@@ -242,6 +290,7 @@ export function useGameHub(): UseGameHub {
       cancelled = true;
       connection.off('RosterChanged', handleRosterChanged);
       connection.off('RoundStarted', handleRoundStarted);
+      connection.off('YourBlanks', handleYourBlanks);
       void connection.stop();
     };
   }, []);
@@ -316,6 +365,7 @@ export function useGameHub(): UseGameHub {
     setRoom(null);
     setIsHost(false);
     setRound(null); // group-play/01: drop any in-progress round on leave.
+    setAssignedBlankIndices(null); // group-play/02: drop this client's blanks on leave.
     // Tell the server so this connection leaves the room group and drops off the
     // roster for everyone else (AC-04). Fire-and-forget: returning Home must not
     // block on the network, and a failure (e.g. already disconnected) is harmless.
@@ -324,5 +374,15 @@ export function useGameHub(): UseGameHub {
     }
   }, []);
 
-  return { status, room, isHost, round, createRoom, joinRoom, startRound, clearRoom };
+  return {
+    status,
+    room,
+    isHost,
+    round,
+    assignedBlankIndices,
+    createRoom,
+    joinRoom,
+    startRound,
+    clearRoom,
+  };
 }

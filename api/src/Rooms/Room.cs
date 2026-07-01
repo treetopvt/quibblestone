@@ -44,6 +44,33 @@ public sealed record Player(
     bool IsHost);
 
 /// <summary>
+/// One player's blank assignment within a round (group-play/02). Records WHICH
+/// blank indices this player owes, keyed server-side by the owning connection,
+/// alongside just enough anonymous identity (nickname + Guardian variant) for
+/// group-play/04's per-player word-count attribution on Round Complete.
+///
+/// The <see cref="ConnectionId"/> is a SERVER-SIDE handle only - it (like the
+/// connectionId on <see cref="Player"/>) is NEVER put on the wire (no PII,
+/// README section 6). The hub uses it to send each player ONLY its own blanks
+/// (Clients.Client(connectionId)); a client never learns another player's
+/// connection or blanks. <see cref="BlankIndices"/> are indices into the
+/// template's ordered blanks (getBlanks(template)[i]) - index-based to match the
+/// pure TS reference (web/src/engine/distribute.ts), which is why the catalog
+/// carries BlankCount.
+/// </summary>
+/// <param name="ConnectionId">The owning SignalR connection (server-side handle; never on the wire).</param>
+/// <param name="Nickname">The player's in-session nickname (for gp/04 attribution; already safety-filtered on join).</param>
+/// <param name="Variant">The player's Guardian variant (for gp/04 attribution).</param>
+/// <param name="IsHost">True for the host player (dealt first, player index 0).</param>
+/// <param name="BlankIndices">The blank indices (into the template's ordered blanks) this player owes; may be empty when there are fewer blanks than players.</param>
+public sealed record PlayerAssignment(
+    string ConnectionId,
+    string Nickname,
+    string Variant,
+    bool IsHost,
+    IReadOnlyList<int> BlankIndices);
+
+/// <summary>
 /// The mutable state of the room's CURRENT round (group-play). Null while the
 /// room sits in the lobby; set by <see cref="Room.StartRound"/> when the host
 /// starts a round (group-play/01) and mutated in place under the room lock as the
@@ -52,11 +79,12 @@ public sealed record Player(
 /// Deliberately EXTENSIBLE - later group-play stories grow this same record
 /// rather than adding parallel round bookkeeping:
 ///   - group-play/02 adds per-player blank assignments (index-based, which is why
-///     the catalog already carries BlankCount).
+///     the catalog already carries BlankCount) - see <see cref="Assignments"/>.
 ///   - group-play/03 adds collected submissions + moves <see cref="Phase"/> from
 ///     "prompting" toward the reveal.
 ///   - group-play/04 increments <see cref="RoundNumber"/> and resets the phase for
-///     the replay loop.
+///     the replay loop, and reads <see cref="Assignments"/> for word-count
+///     attribution.
 /// group-play/01 only sets the opening shape below.
 /// </summary>
 public sealed class RoundState
@@ -77,6 +105,17 @@ public sealed class RoundState
     /// phase value.)
     /// </summary>
     public required string Phase { get; set; }
+
+    /// <summary>
+    /// The per-player round-robin blank assignment (group-play/02): who owes which
+    /// blank indices. Computed and set by <see cref="Room.StartRound"/> when the
+    /// round opens, ordered host-first (the roster order the deal used). Empty only
+    /// in the degenerate case of a contentless template (blankCount 0). The hub
+    /// reads this to send each player its own blanks (blind); group-play/04 reads it
+    /// for word-count attribution. Snapshots return a detached copy so reads outside
+    /// the lock never observe a later mutation.
+    /// </summary>
+    public IReadOnlyList<PlayerAssignment> Assignments { get; set; } = [];
 }
 
 /// <summary>
@@ -270,42 +309,119 @@ public sealed class Room
     }
 
     /// <summary>
-    /// Opens a new round on this room (group-play/01). Sets the round state
-    /// (round number, selected template id, mode, and the "prompting" phase) under
-    /// the room lock so a concurrent roster change cannot interleave, and returns a
-    /// snapshot of the new round for the hub to broadcast.
+    /// Opens a new round on this room (group-play/01 + /02). Sets the round state
+    /// (round number, selected template id, mode, the "prompting" phase, and the
+    /// per-player round-robin blank assignment) under the room lock so a concurrent
+    /// roster change cannot interleave, and returns a snapshot of the new round for
+    /// the hub to broadcast + to deal each player its own blanks.
+    ///
+    /// group-play/02: the blank distribution is computed HERE, under the lock, from
+    /// the roster snapshot at round-start time - so the deal is atomic with the
+    /// roster it dealt to (a join/leave racing StartRound either lands fully before
+    /// the snapshot or fully after, never mid-deal). See <see cref="ComputeAssignments"/>
+    /// for the round-robin rule (blank index k -> player index k % N, host first),
+    /// which MIRRORS the pure TS reference web/src/engine/distribute.ts.
     ///
     /// group-play/01 always opens round 1 in the "prompting" phase; later stories
     /// grow this (group-play/04 increments the round number for the replay loop,
-    /// group-play/02 and /03 layer assignments and submissions onto the same
-    /// <see cref="RoundState"/>).
+    /// group-play/03 layers submissions onto the same <see cref="RoundState"/>).
     /// </summary>
     /// <param name="templateId">The auto-selected template's id (resolved to content client-side).</param>
     /// <param name="mode">The play mode ("classic-blind" for Slice 1).</param>
-    /// <returns>A snapshot of the round just started, safe to hand to the broadcast.</returns>
-    public RoundState StartRound(string templateId, string mode)
+    /// <param name="blankCount">The template's blank count (from the catalog); dealt round-robin across the roster (group-play/02).</param>
+    /// <returns>A snapshot of the round just started (including the assignment), safe to hand to the broadcast and per-player deal.</returns>
+    public RoundState StartRound(string templateId, string mode, int blankCount)
     {
         lock (_gate)
         {
+            var assignments = ComputeAssignments(_players, blankCount);
+
             _round = new RoundState
             {
                 RoundNumber = 1,
                 TemplateId = templateId,
                 Mode = mode,
                 Phase = "prompting",
+                Assignments = assignments,
             };
             LastActiveUtc = DateTimeOffset.UtcNow;
 
             // Hand back a detached copy so callers reading it outside the lock
-            // never observe a later in-place mutation of the live round.
+            // never observe a later in-place mutation of the live round. The
+            // assignment list is freshly built (immutable records over an int[]),
+            // so it is safe to share directly.
             return new RoundState
             {
                 RoundNumber = _round.RoundNumber,
                 TemplateId = _round.TemplateId,
                 Mode = _round.Mode,
                 Phase = _round.Phase,
+                Assignments = _round.Assignments,
             };
         }
+    }
+
+    /// <summary>
+    /// The pure ROUND-ROBIN blank distribution (group-play/02, AC-01/AC-04),
+    /// AUTHORITATIVE server-side so a client can never assign itself an easier
+    /// share. Deals each blank index k to player index (k % N) in ROSTER ORDER
+    /// (host first, since the host is <see cref="Player.IsHost"/> and the first
+    /// entry in <see cref="_players"/>), wrapping - so every blank is assigned
+    /// exactly once, per-player counts differ by at most one, and (when
+    /// blankCount &gt;= N) everyone contributes.
+    ///
+    /// ============================ MIRRORS distribute.ts =====================
+    /// This is the C# twin of web/src/engine/distribute.ts. The algorithm is
+    /// INTENTIONALLY DUPLICATED (no codegen, no shared source): the TS version is
+    /// the unit-tested reference/spec, this C# version is the authority on the
+    /// wire. Keep them identical BY HAND - if the dealing rule changes here,
+    /// change it there (and its Vitest spec) too.
+    /// ========================================================================
+    ///
+    /// Called only under <see cref="_gate"/> (from <see cref="StartRound"/>); takes
+    /// the live roster reference but never mutates it. Guards a contentless template
+    /// (blankCount &lt;= 0) by giving every player an empty blank list.
+    /// </summary>
+    private static IReadOnlyList<PlayerAssignment> ComputeAssignments(
+        IReadOnlyList<Player> players,
+        int blankCount)
+    {
+        var playerCount = players.Count;
+        if (playerCount == 0)
+        {
+            return [];
+        }
+
+        // One (initially empty) bucket per player, preserved even when there is
+        // nothing to deal - callers always get exactly `playerCount` entries.
+        var buckets = new List<int>[playerCount];
+        for (var i = 0; i < playerCount; i += 1)
+        {
+            buckets[i] = [];
+        }
+
+        // Deal in ascending blank-index order so each bucket comes out already
+        // sorted (blank k -> player k % playerCount). Negative/zero blankCount
+        // simply skips the loop, leaving empty buckets.
+        for (var blankIndex = 0; blankIndex < blankCount; blankIndex += 1)
+        {
+            var playerIndex = blankIndex % playerCount;
+            buckets[playerIndex].Add(blankIndex);
+        }
+
+        var assignments = new PlayerAssignment[playerCount];
+        for (var i = 0; i < playerCount; i += 1)
+        {
+            var player = players[i];
+            assignments[i] = new PlayerAssignment(
+                ConnectionId: player.ConnectionId,
+                Nickname: player.Nickname,
+                Variant: player.Variant,
+                IsHost: player.IsHost,
+                BlankIndices: buckets[i]);
+        }
+
+        return assignments;
     }
 
     /// <summary>
@@ -330,6 +446,7 @@ public sealed class Room
                     TemplateId = _round.TemplateId,
                     Mode = _round.Mode,
                     Phase = _round.Phase,
+                    Assignments = _round.Assignments,
                 };
             }
         }
