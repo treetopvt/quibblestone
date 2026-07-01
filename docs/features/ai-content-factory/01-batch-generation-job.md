@@ -1,6 +1,6 @@
 # Story: Batch generation job
 
-**Feature:** AI Content Factory (back office)  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** AI Content Factory (back office)  ·  **Status:** Not Started  ·  **Issue:** #78
 
 ## Context
 Hand-writing every template gets old fast, and the #1 complaint about the

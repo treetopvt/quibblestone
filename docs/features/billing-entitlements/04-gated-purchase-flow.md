@@ -1,6 +1,6 @@
 # Story: Gated purchase flow
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #73
 
 ## Context
 The first real, gated purchase: an add-on pack (or the family plan) that,

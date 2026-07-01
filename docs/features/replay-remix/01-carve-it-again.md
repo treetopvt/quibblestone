@@ -1,6 +1,6 @@
 # Story: Carve it again: same-crew, same-template replay
 
-**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** #60
 
 ## Context
 The Round Complete screen already offers "Play another round" (`group-play/04`),

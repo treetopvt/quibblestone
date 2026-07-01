@@ -1,6 +1,6 @@
 # Story: Anonymous player, forever
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #67
 
 ## Context
 Slice 1 already ships a working anonymous join flow (session-engine/02:

@@ -1,6 +1,6 @@
 # Story: Shareable tale link (the back-link growth loop)
 
-**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** #66
 
 ## Context
 A shared tale should pull new players IN, not just show a pretty picture. Today's

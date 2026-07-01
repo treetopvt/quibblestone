@@ -1,6 +1,6 @@
 # Story: Versus / Duel mode
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** #55
 
 ## Context
 Two or more players fill the SAME blank instead of splitting the template's

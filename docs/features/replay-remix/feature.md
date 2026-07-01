@@ -18,9 +18,9 @@ round" / "Back to lobby").
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | TBD | Carve it again: same-crew, same-template replay | Not Started |
-| 02 | TBD | One-blank remix of a finished tale | Not Started |
-| 03 | TBD | Rotating host ("Pass the chisel") | Not Started |
+| 01 | #60 | Carve it again: same-crew, same-template replay | Not Started |
+| 02 | #61 | One-blank remix of a finished tale | Not Started |
+| 03 | #62 | Rotating host ("Pass the chisel") | Not Started |
 
 ## Dependencies
 - group-play (the round lifecycle and the Round Complete replay loop this

@@ -1,6 +1,6 @@
 # Story: "Golden Guardian" funniest-word award
 
-**Feature:** Reveal Delight  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Reveal Delight  ·  **Status:** Not Started  ·  **Issue:** #58
 
 ## Context
 After a reveal, the room gets one more small, social beat: everyone taps the

@@ -1,6 +1,6 @@
 # Story: Rotating host ("Pass the chisel")
 
-**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** #62
 
 ## Context
 Right now one player is always the host - whoever created the room - and the

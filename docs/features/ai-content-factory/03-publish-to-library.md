@@ -1,6 +1,6 @@
 # Story: Publish to library
 
-**Feature:** AI Content Factory (back office)  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** AI Content Factory (back office)  ·  **Status:** Not Started  ·  **Issue:** #80
 
 ## Context
 The last step of the pipeline: an approved candidate becomes a real,

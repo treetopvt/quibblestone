@@ -18,9 +18,9 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | TBD | Anonymous player, forever | Not Started |
-| 02 | TBD | Lightweight purchaser account | Not Started |
-| 03 | TBD | Sign-in and restore on a new device | Not Started |
+| 01 | #67 | Anonymous player, forever | Not Started |
+| 02 | #68 | Lightweight purchaser account | Not Started |
+| 03 | #69 | Sign-in and restore on a new device | Not Started |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:

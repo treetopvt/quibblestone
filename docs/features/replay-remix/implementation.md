@@ -39,9 +39,9 @@ Sizing rule: a builder owns files that are **disjoint** from its concurrent sibl
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 carve-it-again | TBD | edits `api/src/Hubs/GameHub.cs` (`startRound` gains a pinned-template-id param), `web/src/signalr/useGameHub.ts`, `web/src/pages/RoundComplete.tsx` (second action) | group-play/04, group-play/01 | 02 (disjoint files) | 1 | low |
-| 02 one-blank-remix | TBD | `web/src/engine/remixHelpers.ts` (pure blank-picker list), edits `api/src/Hubs/GameHub.cs` (new sibling broadcast method), `useGameHub.ts`, `web/src/pages/Reveal.tsx` (secondary action + single-blank prompt step) | the-reveal/01, group-play/03 | 01 (disjoint files) | 1 | medium |
-| 03 rotating-host | TBD | edits `api/src/Hubs/GameHub.cs` (new `PassHost` method + host-authorization region), `useGameHub.ts` (isHost can now flip from an incoming roster broadcast, not only from create/join), `web/src/pages/Lobby.tsx` + `RoundComplete.tsx` (handoff action on a roster tile) | 01 (recommended, not a hard technical block - see story Dependencies) | - | 2 | medium |
+| 01 carve-it-again | #60 | edits `api/src/Hubs/GameHub.cs` (`startRound` gains a pinned-template-id param), `web/src/signalr/useGameHub.ts`, `web/src/pages/RoundComplete.tsx` (second action) | group-play/04, group-play/01 | 02 (disjoint files) | 1 | low |
+| 02 one-blank-remix | #61 | `web/src/engine/remixHelpers.ts` (pure blank-picker list), edits `api/src/Hubs/GameHub.cs` (new sibling broadcast method), `useGameHub.ts`, `web/src/pages/Reveal.tsx` (secondary action + single-blank prompt step) | the-reveal/01, group-play/03 | 01 (disjoint files) | 1 | medium |
+| 03 rotating-host | #62 | edits `api/src/Hubs/GameHub.cs` (new `PassHost` method + host-authorization region), `useGameHub.ts` (isHost can now flip from an incoming roster broadcast, not only from create/join), `web/src/pages/Lobby.tsx` + `RoundComplete.tsx` (handoff action on a roster tile) | 01 (recommended, not a hard technical block - see story Dependencies) | - | 2 | medium |
 
 **Concurrency per wave:** Wave 1 = {01, 02} in parallel (disjoint files - 01 touches the round-start signature and
 `RoundComplete.tsx`; 02 touches a new remix broadcast method and `Reveal.tsx`). Wave 2 = 03 alone, after 01 lands, so

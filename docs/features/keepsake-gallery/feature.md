@@ -20,10 +20,10 @@ mirrors for sharing the image).
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | TBD | Save the reveal as a stone-tablet image | Not Started |
-| 02 | TBD | Share the tale with watermark | Not Started |
-| 03 | TBD | "Tales we've carved" local history | Not Started |
-| 04 | TBD | Shareable tale link (the back-link growth loop) | Not Started |
+| 01 | #63 | Save the reveal as a stone-tablet image | Not Started |
+| 02 | #64 | Share the tale with watermark | Not Started |
+| 03 | #65 | "Tales we've carved" local history | Not Started |
+| 04 | #66 | Shareable tale link (the back-link growth loop) | Not Started |
 
 ## Dependencies
 - the-reveal (the assembled story + stone-tablet rendering this feature

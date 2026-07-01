@@ -21,11 +21,11 @@ even if the UI is minimal").
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | TBD | Entitlement model + session-creation gate | Not Started |
-| 02 | TBD | Tip jar ("Buy the Guardians a coffee") | Not Started |
-| 03 | TBD | Stripe integration + entitlement store | Not Started |
-| 04 | TBD | Gated purchase flow | Not Started |
-| 05 | TBD | Restore / manage entitlements | Not Started |
+| 01 | #70 | Entitlement model + session-creation gate | Not Started |
+| 02 | #71 | Tip jar ("Buy the Guardians a coffee") | Not Started |
+| 03 | #72 | Stripe integration + entitlement store | Not Started |
+| 04 | #73 | Gated purchase flow | Not Started |
+| 05 | #74 | Restore / manage entitlements | Not Started |
 
 ## Dependencies
 - accounts-identity (a purchase needs the lightweight purchaser account from

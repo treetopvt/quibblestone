@@ -1,6 +1,6 @@
 # Story: Blind + word bank
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** #53
 
 ## Context
 README section 5: "Blind + word bank - same [as Classic blind], but answer from

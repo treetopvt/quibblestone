@@ -1,6 +1,6 @@
 # Story: Entitlement model + session-creation gate
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #70
 
 ## Context
 This is THE seam (feature.md, README section 3, CLAUDE.md section 6): a
