@@ -253,6 +253,7 @@ export function GroupRound({
       totalWords={assignedBlanks.length}
       onSubmitWord={handleSubmitWord}
       onSkip={handleSkip}
+      onExit={onLeave}
     />
   );
 }

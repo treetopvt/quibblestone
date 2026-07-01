@@ -271,6 +271,8 @@ export function Solo({ onExit }: SoloProps) {
         totalWords={blanks.length}
         onSubmitWord={handleSubmitWord}
         onSkip={handleSkip}
+        onExit={onExit}
+        exitLabel="Back to home"
       />
     );
   }
