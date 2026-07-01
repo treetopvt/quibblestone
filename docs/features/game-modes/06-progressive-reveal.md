@@ -1,6 +1,6 @@
 # Story: Progressive Reveal mode
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** #52
+**Feature:** Game Modes Engine  ·  **Status:** In Progress  ·  **Issue:** #52
 
 ## Context
 The engine's `reveal` axis (`web/src/engine/mode.ts`) declares `'progressively'`
