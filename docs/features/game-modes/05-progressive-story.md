@@ -1,6 +1,6 @@
 # Story: Progressive Story mode
 
-**Feature:** Game Modes Engine  ·  **Status:** In Progress  ·  **Issue:** #84
+**Feature:** Game Modes Engine  ·  **Status:** Complete  ·  **Issue:** #84
 
 ## Context
 The engine's `see` axis (`web/src/engine/mode.ts`) declares
@@ -16,29 +16,29 @@ adds to `FillBlank` - it does NOT touch `FillBlank.tsx` itself. See
 [feature.md](./feature.md) and README section 4.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given Progressive Story mode, when I am prompted for a blank, then
+- [x] AC-01: Given Progressive Story mode, when I am prompted for a blank, then
       I see the story-so-far rendered up to (but not including) the current
       blank - literal text plus every already-filled word, using the same
       coral word-highlight treatment as the-reveal (`buildRevealParts`) -
       directly above the FillBlank prompt card, via the `seeContext` slot; I do
       not see any text after the current blank.
-- [ ] AC-02: Given I submit a word for the current blank, then the story-so-far
+- [x] AC-02: Given I submit a word for the current blank, then the story-so-far
       view updates to include my word in place (coral, in the assembled
       position) before the next blank's prompt appears.
-- [ ] AC-03: Given Progressive Story mode, then it is expressed purely as a
+- [x] AC-03: Given Progressive Story mode, then it is expressed purely as a
       `ModeConfig` (`see: 'progressive-story'`, `answer: 'free-text'`,
       `reveal: 'at-end'`) plus one `ModeSurfaces` value (`game-modes/03`)
       supplying `seeContext` - no new branch is added to `engine.ts`'s
       `collectWord`/`assembleStory` or to `assemble.ts`; the story-so-far view
       is produced by calling the existing `assembleStory` (or `assemble`)
       against the collection-so-far, same as any other mode.
-- [ ] AC-04: Given Progressive Story mode, then my submitted word passes the
+- [x] AC-04: Given Progressive Story mode, then my submitted word passes the
       safety filter before it is recorded or shown in the story-so-far view
       (the same collection-path seam every free-text mode inherits) - no
       player ever sees an unfiltered word, even transiently, because the
       story-so-far view only ever renders words already present in the
       collection (which `collectWord` only adds after the filter passes).
-- [ ] AC-05: Given the last blank in the template is filled, then the
+- [x] AC-05: Given the last blank in the template is filled, then the
       story-so-far view already equals the full assembled story - no separate
       "final reveal" transition is required by this story, though a caller may
       still route to the Reveal screen (`the-reveal/01`) as a shared

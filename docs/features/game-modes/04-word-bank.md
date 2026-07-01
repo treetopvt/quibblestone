@@ -1,6 +1,6 @@
 # Story: Word Bank mode
 
-**Feature:** Game Modes Engine  ·  **Status:** In Progress  ·  **Issue:** #53
+**Feature:** Game Modes Engine  ·  **Status:** Complete  ·  **Issue:** #53
 
 ## Context
 README section 5's "Blind + word bank" variation, reframed here as the ANSWER
@@ -15,40 +15,40 @@ actually turn it on. It plugs into the `answerSurface` slot that
 See [feature.md](./feature.md) and README section 4.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given Word Bank mode, when I am prompted for a blank, then I see
+- [x] AC-01: Given Word Bank mode, when I am prompted for a blank, then I see
       the same subject-only stone-tablet prompt card as Classic blind (category
       chip, prompt, sub-hint), but the input area shows a **tappable list of
       words** drawn from the template's word bank for that blank's category,
       instead of a free-text input - rendered by plugging a new component into
       `FillBlank`'s `answerSurface` slot (`game-modes/03`), never by editing
       `FillBlank.tsx`.
-- [ ] AC-02: Given the word-bank list for the current blank, then it shows only
+- [x] AC-02: Given the word-bank list for the current blank, then it shows only
       entries whose `category` matches the blank's `category` (per
       `WordBankEntry.category` in `template.ts`); tapping a word selects it as
       my answer for that blank.
-- [ ] AC-03: Given I have selected a word, when I submit it, then it is
+- [x] AC-03: Given I have selected a word, when I submit it, then it is
       recorded exactly like a free-text submission - via `engine.ts`'s
       `collectWord`, the SAME collection path every mode uses, proving this
       mode is a configuration, not a parallel engine.
-- [ ] AC-04: Given `mode.answer === 'word-bank'`, then the submission is
+- [x] AC-04: Given `mode.answer === 'word-bank'`, then the submission is
       recorded WITHOUT going through the free-text safety filter, matching
       `engine.ts`'s already-documented behavior ("word-bank words come from
       curated, pre-vetted lists ... not free text, so there is nothing to
       filter") - this AC proves that documented seam end to end, it does not
       change it.
-- [ ] AC-05: Given the family-safe toggle is ON for the session, then only word
+- [x] AC-05: Given the family-safe toggle is ON for the session, then only word
       banks belonging to family-safe-tagged templates (`TemplateTags.familySafe`)
       are ever offered as the source list - word-bank content is still gated by
       the toggle even though individual bank entries skip the free-text filter
       (README section 6). This gating happens at content-selection time (which
       templates' banks are offered), not a per-tap check. No PII is collected
       by this mode (a tapped word carries no personal data).
-- [ ] AC-06: Given a template has no word bank at all, then Word Bank mode is
+- [x] AC-06: Given a template has no word bank at all, then Word Bank mode is
       simply not offered as a playable mode for that template - the pure
       offering helper (Technical Notes) filters by `template.wordBank`
       presence, and this mode never crashes or renders an empty list for a
       bank-less template.
-- [ ] AC-07: Given Word Bank mode, then it is expressed as a `ModeConfig`
+- [x] AC-07: Given Word Bank mode, then it is expressed as a `ModeConfig`
       literal (`see: 'subject-only'`, `answer: 'word-bank'`, `reveal:
       'at-end'`) plus one `ModeSurfaces` value (`game-modes/03`) supplying
       `answerSurface` - no bespoke "word bank mode" code path exists anywhere
