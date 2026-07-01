@@ -1,6 +1,6 @@
 # Story: Progressive Story mode
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started
+**Feature:** Game Modes Engine  ·  **Status:** In Progress  ·  **Issue:** #84
 
 ## Context
 The engine's `see` axis (`web/src/engine/mode.ts`) declares

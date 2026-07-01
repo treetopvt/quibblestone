@@ -1,6 +1,6 @@
 # Story: Word Bank mode
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started  ·  **Issue:** #53
+**Feature:** Game Modes Engine  ·  **Status:** In Progress  ·  **Issue:** #53
 
 ## Context
 README section 5's "Blind + word bank" variation, reframed here as the ANSWER

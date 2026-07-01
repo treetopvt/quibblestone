@@ -1,6 +1,6 @@
 # Story: Mode-aware FillBlank + Reveal
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started
+**Feature:** Game Modes Engine  ·  **Status:** In Progress  ·  **Issue:** #83
 
 ## Context
 The engine's three axes (`web/src/engine/mode.ts`) were designed to allow

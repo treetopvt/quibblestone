@@ -42,6 +42,18 @@
 //  animation). The real estate is reserved so Phase 3 can wire TTS with no
 //  layout change; no audio is implemented here.
 //
+//  Mode-aware slot (game-modes/03): an optional `revealPresentation` node
+//  REPLACES the default coral-highlight body (the `parts.map(...)` block
+//  below) when supplied - e.g. a paced, word-by-word reveal for a
+//  progressively-reveal mode (game-modes/06, `ModeSurfaces.revealPresentation`).
+//  It renders inside the SAME stone-tablet scroll panel, in place of the
+//  default body only - the title, narration bar, confetti, and bottom CTAs are
+//  unaffected either way. Omitted by default, which keeps today's
+//  `buildRevealParts(template, assembled)` rendering byte-for-byte (AC-03).
+//  `buildRevealParts` itself is not touched by this slot - any presentation
+//  that needs the same highlight-correctness logic (05/06) reuses it
+//  read-only, exactly as this file already does.
+//
 //  Styling: every color comes from theme tokens (theme.palette.coral.main for
 //  the highlight color per the coral reconciliation note - the WEIGHT/underline
 //  emphasis is content-level sx, but the color itself is never a hardcoded hex).
@@ -96,6 +108,16 @@ export interface RevealProps {
    * through Round Complete ("Back to lobby") and can omit this.
    */
   exitAction?: { label: string; onClick: () => void };
+  /**
+   * Optional mode-supplied presentation that REPLACES the default
+   * coral-highlight story body when supplied - e.g. a paced, word-by-word
+   * reveal for a progressively-reveal mode (game-modes/06,
+   * `ModeSurfaces.revealPresentation`). Rendered inside the same stone-tablet
+   * scroll panel, in place of the `buildRevealParts` body only. Omitted by
+   * default, which keeps today's coral-highlight rendering byte-for-byte
+   * (AC-03).
+   */
+  revealPresentation?: ReactNode;
 }
 
 // The stone tablet's pulsing glow (docs/design/Reveal.dc.html qsTabletGlow):
@@ -282,7 +304,16 @@ function NarrationBar({ title }: { title: string }) {
   );
 }
 
-export function Reveal({ assembled, template, attribution, onPlayAgain, playAgainLabel = 'Play another round', onHome, exitAction }: RevealProps) {
+export function Reveal({
+  assembled,
+  template,
+  attribution,
+  onPlayAgain,
+  playAgainLabel = 'Play another round',
+  onHome,
+  exitAction,
+  revealPresentation,
+}: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
 
@@ -379,51 +410,55 @@ export function Reveal({ assembled, template, attribution, onPlayAgain, playAgai
             >
               {assembled.title}
             </Typography>
-            <Typography
-              component="p"
-              sx={{
-                fontFamily: '"Nunito", sans-serif',
-                fontWeight: 600,
-                fontSize: 17.5,
-                lineHeight: 1.72,
-                color: 'text.primary',
-              }}
-            >
-              {parts.map((part, index) => {
-                if (part.kind === 'text') {
+            {revealPresentation === undefined ? (
+              <Typography
+                component="p"
+                sx={{
+                  fontFamily: '"Nunito", sans-serif',
+                  fontWeight: 600,
+                  fontSize: 17.5,
+                  lineHeight: 1.72,
+                  color: 'text.primary',
+                }}
+              >
+                {parts.map((part, index) => {
+                  if (part.kind === 'text') {
+                    return (
+                      <Box key={`p-${index}`} component="span">
+                        {part.text}
+                      </Box>
+                    );
+                  }
+                  // A skipped blank arrives as an empty-word part. Render it as
+                  // plain nothing (no coral treatment) so it reads as a natural
+                  // gap rather than a stray zero-width coral underline artifact
+                  // (Gate-2 CR-W-001). Only NON-empty, player-supplied words get
+                  // the coral pop.
+                  if (part.word === '') {
+                    return <Box key={`p-${index}`} component="span" />;
+                  }
                   return (
-                    <Box key={`p-${index}`} component="span">
-                      {part.text}
+                    <Box
+                      key={`p-${index}`}
+                      component="span"
+                      sx={{
+                        // AC-02: coral COLOR comes from the theme token (never a
+                        // hardcoded hex); the weight/underline emphasis is
+                        // content-level styling applied via sx, per the coral
+                        // reconciliation note.
+                        color: theme.palette.coral.main,
+                        fontWeight: 800,
+                        borderBottom: `2px solid ${alpha(theme.palette.coral.main, 0.4)}`,
+                      }}
+                    >
+                      {part.word}
                     </Box>
                   );
-                }
-                // A skipped blank arrives as an empty-word part. Render it as
-                // plain nothing (no coral treatment) so it reads as a natural
-                // gap rather than a stray zero-width coral underline artifact
-                // (Gate-2 CR-W-001). Only NON-empty, player-supplied words get
-                // the coral pop.
-                if (part.word === '') {
-                  return <Box key={`p-${index}`} component="span" />;
-                }
-                return (
-                  <Box
-                    key={`p-${index}`}
-                    component="span"
-                    sx={{
-                      // AC-02: coral COLOR comes from the theme token (never a
-                      // hardcoded hex); the weight/underline emphasis is
-                      // content-level styling applied via sx, per the coral
-                      // reconciliation note.
-                      color: theme.palette.coral.main,
-                      fontWeight: 800,
-                      borderBottom: `2px solid ${alpha(theme.palette.coral.main, 0.4)}`,
-                    }}
-                  >
-                    {part.word}
-                  </Box>
-                );
-              })}
-            </Typography>
+                })}
+              </Typography>
+            ) : (
+              revealPresentation
+            )}
           </Box>
         </Box>
 
