@@ -69,6 +69,12 @@ import {
   // "Review my words" button (a chisel-like tool - FontAwesome's "chisel" is a
   // Pro-only icon, so pen-ruler is the closest free-solid carving mark).
   faPenRuler,
+  // StoryLengthChoice icons (story-selection/02): faHourglassHalf reads as
+  // "how long will this take" beside the "Story length" label; faBolt (already
+  // registered above) is the "Quick tale" option's glyph and faBook is the
+  // "Full tale" option's glyph.
+  faHourglassHalf,
+  faBook,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -100,4 +106,6 @@ library.add(
   faStar,
   faArrowRotateRight,
   faPenRuler,
+  faHourglassHalf,
+  faBook,
 );

@@ -49,12 +49,28 @@
 //  it is ever recorded (AC-04) - this file never reimplements or bypasses
 //  that check. The family-safe toggle only narrows which curated templates
 //  selectTemplates offers; it never touches the profanity filter.
+//
+//  story-selection/02 adds the SOLO length choice ("Quick tale" / "Full tale",
+//  defaulting to 'full', AC-01/AC-06) alongside the family-safe toggle. The
+//  pick composes both content-selection stages in FIXED order, safety FIRST
+//  (AC-05): selectTemplates (family-safe gate) -> selectByLengthOrFallback
+//  (story-selection/01's length stage, which degrades to the family-safe pool
+//  if the length preference would leave nothing, AC-06) -> pickRandomTemplate.
+//  The length choice is sticky across the solo session's replay, exactly like
+//  the family-safe toggle already is (see handlePlayAgain below).
 // ----------------------------------------------------------------------------
 
 import { useRef, useState } from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, FamilySafeToggle } from '../components';
+import {
+  AppBar,
+  BottomActionBar,
+  BottomActionBarSpacer,
+  FamilySafeToggle,
+  StoryLengthChoice,
+} from '../components';
 import { FAMILY_SAFE_DEFAULT, selectTemplates } from '../content/familySafe';
+import { selectByLengthOrFallback, type LengthPreference } from '../content/length';
 import { seedLibrary } from '../content/seedLibrary';
 import {
   assembleStory,
@@ -134,15 +150,19 @@ function PersonalSummary({ title, filledCount }: { title: string; filledCount: n
   );
 }
 
-/** The lightweight solo setup screen: family-safe toggle + a gold "Start" CTA. */
+/** The lightweight solo setup screen: family-safe toggle + length choice + a gold "Start" CTA. */
 function SoloSetup({
   familySafe,
   onFamilySafeChange,
+  lengthPref,
+  onLengthPrefChange,
   onStart,
   onExit,
 }: {
   familySafe: boolean;
   onFamilySafeChange: (checked: boolean) => void;
+  lengthPref: LengthPreference;
+  onLengthPrefChange: (value: LengthPreference) => void;
   onStart: () => void;
   onExit: () => void;
 }) {
@@ -159,6 +179,7 @@ function SoloSetup({
         </Typography>
 
         <FamilySafeToggle checked={familySafe} onChange={onFamilySafeChange} />
+        <StoryLengthChoice value={lengthPref} onChange={onLengthPrefChange} />
 
         <BottomActionBarSpacer />
       </Stack>
@@ -175,6 +196,9 @@ function SoloSetup({
 export function Solo({ onExit }: SoloProps) {
   const [phase, setPhase] = useState<SoloPhase>('setup');
   const [familySafe, setFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
+  // story-selection/02, AC-01/AC-06: defaults to 'full' so a session that never
+  // touches the length choice behaves exactly like before this story existed.
+  const [lengthPref, setLengthPref] = useState<LengthPreference>('full');
   const [template, setTemplate] = useState<Template | undefined>(undefined);
   const [blankIndex, setBlankIndex] = useState(0);
 
@@ -190,8 +214,17 @@ export function Solo({ onExit }: SoloProps) {
     setPhase('fill');
   };
 
+  // story-selection/02: compose the content-selection stages in FIXED order,
+  // safety FIRST (AC-05) - the family-safe gate runs before the length stage,
+  // so relaxing length can never widen the safety set. selectByLengthOrFallback
+  // degrades to the family-safe pool if the length preference would leave
+  // nothing (AC-06), so this never returns an empty pool the family-safe gate
+  // did not already allow.
+  const pickTemplate = () =>
+    pickRandomTemplate(selectByLengthOrFallback(selectTemplates(seedLibrary, familySafe), lengthPref));
+
   const handleStart = () => {
-    const chosen = pickRandomTemplate(selectTemplates(seedLibrary, familySafe));
+    const chosen = pickTemplate();
     // Guard the "no templates match the current family-safe position" case
     // rather than asserting non-null; the seed library always has at least
     // one family-safe template today, but this keeps the type honest.
@@ -200,7 +233,7 @@ export function Solo({ onExit }: SoloProps) {
   };
 
   const handlePlayAgain = () => {
-    const chosen = pickRandomTemplate(selectTemplates(seedLibrary, familySafe));
+    const chosen = pickTemplate();
     if (!chosen) return;
     beginRound(chosen);
   };
@@ -210,6 +243,8 @@ export function Solo({ onExit }: SoloProps) {
       <SoloSetup
         familySafe={familySafe}
         onFamilySafeChange={setFamilySafe}
+        lengthPref={lengthPref}
+        onLengthPrefChange={setLengthPref}
         onStart={handleStart}
         onExit={onExit}
       />

@@ -59,3 +59,11 @@ export {
   toGuardianVariant,
 } from './PlayerIdentityFields';
 export type { PlayerIdentityFieldsProps } from './PlayerIdentityFields';
+
+// The session-level story-length choice (story-selection/02): a controlled
+// Quick tale / Full tale segmented pair, in the same visual family as
+// FamilySafeToggle. Pair with the pure length pipeline in
+// web/src/content/length.ts; never touches the family-safe gate or the
+// profanity filter.
+export { StoryLengthChoice } from './StoryLengthChoice';
+export type { StoryLengthChoiceProps } from './StoryLengthChoice';

@@ -59,6 +59,13 @@
 //  state entirely, so it is checked ahead of the room-driven views below. The
 //  existing home/join/lobby wiring is untouched by this addition.
 //
+//  story-selection/02 threads the host's story-length choice through the SAME
+//  seam the family-safe flag already uses: handleStartRound now takes
+//  (familySafe, lengthPref), remembers lengthPref as a sticky `lastLengthPref`
+//  (mirroring lastFamilySafe) for the "Play another round" replay, and passes
+//  both to the hook's startRound as ONE more parameter on the existing invoke -
+//  no new hub method. The Lobby's onStart type is updated to match.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -75,6 +82,7 @@ import { GroupRound } from './pages/GroupRound';
 import { Reveal } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
+import type { LengthPreference } from './content/length';
 import { DEFAULT_VARIANT } from './components';
 import { toGuardianVariant, type GuardianVariant } from './components';
 import { loadIdentity, saveIdentity } from './identity';
@@ -217,6 +225,11 @@ export default function App() {
   // pick here; RoundComplete's "Play another round" reuses it.
   const [lastFamilySafe, setLastFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
 
+  // story-selection/02: the host's last story-length choice, kept sticky the
+  // SAME way as lastFamilySafe (client-sticky, NOT room state) so a replay in
+  // the same room reuses it without re-picking. Defaults to 'full' (AC-06).
+  const [lastLengthPref, setLastLengthPref] = useState<LengthPreference>('full');
+
   // build/host-identity: pre-fill HostSetup + Join from the player's last-used
   // name + Guardian (device-local convenience via identity.ts; NO PII off-device,
   // NO account). Read ONCE on mount - a returning player sees their name already
@@ -248,12 +261,14 @@ export default function App() {
     }
   }, [reveal]);
 
-  // Start a round (host) with the host's family-safe pick, remembering it as sticky
-  // for the replay loop (group-play/04). Used by the Lobby's Start CTA.
+  // Start a round (host) with the host's family-safe + story-length picks,
+  // remembering both as sticky for the replay loop (group-play/04,
+  // story-selection/02). Used by the Lobby's Start CTA.
   const handleStartRound = useCallback(
-    (familySafe: boolean) => {
+    (familySafe: boolean, lengthPref: LengthPreference) => {
       setLastFamilySafe(familySafe);
-      void startRound(familySafe);
+      setLastLengthPref(lengthPref);
+      void startRound(familySafe, lengthPref);
     },
     [startRound],
   );
@@ -265,7 +280,7 @@ export default function App() {
   // EVERYONE into the new round.
   const handlePlayAnotherRound = useCallback(async () => {
     setPlayAgainError(null);
-    const result = await startRound(lastFamilySafe);
+    const result = await startRound(lastFamilySafe, lastLengthPref);
     // A rejected start (a carver left so the room is back to one player, or a
     // transient not-connected) resolves ok=false; surface the friendly reason on the
     // recap rather than leaving the gold CTA a silent no-op. On success the server's
@@ -273,7 +288,7 @@ export default function App() {
     if (!result.ok) {
       setPlayAgainError(result.error ?? 'Could not start another round - please try again.');
     }
-  }, [startRound, lastFamilySafe]);
+  }, [startRound, lastFamilySafe, lastLengthPref]);
 
   // group-play/04: "Back to lobby" from the Round Complete recap (host). The hub's
   // bare "BackToLobby" broadcast clears round/reveal for EVERYONE so all players land

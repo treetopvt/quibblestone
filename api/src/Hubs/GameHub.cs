@@ -22,10 +22,13 @@
 //                    group as "RosterChanged" so everyone sees the newcomer live.
 //    - StartRound  : group-play/01 + /02. HOST-ONLY (server-enforced) round
 //                    start: auto-selects a template from the minimal server
-//                    catalog, filtered by the family-safe toggle the host sends,
-//                    sets the room's round state, broadcasts "RoundStarted" to the
-//                    room group so ALL players move into word collection together,
-//                    then (group-play/02) computes the ROUND-ROBIN blank
+//                    catalog, filtered by the family-safe toggle the host sends
+//                    (ALWAYS FIRST) then (story-selection/02) by the host's
+//                    story-length choice - one more parameter on this SAME
+//                    invoke, never a new hub method - sets the room's round
+//                    state, broadcasts "RoundStarted" to the room group so ALL
+//                    players move into word collection together, then
+//                    (group-play/02) computes the ROUND-ROBIN blank
 //                    distribution and sends EACH player "YourBlanks" - only its own
 //                    blank indices, blind (prompt only), never another player's.
 //    - BackToLobby : group-play/04. HOST-ONLY (server-enforced) return to the
@@ -250,11 +253,21 @@ public sealed class GameHub : Hub
     // Classic-blind mode config. A mode PICKER is out of scope here.
     private const string ClassicBlindMode = "classic-blind";
 
-    // story-selection/01: the default length preference until story-selection/02
-    // wires a UI to pick one. "any" means the length stage does not filter, so
-    // the pick draws from the WHOLE family-safe pool (both quick and full) -
-    // observable behavior is unchanged from before this stage existed (AC-05).
+    // story-selection/02: the DEFENSIVE fallback for a malformed lengthPref -
+    // null, empty, or any value the client sends that is not one of the three
+    // known preferences. "any" means the length stage does not filter, so a
+    // malformed client can only ever fall back to "no length filtering", never
+    // to something that widens or bypasses the family-safe gate. Mirrors how
+    // NormalizeVariant guards an unknown variant string.
     private const string DefaultLengthPreference = LengthContentSelector.Any;
+
+    // story-selection/02: the length preferences a client may legitimately send
+    // (mirrors the web's LengthPreference union). Anything else is treated as
+    // DefaultLengthPreference by NormalizeLengthPreference below.
+    private static readonly HashSet<string> KnownLengthPreferences = new(StringComparer.OrdinalIgnoreCase)
+    {
+        LengthContentSelector.Quick, LengthContentSelector.Full, LengthContentSelector.Any,
+    };
 
     private readonly RoomRegistry _rooms;
     private readonly IContentSafetyFilter _safety;
@@ -493,18 +506,31 @@ public sealed class GameHub : Hub
     ///   3. Fewer than 2 players -> "you need at least one more carver" (AC-01
     ///      requires the host plus at least one other player).
     ///   4. Select a template: filter the server catalog through the family-safe
-    ///      selector using the host's toggle value (AC-04), then auto-pick one at
-    ///      random from the allowed subset (no picker UI in Slice 1). If somehow
-    ///      nothing is allowed, friendly fail rather than throw.
+    ///      selector using the host's toggle value (AC-04), then (story-selection/02,
+    ///      AC-03) narrow by the host's story-length choice through
+    ///      <see cref="LengthContentSelector"/>, then auto-pick one at random from
+    ///      the allowed subset (no picker UI in Slice 1). If somehow nothing is
+    ///      allowed after the family-safe gate, friendly fail rather than throw; an
+    ///      empty LENGTH pool instead degrades to the family-safe pool (AC-06 - see
+    ///      Stage 2 below).
     ///
     /// On success it sets the room's round state (round 1, the chosen template,
     /// Classic blind, "prompting") and broadcasts "RoundStarted" to the whole room
     /// group so EVERY player (host included) transitions into word collection
     /// together in near-real-time (AC-01, AC-02), then returns Ok=true.
+    ///
+    /// story-selection/02, AC-03: <paramref name="lengthPref"/> is the host's
+    /// story-length choice, sent as ONE MORE PARAMETER on this SAME invoke (never a
+    /// new hub method) - the SERVER enforces it, exactly like the family-safe
+    /// toggle; the client's pick is never trusted directly. A null/empty/unrecognized
+    /// value defensively falls back to "any" (<see cref="NormalizeLengthPreference"/>)
+    /// so a malformed client can only ever WIDEN toward no filtering, never bypass or
+    /// weaken the family-safe gate that always runs first (AC-05).
     /// </summary>
     /// <param name="code">The room's join code (case-insensitive).</param>
     /// <param name="familySafe">The host's family-safe toggle position; the SERVER filters the catalog by it (authoritative, AC-04).</param>
-    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe)
+    /// <param name="lengthPref">The host's story-length choice ("quick" | "full" | "any"); the SERVER filters the family-safe pool by it (authoritative, story-selection/02 AC-03). Null/empty/unrecognized falls back to "any".</param>
+    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref)
     {
         // 1. Look up the room first (an unknown / expired code has nothing to start).
         var room = _rooms.TryGet(code);
@@ -555,15 +581,14 @@ public sealed class GameHub : Hub
         }
 
         //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
-        //    family-safe pool to the requested length class. This story adds NO
-        //    length UI, so the preference is "any" (no length filtering) and the
-        //    pool is unchanged from Stage 1 - observable behavior is identical to
-        //    before this stage existed (AC-05). story-selection/02 will pass a real
-        //    preference here. If a length preference would leave an EMPTY pool, the
+        //    family-safe pool to the requested length class using the host's
+        //    story-length choice (story-selection/02, AC-03). A malformed/unknown
+        //    lengthPref is normalized to "any" first so a crafted client cannot
+        //    break the pick. If the requested length would leave an EMPTY pool, the
         //    selector DEGRADES to the family-safe pool rather than failing the round
         //    (a longer story, never an error) - the fallback lives in THIS pipeline,
         //    not in callers.
-        var pool = _length.SelectByLengthOrFallback(familySafePool, DefaultLengthPreference);
+        var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
 
         //    Stage 3 - RANDOM PICK from the final pool (no picker UI in Slice 1).
         var chosen = pool[Random.Shared.Next(pool.Count)];
@@ -811,6 +836,25 @@ public sealed class GameHub : Hub
         }
 
         return variant.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// story-selection/02: normalize a client-supplied length preference string to
+    /// one of the three known values (case-insensitive), defaulting to
+    /// <see cref="DefaultLengthPreference"/> ("any") for null, empty, or
+    /// unrecognized input. Mirrors <see cref="NormalizeVariant"/>'s defensive
+    /// posture: a malformed client can only ever widen toward "no length
+    /// filtering", never toward anything that bypasses the family-safe gate
+    /// (that gate always runs first, unconditionally - AC-05).
+    /// </summary>
+    private static string NormalizeLengthPreference(string? lengthPref)
+    {
+        if (string.IsNullOrWhiteSpace(lengthPref) || !KnownLengthPreferences.Contains(lengthPref))
+        {
+            return DefaultLengthPreference;
+        }
+
+        return lengthPref.ToLowerInvariant();
     }
 
     // Map the in-memory Room to the wire DTO (drops the server-only connectionId).
