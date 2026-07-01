@@ -1,0 +1,99 @@
+# Story: Lightweight purchaser account
+
+**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** TBD
+
+## Context
+The first time anyone spends money in QuibbleStone (the tip jar,
+billing-entitlements/02, or a gated purchase, billing-entitlements/04), the
+app needs somewhere to record who bought it - not to identify a player, but
+to let entitlements survive the purchase and, later, a device change
+(accounts-identity/03). This story creates that account: minimal, created
+only at the moment of purchase, and never required to play. See
+[feature.md](./feature.md) and README section 3 ("Only the purchaser gets a
+lightweight account, and only when they buy").
+
+## Acceptance Criteria
+- [ ] AC-01: Given a person is about to complete a purchase (tip jar or a
+      gated purchase) and has no purchaser account yet, when the purchase flow
+      reaches the point of needing one, then an account is created holding
+      only an email address or a single OAuth provider identity - no name,
+      birthdate, address, or phone number is collected.
+- [ ] AC-02: Given no one has ever purchased anything in a browser/device,
+      when that device is used for free play (single-player or a same-code
+      group), then no purchaser account exists and none is created - account
+      creation is purchase-triggered only, never a side effect of playing.
+- [ ] AC-03: Given a purchaser account is created, when it is inspected, then
+      it contains no reference to which players/nicknames used the session at
+      purchase time - the account is scoped to "who bought this," not "who
+      played this."
+- [ ] AC-04: Given the purchaser account exists, when
+      billing-entitlements/01's session-creation gate runs, then it can read
+      "is there an entitled purchaser behind this session" from this account
+      without touching player/room data (the seam named in
+      accounts-identity/01 AC-02).
+- [ ] AC-05: Given a purchaser account is created, then the email/OAuth
+      identity is treated as adult data, not child data - no age-of-consent
+      flow is triggered for the account itself, because completing a checkout
+      is itself evidence the account holder is the purchasing adult, per
+      feature.md's "belongs to the buyer, not the kids playing" design note.
+- [ ] AC-06: Given the purchaser account record, then it is persisted in Azure
+      Table Storage (README section 4) and no purchaser secret (password, if
+      any auth method uses one) is ever logged or stored in plaintext.
+
+## Out of Scope
+- The sign-in / restore-on-a-new-device flow (accounts-identity/03).
+- Choosing the specific OAuth provider(s) or deciding email-link vs.
+  password vs. OAuth-only - flagged as an open decision below; this story
+  ships with **one** minimal mechanism and leaves multi-provider linking
+  parked (feature.md, Phase 3+).
+- Any account settings UI beyond what checkout itself requires (change email,
+  delete account, GDPR export/delete request handling) - a later, separate
+  pass.
+- Linking multiple purchaser accounts into one household (feature.md,
+  Phase 3+).
+- The actual Stripe checkout UI/flow (billing-entitlements/03-04 own that);
+  this story owns the account record the checkout flow creates or attaches
+  to.
+
+## Technical Notes
+- **Open decision to resolve at build time:** the exact minimal-auth mechanism
+  (magic-link email, a single OAuth provider such as Google/Apple, or both) is
+  not fixed by this story - the AC-01 constraint ("email address or a single
+  OAuth provider identity, nothing more") is the contract regardless of which
+  is chosen. Note it in README section 12 (Open Decisions) if it is still
+  undecided when this story is picked up.
+- New `api/src/Accounts/` folder (mirrors the existing `api/src/Rooms/` and
+  `api/src/Safety/` project-per-concern layout): an `Account` record type
+  (email-or-OAuth-subject, created-at, no PII beyond that) and an
+  `IAccountStore` / `AccountStore` service backed by Azure Table Storage,
+  registered as a singleton in `Program.cs` following the existing
+  `RoomRegistry` / `ContentSafetyFilter` registration pattern (see
+  `api/src/Program.cs`).
+- Table Storage partition/row key scheme should key by a hash of the email or
+  the OAuth subject identifier - never store the account's Table key as a
+  guessable sequential ID, since it is effectively a purchaser identifier.
+- No secrets belong in `VITE_*` web env vars (CLAUDE.md section 4/6); any
+  OAuth client secret or session-signing key lives in Azure Key Vault,
+  consistent with billing-entitlements/03's Stripe key handling.
+- This story does **not** touch `api/src/Rooms/` (accounts-identity/01 AC-05
+  guarantees that).
+- Web-side: a minimal account-creation surface only appears inside the
+  purchase flow (tip jar or gated purchase) - it is not a standalone
+  "Sign up" entry point reachable from Home, keeping it out of the kid
+  play-flow per feature.md's design notes.
+
+## Tests
+| AC | Test |
+|---|---|
+| AC-01 | `api/tests/Accounts/AccountStoreTests.cs (to be created with the API test project): creating an account from an email/OAuth identity persists only that field + created-at.` |
+| AC-02 | `manual: complete a full free single-player and 2-player round with no purchase attempted - confirm zero rows written to the account table.` |
+| AC-03 | `manual: code read of the Account record type - confirm no nickname/player/room reference field exists.` |
+| AC-04 | `manual: billing-entitlements/01 build-time integration check - the session-creation gate reads this account without importing Rooms/.` |
+| AC-05 | `manual: code/flow read - confirm no age-gate prompt appears in the purchase-triggered account creation path.` |
+| AC-06 | `manual: inspect the Table Storage entity + Key Vault config - confirm no plaintext secret in the account row or logs.` |
+
+## Dependencies
+- accounts-identity/01 (the anonymous-forever contract this account sits
+  beside, without touching).
+- infra (Table Storage must be provisioned - already true per README section
+  9's five-resource footprint).

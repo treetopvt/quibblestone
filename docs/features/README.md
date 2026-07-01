@@ -48,10 +48,64 @@ the thin vertical slice that gets the family laughing in a car:
 - `child-safety/` - profanity filter, family-safe toggle (cross-cutting)
 
 Each is **now specified** with a `feature.md` and order-prefixed story files -
-this was the separate backlog pass that decomposes one slice at a time. Phase 2-4
-feature folders (accounts, billing, AI content/illustration/voice, add-on packs)
-are created when their phase comes up, so the tree stays honest about what is
-actually ready to build.
+this was the separate backlog pass that decomposes one slice at a time. The
+**Next round** section below then runs a deliberate look-ahead pass over the
+Phase 2-4 features so the backlog stays ahead of development; Status fields keep
+the tree honest (Slice 1 is what is ready to build now, look-ahead stories are
+all Not Started).
+
+## Next round - post-V1 look-ahead (Phase 2-4)
+
+Slice 1 is about to reach V1, so this round of the backlog runs *ahead* of
+development to carry the product vision (README sections 2-3, 5, 7, 10). These
+features are fully specified (`feature.md` + `implementation.md` + stories) but
+every story is **Status: Not Started, Issue: TBD** - they are the map for what
+comes after V1, not work in flight. Grouped by intent:
+
+**Playability - a funnier payoff (README sections 5, 10)**
+- `game-modes/` (extended) - the remaining modes on the one engine: Progressive
+  reveal ("Whisper"), Blind + word bank, Owner-curated bank, and Versus/Duel
+  (the one honest engine stretch: many answers per blank + a room vote).
+- `reveal-delight/` - the reaction row, the word-by-word "carving" animation, and
+  the light "Golden Guardian" funniest-word award (no leaderboard - it stays a
+  toy, not a competition).
+
+**Retention & growth (README sections 1-2, 7)**
+- `replay-remix/` - "Carve it again", one-blank remix, and rotating host ("Pass
+  the chisel") - cheap replay on top of the existing round-complete loop.
+- `keepsake-gallery/` - save a reveal as a shareable stone-tablet image
+  (watermarked - the non-ad growth loop) plus a device-local "Tales we've carved"
+  history.
+
+**Monetization - donate-first, gate-ready (README section 3, CLAUDE.md section 6)**
+- `accounts-identity/` - anonymous players forever; a lightweight purchaser
+  account only at purchase (the auth hooks land early, before they are needed).
+- `billing-entitlements/` - the entitlement seam (one check at session-creation,
+  everything default-unlocked), the tip jar, Stripe, the first gated purchase,
+  and restore/manage.
+- `story-packs/` - the "Guardian's Vault" pack catalog, free-vs-locked gating on
+  the seam, and the first hand-curated themed packs.
+
+**Content moat (README sections 2, 7)**
+- `ai-content-factory/` - the offline generate -> vet -> publish pipeline (never
+  live to kids); the "cheap moat" that keeps the library bottomless.
+
+**Delight tier - sketched (README Phase 3-4)**
+
+The word-of-mouth / premium-AI epics now have vision-level `feature.md` sketches
+(no story files or `implementation.md` yet - they are decomposed when their phase
+comes up). `billing-entitlements` already reserves their capability keys so gating
+them later is a config flip.
+- `ai-illustration/` - an AI image of the finished tale (keepsake + share hook).
+- `ai-voice-narration/` - TTS character voices; wires the reveal's
+  already-reserved narration bar (the car-ride killer feature).
+- `ai-on-demand-generation/` - live "a story about our dog in space" generation
+  (ships last, heaviest moderation) plus the optional AI "Guardian's Verdict"
+  funniest-pick judge for solo/Versus.
+
+Keepsake Gallery also gained story 04 (a shareable tale back-link with a "Play
+QuibbleStone" CTA) so a shared tale converts a viewer into a new player, not just
+a brand impression.
 
 ## Templates
 
