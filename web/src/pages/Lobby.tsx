@@ -360,8 +360,14 @@ function ShareWidget({ code }: { code: string }) {
     <Box
       sx={{
         position: 'relative',
-        p: 2.75,
-        borderRadius: 6.5,
+        px: 6,
+        py: 5,
+        // Fixed px radius, NOT a bare number: MUI's sx `borderRadius` multiplies
+        // by theme.shape.borderRadius (20), so 6.5 ballooned to 130px - a pill
+        // whose huge corners cut under the full-width label + hint (they read as
+        // "outside the bubble"). A literal keeps a proper carved-tablet shape.
+        borderRadius: '26px',
+        textAlign: 'center',
         // Resolve the theme gradient explicitly: MUI's sx only maps dotted theme
         // paths for color-family props (color/bgcolor/borderColor), NOT the
         // `background` shorthand, so a string 'tablet.gradient' would ship as
@@ -378,7 +384,7 @@ function ShareWidget({ code }: { code: string }) {
           targets); when Web Share is unavailable, Copy spans the full width. */}
       <Typography
         variant="overline"
-        sx={{ fontSize: 11, fontWeight: 800, color: 'text.secondary' }}
+        sx={{ display: 'block', fontSize: 11, fontWeight: 800, color: 'text.secondary' }}
       >
         Room code
       </Typography>
@@ -388,14 +394,19 @@ function ShareWidget({ code }: { code: string }) {
           fontWeight: 700,
           fontSize: 40,
           lineHeight: 1,
-          letterSpacing: '7px',
+          // Spaced out + centered. letter-spacing adds a trailing gap after the
+          // last glyph that nudges centered text left; textIndent adds the same
+          // gap on the leading side to keep the code optically centered.
+          letterSpacing: '12px',
+          textIndent: '12px',
           color: 'primary.main',
+          mt: 0.5,
         }}
       >
         {code}
       </Typography>
 
-      <Stack direction="row" spacing={1.25} sx={{ mt: 2 }}>
+      <Stack direction="row" spacing={1.25} sx={{ mt: 3 }}>
         <Button
           variant="outlined"
           onClick={handleCopy}
@@ -425,10 +436,11 @@ function ShareWidget({ code }: { code: string }) {
       <Stack
         direction="row"
         alignItems="center"
+        justifyContent="center"
         spacing={1}
         sx={{
-          mt: 1.5,
-          pt: 1.4,
+          mt: 3,
+          pt: 2,
           borderTop: `1.5px dashed ${alpha(theme.palette.stoneEdge.main, 0.3)}`,
         }}
       >
