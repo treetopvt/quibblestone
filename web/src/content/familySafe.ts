@@ -33,6 +33,15 @@
 import type { Template } from '../engine/template';
 
 /**
+ * The shared "safe by default" initial value (AC-02, single-player/01 AC-04):
+ * any screen that owns a family-safe toggle's React state should initialize
+ * it to this constant rather than hardcoding `true` locally, so the
+ * safe-by-default posture is one token instead of a convention repeated at
+ * every call site (a review note on the FamilySafeToggle usage above).
+ */
+export const FAMILY_SAFE_DEFAULT = true;
+
+/**
  * Returns whether a single template is tagged family-safe. Reads only
  * `template.tags.familySafe` - the one signal this gate is allowed to act on.
  */

@@ -3,9 +3,9 @@
 //
 //  There is NO react-router in this project (CLAUDE.md - and deliberately not
 //  added): navigation is a single `view` state switched here. The views are
-//  'home', 'join', and 'lobby'; later stories extend this seam (story 03
-//  replaces the Lobby placeholder). Keep the switch small so those stories can
-//  grow it without a rewrite.
+//  'home', 'join', 'lobby', and 'solo'; later stories extend this seam (story
+//  03 replaces the Lobby placeholder). Keep the switch small so those stories
+//  can grow it without a rewrite.
 //
 //  App owns the ONE SignalR connection via useGameHub (never a second one). The
 //  LIVE room state lives IN the hook (so RosterChanged broadcasts update every
@@ -15,6 +15,11 @@
 //  join sets the hook's room and flips App to the lobby (session-engine/02,
 //  AC-01), while a failed join stays on Join showing the friendly error.
 //
+//  'solo' (single-player/01, ADDITIVE) is a self-contained local flow: Solo
+//  never touches `room`, `isHost`, or any hub call - it ignores the room
+//  state entirely, so it is checked ahead of the room-driven views below. The
+//  existing home/join/lobby wiring is untouched by this addition.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -23,9 +28,10 @@ import { useGameHub } from './signalr/useGameHub';
 import { Home } from './pages/Home';
 import { Join } from './pages/Join';
 import { Lobby } from './pages/Lobby';
+import { Solo } from './pages/Solo';
 
 // The set of screens App can show.
-type View = 'home' | 'join' | 'lobby';
+type View = 'home' | 'join' | 'lobby' | 'solo';
 
 export default function App() {
   const { status, room, isHost, createRoom, joinRoom, clearRoom } = useGameHub();
@@ -58,12 +64,23 @@ export default function App() {
     setView('join');
   }, []);
 
+  // "Or play solo right now" (single-player/01): no hub call, no room - just
+  // a local view change.
+  const handlePlaySolo = useCallback(() => {
+    setView('solo');
+  }, []);
+
   // Leave the lobby / Join screen and return Home (drops the room; rooms are
-  // ephemeral and the server sweeps idle ones - AC-05).
+  // ephemeral and the server sweeps idle ones - AC-05). Solo never sets a
+  // room, so clearRoom() is a harmless no-op when returning from 'solo'.
   const handleGoHome = useCallback(() => {
     clearRoom();
     setView('home');
   }, [clearRoom]);
+
+  if (view === 'solo') {
+    return <Solo onExit={handleGoHome} />;
+  }
 
   if (view === 'lobby' && room) {
     // onStart is the SEAM for group-play/01 (round start). For story 03 it is a
@@ -84,6 +101,7 @@ export default function App() {
     <Home
       onCreateGame={() => void handleCreateGame()}
       onJoinGame={handleJoinGame}
+      onPlaySolo={handlePlaySolo}
       creating={creating}
       disabled={status !== 'connected'}
     />
