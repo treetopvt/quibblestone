@@ -63,6 +63,12 @@ import {
   // the tale" button's glyph.
   faStar,
   faArrowRotateRight,
+  // Waiting-screen icons (group-play/03): faCircleCheck (already above) is the
+  // teal check-circle on the "[N] of [M] quibblers done" status card and the
+  // done-player badge; faPenRuler is the carving glyph on the outlined-purple
+  // "Review my words" button (a chisel-like tool - FontAwesome's "chisel" is a
+  // Pro-only icon, so pen-ruler is the closest free-solid carving mark).
+  faPenRuler,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -93,4 +99,5 @@ library.add(
   faShieldHeart,
   faStar,
   faArrowRotateRight,
+  faPenRuler,
 );
