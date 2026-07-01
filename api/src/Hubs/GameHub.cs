@@ -76,6 +76,15 @@ public sealed class GameHub : Hub
     // client's "n/14" counter (web/src/pages/Join.tsx). Names are trimmed first.
     private const int MaxDisplayNameLength = 14;
 
+    // session-engine/05: the only six Guardian variants the client can offer
+    // (web/src/components/Guardian.tsx GuardianVariant). A malformed or
+    // malicious client could send any string as `variant`, so this is the
+    // server-side source of truth - never trust the wire value directly.
+    private static readonly HashSet<string> KnownVariants = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "purple", "gold", "coral", "teal", "sand", "plum",
+    };
+
     private readonly RoomRegistry _rooms;
     private readonly IContentSafetyFilter _safety;
 
@@ -139,7 +148,7 @@ public sealed class GameHub : Hub
     /// </summary>
     /// <param name="code">The room's join code (case-insensitive).</param>
     /// <param name="displayName">The player's free-text in-session name (max 14 chars, safety-checked).</param>
-    /// <param name="variant">The chosen Guardian variant (defaults to "teal" when null/empty).</param>
+    /// <param name="variant">The chosen Guardian variant; normalized server-side to one of the six known values, defaulting to "teal" when null/empty/unknown (session-engine/05).</param>
     public async Task<JoinResultDto> JoinRoom(string code, string displayName, string variant)
     {
         // 1. Look the room up first (AC-04). An unknown or expired code means
@@ -175,8 +184,11 @@ public sealed class GameHub : Hub
             return new JoinResultDto(false, null, verdict.Message);
         }
 
-        // Default the variant (AC-05) - joiners pick a real one in story 05.
-        var chosenVariant = string.IsNullOrWhiteSpace(variant) ? "teal" : variant;
+        // Constrain the variant to the known set (session-engine/05, AC-03):
+        // null/empty/unknown all normalize to the default "teal" so a
+        // malformed client can never inject an arbitrary variant string into
+        // room state that every other player then sees rendered.
+        var chosenVariant = NormalizeVariant(variant);
 
         // 4. Add the (now-vetted) player under the room lock, which also enforces
         //    in-room name uniqueness case-insensitively (AC-06).
@@ -192,6 +204,22 @@ public sealed class GameHub : Hub
         await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
 
         return new JoinResultDto(true, ToRoomState(room), null);
+    }
+
+    /// <summary>
+    /// session-engine/05: normalize a client-supplied Guardian variant string
+    /// to one of the six known values (case-insensitive), defaulting to
+    /// "teal" for null, empty, or unrecognized input. Keeps the lowercase
+    /// canonical form on the wire regardless of how the client cased it.
+    /// </summary>
+    private static string NormalizeVariant(string? variant)
+    {
+        if (string.IsNullOrWhiteSpace(variant) || !KnownVariants.Contains(variant))
+        {
+            return "teal";
+        }
+
+        return variant.ToLowerInvariant();
     }
 
     // Map the in-memory Room to the wire DTO (drops the server-only connectionId).

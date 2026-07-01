@@ -24,7 +24,7 @@
 //  raw hex values.
 // ----------------------------------------------------------------------------
 
-import { createTheme } from '@mui/material/styles';
+import { createTheme, alpha } from '@mui/material/styles';
 
 // ----------------------------------------------------------------------------
 //  Design tokens - authoritative values from docs/design/README.md (Global
@@ -62,6 +62,18 @@ const tokens = {
   teal: '#2FB8A0',
   tealDeep: '#1F8A78',
   stoneEdge: '#B49B6E',
+  // Guardian variant accent colors (docs/design/README.md Shared Component:
+  // Guardian; matches the eye/feature color each variant uses in
+  // web/src/components/Guardian.tsx). Used as the SOLID accent - tile
+  // backgrounds tint these with alpha (see guardianAccent below), so the Join
+  // avatar grid (session-engine/05) and the Lobby roster (session-engine/03)
+  // stay theme-driven and DRY instead of each re-deriving a tint.
+  guardianPurple: '#6C4BD8',
+  guardianGold: '#E89A12',
+  guardianCoral: '#FF6B57',
+  guardianTeal: '#2FB8A0',
+  guardianSand: '#7C6442',
+  guardianPlum: '#9B7BE0',
   // App-bar icon-button fill (DESIGN_RULES "Consistent App Bar"): a
   // translucent wash of the warm-dark-brown text color.
   appBarIconFill: 'rgba(43,38,34,.07)',
@@ -72,6 +84,21 @@ const tokens = {
 // (parchment gradient stops, the gold CTA scale, accent colors) are available
 // as `theme.palette.parchment`, `theme.palette.gold`, etc. with full type
 // safety - no raw hex literals at call sites.
+// One Guardian variant's theme-driven accent: a solid `main` (matches the
+// Guardian component's eye/feature color for that variant) plus a
+// pre-computed `tileTint` - a light alpha wash of that color used as an
+// avatar tile's background (Join grid, Lobby roster). Keeping the tint here
+// (not re-derived with `alpha()` at each call site) is what keeps those two
+// screens DRY and theme-driven per CLAUDE.md section 4.
+interface GuardianAccentEntry {
+  main: string;
+  tileTint: string;
+}
+type GuardianAccentPalette = Record<
+  'purple' | 'gold' | 'coral' | 'teal' | 'sand' | 'plum',
+  GuardianAccentEntry
+>;
+
 declare module '@mui/material/styles' {
   interface Palette {
     parchment: { top: string; mid: string; bottom: string; gradient: string };
@@ -85,6 +112,8 @@ declare module '@mui/material/styles' {
     stoneEdge: { main: string };
     appBarIcon: { fill: string; hoverFill: string };
     bottomBarScrim: { main: string };
+    /** Guardian variant accent colors + tile tints (session-engine/05). */
+    guardianAccent: GuardianAccentPalette;
   }
   interface PaletteOptions {
     parchment?: { top: string; mid: string; bottom: string; gradient: string };
@@ -98,6 +127,7 @@ declare module '@mui/material/styles' {
     stoneEdge?: { main: string };
     appBarIcon?: { fill: string; hoverFill: string };
     bottomBarScrim?: { main: string };
+    guardianAccent?: GuardianAccentPalette;
   }
 }
 
@@ -131,6 +161,18 @@ export const theme = createTheme({
     stoneEdge: { main: tokens.stoneEdge },
     appBarIcon: { fill: tokens.appBarIconFill, hoverFill: tokens.appBarIconFillHover },
     bottomBarScrim: { main: tokens.bottomBarScrim },
+    // Guardian variant accents (session-engine/05, docs/design/Join.dc.html
+    // avatar grid): each tile's background is a light alpha wash of the
+    // variant's accent color. Alpha values match the design reference exactly
+    // (purple .12, gold .14, coral .13, teal .14, sand .10, plum .14).
+    guardianAccent: {
+      purple: { main: tokens.guardianPurple, tileTint: alpha(tokens.guardianPurple, 0.12) },
+      gold: { main: tokens.guardianGold, tileTint: alpha(tokens.goldMain, 0.14) },
+      coral: { main: tokens.guardianCoral, tileTint: alpha(tokens.guardianCoral, 0.13) },
+      teal: { main: tokens.guardianTeal, tileTint: alpha(tokens.guardianTeal, 0.14) },
+      sand: { main: tokens.guardianSand, tileTint: alpha(tokens.guardianSand, 0.1) },
+      plum: { main: tokens.guardianPlum, tileTint: alpha(tokens.guardianPlum, 0.14) },
+    },
   },
   shape: {
     borderRadius: 20, // large rounded buttons/cards default; see DESIGN_RULES card radius (24px) for cards specifically

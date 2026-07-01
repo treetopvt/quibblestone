@@ -1,6 +1,6 @@
 # Story: Guardian avatar selection at join
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started
+**Feature:** Session & Room Engine  ·  **Status:** In Review
 
 ## Context
 When joining a room, a player picks one of the six Guardian variants as their
@@ -12,25 +12,25 @@ nickname and a Guardian variant); it is the child-privacy posture. See
 (Join) and Shared Component: Guardian.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I am on the Join screen, then I see a 3-column grid of the
+- [x] AC-01: Given I am on the Join screen, then I see a 3-column grid of the
       six Guardian variants; one is pre-selected by default (teal, per the design
       spec). See `docs/design/README.md` Screens screen 2 and
       `docs/design/screens/02-join.png`.
-- [ ] AC-02: Given I tap a Guardian tile, then that variant becomes selected
+- [x] AC-02: Given I tap a Guardian tile, then that variant becomes selected
       (single-select); the selected tile shows a gold ring (`3px solid #FFB22E`,
       inset -3px, radius 25) and a gold 24px check badge at the top-right that
       pops in with a ~0.25s scale animation.
-- [ ] AC-03: Given I submit the Join form (code + display name + chosen variant),
+- [x] AC-03: Given I submit the Join form (code + display name + chosen variant),
       then my chosen Guardian variant is recorded as part of my in-session
       identity and broadcast to the room alongside my nickname.
-- [ ] AC-04: Given I am in the room, then every player sees me represented by
+- [x] AC-04: Given I am in the room, then every player sees me represented by
       the Guardian variant I chose; names and variants are consistent across
       Lobby, Waiting, and Round Complete screens.
-- [ ] AC-05: Given my display name, then it is checked by the safety filter
+- [x] AC-05: Given my display name, then it is checked by the safety filter
       before it is shown to anyone (nickname is free text); a failing name is
       rejected with a friendly message and I can try again. No PII is collected -
       only the in-session nickname and Guardian variant.
-- [ ] AC-06: Given the Join screen, then a reassurance line reads "100% anonymous
+- [x] AC-06: Given the Join screen, then a reassurance line reads "100% anonymous
       - no email, no account" (with a shield icon), and no email, password, or
       account field appears.
 
@@ -59,6 +59,15 @@ nickname and a Guardian variant); it is the child-privacy posture. See
   child-safety/01-profanity-filter; this story wires it at the join call
   (session-engine/02-join-with-code already specifies this AC; this story adds
   the variant to the same hub call).
+
+## Tests
+- `tests/QuibbleStone.Api.Tests/GameHubJoinTests.cs` (xUnit): an unknown or
+  malformed variant normalizes to `teal` server-side and a known variant (e.g.
+  `coral`) is preserved (AC-03) - the six-variant whitelist is authoritative, so
+  a malformed client cannot inject an arbitrary variant string.
+- The avatar-grid UI (3-column grid, single-select gold ring + check-badge pop,
+  default teal - AC-01/02) is covered by the Phase 4 browser walkthrough
+  (Vitest is pure-logic only; there is no component-render harness in Slice 1).
 
 ## Dependencies
 - session-engine/02-join-with-code

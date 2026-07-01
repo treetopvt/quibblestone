@@ -1,36 +1,41 @@
 // ----------------------------------------------------------------------------
-//  Join - enter a room code + display name to join a game (session-engine/02,
-//  design screen 2).
+//  Join - enter a room code + display name + Guardian avatar to join a game
+//  (session-engine/02 + session-engine/05, design screen 2).
 //
 //  Fully anonymous by design (README section 6, AC-02): the ONLY things this
-//  screen asks for are a room code and a display name - never an account, an
-//  email, a password, or any PII. A shield reassurance line ("100% anonymous -
-//  no email, no account") says so out loud. Faithfully recreates
-//  docs/design/Join.dc.html / docs/design/README.md (Screens - screen 2):
+//  screen asks for are a room code, a display name, and a Guardian avatar -
+//  never an account, an email, a password, or any PII. A shield reassurance
+//  line ("100% anonymous - no email, no account") says so out loud.
+//  Faithfully recreates docs/design/Join.dc.html / docs/design/README.md
+//  (Screens - screen 2):
 //    - shared <AppBar> with a back arrow that returns Home
 //    - a room-code card: "ROOM CODE" label + teal "from the host" chip, then
 //      four carved code slots driven by a single controlled input
 //    - a character card: a "Display name" outlined field (person icon, live
-//      n/14 counter). The avatar grid is story 05 - this card is deliberately
-//      laid out so story 05 can drop the "Choose your guardian" grid in below
-//      the name field without restructuring.
+//      n/14 counter), then "Choose your guardian" and a 3-column, 6-tile
+//      avatar grid (session-engine/05) - single-select, teal pre-selected.
+//      The selected tile shows a gold ring + a gold check badge that pops in.
 //    - the shield reassurance line
 //    - a pinned gold CTA (BottomActionBar) reading "Join [CODE] ->", with the
 //      entered code interpolated (falls back to "Join ->" when empty)
 //
 //  Contracts reused (never re-specified here): the gold CTA is just
 //  <Button variant="contained">; the AppBar and BottomActionBar come from the
-//  shared component barrel; all colors / radii / spacing come from the MUI theme
-//  (theme.palette.stoneSlot / stoneEdge / primary / teal / card, theme.spacing)
-//  - no hardcoded hex or raw-px spacing here. Icons are FontAwesome only
-//  (web/src/fontawesome.ts).
+//  shared component barrel; the Guardian avatar is the shared <Guardian>
+//  component (never rebuilt here); all colors / radii / spacing come from the
+//  MUI theme (theme.palette.stoneSlot / stoneEdge / primary / teal / card /
+//  gold / guardianAccent, theme.spacing) - no hardcoded hex or raw-px spacing
+//  here. Icons are FontAwesome only (web/src/fontawesome.ts).
 //
 //  Form state uses react-hook-form with controlled MUI inputs. The code input is
 //  normalized (uppercased, restricted to the unambiguous code alphabet, capped
 //  at 4 chars) so the four carved slots always reflect a valid, readable code.
 //  The display name is validated server-side (length + the content-safety
 //  filter) via the hub; the friendly error it returns is shown inline and the
-//  player stays here to try again (AC-03, AC-04, AC-06).
+//  player stays here to try again (AC-03, AC-04, AC-06). The selected Guardian
+//  variant is sent alongside the name on submit (session-engine/05, AC-03) -
+//  the server independently normalizes it to a known variant, so this is a
+//  best-effort/UX-only guard, not the source of truth.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -47,7 +52,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer } from '../components';
+import { AppBar, BottomActionBar, BottomActionBarSpacer, Guardian } from '../components';
+import type { GuardianVariant } from '../components';
 import type { JoinResult } from '../signalr/useGameHub';
 
 export interface JoinProps {
@@ -85,15 +91,25 @@ function normalizeCode(raw: string): string {
     .slice(0, CODE_LENGTH);
 }
 
+/** The six selectable Guardian variants, in the design's grid order (AC-01). */
+const GUARDIAN_VARIANTS: GuardianVariant[] = ['purple', 'gold', 'coral', 'teal', 'sand', 'plum'];
+
+/** Default avatar selection (AC-01, docs/design/README.md screen 2 State). */
+const DEFAULT_VARIANT: GuardianVariant = 'teal';
+
+/** The avatar tile's edge length (docs/design/Join.dc.html avatar grid: 78x78). */
+const TILE_SIZE = 78;
+
 interface JoinForm {
   code: string;
   displayName: string;
+  selectedVariant: GuardianVariant;
 }
 
 export function Join({ onJoin, onBack, disabled = false }: JoinProps) {
   const theme = useTheme();
   const { control, handleSubmit, watch, formState } = useForm<JoinForm>({
-    defaultValues: { code: '', displayName: '' },
+    defaultValues: { code: '', displayName: '', selectedVariant: DEFAULT_VARIANT },
     mode: 'onChange',
   });
 
@@ -113,8 +129,9 @@ export function Join({ onJoin, onBack, disabled = false }: JoinProps) {
 
   const onSubmit = handleSubmit(async (values) => {
     setJoinError(null);
-    // Guardian variant defaults to "teal" until story 05 adds the avatar grid.
-    const result = await onJoin(values.code, values.displayName, 'teal');
+    // The chosen Guardian variant travels with the nickname (AC-03); the
+    // server independently normalizes it to a known variant either way.
+    const result = await onJoin(values.code, values.displayName, values.selectedVariant);
     if (!result.ok) {
       setJoinError(result.error ?? 'That did not work - please try again.');
     }
@@ -284,8 +301,102 @@ export function Join({ onJoin, onBack, disabled = false }: JoinProps) {
               )}
             />
 
-            {/* Story-05 seam: the "Choose your guardian" avatar grid drops in
-                here, below the display-name field, inside this same card. */}
+            {/* Avatar grid (session-engine/05): "Choose your guardian" +
+                a 3-column, 6-tile single-select grid. Selected tile gets a
+                gold ring + a pop-in gold check badge (AC-02). */}
+            <Typography sx={{ fontSize: 16, fontWeight: 600, mt: 1 }}>
+              Choose your guardian
+            </Typography>
+            <Controller
+              name="selectedVariant"
+              control={control}
+              render={({ field }) => (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 3.5,
+                    justifyItems: 'center',
+                  }}
+                  role="radiogroup"
+                  aria-label="Choose your guardian"
+                >
+                  {GUARDIAN_VARIANTS.map((v) => {
+                    const selected = field.value === v;
+                    return (
+                      <Box
+                        key={v}
+                        component="button"
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        aria-label={`${v} guardian`}
+                        onClick={() => field.onChange(v)}
+                        sx={{
+                          position: 'relative',
+                          width: TILE_SIZE,
+                          height: TILE_SIZE,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: 'none',
+                          borderRadius: '22px',
+                          bgcolor: theme.palette.guardianAccent[v].tileTint,
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
+                      >
+                        <Guardian variant={v} size={52} />
+                        {selected && (
+                          <>
+                            {/* Gold selection ring (AC-02: 3px solid gold, inset -3px, radius 25). */}
+                            <Box
+                              aria-hidden
+                              sx={{
+                                position: 'absolute',
+                                inset: '-3px',
+                                border: `3px solid ${theme.palette.gold.main}`,
+                                borderRadius: '25px',
+                                pointerEvents: 'none',
+                              }}
+                            />
+                            {/* Gold check badge - pops in with a ~0.25s scale
+                                animation (design pack Gotcha: transform:scale
+                                only, never opacity, for list-item entrances). */}
+                            <Box
+                              aria-hidden
+                              sx={{
+                                position: 'absolute',
+                                top: -7,
+                                right: -7,
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                bgcolor: 'gold.main',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: `0 3px 8px -2px ${alpha(theme.palette.gold.main, 0.9)}`,
+                                fontSize: 12,
+                                color: 'text.primary',
+                                animation: 'qsGuardianCheckPop 0.25s ease',
+                                '@keyframes qsGuardianCheckPop': {
+                                  '0%': { transform: 'scale(0.4)' },
+                                  '60%': { transform: 'scale(1.15)' },
+                                  '100%': { transform: 'scale(1)' },
+                                },
+                              }}
+                            >
+                              <FontAwesomeIcon icon="check" />
+                            </Box>
+                          </>
+                        )}
+                      </Box>
+                    );
+                  })}
+                </Box>
+              )}
+            />
           </Stack>
 
           {/* Inline server-side error (unknown code, blocked/duplicate name). */}

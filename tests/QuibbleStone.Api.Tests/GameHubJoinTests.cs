@@ -152,6 +152,38 @@ public class GameHubJoinTests
         Assert.Equal("teal", joiner.Variant);
     }
 
+    // session-engine/05, AC-03: the server is the source of truth for the
+    // variant whitelist - an unknown/malformed value must never reach room
+    // state, and a known value must be preserved (not silently mangled).
+    [Theory]
+    [InlineData("not-a-real-variant")]
+    [InlineData("<script>alert(1)</script>")]
+    [InlineData("PURPLE-ish")]
+    public async Task JoinRoom_normalizes_unknown_variant_to_teal(string unknownVariant)
+    {
+        var (hub, registry, _, _) = BuildHub("conn-joiner");
+        var code = registry.CreateRoom("conn-host").Code;
+
+        var result = await hub.JoinRoom(code, "Bramble", unknownVariant);
+
+        Assert.True(result.Ok);
+        var joiner = Assert.Single(result.Room!.Players, p => p.Nickname == "Bramble");
+        Assert.Equal("teal", joiner.Variant);
+    }
+
+    [Fact]
+    public async Task JoinRoom_preserves_a_known_variant()
+    {
+        var (hub, registry, _, _) = BuildHub("conn-joiner");
+        var code = registry.CreateRoom("conn-host").Code;
+
+        var result = await hub.JoinRoom(code, "Flint", "coral");
+
+        Assert.True(result.Ok);
+        var joiner = Assert.Single(result.Room!.Players, p => p.Nickname == "Flint");
+        Assert.Equal("coral", joiner.Variant);
+    }
+
     // --- Minimal SignalR fakes ------------------------------------------------
 
     // Records group broadcasts. Every Group(...)/All/etc. returns the same proxy
