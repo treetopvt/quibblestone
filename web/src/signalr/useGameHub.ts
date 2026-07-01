@@ -5,8 +5,8 @@
 //  Responsibilities:
 //    - Build and start ONE HubConnection (with automatic reconnect).
 //    - Expose the live connection status so the UI can show connected / not.
-//    - Expose ping(message), which invokes the hub's Ping method and resolves
-//      with the server echo.
+//    - Own the current room state and the game invokes (createRoom, joinRoom,
+//      clearRoom) plus the single "RosterChanged" handler.
 //
 //  Real game features (rooms, rosters, reveal) add more invokes/handlers on
 //  this same connection rather than opening new ones.
@@ -85,7 +85,6 @@ export interface UseGameHub {
    * on the wire (no PII), so a client cannot tell which roster row is "me".
    */
   isHost: boolean;
-  ping: (message: string) => Promise<string | undefined>;
   /**
    * Create a room and become its host (session-engine/01). On success updates
    * `room` and resolves with the created room's state, or undefined if the
@@ -99,7 +98,12 @@ export interface UseGameHub {
    * ready. The display name is safety-checked server-side.
    */
   joinRoom: (code: string, displayName: string, variant: string) => Promise<JoinResult>;
-  /** Leave the current room locally (returns Home). Rooms are ephemeral; the server sweeps idle ones. */
+  /**
+   * Leave the current room and return Home. Tells the server (LeaveRoom) so this
+   * connection is removed from the room group and its player leaves the roster
+   * for everyone else, then clears local room state. The shared connection stays
+   * open for the next game. Safe to call when not in a room (no-op).
+   */
   clearRoom: () => void;
 }
 
@@ -110,6 +114,13 @@ export function useGameHub(): UseGameHub {
   // Whether this client hosts the current room (set by createRoom / joinRoom,
   // cleared by clearRoom) - the Lobby's host-only Start CTA reads this (AC-05).
   const [isHost, setIsHost] = useState(false);
+  // Whether this client is currently seated in a room, plus that room's code.
+  // Kept as refs (not state) so the stable RosterChanged handler and clearRoom
+  // read the latest value without re-binding. The handler guards on inRoomRef so
+  // a roster broadcast that RACES a leave cannot resurrect room state after the
+  // player has already gone Home (the post-leave re-entry bug).
+  const inRoomRef = useRef(false);
+  const roomCodeRef = useRef<string | null>(null);
 
   useEffect(() => {
     const connection = new HubConnectionBuilder()
@@ -126,6 +137,10 @@ export function useGameHub(): UseGameHub {
     // the one connection. Whoever is in the room (host + players) gets the new
     // roster and the UI updates in near-real-time (AC-05).
     connection.on('RosterChanged', (state: RoomState) => {
+      // Ignore a broadcast that arrives after we have left (raced our LeaveRoom /
+      // group removal) - otherwise it would resurrect room state and bounce a
+      // player who just went Home back into the lobby.
+      if (!inRoomRef.current) return;
       setRoom(state);
     });
 
@@ -150,17 +165,6 @@ export function useGameHub(): UseGameHub {
     };
   }, []);
 
-  const ping = useCallback(
-    async (message: string): Promise<string | undefined> => {
-      const connection = connectionRef.current;
-      if (!connection || connection.state !== HubConnectionState.Connected) {
-        return undefined;
-      }
-      return connection.invoke<string>('Ping', message);
-    },
-    [],
-  );
-
   const createRoom = useCallback(
     async (): Promise<RoomState | undefined> => {
       const connection = connectionRef.current;
@@ -168,6 +172,8 @@ export function useGameHub(): UseGameHub {
         return undefined;
       }
       const created = await connection.invoke<RoomState>('CreateRoom');
+      inRoomRef.current = true;
+      roomCodeRef.current = created.code;
       setRoom(created);
       setIsHost(true); // the creator is the host (AC-05)
       return created;
@@ -187,6 +193,8 @@ export function useGameHub(): UseGameHub {
       }
       const result = await connection.invoke<JoinResult>('JoinRoom', code, displayName, variant);
       if (result.ok && result.room) {
+        inRoomRef.current = true;
+        roomCodeRef.current = result.room.code;
         setRoom(result.room);
         setIsHost(false); // a joiner is never the host (AC-05)
       }
@@ -196,9 +204,20 @@ export function useGameHub(): UseGameHub {
   );
 
   const clearRoom = useCallback(() => {
+    const connection = connectionRef.current;
+    const code = roomCodeRef.current;
+    // Mark "left" BEFORE anything else so an in-flight RosterChanged is ignored.
+    inRoomRef.current = false;
+    roomCodeRef.current = null;
     setRoom(null);
     setIsHost(false);
+    // Tell the server so this connection leaves the room group and drops off the
+    // roster for everyone else (AC-04). Fire-and-forget: returning Home must not
+    // block on the network, and a failure (e.g. already disconnected) is harmless.
+    if (connection && connection.state === HubConnectionState.Connected && code) {
+      void connection.invoke('LeaveRoom', code).catch(() => {});
+    }
   }, []);
 
-  return { status, room, isHost, ping, createRoom, joinRoom, clearRoom };
+  return { status, room, isHost, createRoom, joinRoom, clearRoom };
 }

@@ -18,7 +18,6 @@ import { AppBar, BottomActionBar, Guardian, HeroGuardian } from '../components';
 | `AppBar` | top app bar on every screen | centered Fredoka title, 42x42 icon slots; pass `leftAction` / `rightAction` (FontAwesome icon names) |
 | `BottomActionBar` (+ `BottomActionBarSpacer`) | pinned bottom actions | reserves room + fade scrim so content never hides behind it |
 | `Guardian` | the small stone-guardian avatar | 6 variants (`purple/gold/coral/teal/sand/plum`) + `size`; inline SVG |
-| `ConnectionStatus` | real-time connection readout | presentational |
 | `HeroGuardian` | the full-size hero mascot | lives in `../assets` (illustrative art), re-exported from the barrel |
 
 The two stone-guardian assets (`Guardian` avatar, `HeroGuardian` hero) hardcode

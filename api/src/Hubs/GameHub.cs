@@ -7,7 +7,6 @@
 //  every game feature (rooms, rosters, word collection, reveal) shares it.
 //
 //  What lives here today:
-//    - Ping        : the original walking-skeleton round-trip echo.
 //    - CreateRoom  : session-engine/01. Mints an ephemeral in-memory room with
 //                    a unique, human-friendly join code, adds the caller as the
 //                    host (first player), joins them to the room's SignalR group
@@ -92,12 +91,6 @@ public sealed class GameHub : Hub
     {
         _rooms = rooms;
         _safety = safety;
-    }
-
-    // Invoked by the client; returns the echoed message to the calling client.
-    public Task<string> Ping(string message)
-    {
-        return Task.FromResult($"pong: {message}");
     }
 
     /// <summary>
@@ -230,6 +223,35 @@ public sealed class GameHub : Hub
         }
 
         await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>
+    /// session-engine/03: leave a room explicitly WITHOUT dropping the SignalR
+    /// connection (the player tapped "Leave" and returned Home, but the one shared
+    /// connection stays open for their next game). This is the deliberate-leave
+    /// counterpart to OnDisconnectedAsync's connection-drop path.
+    ///
+    /// It removes this connection from the room's SignalR group FIRST - so a
+    /// roster broadcast that races this call cannot resurrect the room on a client
+    /// that has already gone Home - then removes the player from room state via the
+    /// registry (which drops the room if it is now empty) and, when members remain,
+    /// broadcasts the trimmed roster so the leaver's tile reverts to an empty slot
+    /// for everyone else (AC-04). Idempotent: a second call (or a leave that races
+    /// the disconnect handler) simply finds nothing to remove and no-ops.
+    /// </summary>
+    /// <param name="code">The code of the room being left (used to leave its group).</param>
+    public async Task LeaveRoom(string code)
+    {
+        if (!string.IsNullOrWhiteSpace(code))
+        {
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, code);
+        }
+
+        var room = _rooms.RemoveConnection(Context.ConnectionId);
+        if (room is not null)
+        {
+            await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+        }
     }
 
     /// <summary>

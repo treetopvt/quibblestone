@@ -1,5 +1,7 @@
 // ----------------------------------------------------------------------------
-//  GameHubDisconnectTests - unit tests for OnDisconnectedAsync (session-engine/03).
+//  GameHubDisconnectTests - unit tests for the two leave paths (session-engine/03):
+//  OnDisconnectedAsync (the connection dropped) and LeaveRoom (the player tapped
+//  "Leave" and went Home while the connection stays open).
 //
 //  Leave-detection rides the SignalR connection lifecycle (no heartbeat): when a
 //  connection drops, the hub removes that player and re-broadcasts the trimmed
@@ -12,6 +14,9 @@
 //       base.OnDisconnectedAsync.
 //    2. A disconnect that empties the room drops the room (nothing to broadcast).
 //    3. A disconnect from a connection that was never in a room is a no-op.
+//    4. LeaveRoom removes the caller from the room's group AND broadcasts the
+//       trimmed roster to survivors; leaving as the last player drops the room
+//       with no broadcast; leaving from an unseated connection is a no-op.
 // ----------------------------------------------------------------------------
 
 using Microsoft.AspNetCore.Http.Features;
@@ -83,6 +88,69 @@ public class GameHubDisconnectTests
         Assert.Equal(1, registry.ActiveRoomCount);
     }
 
+    [Fact]
+    public async Task LeaveRoom_removes_the_caller_from_the_group_and_broadcasts_the_trimmed_roster()
+    {
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var hub = new GameHub(registry, new ContentSafetyFilter());
+        var clients = new RecordingClients();
+        var groups = new RecordingGroups();
+        hub.Clients = clients;
+        hub.Groups = groups;
+        hub.Context = new FakeHubCallerContext("conn-joiner");
+
+        await hub.LeaveRoom(room.Code);
+
+        // Removed from the room group so no further broadcast reaches the leaver.
+        Assert.Equal(("conn-joiner", room.Code), groups.LastRemove);
+        // Survivors (the host) get the trimmed roster (AC-04).
+        Assert.Equal(room.Code, clients.LastGroupName);
+        Assert.Equal("RosterChanged", clients.LastMethod);
+        var broadcast = Assert.IsType<RoomStateDto>(clients.LastArgs![0]);
+        Assert.Single(broadcast.Players);
+        Assert.DoesNotContain(broadcast.Players, p => p.Nickname == "Maple");
+    }
+
+    [Fact]
+    public async Task LeaveRoom_of_the_last_player_drops_the_room_and_does_not_broadcast()
+    {
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host");
+
+        var hub = new GameHub(registry, new ContentSafetyFilter());
+        var clients = new RecordingClients();
+        hub.Clients = clients;
+        hub.Groups = new RecordingGroups();
+        hub.Context = new FakeHubCallerContext("conn-host");
+
+        await hub.LeaveRoom(room.Code);
+
+        Assert.Null(clients.LastMethod);
+        Assert.Equal(0, registry.ActiveRoomCount);
+        Assert.Null(registry.TryGet(room.Code));
+    }
+
+    [Fact]
+    public async Task LeaveRoom_of_an_unseated_connection_is_a_no_op()
+    {
+        var registry = new RoomRegistry();
+        registry.CreateRoom("conn-host");
+
+        var hub = new GameHub(registry, new ContentSafetyFilter());
+        var clients = new RecordingClients();
+        hub.Clients = clients;
+        hub.Groups = new RecordingGroups();
+        hub.Context = new FakeHubCallerContext("conn-stranger");
+
+        await hub.LeaveRoom("WXYZ");
+
+        Assert.Null(clients.LastMethod); // no broadcast
+        Assert.Equal(1, registry.ActiveRoomCount);
+    }
+
     // --- Minimal SignalR fakes ------------------------------------------------
 
     // Records the last group broadcast so the test can assert on it.
@@ -129,6 +197,22 @@ public class GameHubDisconnectTests
 
         public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+    }
+
+    // Records the last RemoveFromGroup call so a LeaveRoom test can assert the
+    // caller was taken out of the room's group.
+    private sealed class RecordingGroups : IGroupManager
+    {
+        public (string ConnectionId, string GroupName)? LastRemove { get; private set; }
+
+        public Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
+        {
+            LastRemove = (connectionId, groupName);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeHubCallerContext(string connectionId) : HubCallerContext

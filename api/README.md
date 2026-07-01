@@ -31,10 +31,13 @@ Dev URLs (see `Properties/launchSettings.json`):
 
 The web client points at these via `web/.env.development`.
 
-## Walking-skeleton surface
+## Surface
 
 - `GET /health` -> `{ status, service, version, utc }`
-- `GameHub.Ping(message)` -> returns `"pong: {message}"` to the caller
+- `GameHub` (real-time, session-engine): `CreateRoom()`, `JoinRoom(code,
+  displayName, variant)`, `LeaveRoom(code)`, and `OnDisconnectedAsync` - rooms
+  are ephemeral in-memory (RoomRegistry, no DB); the hub broadcasts
+  `"RosterChanged"` to a room's group on every roster change.
 
-No game logic yet. Real-time game hubs (rooms, rosters, reveal) grow from this
-same connection.
+More game hubs / methods (word collection, reveal) grow from this same
+connection.
