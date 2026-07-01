@@ -130,13 +130,20 @@ export function WordBankAnswer({ wordBank, blank, onSubmit }: WordBankAnswerProp
       </Typography>
 
       <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap sx={{ mb: 2.5 }}>
-        {entries.map((entry) => {
+        {entries.map((entry, index) => {
           const isSelected = entry.word === selected;
           return (
             <Box
-              key={entry.word}
+              // Composite key (word + index): a curated bank may legitimately
+              // repeat a word within one category, and a duplicate React key
+              // would corrupt chip selection/reuse - the index disambiguates.
+              key={`${entry.word}-${index}`}
               component="button"
               type="button"
+              // Expose selection to assistive tech, and lock the bank while a
+              // submission is in flight so a second tap cannot race it.
+              aria-pressed={isSelected}
+              disabled={submitting}
               onClick={() => handleTap(entry.word)}
               sx={{
                 border: 'none',
@@ -152,6 +159,11 @@ export function WordBankAnswer({ wordBank, blank, onSubmit }: WordBankAnswerProp
                 fontWeight: 700,
                 fontSize: 15,
                 '&:hover': { bgcolor: alpha(theme.palette.teal.main, 0.22) },
+                '&:focus-visible': {
+                  outline: `2px solid ${theme.palette.teal.dark}`,
+                  outlineOffset: 2,
+                },
+                '&:disabled': { cursor: 'not-allowed', opacity: 0.6 },
               }}
             >
               {entry.word}

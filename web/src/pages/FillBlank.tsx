@@ -435,7 +435,7 @@ export function FillBlank({
 
         <PromptCard blank={blank} />
 
-        {answerSurface ?? (
+        {answerSurface === undefined ? (
           <>
             {/* Carved input slot (AC-03): fixed literal height/radius per the design's
                 content-level exception - a bare number in sx borderRadius would
@@ -543,6 +543,8 @@ export function FillBlank({
               </Stack>
             </Stack>
           </>
+        ) : (
+          answerSurface
         )}
 
         <BlindReassurance />
@@ -559,7 +561,7 @@ export function FillBlank({
             stays permanently empty for a non-free-text surface - that surface
             owns its own submit affordance instead (see FillBlankProps header),
             keeping exactly ONE path into onSubmitWord (AC-06). */}
-        {!answerSurface && (
+        {answerSurface === undefined && (
           <Button
             type="button"
             variant="contained"

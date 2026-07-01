@@ -108,7 +108,9 @@ export function ProgressiveRevealPresentation({ template, assembled }: Progressi
     }, STEP_INTERVAL_MS);
 
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deps are complete: the effect body reads only `totalWords` (plus the
+    // stable `setStep`); `template`/`assembled` are included so pacing resets
+    // when a new round reuses this instance, even if the word count is unchanged.
   }, [template, assembled, totalWords]);
 
   const revealedWordCount = howManyWordsRevealedAtStep(parts, step);

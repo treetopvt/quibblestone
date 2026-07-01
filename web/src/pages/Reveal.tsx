@@ -410,7 +410,7 @@ export function Reveal({
             >
               {assembled.title}
             </Typography>
-            {revealPresentation ?? (
+            {revealPresentation === undefined ? (
               <Typography
                 component="p"
                 sx={{
@@ -456,6 +456,8 @@ export function Reveal({
                   );
                 })}
               </Typography>
+            ) : (
+              revealPresentation
             )}
           </Box>
         </Box>
