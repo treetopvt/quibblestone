@@ -161,6 +161,7 @@ function GroupReveal({
       assembled={assembled}
       template={template}
       onPlayAgain={onPlayAgain}
+      playAgainLabel="See the round recap"
       onHome={onHome}
       exitAction={{ label: 'Back to home', onClick: onHome }}
     />
@@ -193,6 +194,12 @@ export default function App() {
   // persists into the next round.
   const [showRoundComplete, setShowRoundComplete] = useState(false);
 
+  // group-play/04: a friendly message when a "Play another round" attempt is rejected
+  // server-side (e.g. the other carver left so the room is back to one player - the
+  // hub needs at least two). Surfaced on the Round Complete recap so the gold CTA is
+  // never a live-but-silent no-op; cleared whenever the recap is left (reveal clears).
+  const [playAgainError, setPlayAgainError] = useState<string | null>(null);
+
   // group-play/04: the host's last family-safe choice, kept sticky so a replay in
   // the same room reuses it without re-toggling (like Solo's toggle). Seeded from
   // the shared safe-by-default token. The Lobby's Start CTA persists the host's
@@ -216,6 +223,7 @@ export default function App() {
   useEffect(() => {
     if (!reveal) {
       setShowRoundComplete(false);
+      setPlayAgainError(null);
     }
   }, [reveal]);
 
@@ -234,8 +242,16 @@ export default function App() {
   // pick. The server increments the round number and broadcasts RoundStarted, which
   // clears reveal (resetting showRoundComplete via the effect above) and routes
   // EVERYONE into the new round.
-  const handlePlayAnotherRound = useCallback(() => {
-    void startRound(lastFamilySafe);
+  const handlePlayAnotherRound = useCallback(async () => {
+    setPlayAgainError(null);
+    const result = await startRound(lastFamilySafe);
+    // A rejected start (a carver left so the room is back to one player, or a
+    // transient not-connected) resolves ok=false; surface the friendly reason on the
+    // recap rather than leaving the gold CTA a silent no-op. On success the server's
+    // RoundStarted broadcast clears reveal and routes everyone into the new round.
+    if (!result.ok) {
+      setPlayAgainError(result.error ?? 'Could not start another round - please try again.');
+    }
   }, [startRound, lastFamilySafe]);
 
   // group-play/04: "Back to lobby" from the Round Complete recap (host). The hub's
@@ -296,7 +312,9 @@ export default function App() {
         crew={crew}
         totalWords={totalWords}
         isHost={isHost}
-        onPlayAgain={handlePlayAnotherRound}
+        canPlayAgain={room.players.length >= 2}
+        playAgainError={playAgainError}
+        onPlayAgain={() => void handlePlayAnotherRound()}
         onBackToLobby={handleBackToLobby}
         onLeave={handleGoHome}
       />

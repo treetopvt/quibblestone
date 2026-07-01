@@ -73,6 +73,16 @@ export interface RoundCompleteProps {
   totalWords: number;
   /** Whether THIS client is the host - gates the two action buttons (Slice 1 host-driven). */
   isHost: boolean;
+  /**
+   * Whether a new round can start right now - true when the room still has at least
+   * two carvers. If the other player left (a 2-player game dropping to one), the
+   * server would reject startRound (it needs >=1 other player), so the gold CTA is
+   * disabled with a hint steering the host to "Back to lobby" rather than being a
+   * live button that silently does nothing.
+   */
+  canPlayAgain: boolean;
+  /** A friendly message when a "Play another round" attempt was rejected server-side (else null). */
+  playAgainError?: string | null;
   /** Host-only: begin a NEW round for the same group (same room + players, no re-join, AC-04). */
   onPlayAgain: () => void;
   /** Host-only: return ALL players to the still-live Lobby (same code, AC-05). */
@@ -270,6 +280,8 @@ export function RoundComplete({
   crew,
   totalWords,
   isHost,
+  canPlayAgain,
+  playAgainError,
   onPlayAgain,
   onBackToLobby,
   onLeave,
@@ -389,11 +401,25 @@ export function RoundComplete({
           <Button
             variant="contained"
             fullWidth
+            disabled={!canPlayAgain}
             onClick={onPlayAgain}
             startIcon={<FontAwesomeIcon icon="arrow-rotate-right" style={{ width: 20, height: 20 }} />}
           >
             Play another round
           </Button>
+          {(playAgainError || !canPlayAgain) && (
+            <Typography
+              sx={{
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 12.5,
+                color: playAgainError ? 'coral.main' : 'text.secondary',
+                textAlign: 'center',
+              }}
+            >
+              {playAgainError ?? 'You need at least one more carver - head back to the lobby and wait for them.'}
+            </Typography>
+          )}
           <Button
             variant="outlined"
             fullWidth
