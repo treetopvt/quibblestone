@@ -14,14 +14,17 @@ not competition, so this award is designed to feel like a shared laugh, never
 a scoreboard. See [feature.md](./feature.md) for the feature-level framing
 and its explicit Decision against any cumulative leaderboard.
 
-This story shares its voting mechanic with
-[`docs/features/game-modes/06-versus-duel.md`](../game-modes/06-versus-duel.md)
+This story shares its voting mechanic with the **Versus/Duel** mode
 (Versus/Duel's post-reveal vote on which competing answer is funniest) - both
 are "the room taps to pick one winner among a small set of options, tally,
-show the result." Whichever of the two lands first should build the shared,
-reusable vote-collection primitive (`web/src/engine/vote.ts`) that the other
-then imports, rather than each inventing its own tally logic. Coordinate build
-order before starting either.
+show the result." Versus/Duel is currently **parked** (see
+[`docs/features/game-modes/feature.md`](../game-modes/feature.md) "Parked -
+Phase 2+/3" - it is a genuine engine stretch, not thin config), so this story
+is expected to land first and should build the shared, reusable
+vote-collection primitive (`web/src/engine/vote.ts`) that Versus/Duel will
+then import when it is scheduled, rather than each inventing its own tally
+logic. Coordinate build order if Versus/Duel is un-parked before this story
+ships.
 
 ## Acceptance Criteria
 - [ ] AC-01: Given the Reveal screen after the story is fully shown (carving
@@ -78,22 +81,23 @@ order before starting either.
   boringly simple; this is a toy, not a ranked contest.
 - Any mechanic that singles out or embarrasses the LEAST-voted contributor -
   the design is explicitly winner-only, never a "worst word" callout.
-- The Versus/Duel mode itself (`game-modes/06`) - this story only shares its
-  underlying vote-collection primitive with that mode; it does not implement
-  or depend on Versus gameplay.
+- The parked Versus/Duel mode itself (see
+  [`docs/features/game-modes/feature.md`](../game-modes/feature.md) "Parked -
+  Phase 2+/3") - this story only builds the underlying vote-collection
+  primitive that mode will eventually share; it does not implement or depend
+  on Versus gameplay.
 
 ## Technical Notes
-- **Shares its vote mechanic with `game-modes/06` (Versus/Duel).** Both need:
-  create a small option set, let room members cast one vote each, tally, and
-  surface a winner. Design and build `web/src/engine/vote.ts` as a small, pure,
-  reusable module (`createVote(optionIds)`, `castVote(vote, voterId,
-  optionId)`, `tally(vote)` - see `game-modes/06`'s Technical Notes for the
-  same shape described from the other side) with NO opinion on what the
-  options represent (a competing Versus answer vs. a coral word here) and no
-  opinion on how the result renders. **Before starting this story, check
-  whether `game-modes/06` has already built `vote.ts`** - if so, import and
-  reuse it rather than re-implementing; if this story lands first, build it
-  generally enough that `game-modes/06` can adopt it unmodified.
+- **Builds the vote primitive the parked Versus/Duel mode will later share.**
+  Both need: create a small option set, let room members cast one vote each,
+  tally, and surface a winner. Design and build `web/src/engine/vote.ts` as a
+  small, pure, reusable module - `createVote(optionIds)`, `castVote(vote,
+  voterId, optionId)`, `tally(vote)` - with NO opinion on what the options
+  represent (a competing Versus answer vs. a coral word here) and no opinion
+  on how the result renders. Since Versus/Duel is currently parked, THIS
+  story is expected to build `vote.ts` first; the parked mode imports it
+  unmodified when it is eventually scheduled. Coordinate build order only if
+  Versus/Duel is un-parked and scheduled before this story ships.
 - Real-time: a new lightweight hub surface, mirroring the established
   `RosterChanged` pattern in `api/src/Hubs/GameHub.cs` /
   `web/src/signalr/useGameHub.ts` - something like `CastGoldenGuardianVote
@@ -136,10 +140,10 @@ order before starting either.
 | AC-05 | code review + manual: no leaderboard/win-count UI or persisted cross-round tally exists anywhere in the app |
 | AC-06 | manual: solo Reveal screen never shows a Golden Guardian vote step |
 | AC-07 | code review: no new text input introduced; the vote payload carries only an already-vetted blank id, no PII |
-| shared primitive | `web/src/engine/vote.test.ts` - covers `createVote`/`castVote`/`tally` in isolation, consumed identically by this story and `game-modes/06` |
+| shared primitive | `web/src/engine/vote.test.ts` - covers `createVote`/`castVote`/`tally` in isolation, consumed identically by this story and the parked Versus/Duel mode when it is scheduled |
 
 ## Dependencies
 - the-reveal/01-text-reveal
 - session-engine/03-player-roster (the room this story votes within)
 - design-system/02-guardian-component (the crown overlay)
-- game-modes/06-versus-duel (shares the vote-collection primitive - coordinate build order)
+- game-modes Versus/Duel mode (parked - see game-modes/feature.md; shares the vote-collection primitive this story builds first)

@@ -3,35 +3,40 @@
 ## Summary
 The single most important architectural piece: one engine that every game
 variation is a thin configuration of. A mode differs only on three axes - what
-the player sees, how they answer, and when the reveal happens. Slice 1 builds the
-abstraction plus the first concrete mode, Classic blind. This look-ahead pass adds
-the next four modes from README section 5, still expressed as configuration on
-the same engine.
+the player sees, how they answer, and when the reveal happens. Slice 1 built the
+abstraction plus the first concrete mode, Classic blind. This pass makes the two
+shared screens (FillBlank, Reveal) mode-aware and ships one new mode per
+remaining unbuilt axis value - Word Bank (answer), Progressive Story (see), and
+Progressive Reveal (reveal) - proving each axis in isolation, still expressed as
+configuration on the same engine.
 
 ## README reference
 README section 4 ("one engine, many thin modes" - the three axes) and section 7
-(Epic Map - Phase 1, Game Modes Engine; Phase 3, "Remaining Game Modes"). Mode
-list: section 5 (Classic blind is "first mode built"; Blind + word bank,
-Progressive reveal, Owner-curated word bank are the next three named variations).
+(Epic Map - Phase 1, Game Modes Engine). Mode list: section 5 (Classic blind is
+"first mode built"; Blind + word bank, Progressive reveal are named next
+variations - reframed here per-axis, see Decisions below).
 
 ## Stories
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #27 | Mode interface (the three axes) | Not Started |
-| 02 | #28 | Classic blind mode | Not Started |
-| 03 | #52 | Progressive reveal ("Whisper mode") | Not Started |
-| 04 | #53 | Blind + word bank | Not Started |
-| 05 | #54 | Owner-curated word bank | Not Started |
-| 06 | #55 | Versus / Duel mode | Not Started |
+| 01 | #27 | Mode interface (the three axes) | Complete |
+| 02 | #28 | Classic blind mode | Complete |
+| 03 | TBD | Mode-aware FillBlank + Reveal (foundation) | Not Started |
+| 04 | #53 | Word Bank mode (answer axis) | Not Started |
+| 05 | TBD | Progressive Story mode (see axis) | Not Started |
+| 06 | #52 | Progressive Reveal mode (reveal axis) | Not Started |
 
 ## Dependencies
 - template-model (a mode plays a template).
 - child-safety (free-text answers are filtered regardless of mode).
 - design-system (Classic blind screen uses the theme, buttons, and AppBar).
-- session-engine and group-play (03-06 are group-shaped modes: they need a
-  live roster and a round in flight to mean anything - a word bank, a
-  progressive story, or a vote only makes sense with other players present).
+- the-reveal (03/05/06 all reuse `buildRevealParts` read-only for word
+  highlighting - the-reveal/01 must exist first).
+- The mode-picker / mode-selection UI that chooses a mode for a live round, and
+  any real-time broadcast of shared mode state (a group-visible story-so-far,
+  a synchronized paced reveal), are single-player/group-play concerns - out of
+  scope for every story in this feature, called out story by story.
 
 ## Design notes
 - The three axes (README section 4):
@@ -41,32 +46,50 @@ Progressive reveal, Owner-curated word bank are the next three named variations)
 - Word collection and template assembly belong to the **engine**, not the mode.
   A mode only configures the axes. If adding a mode means touching assembly or
   collection, the abstraction has leaked - fix the abstraction.
-- This is what keeps every later mode (progressive reveal, word bank, owner-
-  curated bank) days of work instead of weeks.
-- Stories 03-05 stay pure axis configuration, same as Classic blind - each is a
-  new `ModeConfig` value (see `web/src/engine/mode.ts`) plus, where the axis is
-  genuinely new (word-bank answering, a progressive-story view), the one-time
-  engine capability that axis value requires. That capability is not "for" any
-  one mode; any future mode can turn the same axis value on.
-- Story 06 (Versus / Duel) is the one mode in this pass that is honestly a
-  **stretch** of the engine, not just a new axis value: multiple players
-  answering the SAME blank, plus a room-wide vote on the reveal. The three axes
-  do not currently express "how many players answer one blank" or "a vote
-  happens after the reveal" - so 06's job is to generalize the engine's
-  collection model (many-per-blank, not one-per-blank) and add a lightweight,
-  reusable vote-collection primitive, and land BOTH in the engine/mode-interface
-  orbit (`web/src/engine/`), never hard-coded to Versus. See 06's Technical
-  Notes for the shape. This keeps the "one engine" bet honest: if the
-  generalization leaks into a Versus-only code path, that is the abstraction
-  failing exactly the way CLAUDE.md section 2 warns about.
-- The vote primitive story 06 needs is the same shape `reveal-delight/03`
-  (Golden Guardian funniest-word award) needs - both are "the room taps to pick
-  a winner among options, tally, show the result." Building it once in the
-  engine and having both features consume it avoids two parallel voting
-  mechanisms. See `docs/features/reveal-delight/feature.md` and
-  `docs/features/reveal-delight/03-golden-guardian.md`.
+- **Foundation-first, one axis per mode.** Story 03 is the single foundation
+  that makes `FillBlank.tsx` and `Reveal.tsx` mode-aware via three OPTIONAL,
+  purely-additive slots (`seeContext`, `answerSurface`, `revealPresentation`
+  a.k.a. `ModeSurfaces`, see `03-mode-aware-surfaces.md`). It is the ONE story
+  permitted to edit those two files. Every mode after it (04, 05, 06) is a new
+  `ModeConfig` value plus exactly ONE plug-in surface component, each in its
+  OWN file - none of them touch `FillBlank.tsx`, `Reveal.tsx`, or the engine.
+  That file-disjointness is deliberate: it is what lets 04/05/06 build in
+  parallel with no coordination once 03 lands. If building a mode ever forces
+  a change to 03's files or to `web/src/engine/`, that is an abstraction leak
+  - flag it, do not patch around it.
+- **One axis per mode, proven cleanly.** Rather than combining axes in a
+  single look-ahead pass, this slice ships exactly one mode per unbuilt axis
+  value: Word Bank (04) proves `answer: 'word-bank'` alone (see/reveal stay
+  Classic-blind-shaped); Progressive Story (05) proves `see:
+  'progressive-story'` alone (`reveal` stays `'at-end'`); Progressive Reveal
+  (06) proves `reveal: 'progressively'` alone (`see` stays `'subject-only'`).
+  Combining two or three axes in one mode (e.g. a word-bank progressive story)
+  is explicitly deferred until each axis is independently proven - see each
+  story's Out of Scope.
+- This is what keeps every later mode (and every later combination of axes)
+  days of work instead of weeks - the architecture bet paid off exactly as
+  designed once 03's slots exist.
 
-## Parked - Phase 2+
+## Parked - Phase 2+/3
+- Owner-curated word bank (README section 5's "the round's host supplies the
+  word bank everyone draws from") - builds on Word Bank (04)'s rendering with
+  a host-authoring step and a round-scoped bank source, but that authoring
+  step is inherently group-shaped (there is no "other players" to curate for
+  solo) and needs a live roster + round-start broadcast to distribute the
+  host's words. Heavier than a thin axis-proving story; parked until
+  group-play's round-start chain is in place. (Was Issue #54 in the prior
+  look-ahead pass.)
+- Versus / Duel mode (two-plus players answering the SAME blank, then a
+  room-wide vote on the funniest answer) - the one mode that is honestly a
+  **stretch** of the engine, not thin config: the three axes do not express
+  "how many players answer one blank" or "a vote happens after the reveal," so
+  building it means generalizing `engine.ts`'s collection model
+  (many-answers-per-blank) and adding a reusable vote-collection primitive
+  shared with `reveal-delight/03` (Golden Guardian). That is real engine work,
+  not a same-shape-as-Classic-blind config story - parked until this slice's
+  three thin, disjoint modes have landed and proven the foundation, so the
+  engine generalization is undertaken deliberately rather than folded into a
+  "just another mode" pass. (Was Issue #55 in the prior look-ahead pass.)
 - More game modes beyond the five named in README section 5 (the axes are
   designed to keep adding modes cheap; new ones are proposed and slotted in as
   they come up, not designed speculatively here).
@@ -76,20 +99,27 @@ Progressive reveal, Owner-curated word bank are the next three named variations)
   Phase 2 territory, not a mode concern).
 
 ## Decisions
-- 2026-07-01: Extended the feature with stories 03-06 (README section 5's
-  remaining named modes) as a look-ahead pass ahead of Slice 1 shipping, per the
-  "keep the backlog ahead of development" mandate. All four are Status "Not
-  Started", Issue "TBD" - they are planned, not scheduled; they park behind
-  Slice 1 shipping and (for 03-06) group-play landing, since they all need a
-  live room to be meaningful.
-- 2026-07-01: Flagged Versus/Duel (06) explicitly as an engine stretch rather
-  than pure axis config, so a future builder does not quietly fork the engine
-  to ship it. The generalization (many-answers-per-blank + a vote primitive)
-  belongs in `web/src/engine/`, shared with `reveal-delight/03`.
-- 2026-07-01: Recorded the Versus/Duel judging model in response to a design
-  question ("how do we decide the best answer?"): the in-room HUMAN vote is the
-  canonical judge (README section 1 - the payoff is people laughing together,
-  not an algorithm's verdict). AI scoring is kept only as an optional,
-  non-authoritative "Guardian's Verdict" for solo play / a second opinion
-  (`ai-on-demand-generation/03`); judging by sharing to an outside person is
-  parked. See 06's Out of Scope.
+- 2026-07-01: **Re-planned this feature** as a tight, foundation-first, 3-mode
+  slice - superseding the prior 2026-07-01 look-ahead pass's 6-mode plan
+  (stories 03-06: Progressive reveal, Blind + word bank, Owner-curated word
+  bank, Versus/Duel). The old plan front-loaded group-play-shaped modes and one
+  genuine engine stretch (Versus) before the shared screens were even
+  mode-aware. The new plan adds one foundation story (03, makes FillBlank +
+  Reveal mode-aware via optional slots) and then ships exactly one thin mode
+  per remaining unbuilt axis value - Word Bank (04, answer axis), Progressive
+  Story (05, see axis), Progressive Reveal (06, reveal axis) - each file-
+  disjoint from the others and from the foundation, so 04/05/06 can build in
+  parallel. Owner-curated word bank and Versus/Duel are parked (see "Parked -
+  Phase 2+/3" above) rather than dropped: both remain README section 5
+  commitments, just correctly sequenced behind this slice and, for Versus,
+  behind a deliberate engine-generalization decision rather than folded into a
+  same-shape-as-Classic-blind pass.
+- 2026-07-01: Old story slugs `03-progressive-reveal.md`, `04-blind-word-
+  bank.md`, `05-owner-curated-word-bank.md`, `06-versus-duel.md` are removed;
+  the new `03-mode-aware-surfaces.md`, `04-word-bank.md`,
+  `05-progressive-story.md`, `06-progressive-reveal.md` replace them under
+  different slugs (03 is a new foundation story with no prior equivalent; 04
+  keeps Issue #53 since it is the same "answer axis, word bank" idea reframed
+  to the new footprint; 06 keeps Issue #52 since it is the same "reveal axis,
+  progressive" idea narrowed to reveal-only, no longer bundled with the see
+  axis).

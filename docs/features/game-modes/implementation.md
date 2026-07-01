@@ -10,169 +10,153 @@
 > [`docs/FEATURE_ORCHESTRATION_PLAYBOOK.md`](../../FEATURE_ORCHESTRATION_PLAYBOOK.md).
 
 This is the most important architectural piece (README section 4): **one engine, every mode a thin configuration of
-three axes**. Story 01 builds the engine + the mode-config interface; story 02 is the first concrete mode, Classic
-blind, expressed as config (not a fork). The whole feature is **pure engine TS + the FillBlank screen** - it never
-touches `GameHub.cs`, so it runs **in parallel with the entire `session-engine` chain**.
-
-**Look-ahead update (2026-07-01):** stories 03-06 add the rest of README section 5's named modes ahead of their
-build wave, so the backlog stays ahead of development. 03 (Progressive reveal), 04 (Blind + word bank), and 05
-(Owner-curated word bank, built on 04) stay pure `ModeConfig` values, same shape as 02 - no new engine branch. 06
-(Versus / Duel) is the one honest **engine stretch**: it generalizes `engine.ts`'s collection model to allow multiple
-answers per blank and adds a reusable vote-collection primitive, both living in `web/src/engine/` rather than a
-Versus-only path. 06 shares that vote primitive with `reveal-delight/03` (Golden Guardian) - see both stories' cross-
-references. All four (03-06) are group-shaped (need a live roster/round) and their group-play-side wiring (broadcast
-events, host-authoring distribution) is called out in each story's Technical Notes but is NOT in their own file
-footprint - it belongs to whichever `group-play` wave eventually schedules the mode.
+three axes**. Stories 01/02 (Complete) built the engine + the mode-config interface and the first concrete mode,
+Classic blind, expressed as config (not a fork). This pass (**re-planned 2026-07-01**, superseding the prior 6-mode
+look-ahead) is a tight, **foundation-first** slice: story 03 makes the two shared screens (`FillBlank.tsx`,
+`Reveal.tsx`) mode-aware via optional, purely-additive slots; stories 04, 05, and 06 then each ship exactly ONE new
+`ModeConfig` proving exactly ONE of the engine's three declared-but-unbuilt axis values (`answer: 'word-bank'`,
+`see: 'progressive-story'`, `reveal: 'progressively'`), each as a file-disjoint plug-in that never edits 03's files
+or the engine itself. The whole feature is **pure engine TS + two page components + three new plug-in files** - it
+never touches `GameHub.cs`.
 
 ## Reuse map
 
 | Concern | Reuse | Where |
 |---|---|---|
-| Pure-TS engine module | the `web/src/engine/` established by **template-model/01** | `web/src/engine/template.ts`, `assemble.ts` |
-| Template type the engine plays | `Template` / `Blank` / `BlankCategory` (**template-model/01**) | `web/src/engine/template.ts` |
-| Child safety (free-text answers) | the server-side filter (**child-safety/01**); for solo, the engine boundary call | `api/src/Safety/` |
+| Pure-TS engine module | the `web/src/engine/` established by **template-model/01** and **game-modes/01** | `web/src/engine/template.ts`, `assemble.ts`, `engine.ts`, `mode.ts` |
+| Mode-agnostic collection + assembly | `collectWord` / `skipBlank` / `toOrderedWords` / `isCollectionComplete` / `assembleStory` (**game-modes/01**) - NOT touched by 03-06 | `web/src/engine/engine.ts` |
+| The Classic blind pattern every mode mirrors | a plain `ModeConfig` literal (**game-modes/02**) | `web/src/engine/modes/classicBlind.ts` |
+| Mode-aware screen slots (**new in 03**, consumed by 04/05/06) | `ModeSurfaces` contract (`answerSurface` / `seeContext` / `revealPresentation`) + the `classicBlindSurfaces` default | `web/src/pages/modeSurfaces.ts` |
+| FillBlank's optional slots (**new in 03**) | `seeContext` (rendered above the prompt card) and `answerSurface` (replaces the free-text input) | `web/src/pages/FillBlank.tsx` |
+| Reveal's optional slot (**new in 03**) | `revealPresentation` (replaces the default coral-highlight body) | `web/src/pages/Reveal.tsx` |
+| Word-highlight rendering (reused read-only by 05/06) | `buildRevealParts()` + the coral highlight approach (**the-reveal/01**) | `web/src/pages/revealParts.ts`, `web/src/pages/Reveal.tsx` |
+| Word-bank source data | `Template.wordBank` / `WordBankEntry` (**template-model/01**, already defined, optional field) | `web/src/engine/template.ts` |
+| Family-safe content gating (reused for word-bank offering, 04) | the family-safe rule (**child-safety/02**) | `web/src/content/familySafe.ts` |
 | Styling / theme tokens | the MUI theme (**design-system/01**) | `web/src/theme.ts` |
-| Shared UI contracts | gold-CTA Button, category/spark Chips, `BottomActionBar` (**design-system/01**) | `web/src/components/` |
+| Shared UI contracts | gold-CTA Button, teal spark/category Chips, `BottomActionBar` (**design-system/01**) | `web/src/components/` |
 | Icons | FontAwesome, registered once | `web/src/fontawesome.ts` |
-| Test harness | Vitest (**platform-devops/01**) for the pure engine | `web/vitest.config.ts` |
-| Word-highlight rendering (reused for progressive story-so-far, 03) | `buildRevealParts()` + the coral highlight approach (**the-reveal/01**) | `web/src/pages/revealParts.ts`, `web/src/pages/Reveal.tsx` |
-| Family-safe content gating (reused for word-bank offering, 04/05) | `selectTemplates` / the family-safe rule (**child-safety/02**) | `web/src/content/familySafe.ts` |
-| Round-start broadcast (extended for host-authored banks, 05, and duel setup, 06) | the round-start hub method (**group-play/01**) | `api/src/Hubs/GameHub.cs` |
-| Round-robin distribution (extended for duel-blank assignment, 06) | pure distribution function (**group-play/02**) | `web/src/engine/distribute.ts` |
-| Reveal broadcast (extended for vote tally, 06) | the reveal-transition hub logic (**group-play/03**) | `api/src/Hubs/GameHub.cs` |
+| Test harness | Vitest (**platform-devops/01**) for pure engine/content logic | `web/vitest.config.ts` |
 
 What this feature **exports** that others import:
-- The **mode config** type (the three axes) and the **engine** functions (collect words, assemble) - the contract
-  `single-player` and `group-play` drive a round through.
-- The **Classic blind** mode config and the **FillBlank** screen/view - reused by both `single-player/01` (solo
-  filler) and `group-play` (per-player filler).
-- (Look-ahead, 03-06) Three more `ModeConfig` values (Progressive reveal, Blind + word bank, Owner-curated word
-  bank) and one genuine engine generalization (Versus/Duel's many-answers-per-blank collection shape) plus a shared
-  **vote-collection primitive** (`web/src/engine/vote.ts`, story 06) that `reveal-delight/03` also imports.
+- The **mode config** type (the three axes) and the **engine** functions (collect words, assemble) - unchanged by
+  this pass, still the contract `single-player` and `group-play` drive a round through.
+- The **Classic blind** mode config and the **FillBlank**/**Reveal** screens/views - reused by `single-player/01`
+  (solo filler) and `group-play` (per-player filler), now mode-aware via optional slots with zero change to how
+  Classic blind itself renders (backward-compatible).
+- (New, this pass) The `ModeSurfaces` contract (`web/src/pages/modeSurfaces.ts`, story 03) that any future mode
+  colocates its plug-in surfaces with. Three new `ModeConfig` + `ModeSurfaces` pairs: Word Bank (04), Progressive
+  Story (05), Progressive Reveal (06) - each a self-contained plug-in a future mode picker (single-player/group-play,
+  out of this feature's scope) can select and wire in.
 
 ## Wave Plan (DAG)
 
-Sizing rule: a builder owns files **disjoint** from its concurrent siblings.
+Sizing rule: a builder owns files **disjoint** from its concurrent siblings. Story 03 is the one serial foundation;
+04/05/06 are file-disjoint from 03's footprint and from each other, so they fan out in the same wave with no further
+coordination.
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 mode-interface | #27 | `web/src/engine/mode.ts` (the three-axes config type), `web/src/engine/engine.ts` (collect + assemble orchestration), unit tests | template-model/01 | session-engine chain (other feature, disjoint) | 1 | medium |
-| 02 classic-blind | #28 | `web/src/engine/modes/classicBlind.ts` (config), `web/src/pages/FillBlank.tsx` (the filler screen) | gm/01, template-model/01, child-safety/01, design-system/01 | session-engine chain | 2 | high |
-| 03 progressive-reveal | #52 | `web/src/engine/modes/progressiveReveal.ts` (config), edits `web/src/pages/FillBlank.tsx` (story-so-far preview slot, or a sibling wrapper) | gm/01, gm/02, the-reveal/01 | 04, 05 (disjoint config files; both touch FillBlank-family UI so verify no overlapping edit before running concurrently) | 3 | medium |
-| 04 blind-word-bank | #53 | `web/src/engine/modes/blindWordBank.ts` (config), a word-bank answer surface (new component or FillBlank variant) | gm/01, gm/02, template-model/01, child-safety/02 | 03 | 3 | medium |
-| 05 owner-curated-word-bank | #54 | a host-authoring step (new screen/component), a "bank source" selection helper in `web/src/engine/` | gm/04 | 03 | 4 | medium |
-| 06 versus-duel | #55 | edits `web/src/engine/engine.ts` (multi-answer-per-blank generalization), new `web/src/engine/vote.ts` (shared primitive), edits `web/src/engine/distribute.ts` (duel-blank assignment), a multi-answer reveal + vote UI | gm/01, gm/02, group-play/02, group-play/03, the-reveal/01 | - (touches shared `engine.ts`; serialize against any concurrent engine-touching story) | 5 | high |
+| 01 mode-interface | #27 | `web/src/engine/mode.ts`, `web/src/engine/engine.ts` | template-model/01 | - | 0 (done) | medium |
+| 02 classic-blind | #28 | `web/src/engine/modes/classicBlind.ts`, `web/src/pages/FillBlank.tsx` | gm/01, template-model/01, child-safety/01, design-system/01 | - | 0 (done) | high |
+| 03 mode-aware-surfaces | TBD | `web/src/pages/FillBlank.tsx` (edit, optional-prop only), `web/src/pages/Reveal.tsx` (edit, optional-prop only), `web/src/pages/modeSurfaces.ts` (new), unit tests | gm/01, gm/02, the-reveal/01 | - | 1 | high |
+| 04 word-bank | #53 | `web/src/engine/modes/wordBank.ts`, `web/src/pages/fillblank/WordBankAnswer.tsx`, `web/src/content/wordBankOffering.ts`, tests | gm/03, template-model/01, child-safety/02 | 05, 06 | 2 | medium |
+| 05 progressive-story | TBD | `web/src/engine/modes/progressiveStory.ts`, `web/src/pages/fillblank/StorySoFarContext.tsx`, tests | gm/03, the-reveal/01 | 04, 06 | 2 | medium |
+| 06 progressive-reveal | #52 | `web/src/engine/modes/progressiveReveal.ts`, `web/src/pages/reveal/ProgressiveRevealPresentation.tsx`, tests | gm/03, the-reveal/01 | 04, 05 | 2 | medium |
 
-**Concurrency per wave:** 1 within the Slice-1 pair (02 imports 01's interface + uses the engine -> serialize). The
-feature as a whole runs **concurrently with `session-engine`** (engine files + `FillBlank.tsx` are disjoint from
-`GameHub.cs` / Home / Join / Lobby). For the look-ahead stories: 03, 04, and 05 are each pure new `ModeConfig` files
-and can in principle run in the same wave, but 03/04/05 all touch FillBlank-adjacent UI (a story-so-far preview, a
-word-bank answer surface, a host-authoring step) - confirm actual file disjointness at Phase 1 before fanning them
-out; if two land on the same file, serialize or merge. **06 is the one story in this feature that edits `engine.ts`
-itself** (the multi-answer-per-blank generalization) - it must NOT run concurrently with any other story touching
-`web/src/engine/engine.ts`, and it depends on `group-play/02` + `/03` for the duel-blank distribution and vote-tally
-broadcast plumbing, so it is scheduled after the group-play chain lands, not just after 01/02.
+**Concurrency per wave:** Wave 0 (01, 02) is already Complete. **Wave 1 = 03 alone, serial** - it is the only story
+permitted to edit `FillBlank.tsx`/`Reveal.tsx`, and 04/05/06 all depend on the slots it adds (`ModeSurfaces`,
+`answerSurface`, `seeContext`, `revealPresentation`), so nothing in wave 2 can start until it lands. **Wave 2 = {04,
+05, 06} run fully in parallel** - each owns a disjoint `web/src/engine/modes/*.ts` config file, a disjoint new
+component file (`fillblank/WordBankAnswer.tsx` vs. `fillblank/StorySoFarContext.tsx` vs.
+`reveal/ProgressiveRevealPresentation.tsx`), and (04 only) a disjoint content-selection helper - no two stories in
+this wave touch the same file, so the orchestrator's Phase 1 can fan them out with no further analysis. None of 04,
+05, or 06 touches `web/src/engine/engine.ts`, `assemble.ts`, `mode.ts`, `template.ts`, `FillBlank.tsx`, or
+`Reveal.tsx` - if a builder finds itself needing to, that is an abstraction leak per the Cross-cutting concerns
+below; stop and flag it rather than patching around it.
 
 ## Per-story tech notes
 
-### 01 - Mode interface (the three axes)
-- **Approach:** model a mode as a **small config object** over three axes - what the player sees (nothing / subject
-  only / progressive story), how they answer (free text / word bank), when the reveal happens (at the end /
-  progressively) (AC-01). The **engine** collects words for a template's blanks and assembles the final story
-  **independently of the active mode** (AC-02), so adding a mode is configuration only - no change to collection or
-  assembly (AC-03). The same template plays under any mode (AC-04). The **safety-filter call lives on the collection
-  path** so every mode inherits it for free (AC-05).
-- **Owns / exports:** `mode.ts` (the axes type), `engine.ts` (collect + assemble orchestration, building on
-  `template-model`'s `assemble()`).
-- **Gotchas:** keep it pure and unit-tested (Vitest). The interface must **allow** progressive reveal and word-bank
-  answering even though Slice 1 implements neither (Out of scope) - design the axes to express them, do not build
-  them. If implementing a mode ever forces a change here, the abstraction has leaked (flag it).
+### 01 - Mode interface (the three axes) [Complete]
+Model a mode as a small config object over three axes; the engine collects/assembles independently of the active
+mode. See `docs/features/game-modes/01-mode-interface.md` for full history - unchanged by this pass.
 
-### 02 - Classic blind mode
-- **Approach:** "**the engine, configured this way**" - subject-only view, free-text answers, end reveal (AC-08) -
-  **not** a bespoke code path. The FillBlank screen renders the current blank from the engine/template: progress row
-  + 8-segment bar, stone-tablet prompt card (category chip, prompt sentence with the category word in purple,
-  sub-hint), carved free-text input (maxLength 20) with a "Need a spark?" row of 3 tappable example chips
-  (`setWord(chipText)`), and the blind-mode reassurance panel (AC-01 to AC-04). The gold "Next word ->" submits
-  **after the safety filter passes** (AC-05); a low-pressure "Stuck? Skip this word" ghost link advances leaving the
-  blank empty (AC-06). On completion, transition to Waiting (group) or straight to the reveal (solo), having never
-  shown the story (AC-07).
-- **Owns / exports:** the Classic blind config and the FillBlank view. FillBlank is built **reusable** by both solo
-  and group play (this story owns the single-filler mechanics only - multi-player distribution is `group-play/02`).
-- **Gotchas:** safety filter runs **server-side on submission** in group play and **at the engine boundary** for
-  solo - either way before the word is recorded. Progress bar segment count adapts to the number of assigned blanks.
-  Spark chips can be hardcoded per category for Slice 1 (tying them to template metadata is a later enhancement).
-  `transform: scale` for any entrance pops. Out of scope: word-bank answering, progressive reveal, FillBlank
-  background animations.
+### 02 - Classic blind mode [Complete]
+"The engine, configured this way" - subject-only view, free-text answers, end reveal. See
+`docs/features/game-modes/02-classic-blind.md` for full history - unchanged by this pass except that story 03
+extends `FillBlank.tsx` with new OPTIONAL props (regression parity is an explicit AC on 03).
 
-### 03 - Progressive reveal ("Whisper mode") [look-ahead]
-- **Approach:** a new `ModeConfig` (`see: 'progressive-story'`, `reveal: 'progressively'`) whose FillBlank rendering
-  shows the story-so-far (already-filled words highlighted coral, via `buildRevealParts`) above the current prompt,
-  updating after each submission (AC-01, AC-02). Proven with NO change to `engine.ts`/`assemble.ts` - the
-  story-so-far view is just `assembleStory` called against a partial collection, which `assemble()` already handles
-  non-throwing (AC-03).
-- **Owns / exports:** `progressiveReveal.ts` (config) and whatever FillBlank-family UI renders the story-so-far
-  preview (a new prop or a sibling wrapper - decide at build time per FillBlank's composition contract).
-- **Gotchas:** the live cross-player broadcast of the shared story-so-far (so every player's screen updates as ANY
-  player's word lands) is a `group-play`-owned hub concern, out of this story's footprint - flag it for whichever
-  wave schedules the mode. Out of scope: the word-by-word carving animation (`reveal-delight/02` layers that on).
+### 03 - Mode-aware FillBlank + Reveal (foundation)
+- **Approach:** add three optional, purely-additive slots so the two shared screens defer to whatever mode they are
+  given instead of hardcoding Classic blind's shape: `FillBlank` gains `seeContext?: ReactNode` (rendered above the
+  prompt card) and `answerSurface?: ReactNode` (replaces the free-text input + spark chips when supplied); `Reveal`
+  gains `revealPresentation?: ReactNode` (replaces the default coral-highlight body when supplied). Ship ONLY the
+  Classic-blind defaults working end to end when no slots are supplied - byte-for-byte parity with today's rendering
+  is an explicit AC, proven by NOT touching `Solo.tsx`/`GroupRound.tsx` at all.
+- **Owns / exports:** the new `ModeSurfaces` contract type (`web/src/pages/modeSurfaces.ts`) - `{ answerSurface?,
+  seeContext?, revealPresentation? }` - plus a documented `classicBlindSurfaces: ModeSurfaces = {}` default, so 04/05/06
+  each colocate their surfaces with their `ModeConfig` in a uniform shape.
+- **Gotchas:** this is the ONE story permitted to edit `FillBlank.tsx`/`Reveal.tsx` in this feature - every later mode
+  is a plug-in, never a further edit to these two files. `ModeConfig` itself (`mode.ts`) is NOT touched: surfaces are
+  data the PARENT resolves and passes down, not a field on the axis config. No engine change of any kind. The mode
+  picker that actually selects a mode and its surfaces for a live round is explicitly out of scope (single-
+  player/group-play territory) - this story ships the slots unused by the two existing callers.
 
-### 04 - Blind + word bank [look-ahead]
-- **Approach:** a new `ModeConfig` (`answer: 'word-bank'`, otherwise Classic-blind-shaped) that swaps FillBlank's
-  free-text input for a tappable list sourced from `template.wordBank`, filtered by the current blank's category
-  (AC-01, AC-02). Submission still flows through `engine.ts`'s existing `collectWord`, which already skips the
-  safety check for `answer === 'word-bank'` (documented in `engine.ts`'s header) - this story proves that seam, it
-  does not add a new one (AC-03, AC-04).
-- **Owns / exports:** `blindWordBank.ts` (config) and the word-bank answer surface (new component or a mode-aware
-  FillBlank variant, per the parent's composition decision).
-- **Gotchas:** family-safe gating applies to which templates' banks are OFFERED (content selection, session/round
-  setup time), not a per-tap check (AC-05). Out of scope: owner-curated banks (05 builds on this).
+### 04 - Word Bank mode (answer axis)
+- **Approach:** `{ see: 'subject-only', answer: 'word-bank', reveal: 'at-end' }` - a tappable curated word list
+  (sourced from `template.wordBank`, filtered by the current blank's `category`) plugged into `FillBlank`'s
+  `answerSurface` slot. Submission still flows through `engine.ts`'s existing `collectWord`, which already skips the
+  free-text filter for `answer === 'word-bank'` - this story proves that documented seam, it does not add a new one.
+- **Owns / exports:** `wordBank.ts` (config + `ModeSurfaces` pairing), `WordBankAnswer.tsx` (the answer surface,
+  reusing the teal MUI Chip tap language from FillBlank's spark row), `wordBankOffering.ts` (pure "which templates'
+  banks are offered given family-safe" helper).
+- **Gotchas:** family-safe gating applies to which templates' banks are OFFERED (content-selection/session-setup
+  time), never a per-tap check. A bank-less template simply is not offered - no crash, no empty list.
 
-### 05 - Owner-curated word bank [look-ahead]
-- **Approach:** builds on 04's rendering/collection unchanged; adds a host-authoring step before round start (one
-  small word list per category) and a round-scoped "bank source" that FillBlank's word-bank renderer prefers over
-  `template.wordBank` when present (AC-01, AC-02, AC-06). Unlike 04's pre-vetted entries, host-typed words ARE free
-  text, so this is the one place in the mode where the safety filter runs server-side before distribution (AC-03).
-- **Owns / exports:** the host-authoring screen/step and a pure "prefer host bank, else template bank, else
-  unavailable" selection helper in `web/src/engine/`.
-- **Gotchas:** distributing the host-authored bank to all players is a `group-play/01`-adjacent hub concern (extends
-  the round-start broadcast), out of this story's own footprint. `ModeConfig` itself does not grow a new field for
-  "who authored the bank" - that is round setup data, kept separate (AC-06).
+### 05 - Progressive Story mode (see axis)
+- **Approach:** `{ see: 'progressive-story', answer: 'free-text', reveal: 'at-end' }` - the player sees the
+  story-so-far (already-filled words highlighted coral via `buildRevealParts` against the PARTIAL collection) above
+  the prompt card, updating after each submission, plugged into `FillBlank`'s `seeContext` slot. Proven with NO
+  change to `engine.ts`/`assemble.ts` - just `assembleStory` called against a partial collection, which `assemble()`
+  already handles non-throwing. `reveal` stays `'at-end'` so this story proves the SEE axis cleanly, distinct from
+  06's reveal axis.
+- **Owns / exports:** `progressiveStory.ts` (config + `ModeSurfaces` pairing), `StorySoFarContext.tsx` (reuses
+  `buildRevealParts` read-only, renders only the segments preceding the current blank).
+- **Gotchas:** `answer: 'free-text'` so submissions still route through the collection-path safety check; the
+  story-so-far view only ever renders already-collected (already-vetted) words, so nothing unfiltered is ever shown,
+  even transiently. Live cross-player broadcast of a shared story-so-far is a group-play hub concern, out of scope.
 
-### 06 - Versus / Duel mode [look-ahead, engine stretch]
-- **Approach:** the one mode in this pass that is NOT pure axis config. Generalizes `engine.ts`'s collection to
-  allow multiple `SubmittedWord`s against one blank id, for exactly the blanks flagged as Versus in a round (AC-02);
-  extends the reveal to present all competing answers together plus a lightweight, room-wide vote step (AC-04).
-  Builds a small, reusable **vote-collection primitive** (`web/src/engine/vote.ts`: create/cast/tally) with no
-  opinion on what the options are, so `reveal-delight/03` (Golden Guardian) can consume the exact same module rather
-  than the two features inventing separate vote-counting logic (AC-05). Deliberately light-touch on tone: no score,
-  no leaderboard, no "lost" framing (AC-06, mirrors `reveal-delight/03`'s same guard).
-- **Owns / exports:** the `engine.ts` generalization, `vote.ts` (shared primitive - **exported for
-  `reveal-delight/03` to import**), the duel-blank assignment addition to `distribute.ts`, and the multi-answer
-  reveal + vote UI.
-- **Gotchas:** this is the ONE story in the feature permitted to edit `engine.ts` - regression-cover that
-  single-answer-per-blank behavior is unchanged for every non-Versus blank/mode before merging. Coordinate build
-  order with `reveal-delight/03` so `vote.ts` is built once, not twice. Vote-tally broadcast rides the existing
-  `group-play/03` reveal-transition hub pattern (a new event alongside `RosterChanged`), out of this story's own
-  footprint but called out for the scheduling wave. Out of scope: multiple simultaneous duel blanks, Versus combined
-  with word-bank/progressive axes, any cumulative scoring.
+### 06 - Progressive Reveal mode (reveal axis)
+- **Approach:** `{ see: 'subject-only', answer: 'free-text', reveal: 'progressively' }` - players fill blind exactly
+  like Classic blind (no `seeContext`/`answerSurface` overrides); the REVEAL surface unveils the assembled story one
+  filled word at a time (paced/stepped) rather than all at once, plugged into `Reveal`'s `revealPresentation` slot.
+  Reuses `buildRevealParts` read-only against the already-complete `AssembledStory`; no engine/assemble change.
+- **Owns / exports:** `progressiveReveal.ts` (config + `ModeSurfaces` pairing), `ProgressiveRevealPresentation.tsx`
+  (reuses `buildRevealParts` read-only, paces the word parts in over time while literal text renders immediately).
+- **Gotchas:** `answer: 'free-text'` -> collection-path safety check during filling; the reveal only paces
+  already-vetted words. Real-time synchronization of the paced reveal across a group's players is a group-play hub
+  concern, out of scope. No cumulative score, no vote, no Versus-shaped mechanic (that is the parked Versus/Duel
+  mode, a genuine engine stretch, not this story's concern).
 
 ## Cross-cutting concerns
 
-- **One engine, many thin modes** is the whole point of this feature - it is where the architectural bet is paid
-  off or lost. Every later mode (progressive, word-bank, owner-curated) must be a new config object here, days of
-  work not weeks. Word collection and template assembly belong to the **engine**, never to a mode (playbook
-  Principle 2). **Versus (06) is the documented exception that proves the rule**: it is the one mode that stretches
-  the engine, and it does so by generalizing the engine itself (collection model + a shared vote primitive) rather
-  than forking a Versus-only path - any future mode that also needs many-answers-per-blank or a vote step reuses
-  the same generalization, so the bet holds even under the stretch.
+- **One engine, many thin modes** is the whole point of this feature. Story 03 is the foundation that makes the
+  shared screens mode-aware; every mode after it (04, 05, 06, and any future mode) is a new `ModeConfig` value plus
+  ONE plug-in surface component in its own file - never a fork of `engine.ts`, `assemble.ts`, `FillBlank.tsx`, or
+  `Reveal.tsx`. If building a mode ever forces a change to any of those four files, that is an abstraction leak
+  (playbook Principle 2) - stop and flag it rather than patching around it.
+- **File-disjointness is the concurrency enabler.** Wave 2's three modes (04/05/06) can fan out with zero
+  coordination specifically because each owns a distinct `web/src/engine/modes/*.ts` file and a distinct new
+  component file, and none of them touches 03's footprint. This is deliberately the "prove foundation-first, then
+  fan out" alternative to the prior look-ahead pass, which tangled group-play-shaped modes and one engine stretch
+  (Versus/Duel, now parked - see feature.md) into the same wave as pure axis config.
 - **Inter-feature ordering (prerequisites):** `template-model/01` (the template the engine plays), `child-safety/01`
-  (free-text filter), `design-system/01` (theme + Button + Chips). This feature must complete before `the-reveal/01`
-  (which renders the collected words), `single-player/01`, and `group-play` (all consume the engine + FillBlank).
-  The look-ahead stories (03-06) additionally depend on `group-play` landing (they are group-shaped: a word bank, a
-  shared progressive story, and a duel/vote all need a live room) and, for 06, on `reveal-delight/03`'s build order
-  for the shared vote primitive.
-- **Child safety:** free-text answers pass the filter regardless of mode - because the call sits on the engine's
-  collection path, no mode can bypass it. Word-bank modes (04, 05) are the one place a mode legitimately skips the
-  free-text filter (pre-vetted content), documented explicitly in each story rather than left implicit.
-- **No i18n** (plain prompt/UI strings), **big tap targets**, **no em dashes**.
+  (free-text filter), `child-safety/02` (family-safe toggle, for 04's offering gate), `design-system/01` (theme +
+  Button + Chips), `the-reveal/01` (`buildRevealParts`, reused read-only by 03/05/06). The mode-picker UI that
+  selects a mode for a live round, and any real-time broadcast of shared mode state (a group-visible story-so-far in
+  05, a synchronized paced reveal in 06), belong to `single-player`/`group-play` - explicitly out of scope for every
+  story in this feature.
+- **Child safety:** free-text answers pass the filter regardless of mode, because the call sits on the engine's
+  collection path - no mode can bypass it. Word Bank (04) is the one mode that legitimately skips the free-text
+  filter (pre-vetted content), documented explicitly rather than left implicit. No PII collected by any mode.
+- **No i18n** (plain prompt/UI strings), **big tap targets**, **MUI-theme-only** (no hex/px literals - tokens from
+  `web/src/theme.ts`), **FontAwesome-only** icons, **TS strict** (no `any`; guard, don't `!`), **no em dashes**.

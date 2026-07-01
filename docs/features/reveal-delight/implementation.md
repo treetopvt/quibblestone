@@ -30,14 +30,15 @@ Reaction row, 03 Golden Guardian) need a genuinely new, room-wide real-time surf
 | Shared UI contracts | `AppBar`, gold-CTA + outlined-purple Button, `BottomActionBar` | `web/src/components/` |
 | Avatar (Golden Guardian's crown overlay) | `<Guardian variant size />` (**design-system/02**) - extend with an optional `crowned` prop, not a new variant | `web/src/components/Guardian.tsx` |
 | Icons | FontAwesome, registered once (add crown/laugh/heart/sparkle/star/vote icons here) | `web/src/fontawesome.ts` |
-| Shared vote-collection primitive (Golden Guardian's tap-to-pick-one-winner mechanic) | `vote.ts` - **coordinate with `game-modes/06`, whichever lands first builds it** | `web/src/engine/vote.ts` |
+| Shared vote-collection primitive (Golden Guardian's tap-to-pick-one-winner mechanic) | `vote.ts` - **this story builds it first**; the parked Versus/Duel mode (`docs/features/game-modes/feature.md` "Parked - Phase 2+/3") imports it unmodified when eventually scheduled | `web/src/engine/vote.ts` |
 | Child safety (no new free-text surface introduced by this feature; words already vetted upstream) | the single server-side filter | `api/src/Safety/` |
 
 What this feature **exports** that others import:
 - Extensions to `Reveal.tsx` (reaction row, carving-in animation, tappable/vote-highlighted coral words) - no other
   feature is expected to import these as standalone modules; they live inside the screen they enhance.
-- `vote.ts` (story 03, if built first) - the shared vote-collection primitive `game-modes/06` (Versus/Duel) also
-  consumes. See that story's cross-reference.
+- `vote.ts` (story 03) - the shared vote-collection primitive the parked Versus/Duel mode will also consume once it
+  is un-parked and scheduled (see `docs/features/game-modes/feature.md` "Parked - Phase 2+/3"). See that story's
+  cross-reference.
 - An optional `crowned` prop on `Guardian` (story 03) - available to any future screen that renders a player's
   avatar during the crowned round.
 
@@ -51,15 +52,16 @@ serialize.
 |---|---|---|---|---|---|---|
 | 01 reaction-row | #56 | edits `web/src/pages/Reveal.tsx` (new reaction-row region) or extracts `web/src/components/ReactionRow.tsx`; edits `api/src/Hubs/GameHub.cs` (react invoke + broadcast), `web/src/signalr/useGameHub.ts` | the-reveal/01, session-engine/03, design-system/01 | 02 (different region of `Reveal.tsx` - verify disjoint before running concurrently) | 1 | medium |
 | 02 carving-reveal-animation | #57 | edits `web/src/pages/Reveal.tsx` (story-scroll `parts.map` entrance animation only) | the-reveal/01, design-system/01 | 01 (different region of `Reveal.tsx` - verify disjoint before running concurrently) | 1 | medium |
-| 03 golden-guardian | #58 | edits `web/src/pages/Reveal.tsx` (tappable/highlighted coral words), new `web/src/engine/vote.ts` (or reuses game-modes/06's if it already exists), edits `web/src/components/Guardian.tsx` (`crowned` prop), edits `api/src/Hubs/GameHub.cs` (vote invoke + resolve broadcast), `web/src/signalr/useGameHub.ts` | the-reveal/01, session-engine/03, design-system/02, game-modes/06 (shared primitive - coordinate) | - (touches the same `Reveal.tsx` tap targets 02 animates; sequence after 02 or verify no race) | 2 | high |
+| 03 golden-guardian | #58 | edits `web/src/pages/Reveal.tsx` (tappable/highlighted coral words), new `web/src/engine/vote.ts`, edits `web/src/components/Guardian.tsx` (`crowned` prop), edits `api/src/Hubs/GameHub.cs` (vote invoke + resolve broadcast), `web/src/signalr/useGameHub.ts` | the-reveal/01, session-engine/03, design-system/02 | - (touches the same `Reveal.tsx` tap targets 02 animates; sequence after 02 or verify no race) | 2 | high |
 
 **Concurrency per wave:** Wave 1 = {01, 02} - both touch `Reveal.tsx` but in genuinely different regions (01: a new
 region above `BottomActionBar`; 02: the existing story-scroll `parts.map`) - confirm at Phase 1 that the diffs don't
 overlap before running them as true parallel builders; if they do collide, serialize (02 first, since 03 depends on
 its carving-complete timing anyway). Wave 2 = 03 alone: it needs 02's carving animation to have a defined "complete"
 state before its tap targets become interactive (per 03's own AC-01 note: "once the story is fully shown ... or
-immediately if 02 is not yet built"), and it may share `vote.ts` with `game-modes/06`, whose build order is
-independent of this feature - check before starting.
+immediately if 02 is not yet built"). It builds `vote.ts` for its own use; the parked Versus/Duel mode will import it
+unmodified whenever it is eventually un-parked and scheduled (see `docs/features/game-modes/feature.md` "Parked -
+Phase 2+/3") - no coordination is needed today since that mode is not currently scheduled.
 
 ## Per-story tech notes
 
@@ -92,9 +94,9 @@ independent of this feature - check before starting.
   (AC-05, a permanent Decision per `feature.md`, not just an Out of Scope note). Absent entirely in solo (AC-06); no
   new free-text/PII surface (AC-07).
 - **Owns / exports:** the vote-tappable coral-word rendering in `Reveal.tsx`, the `crowned` prop on `Guardian.tsx`,
-  the vote hub invoke/broadcast, and (if built before `game-modes/06`) the shared `vote.ts` primitive.
-- **Gotchas:** **check whether `game-modes/06` already built `vote.ts` before starting** - reuse it, do not
-  duplicate. The crown's "next round only" lifecycle is server-tracked round state, not a client timer. Sequence
+  the vote hub invoke/broadcast, and the shared `vote.ts` primitive (built here first - the parked Versus/Duel mode
+  imports it unmodified when it is eventually scheduled).
+- **Gotchas:** the crown's "next round only" lifecycle is server-tracked round state, not a client timer. Sequence
   after 02 (or verify no race) since the vote targets are the same elements 02 animates in. Out of scope: any
   leaderboard/win-count (permanently rejected), tie-breaking drama, voting on anything but a single coral word.
 
@@ -107,11 +109,11 @@ independent of this feature - check before starting.
   `api/src/Hubs/GameHub.cs` / `web/src/signalr/useGameHub.ts`, following the established `RosterChanged` pattern
   (register once, guard against post-leave/teardown races) - never a second `HubConnection`. Story 02 needs no hub
   change at all (purely client-local).
-- **Shared vote primitive with `game-modes/06`.** Story 03 and `game-modes/06` (Versus/Duel) both need "tap to pick
-  one winner among options, tally, surface a result." Build `web/src/engine/vote.ts` once; whichever story lands
-  first builds it generally (no opinion on what the options represent), the other imports it. This is called out in
-  both stories' Technical Notes and both features' Design notes/Decisions - do not let two vote implementations
-  drift into existence.
+- **Shared vote primitive, built here for a parked mode.** Story 03 and the parked Versus/Duel mode (see
+  `docs/features/game-modes/feature.md` "Parked - Phase 2+/3") both need "tap to pick one winner among options,
+  tally, surface a result." Story 03 builds `web/src/engine/vote.ts` once, generally (no opinion on what the options
+  represent), so Versus/Duel can import it unmodified whenever it is eventually un-parked and scheduled - do not let
+  a second vote implementation drift into existence later.
 - **Tone discipline: no scoring, ever.** README section 1 - QuibbleStone is a toy for hilarity, not a competition.
   Golden Guardian (03) is explicitly a single-round, cosmetic, forgettable award; the Reaction row (01) has no
   "winning" reaction at all, just counts. Neither introduces a leaderboard, a win/loss framing, or cross-round
@@ -126,5 +128,6 @@ independent of this feature - check before starting.
   identity beyond "someone in this room." **No i18n** (plain strings), **big tap targets**, **no em dashes**.
 - **Inter-feature ordering (prerequisites):** `the-reveal/01` (the screen this builds on), `session-engine/03` (the
   room/roster reactions and votes broadcast within), `design-system/01` + `/02` (theme, Button, Guardian). Story 03
-  additionally coordinates with `game-modes/06` for the shared vote primitive - neither hard-blocks the other, but
-  whichever is scheduled second should check the first's `vote.ts` before building its own.
+  additionally builds the shared vote primitive that the parked Versus/Duel mode will later reuse (see
+  `docs/features/game-modes/feature.md` "Parked - Phase 2+/3") - not a hard dependency today since that mode is not
+  currently scheduled; whoever un-parks it should check `vote.ts` before building a second implementation.
