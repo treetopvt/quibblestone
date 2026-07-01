@@ -50,6 +50,12 @@ const tokens = {
   bottomBarScrim: '#F2E8D2',
   stoneSlot: '#DCCFB0',
   stoneSlotAlt: '#DFD2B4',
+  // Lobby roster player-tile (session-engine/03, docs/design/Lobby.dc.html): a
+  // ~74px carved-stone circle - a light parchment fill with a warm sandstone
+  // border - that frames each present player's Guardian. Kept as tokens so the
+  // Lobby never hardcodes these hexes (CLAUDE.md section 4).
+  rosterTileFill: '#FBF6EA',
+  rosterTileBorder: '#E0CDA0',
   textPrimary: '#2B2622',
   textMutedStrong: 'rgba(43,38,34,.66)',
   textMutedSoft: 'rgba(43,38,34,.5)',
@@ -114,6 +120,8 @@ declare module '@mui/material/styles' {
     bottomBarScrim: { main: string };
     /** Guardian variant accent colors + tile tints (session-engine/05). */
     guardianAccent: GuardianAccentPalette;
+    /** Lobby roster player-tile fill + border (session-engine/03). */
+    rosterTile: { fill: string; border: string };
   }
   interface PaletteOptions {
     parchment?: { top: string; mid: string; bottom: string; gradient: string };
@@ -128,6 +136,7 @@ declare module '@mui/material/styles' {
     appBarIcon?: { fill: string; hoverFill: string };
     bottomBarScrim?: { main: string };
     guardianAccent?: GuardianAccentPalette;
+    rosterTile?: { fill: string; border: string };
   }
 }
 
@@ -173,6 +182,9 @@ export const theme = createTheme({
       sand: { main: tokens.guardianSand, tileTint: alpha(tokens.guardianSand, 0.1) },
       plum: { main: tokens.guardianPlum, tileTint: alpha(tokens.guardianPlum, 0.14) },
     },
+    // Lobby roster player-tile (session-engine/03): the carved-stone circle that
+    // frames each present player's Guardian avatar.
+    rosterTile: { fill: tokens.rosterTileFill, border: tokens.rosterTileBorder },
   },
   shape: {
     borderRadius: 20, // large rounded buttons/cards default; see DESIGN_RULES card radius (24px) for cards specifically

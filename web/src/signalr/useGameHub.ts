@@ -76,6 +76,15 @@ export interface UseGameHub {
   status: ConnectionStatus;
   /** The current room (code + live roster), or null when not in one. Owned here so RosterChanged updates flow to every screen. */
   room: RoomState | null;
+  /**
+   * Whether THIS client is the host of the current room (session-engine/03).
+   * True when this client created the room, false when it joined one, and
+   * cleared when it leaves. The Lobby gates the host-only "Start game" CTA on
+   * this (AC-05). It is tracked from the caller's own action rather than read
+   * off the roster, because IsHost on a PlayerDto is not tied to a connection
+   * on the wire (no PII), so a client cannot tell which roster row is "me".
+   */
+  isHost: boolean;
   ping: (message: string) => Promise<string | undefined>;
   /**
    * Create a room and become its host (session-engine/01). On success updates
@@ -98,6 +107,9 @@ export function useGameHub(): UseGameHub {
   const connectionRef = useRef<HubConnection | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [room, setRoom] = useState<RoomState | null>(null);
+  // Whether this client hosts the current room (set by createRoom / joinRoom,
+  // cleared by clearRoom) - the Lobby's host-only Start CTA reads this (AC-05).
+  const [isHost, setIsHost] = useState(false);
 
   useEffect(() => {
     const connection = new HubConnectionBuilder()
@@ -157,6 +169,7 @@ export function useGameHub(): UseGameHub {
       }
       const created = await connection.invoke<RoomState>('CreateRoom');
       setRoom(created);
+      setIsHost(true); // the creator is the host (AC-05)
       return created;
     },
     [],
@@ -175,6 +188,7 @@ export function useGameHub(): UseGameHub {
       const result = await connection.invoke<JoinResult>('JoinRoom', code, displayName, variant);
       if (result.ok && result.room) {
         setRoom(result.room);
+        setIsHost(false); // a joiner is never the host (AC-05)
       }
       return result;
     },
@@ -183,7 +197,8 @@ export function useGameHub(): UseGameHub {
 
   const clearRoom = useCallback(() => {
     setRoom(null);
+    setIsHost(false);
   }, []);
 
-  return { status, room, ping, createRoom, joinRoom, clearRoom };
+  return { status, room, isHost, ping, createRoom, joinRoom, clearRoom };
 }

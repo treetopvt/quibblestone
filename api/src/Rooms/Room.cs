@@ -132,6 +132,52 @@ public sealed class Room
         }
     }
 
+    /// <summary>
+    /// Removes the player owning the given connection from the roster
+    /// (session-engine/03 leave-detection). Called when a connection drops
+    /// (the app is closed, the tab navigates away, or the network dies) so the
+    /// departed player's tile reverts to an empty slot on every remaining
+    /// client (AC-04). The removal and the emptiness check the caller makes
+    /// afterwards both run under the room lock via this method + <see
+    /// cref="IsEmpty"/>, so a concurrent leave cannot corrupt the roster.
+    ///
+    /// A connection is only ever seated once in a room (Slice 1), so at most one
+    /// player is removed. Removing a connection that is not in this room is a
+    /// no-op that returns false.
+    /// </summary>
+    /// <param name="connectionId">The SignalR connection that dropped.</param>
+    /// <returns>True if a player was removed; false if the connection was not seated here.</returns>
+    public bool RemovePlayer(string connectionId)
+    {
+        lock (_gate)
+        {
+            var removed = _players.RemoveAll(p => p.ConnectionId == connectionId);
+            if (removed == 0)
+            {
+                return false;
+            }
+
+            LastActiveUtc = DateTimeOffset.UtcNow;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// True when the roster is empty (the last player has left). The registry
+    /// uses this after a <see cref="RemovePlayer"/> to drop an abandoned room
+    /// immediately rather than waiting for the idle sweep (session-engine/03).
+    /// </summary>
+    public bool IsEmpty
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _players.Count == 0;
+            }
+        }
+    }
+
     /// <summary>A point-in-time snapshot of the roster (safe to hand out; a copy).</summary>
     public IReadOnlyList<Player> SnapshotPlayers()
     {

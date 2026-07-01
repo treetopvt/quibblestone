@@ -28,7 +28,7 @@ import { Lobby } from './pages/Lobby';
 type View = 'home' | 'join' | 'lobby';
 
 export default function App() {
-  const { status, room, createRoom, joinRoom, clearRoom } = useGameHub();
+  const { status, room, isHost, createRoom, joinRoom, clearRoom } = useGameHub();
   const [view, setView] = useState<View>('home');
   const [creating, setCreating] = useState(false);
 
@@ -66,7 +66,12 @@ export default function App() {
   }, [clearRoom]);
 
   if (view === 'lobby' && room) {
-    return <Lobby room={room} onLeave={handleGoHome} />;
+    // onStart is the SEAM for group-play/01 (round start). For story 03 it is a
+    // no-op placeholder - the host-only CTA renders, but starting a round is a
+    // later story; do not invent round logic here.
+    return (
+      <Lobby room={room} isHost={isHost} onLeave={handleGoHome} onStart={() => {}} />
+    );
   }
 
   if (view === 'join') {

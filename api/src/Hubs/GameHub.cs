@@ -207,6 +207,32 @@ public sealed class GameHub : Hub
     }
 
     /// <summary>
+    /// session-engine/03: leave-detection rides the SignalR connection lifecycle.
+    ///
+    /// When a connection drops (the app is closed, the tab navigates away, or the
+    /// network dies) SignalR calls this override. We remove that connection's
+    /// player from whichever room it was seated in via the registry, which also
+    /// drops the room if it is now empty. If the room still has members, we
+    /// broadcast the trimmed roster as "RosterChanged" so the departed player's
+    /// tile reverts to an empty slot on every remaining client within a short
+    /// window (AC-04) - no heartbeat is needed for Slice 1.
+    ///
+    /// SignalR auto-removes the connection from its groups on disconnect, so the
+    /// broadcast below reaches exactly the remaining members. We always chain to
+    /// base.OnDisconnectedAsync so the framework's own teardown still runs.
+    /// </summary>
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        var room = _rooms.RemoveConnection(Context.ConnectionId);
+        if (room is not null)
+        {
+            await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+        }
+
+        await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>
     /// session-engine/05: normalize a client-supplied Guardian variant string
     /// to one of the six known values (case-insensitive), defaulting to
     /// "teal" for null, empty, or unrecognized input. Keeps the lowercase

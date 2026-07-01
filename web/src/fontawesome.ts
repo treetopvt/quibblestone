@@ -37,6 +37,10 @@ import {
   faShield,
   faUser,
   faArrowRight,
+  // Lobby roster icons (session-engine/03): the "Carvers gathered" count chip
+  // (users) and the host-only "Start game" CTA glyph (play).
+  faUsers,
+  faPlay,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -57,4 +61,6 @@ library.add(
   faShield,
   faUser,
   faArrowRight,
+  faUsers,
+  faPlay,
 );

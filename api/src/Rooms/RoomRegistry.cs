@@ -97,6 +97,54 @@ public sealed class RoomRegistry
         return _rooms.TryGetValue(code.Trim(), out var room) ? room : null;
     }
 
+    /// <summary>
+    /// Removes the player owning the given connection from whichever room it is
+    /// seated in (session-engine/03 leave-detection), and drops the room
+    /// entirely if that leaves it empty. Called by the hub on disconnect.
+    ///
+    /// A connection is only ever in one room in Slice 1, so a scan of the active
+    /// rooms is fine at toy scale (no connectionId -> code index to maintain).
+    /// The room is removed from the store the instant its last player leaves, so
+    /// its code is freed immediately rather than lingering until the idle sweep.
+    ///
+    /// Returns the affected room so the hub can broadcast the updated roster to
+    /// the remaining members - but ONLY when the room still exists (has players
+    /// left). Returns null when the connection was not seated anywhere OR when
+    /// removing it emptied and dropped the room (there is then no one to tell).
+    /// </summary>
+    /// <param name="connectionId">The SignalR connection that dropped.</param>
+    /// <returns>The still-active room to re-broadcast, or null if none / the room was emptied.</returns>
+    public Room? RemoveConnection(string connectionId)
+    {
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            return null;
+        }
+
+        foreach (var pair in _rooms)
+        {
+            var room = pair.Value;
+            if (!room.RemovePlayer(connectionId))
+            {
+                continue;
+            }
+
+            // The connection was seated here (a connection is only in one room),
+            // so we can stop scanning. If that was the last player, drop the room
+            // and signal "no one to broadcast to" with null; otherwise hand the
+            // room back so the hub re-broadcasts the trimmed roster (AC-04).
+            if (room.IsEmpty)
+            {
+                _rooms.TryRemove(pair.Key, out _);
+                return null;
+            }
+
+            return room;
+        }
+
+        return null;
+    }
+
     /// <summary>The number of currently active rooms (after sweeping expired ones).</summary>
     public int ActiveRoomCount
     {
