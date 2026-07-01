@@ -22,10 +22,12 @@
 
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Telemetry;
 
 namespace QuibbleStone.Api.Tests;
 
@@ -38,11 +40,12 @@ public class GameHubStartRoundTests
     // from TemplateCatalog directly, not hand-duplicated ids - see BuildHub).
     private static readonly TemplateCatalog Catalog = new();
 
-    private static (GameHub Hub, RoomRegistry Registry, RecordingClients Clients, RecordingGroups Groups)
-        BuildHub(string connectionId)
+    private static (GameHub Hub, RoomRegistry Registry, RecordingClients Clients, RecordingGroups Groups, ITelemetrySink Telemetry)
+        BuildHub(string connectionId, ITelemetrySink? telemetry = null)
     {
         var registry = new RoomRegistry();
-        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector());
+        var sink = telemetry ?? new FakeTelemetrySink();
+        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), sink, NullLogger<GameHub>.Instance);
 
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
@@ -50,13 +53,13 @@ public class GameHubStartRoundTests
         hub.Groups = groups;
         hub.Context = new FakeHubCallerContext(connectionId);
 
-        return (hub, registry, clients, groups);
+        return (hub, registry, clients, groups, sink);
     }
 
     [Fact]
     public async Task StartRound_with_quick_lengthPref_always_picks_a_quick_catalog_entry()
     {
-        var (hub, registry, _, _) = BuildHub("conn-host");
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
@@ -80,7 +83,7 @@ public class GameHubStartRoundTests
     [Fact]
     public async Task StartRound_with_quick_and_family_safe_never_yields_a_non_family_safe_id()
     {
-        var (hub, registry, _, _) = BuildHub("conn-host");
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
@@ -106,7 +109,7 @@ public class GameHubStartRoundTests
         // A crafted/buggy client sending garbage must never break the round -
         // NormalizeLengthPreference degrades to "any" (no length filtering), the
         // SAME defensive posture as NormalizeVariant guarding an unknown variant.
-        var (hub, registry, _, _) = BuildHub("conn-host");
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
@@ -114,6 +117,110 @@ public class GameHubStartRoundTests
 
         Assert.True(result.Ok, result.Error);
         Assert.NotNull(room.CurrentRound);
+    }
+
+    [Fact]
+    public async Task StartRound_records_exactly_one_anonymous_serve_event_with_the_specified_fields()
+    {
+        // AC-01: a GROUP round start writes ONE serve event carrying template id,
+        // UTC timestamp, mode, length class, player count, family-safe flag, and the
+        // room's OPAQUE instance id - and nothing else.
+        var fake = new FakeTelemetrySink();
+        var (hub, registry, _, _, _) = BuildHub("conn-host", fake);
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var before = DateTimeOffset.UtcNow;
+        var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "quick");
+        var after = DateTimeOffset.UtcNow;
+
+        Assert.True(result.Ok, result.Error);
+
+        var evt = Assert.Single(fake.Events);
+        // The serve event's template is the one the round actually served.
+        Assert.Equal(room.CurrentRound!.TemplateId, evt.TemplateId);
+        Assert.Equal("classic-blind", evt.Mode);
+        // "quick" pref served a quick template, so the derived length class is quick.
+        Assert.Equal("quick", evt.LengthClass);
+        Assert.Equal(2, evt.PlayerCount);
+        Assert.True(evt.FamilySafe);
+        Assert.InRange(evt.TimestampUtc, before, after);
+
+        // AC-01/AC-04: the instance id is an OPAQUE GUID, NOT the join code.
+        Assert.Equal(room.InstanceId, evt.InstanceId);
+        Assert.True(Guid.TryParse(evt.InstanceId, out _), "InstanceId should be a GUID");
+        Assert.NotEqual(room.Code, evt.InstanceId);
+    }
+
+    [Fact]
+    public async Task StartRound_derives_full_length_class_for_a_full_story()
+    {
+        // AC-01: the length class is DERIVED from the chosen template's blank count
+        // (story-01's threshold), not from the request - a "full" pick logs "full".
+        var fake = new FakeTelemetrySink();
+        var (hub, registry, _, _, _) = BuildHub("conn-host", fake);
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "full");
+
+        Assert.True(result.Ok, result.Error);
+        var evt = Assert.Single(fake.Events);
+        Assert.Equal("full", evt.LengthClass);
+        // The served template really is a full (> QuickMaxBlanks) catalog entry.
+        var served = Catalog.Entries.Single(e => e.Id == evt.TemplateId);
+        Assert.True(served.BlankCount > LengthContentSelector.QuickMaxBlanks);
+    }
+
+    [Fact]
+    public async Task StartRound_still_starts_when_the_serve_log_sink_throws()
+    {
+        // AC-03: a down / throwing sink must NEVER fault the round. The round still
+        // starts (Ok=true) and the round state is set - the broadcast on the path
+        // before the fire-and-forget epilogue therefore ran too.
+        var (hub, registry, clients, _, _) = BuildHub("conn-host", new ThrowingTelemetrySink());
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any");
+
+        Assert.True(result.Ok, result.Error);
+        Assert.NotNull(room.CurrentRound);
+        // A broadcast/deal demonstrably happened (the hub reached its sends before
+        // the epilogue) - the recorder captured a send from this StartRound.
+        Assert.NotNull(clients.LastMethod);
+    }
+
+    [Fact]
+    public void ServeEvent_carries_no_PII_fields()
+    {
+        // AC-04: a shape assertion - the serve event has ONLY anonymous fields and
+        // NOTHING that could carry a person (no nickname, code, connectionId, IP,
+        // or hub player-session id). If someone adds such a field, this fails.
+        var propertyNames = typeof(ServeEvent)
+            .GetProperties()
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        string[] forbidden =
+        [
+            "Nickname", "Name", "DisplayName", "Code", "JoinCode", "RoomCode",
+            "ConnectionId", "Connection", "Ip", "IpAddress", "PlayerSessionId",
+            "SessionId", "UserId", "Email",
+        ];
+        foreach (var banned in forbidden)
+        {
+            Assert.DoesNotContain(banned, propertyNames);
+        }
+
+        // And it carries exactly the seven anonymous fields the story specifies.
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "TemplateId", "TimestampUtc", "Mode", "LengthClass",
+                "PlayerCount", "FamilySafe", "InstanceId",
+            },
+            propertyNames);
     }
 
     // --- Minimal SignalR fakes (copied from GameHubJoinTests.cs / GameHubSubmitWordTests.cs) ---

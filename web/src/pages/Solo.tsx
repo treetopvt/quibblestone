@@ -83,6 +83,7 @@ import {
 import { classicBlind } from '../engine/modes/classicBlind';
 import { getBlanks, type Template } from '../engine/template';
 import { checkWord } from '../safety/checkWord';
+import { recordSoloServe } from '../telemetry/serveLog';
 import { FillBlank } from './FillBlank';
 import { Reveal } from './Reveal';
 
@@ -212,6 +213,12 @@ export function Solo({ onExit }: SoloProps) {
     setTemplate(chosen);
     setBlankIndex(0);
     setPhase('fill');
+    // story-selection/04 (anonymous serve log, AC-02): fire-and-forget one
+    // anonymous "template served" event. This covers BOTH handleStart and
+    // handlePlayAgain (both route through beginRound). It never awaits, never
+    // retries, and never blocks the transition to 'fill' (AC-03), and carries no
+    // PII - just the template + the current family-safe toggle (AC-04).
+    recordSoloServe({ template: chosen, familySafe });
   };
 
   // story-selection/02: compose the content-selection stages in FIXED order,

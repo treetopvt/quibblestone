@@ -55,6 +55,7 @@ using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Telemetry;
 
 namespace QuibbleStone.Api.Hubs;
 
@@ -274,19 +275,28 @@ public sealed class GameHub : Hub
     private readonly TemplateCatalog _catalog;
     private readonly FamilySafeContentSelector _familySafe;
     private readonly LengthContentSelector _length;
+    private readonly ITelemetrySink _telemetry;
+    private readonly ILogger<GameHub> _logger;
 
     public GameHub(
         RoomRegistry rooms,
         IContentSafetyFilter safety,
         TemplateCatalog catalog,
         FamilySafeContentSelector familySafe,
-        LengthContentSelector length)
+        LengthContentSelector length,
+        ITelemetrySink telemetry,
+        ILogger<GameHub> logger)
     {
         _rooms = rooms;
         _safety = safety;
         _catalog = catalog;
         _familySafe = familySafe;
         _length = length;
+        // story-selection/04: the anonymous serve-log sink. Fired fire-and-forget
+        // at the END of a group round start (never awaited on the round-start path,
+        // AC-03). NoOp locally, Table Storage in a configured environment (AC-05).
+        _telemetry = telemetry;
+        _logger = logger;
     }
 
     /// <summary>
@@ -623,7 +633,65 @@ public sealed class GameHub : Hub
                 new YourBlanksDto(assignment.BlankIndices));
         }
 
+        // 8. story-selection/04 (anonymous serve log, AC-01): record ONE serve
+        //    event as a FIRE-AND-FORGET epilogue. This is deliberately the LAST
+        //    thing StartRound does and is NOT awaited on the round-start path -
+        //    the round has already started and every player has already been dealt
+        //    their blanks above, so a slow / down / misconfigured sink can never
+        //    delay or block the round (AC-03). The event carries ONLY anonymous
+        //    facts: the template id, mode, derived length class, player COUNT, the
+        //    family-safe flag, and the room's OPAQUE instance id - never a
+        //    connectionId, nickname, or the join code (AC-04).
+        var serveEvent = new ServeEvent(
+            TemplateId: chosen.Id,
+            TimestampUtc: DateTimeOffset.UtcNow,
+            Mode: round.Mode,
+            // Derive the length class from the chosen template's blank count using
+            // story-01's single threshold (mirrors the web's classifyLength).
+            LengthClass: chosen.BlankCount <= LengthContentSelector.QuickMaxBlanks ? "quick" : "full",
+            PlayerCount: room.PlayerCount,
+            FamilySafe: familySafe,
+            InstanceId: room.InstanceId);
+        FireServeEvent(serveEvent);
+
         return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// story-selection/04: fire the serve event WITHOUT awaiting it on the
+    /// round-start path (AC-03). The sink already swallows its own write failures,
+    /// but a fire-and-forget task must ALSO never surface an unobserved exception,
+    /// so this wraps the call and logs anything that somehow escapes. Gameplay is
+    /// completely unaffected whether the sink succeeds, fails, or hangs.
+    /// </summary>
+    private void FireServeEvent(ServeEvent serveEvent)
+    {
+        try
+        {
+            // Start the write but do NOT await it on the round-start path (AC-03).
+            var writeTask = _telemetry.RecordServeAsync(serveEvent, CancellationToken.None);
+
+            // Observe an ASYNCHRONOUS fault so a fire-and-forget task never becomes
+            // an unobserved throw, still without awaiting it here. RecordServeAsync
+            // is contractually non-throwing, so this is belt-and-braces.
+            _ = writeTask.ContinueWith(
+                faulted => _logger.LogWarning(
+                    faulted.Exception,
+                    "Serve-log epilogue faulted for template {TemplateId} (swallowed - telemetry never gates gameplay).",
+                    serveEvent.TemplateId),
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+        }
+        catch (Exception ex)
+        {
+            // A sink that throws SYNCHRONOUSLY (before its first await) must not
+            // fault StartRound either - the round has already started (AC-03).
+            _logger.LogWarning(
+                ex,
+                "Serve-log epilogue threw for template {TemplateId} (swallowed - telemetry never gates gameplay).",
+                serveEvent.TemplateId);
+        }
     }
 
     /// <summary>

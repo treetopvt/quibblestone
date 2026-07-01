@@ -203,11 +203,28 @@ public sealed class Room
     private Room(string code)
     {
         Code = code;
+        // story-selection/04 (anonymous serve log, AC-01): mint an OPAQUE instance
+        // id ONCE per room. This is deliberately NOT the join code - the serve log
+        // must be able to say "these serves came from the same room instance"
+        // WITHOUT ever storing anything a person could be traced by (the code is
+        // shown to players and typed to join; this GUID is server-only and
+        // meaningless outside the log). It never leaves the server except as an
+        // anonymous field on a ServeEvent (AC-04).
+        InstanceId = Guid.NewGuid().ToString();
         LastActiveUtc = DateTimeOffset.UtcNow;
     }
 
     /// <summary>The short, human-friendly join code (4 chars, unambiguous alphabet).</summary>
     public string Code { get; }
+
+    /// <summary>
+    /// An OPAQUE, per-room instance id (story-selection/04, AC-01): a GUID minted
+    /// once when the room is created, used ONLY as an anonymous grouping key in the
+    /// serve log. It is NOT the join code and carries no PII - it just lets an
+    /// engineer see that several serves belong to the same room instance without
+    /// ever learning who was in it (AC-04).
+    /// </summary>
+    public string InstanceId { get; }
 
     /// <summary>
     /// Last time this room saw activity. Bumped by <see cref="Touch"/>; the

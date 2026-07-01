@@ -28,6 +28,7 @@ using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -69,6 +70,29 @@ builder.Services.AddSingleton<FamilySafeContentSelector>();
 // family-safe selector. It is the server mirror of web/src/content/length.ts
 // (kept in sync BY HAND) and NEVER runs before or around the family-safe gate.
 builder.Services.AddSingleton<LengthContentSelector>();
+
+// story-selection/04 (anonymous serve log): the ONE telemetry sink, chosen at
+// STARTUP by whether a storage connection string is configured. With a connection
+// string (supplied per-environment from Key Vault / an app setting, NEVER a
+// committed literal - see appsettings.json's Telemetry section), it writes one
+// tiny, PII-free "template served" entity per round start to Azure Table Storage
+// (AC-01, AC-06). WITHOUT one (local dev, CI, a fresh clone), it degrades to the
+// NoOp sink so the app runs EXACTLY as today with ZERO Azure setup (AC-05). A
+// singleton: the implementation is stateless after construction (a TableClient or
+// a logger), so the hub and the TelemetryController share ONE instance. Either
+// way the write is fire-and-forget and never gates gameplay (AC-03).
+var telemetryConnectionString = builder.Configuration["Telemetry:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(telemetryConnectionString))
+{
+    builder.Services.AddSingleton<ITelemetrySink, NoOpTelemetrySink>();
+}
+else
+{
+    builder.Services.AddSingleton<ITelemetrySink>(sp =>
+        new TableStorageTelemetrySink(
+            telemetryConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageTelemetrySink>>()));
+}
 
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
 // so every transient GameHub instance (SignalR builds a fresh hub per
