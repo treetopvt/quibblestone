@@ -21,6 +21,7 @@
 
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
+using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
@@ -36,7 +37,7 @@ public class GameHubJoinTests
         BuildHub(string connectionId)
     {
         var registry = new RoomRegistry();
-        var hub = new GameHub(registry, new ContentSafetyFilter());
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
 
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
