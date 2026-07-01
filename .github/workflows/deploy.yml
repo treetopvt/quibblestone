@@ -151,16 +151,46 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "API -> https://$api_host  |  Web -> https://$web_host"
 
-      # --- Let the API accept the web origin for REST + the SignalR hub -------
+      # --- Let the API accept every web origin for REST + the SignalR hub -----
       # AllowCredentials is on for the hub transport, so CORS cannot use a
-      # wildcard - it must be the exact web origin (see api/src/Program.cs).
-      - name: Set API CORS origin
+      # wildcard - it must list each exact origin (see api/src/Program.cs). We
+      # allow the SWA default origin PLUS every custom domain bound to the SWA
+      # (apex, www, and any future uat./dev.), discovered at run time so binding
+      # a new domain in Azure needs no change here. The list is cleared and
+      # re-set each run so a removed domain does not linger as an allowed origin.
+      - name: Set API CORS origins
         run: |
-          az webapp config appsettings set \
-            -g "$AZURE_RESOURCE_GROUP" \
-            -n "${{ steps.discover.outputs.api_name }}" \
-            --settings Cors__AllowedOrigins__0="${{ steps.discover.outputs.web_origin }}" \
-            --output none
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          api="${{ steps.discover.outputs.api_name }}"
+          web="${{ steps.discover.outputs.web_name }}"
+
+          # SWA default origin + every Ready custom domain bound to the SWA.
+          origins=("${{ steps.discover.outputs.web_origin }}")
+          while IFS= read -r domain; do
+            [ -n "$domain" ] && origins+=("https://$domain")
+          done < <(az staticwebapp hostname list -g "$rg" -n "$web" \
+                     --query "[?status=='Ready'].domainName" -o tsv)
+
+          # Drop any previous Cors__AllowedOrigins__* first, so a domain that was
+          # removed from the SWA does not survive as a stale allowed origin.
+          stale="$(az webapp config appsettings list -g "$rg" -n "$api" \
+                     --query "[?starts_with(name, 'Cors__AllowedOrigins__')].name" -o tsv)"
+          if [ -n "$stale" ]; then
+            az webapp config appsettings delete -g "$rg" -n "$api" \
+              --setting-names $stale --output none
+          fi
+
+          # Re-set the full allow-list as Cors__AllowedOrigins__0..N.
+          settings=(); i=0
+          for origin in "${origins[@]}"; do
+            settings+=("Cors__AllowedOrigins__${i}=${origin}")
+            i=$((i + 1))
+          done
+          az webapp config appsettings set -g "$rg" -n "$api" \
+            --settings "${settings[@]}" --output none
+
+          echo "CORS origins allowed:"; printf '  %s\n' "${origins[@]}"
 
       # --- Deploy the API (uses the OIDC session, no publish profile) ---------
       - name: Deploy API to App Service
