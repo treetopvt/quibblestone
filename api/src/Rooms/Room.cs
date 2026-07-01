@@ -33,8 +33,8 @@ namespace QuibbleStone.Api.Rooms;
 /// just an in-session nickname, a Guardian variant, the owning connection, and
 /// whether this player is the host.
 /// </summary>
-/// <param name="Nickname">In-session display name (host has none yet in story 01 - see <see cref="Room.CreateHosted"/>).</param>
-/// <param name="Variant">Guardian avatar variant (defaults to "teal" for the host; joiners pick in story 05).</param>
+/// <param name="Nickname">In-session display name (the host now picks one on HostSetup before the room is minted - see <see cref="Room.CreateHosted"/>).</param>
+/// <param name="Variant">Guardian avatar variant (the host picks one on HostSetup; joiners pick on Join).</param>
 /// <param name="ConnectionId">The SignalR connection that owns this player - used for leave-detection in story 03.</param>
 /// <param name="IsHost">True for the room creator; false for joiners.</param>
 public sealed record Player(
@@ -217,15 +217,28 @@ public sealed class Room
 
     /// <summary>
     /// Creates a room with the given code and its host as the first player.
-    /// The host has no nickname yet in story 01 (there is no name input until
-    /// story 02) and defaults to the "teal" Guardian variant.
+    ///
+    /// build/host-identity: the host now carries a REAL display name + Guardian
+    /// variant (the host picks both on the HostSetup screen before the room is
+    /// minted, mirroring the joiner name step). The name has ALREADY been trimmed,
+    /// length-checked, and vetted by the content-safety filter server-side by the
+    /// caller (the hub's CreateRoom) BEFORE it reaches here - this method takes both
+    /// values as-given and never vets them, exactly like <see cref="TryAddPlayer"/>
+    /// takes a pre-vetted joiner name. The variant is likewise expected to be
+    /// already normalized to one of the six known values. This closes the earlier
+    /// gap where the host was seated with an empty nickname + the default "teal"
+    /// variant, so the host showed blank in the lobby, reveal, and recap.
     /// </summary>
-    public static Room CreateHosted(string code, string hostConnectionId)
+    /// <param name="code">The room's minted join code.</param>
+    /// <param name="hostConnectionId">The host's SignalR connection.</param>
+    /// <param name="nickname">The vetted, trimmed host display name.</param>
+    /// <param name="variant">The host's already-normalized Guardian variant.</param>
+    public static Room CreateHosted(string code, string hostConnectionId, string nickname, string variant)
     {
         var room = new Room(code);
         room._players.Add(new Player(
-            Nickname: string.Empty,
-            Variant: "teal",
+            Nickname: nickname,
+            Variant: variant,
             ConnectionId: hostConnectionId,
             IsHost: true));
         return room;

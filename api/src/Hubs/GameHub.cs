@@ -7,11 +7,15 @@
 //  every game feature (rooms, rosters, word collection, reveal) shares it.
 //
 //  What lives here today:
-//    - CreateRoom  : session-engine/01. Mints an ephemeral in-memory room with
-//                    a unique, human-friendly join code, adds the caller as the
-//                    host (first player), joins them to the room's SignalR group
-//                    (so future roster broadcasts reach them), and returns the
-//                    created room's state to the caller.
+//    - CreateRoom  : session-engine/01 + build/host-identity. Mints an ephemeral
+//                    in-memory room with a unique, human-friendly join code, adds
+//                    the caller as the host (first player) WITH the display name +
+//                    Guardian variant they picked on HostSetup (the free-text name
+//                    is safety-filtered server-side, same gate as joiners), joins
+//                    them to the room's SignalR group (so future roster broadcasts
+//                    reach them), and returns a friendly result envelope to the
+//                    caller (the created room's state on success, an inline error on
+//                    a blocked/empty/too-long name).
 //    - JoinRoom    : session-engine/02. Joins an existing room by code with a
 //                    safety-checked display name (no PII), enforces in-room name
 //                    uniqueness, and broadcasts the updated roster to the room
@@ -57,8 +61,8 @@ namespace QuibbleStone.Api.Hubs;
 /// connectionId is intentionally NOT exposed to clients (it is a server-side
 /// handle used for leave-detection in story 03).
 /// </summary>
-/// <param name="Nickname">In-session display name (empty for the host until story 02 adds a name step).</param>
-/// <param name="Variant">Guardian avatar variant ("teal" default for the host).</param>
+/// <param name="Nickname">In-session display name (the host now picks one on HostSetup before the room is minted).</param>
+/// <param name="Variant">Guardian avatar variant (the host picks one on HostSetup; "teal" is the default selection).</param>
 /// <param name="IsHost">True for the room creator.</param>
 public sealed record PlayerDto(string Nickname, string Variant, bool IsHost);
 
@@ -84,6 +88,22 @@ public sealed record RoomStateDto(string Code, IReadOnlyList<PlayerDto> Players)
 /// <param name="Room">The room's state (code + roster) on success; null on failure.</param>
 /// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
 public sealed record JoinResultDto(bool Ok, RoomStateDto? Room, string? Error);
+
+/// <summary>
+/// The outcome of <see cref="GameHub.CreateRoom"/> (build/host-identity). Same
+/// shape and semantics as <see cref="JoinResultDto"/>: a friendly result envelope,
+/// NOT an exception channel. The host now supplies a free-text display name +
+/// Guardian variant (picked on the HostSetup screen), so CreateRoom validates them
+/// EXACTLY like <see cref="GameHub.JoinRoom"/> validates a joiner name - an empty
+/// name, an over-14-char name, or a name the content-safety filter rejects (child
+/// safety, non-negotiable) all come back as Ok=false with a kid-readable Error the
+/// client shows inline so the host can simply fix it and try again. On success
+/// Ok=true and Room carries the minted room's state (code + roster with the host).
+/// </summary>
+/// <param name="Ok">True if the room was created; false for an expected validation failure.</param>
+/// <param name="Room">The minted room's state (code + roster) on success; null on failure.</param>
+/// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
+public sealed record CreateRoomResultDto(bool Ok, RoomStateDto? Room, string? Error);
 
 /// <summary>
 /// The outcome of <see cref="GameHub.StartRound"/> (group-play/01). Like
@@ -248,24 +268,69 @@ public sealed class GameHub : Hub
     }
 
     /// <summary>
-    /// session-engine/01: create a room and become its host.
+    /// session-engine/01 + build/host-identity: create a room and become its host,
+    /// now WITH a chosen display name + Guardian variant.
     ///
-    /// Mints an ephemeral room with a unique, human-friendly join code (AC-02,
-    /// AC-03), adds the caller as the host / first player (AC-01), subscribes
-    /// the caller's connection to the room's SignalR group (named by the code)
-    /// so future roster broadcasts reach them, and returns the created room's
-    /// state (code + roster) to the caller so the web client can land the host
-    /// in the lobby (AC-01, AC-04).
+    /// The host used to be seated with an EMPTY nickname + the default "teal"
+    /// variant (there was no host name step - only joiners named themselves), so the
+    /// host showed blank in the lobby, the reveal attribution, and the Round Complete
+    /// recap. build/host-identity closes that gap: the host picks a name + Guardian on
+    /// the HostSetup screen BEFORE the room is minted, and this method validates that
+    /// free-text name the SAME way (same fixed order) <see cref="JoinRoom"/> validates
+    /// a joiner name, returning a friendly <see cref="CreateRoomResultDto"/> for every
+    /// EXPECTED failure rather than throwing:
+    ///
+    ///   1. Empty (after trim) name -> friendly "pick a display name" error (AC-03).
+    ///   2. Over-14-char name -> the same friendly too-long message JoinRoom uses.
+    ///   3. Content-safety filter rejects the name -> the filter's message. The host
+    ///      name is free text, so it MUST pass the server filter BEFORE it is stored
+    ///      or shown, exactly like a joiner name (child safety, README section 6).
+    ///
+    /// On success it normalizes the variant (unknown/empty -> "teal"), mints an
+    /// ephemeral room with a unique, human-friendly join code (AC-02, AC-03) carrying
+    /// the host with that vetted name + variant, subscribes the caller's connection to
+    /// the room's SignalR group (named by the code) so future roster/round broadcasts
+    /// reach them, and returns the created room's state (code + roster) so the web
+    /// client can land the host in the lobby (AC-01, AC-04).
     /// </summary>
-    public async Task<RoomStateDto> CreateRoom()
+    /// <param name="displayName">The host's free-text in-session name (max 14 chars, safety-checked - same gate as joiners).</param>
+    /// <param name="variant">The chosen Guardian variant; normalized server-side to one of the six known values, defaulting to "teal" when null/empty/unknown.</param>
+    public async Task<CreateRoomResultDto> CreateRoom(string displayName, string variant)
     {
-        var room = _rooms.CreateRoom(Context.ConnectionId);
+        // 1. Basic shape of the display name (AC-03), mirroring JoinRoom's fixed
+        //    order. Trim first so " " is empty and trailing spaces do not count.
+        var name = (displayName ?? string.Empty).Trim();
+        if (name.Length == 0)
+        {
+            return new CreateRoomResultDto(false, null, "Pick a display name so your crew knows who you are.");
+        }
+        if (name.Length > MaxDisplayNameLength)
+        {
+            return new CreateRoomResultDto(false, null, $"That name is a bit long - keep it to {MaxDisplayNameLength} characters.");
+        }
+
+        // 2. Child safety (README section 6, AC-03): vet the free-text host name
+        //    server-side BEFORE it is stored or shown, exactly like a joiner name.
+        //    Never seat an unfiltered name as the host. The verdict carries a
+        //    friendly retry message the client shows inline.
+        var verdict = await _safety.CheckAsync(name, Context.ConnectionAborted);
+        if (!verdict.IsAllowed)
+        {
+            return new CreateRoomResultDto(false, null, verdict.Message);
+        }
+
+        // 3. Constrain the variant to the known set (null/empty/unknown -> "teal"),
+        //    so a malformed client can never inject an arbitrary variant string.
+        var chosenVariant = NormalizeVariant(variant);
+
+        // 4. Mint the room with the host carrying the vetted name + variant.
+        var room = _rooms.CreateRoom(Context.ConnectionId, name, chosenVariant);
 
         // Subscribe the host's connection to the room group so later stories'
         // roster/round broadcasts (Clients.Group(room.Code)) reach them.
         await Groups.AddToGroupAsync(Context.ConnectionId, room.Code);
 
-        return ToRoomState(room);
+        return new CreateRoomResultDto(true, ToRoomState(room), null);
     }
 
     /// <summary>

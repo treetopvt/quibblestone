@@ -25,7 +25,7 @@ public class RoomRegistryLeaveTests
     public void RemoveConnection_drops_the_player_and_returns_the_still_active_room()
     {
         var registry = new RoomRegistry();
-        var room = registry.CreateRoom("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         // Seat a second player so the room is not emptied by the leave.
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
@@ -45,7 +45,7 @@ public class RoomRegistryLeaveTests
     public void RemoveConnection_of_the_last_player_removes_the_room_and_returns_null()
     {
         var registry = new RoomRegistry();
-        var room = registry.CreateRoom("conn-host"); // host is the only player
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal"); // host is the only player
         Assert.Equal(1, registry.ActiveRoomCount);
 
         // Removing the sole (host) connection empties the room.
@@ -61,7 +61,7 @@ public class RoomRegistryLeaveTests
     public void RemoveConnection_of_an_unknown_connection_is_a_no_op()
     {
         var registry = new RoomRegistry();
-        var room = registry.CreateRoom("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
 
         var affected = registry.RemoveConnection("conn-nobody");
 
@@ -75,7 +75,7 @@ public class RoomRegistryLeaveTests
     public void RemoveConnection_with_a_null_or_empty_connection_is_a_no_op()
     {
         var registry = new RoomRegistry();
-        registry.CreateRoom("conn-host");
+        registry.CreateRoom("conn-host", "Mossy", "teal");
 
         Assert.Null(registry.RemoveConnection(string.Empty));
         Assert.Equal(1, registry.ActiveRoomCount);
@@ -84,7 +84,7 @@ public class RoomRegistryLeaveTests
     [Fact]
     public void Room_RemovePlayer_reports_whether_a_player_was_removed()
     {
-        var room = Room.CreateHosted("MOSS", "conn-host");
+        var room = Room.CreateHosted("MOSS", "conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Wren", "teal", "conn-wren"));
 
         Assert.False(room.IsEmpty);

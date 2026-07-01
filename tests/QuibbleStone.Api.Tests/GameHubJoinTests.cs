@@ -68,7 +68,7 @@ public class GameHubJoinTests
     public async Task JoinRoom_with_bad_length_name_is_rejected(string badName)
     {
         var (hub, registry, _, _) = BuildHub("conn-joiner");
-        var code = registry.CreateRoom("conn-host").Code;
+        var code = registry.CreateRoom("conn-host", "Mossy", "teal").Code;
 
         var result = await hub.JoinRoom(code, badName, "teal");
 
@@ -82,7 +82,7 @@ public class GameHubJoinTests
     public async Task JoinRoom_with_a_blocked_name_is_rejected_and_never_stored()
     {
         var (hub, registry, _, _) = BuildHub("conn-joiner");
-        var code = registry.CreateRoom("conn-host").Code;
+        var code = registry.CreateRoom("conn-host", "Mossy", "teal").Code;
 
         // A term on the shipped baseline blocklist.
         var result = await hub.JoinRoom(code, "fuck", "teal");
@@ -99,7 +99,7 @@ public class GameHubJoinTests
     public async Task JoinRoom_with_a_duplicate_name_is_rejected_case_insensitively()
     {
         var (hub, registry, _, _) = BuildHub("conn-a");
-        var code = registry.CreateRoom("conn-host").Code;
+        var code = registry.CreateRoom("conn-host", "Mossy", "teal").Code;
 
         var first = await hub.JoinRoom(code, "Maple", "teal");
         Assert.True(first.Ok);
@@ -117,7 +117,7 @@ public class GameHubJoinTests
     public async Task JoinRoom_success_adds_player_subscribes_group_and_broadcasts_roster()
     {
         var (hub, registry, clients, groups) = BuildHub("conn-joiner");
-        var code = registry.CreateRoom("conn-host").Code;
+        var code = registry.CreateRoom("conn-host", "Mossy", "teal").Code;
 
         var result = await hub.JoinRoom(code, "  Maple  ", "gold");
 
@@ -144,7 +144,7 @@ public class GameHubJoinTests
     public async Task JoinRoom_defaults_variant_to_teal_when_missing()
     {
         var (hub, registry, _, _) = BuildHub("conn-joiner");
-        var code = registry.CreateRoom("conn-host").Code;
+        var code = registry.CreateRoom("conn-host", "Mossy", "teal").Code;
 
         var result = await hub.JoinRoom(code, "Wren", "");
 
@@ -163,7 +163,7 @@ public class GameHubJoinTests
     public async Task JoinRoom_normalizes_unknown_variant_to_teal(string unknownVariant)
     {
         var (hub, registry, _, _) = BuildHub("conn-joiner");
-        var code = registry.CreateRoom("conn-host").Code;
+        var code = registry.CreateRoom("conn-host", "Mossy", "teal").Code;
 
         var result = await hub.JoinRoom(code, "Bramble", unknownVariant);
 
@@ -176,7 +176,7 @@ public class GameHubJoinTests
     public async Task JoinRoom_preserves_a_known_variant()
     {
         var (hub, registry, _, _) = BuildHub("conn-joiner");
-        var code = registry.CreateRoom("conn-host").Code;
+        var code = registry.CreateRoom("conn-host", "Mossy", "teal").Code;
 
         var result = await hub.JoinRoom(code, "Flint", "coral");
 

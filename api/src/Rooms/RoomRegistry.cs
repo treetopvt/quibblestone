@@ -58,15 +58,26 @@ public sealed class RoomRegistry
     /// Creates a new room with a fresh unique code and the given connection as
     /// its host (the first player). Sweeps expired rooms first so a stale code
     /// can be reused and the store stays bounded (AC-05).
+    ///
+    /// build/host-identity: the host's display name + Guardian variant are threaded
+    /// through so the host player is seated with the REAL name + variant it picked
+    /// on HostSetup (mirroring the joiner name step) instead of an empty nickname +
+    /// the default "teal". The name has ALREADY been trimmed, length-checked, and
+    /// vetted by the content-safety filter by the caller (the hub's CreateRoom), and
+    /// the variant already normalized to a known value - this method just passes both
+    /// through to <see cref="Room.CreateHosted"/>.
     /// </summary>
-    public Room CreateRoom(string hostConnectionId)
+    /// <param name="hostConnectionId">The host's SignalR connection.</param>
+    /// <param name="nickname">The vetted, trimmed host display name.</param>
+    /// <param name="variant">The host's already-normalized Guardian variant.</param>
+    public Room CreateRoom(string hostConnectionId, string nickname, string variant)
     {
         SweepExpired();
 
         for (var attempt = 0; attempt < MaxCodeAttempts; attempt++)
         {
             var code = GenerateCode();
-            var room = Room.CreateHosted(code, hostConnectionId);
+            var room = Room.CreateHosted(code, hostConnectionId, nickname, variant);
 
             // TryAdd fails only if this exact code is already an active room,
             // in which case we regenerate (AC-03 - unique among active rooms).

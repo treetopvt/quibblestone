@@ -20,10 +20,10 @@
 //  theme.palette.primary, theme.palette.teal, ...) - no hardcoded hex here.
 //  Icons are FontAwesome (registered in web/src/fontawesome.ts).
 //
-//  Behavior: "Create a game" calls onCreateGame (App wires it to the hub's
-//  createRoom via useGameHub, then navigates to the lobby). "Join a game" is a
-//  seam for story 02 (the Join screen) - it calls onJoinGame, which is a no-op
-//  placeholder until then. Home animations (mascot bob is built into
+//  Behavior: "Create a game" calls onCreateGame (App wires it to open the
+//  HostSetup screen, where the host names itself + picks a Guardian before the
+//  room is minted - build/host-identity). "Join a game" opens the Join screen via
+//  onJoinGame. Home animations (mascot bob is built into
 //  HeroGuardian; sparkles / ambient-glow pulse) are a delight-tier pass and are
 //  intentionally minimal here (out of scope per the story).
 //

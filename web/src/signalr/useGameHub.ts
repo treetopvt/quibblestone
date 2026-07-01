@@ -13,9 +13,13 @@
 //
 //  session-engine/01 adds the first game invoke, createRoom, which asks the
 //  hub's CreateRoom method to mint a room and returns the created room's state
-//  (the join code + the roster with the host). The Player / RoomState types
-//  below MIRROR the hub's PlayerDto / RoomStateDto wire contract
-//  (api/src/Hubs/GameHub.cs) - keep them in sync.
+//  (the join code + the roster with the host). build/host-identity gives the host
+//  a display name + Guardian variant (picked on HostSetup and safety-filtered
+//  server-side), so createRoom now takes (displayName, variant) and returns a
+//  CreateRoomResult envelope (ok + room + friendly error) mirroring joinRoom. The
+//  Player / RoomState / CreateRoomResult types below MIRROR the hub's PlayerDto /
+//  RoomStateDto / CreateRoomResultDto wire contract (api/src/Hubs/GameHub.cs) -
+//  keep them in sync.
 //
 //  session-engine/02 adds joinRoom (join an existing room by code + display
 //  name, returning a JoinResult envelope) and, crucially, moves the LIVE room
@@ -108,6 +112,20 @@ export interface RoomState {
  * success, ok is true and room is the updated roster.
  */
 export interface JoinResult {
+  ok: boolean;
+  room: RoomState | null;
+  error: string | null;
+}
+
+/**
+ * The result of creating a room as the host (CreateRoomResultDto, build/host-identity),
+ * mirroring the hub's wire contract. The host now supplies a display name + Guardian
+ * variant (picked on HostSetup), so createRoom can fail the SAME way a join can: on a
+ * rejected create (an empty/too-long name, or a name the safety filter blocks) ok is
+ * false and error carries a friendly, kid-readable message to show inline. On success
+ * ok is true and room is the minted room's state (code + roster with the host).
+ */
+export interface CreateRoomResult {
   ok: boolean;
   room: RoomState | null;
   error: string | null;
@@ -300,11 +318,14 @@ export interface UseGameHub {
   /** Dismiss the round-aborted lobby notice. */
   dismissRoundNotice: () => void;
   /**
-   * Create a room and become its host (session-engine/01). On success updates
-   * `room` and resolves with the created room's state, or undefined if the
-   * connection is not ready. Uses the ONE shared connection - never a second.
+   * Create a room and become its host (session-engine/01 + build/host-identity)
+   * with a chosen display name + Guardian variant. Resolves with the
+   * CreateRoomResult envelope (mirroring joinRoom's shape); on ok it also updates
+   * `room` and sets isHost. Returns a not-connected error envelope if the hub is
+   * not ready. The display name is safety-checked server-side (same gate as
+   * joiners). Uses the ONE shared connection - never a second.
    */
-  createRoom: () => Promise<RoomState | undefined>;
+  createRoom: (displayName: string, variant: string) => Promise<CreateRoomResult>;
   /**
    * Join an existing room by code with a display name and Guardian variant
    * (session-engine/02). Resolves with the JoinResult envelope; on ok it also
@@ -499,17 +520,27 @@ export function useGameHub(): UseGameHub {
   }, []);
 
   const createRoom = useCallback(
-    async (): Promise<RoomState | undefined> => {
+    async (displayName: string, variant: string): Promise<CreateRoomResult> => {
       const connection = connectionRef.current;
       if (!connection || connection.state !== HubConnectionState.Connected) {
-        return undefined;
+        return {
+          ok: false,
+          room: null,
+          error: "We're not connected yet - give it a moment and try again.",
+        };
       }
-      const created = await connection.invoke<RoomState>('CreateRoom');
-      inRoomRef.current = true;
-      roomCodeRef.current = created.code;
-      setRoom(created);
-      setIsHost(true); // the creator is the host (AC-05)
-      return created;
+      // build/host-identity: the host name + variant travel to the hub, which
+      // safety-filters the name server-side (same gate as joiners) before minting
+      // the room. On a rejected create the envelope carries a friendly error the
+      // HostSetup screen shows inline; on ok it carries the minted room state.
+      const result = await connection.invoke<CreateRoomResult>('CreateRoom', displayName, variant);
+      if (result.ok && result.room) {
+        inRoomRef.current = true;
+        roomCodeRef.current = result.room.code;
+        setRoom(result.room);
+        setIsHost(true); // the creator is the host (AC-05)
+      }
+      return result;
     },
     [],
   );
