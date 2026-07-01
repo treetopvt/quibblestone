@@ -1,6 +1,6 @@
 # Story: Test harness (Vitest + Playwright)
 
-**Feature:** Platform & DevOps  ·  **Status:** Not Started
+**Feature:** Platform & DevOps  ·  **Status:** Complete
 
 ## Context
 The walking skeleton has no test framework. Before the engine and real-time
@@ -9,14 +9,29 @@ risk actually is. See [feature.md](./feature.md) and
 `.claude/agents/testing-agent.md`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the web project, when I run the unit-test command, then Vitest
+- [x] AC-01: Given the web project, when I run the unit-test command, then Vitest
       runs and a sample pure-logic test passes.
-- [ ] AC-02: Given the repo, when I run the end-to-end command, then Playwright
+      `npm run test:unit` runs `vitest run` (`web/package.json`,
+      `web/vitest.config.ts`) against `src/**/*.test.ts`; multiple pure-logic
+      specs exist (engine, content, pages).
+- [x] AC-02: Given the repo, when I run the end-to-end command, then Playwright
       runs and a sample smoke test (loads the app, sees "Connected") passes.
-- [ ] AC-03: Given CI runs, then it executes the unit tests (and the build) and
+      `npm run test:e2e` runs Playwright against `playwright.config.ts`
+      (repo root) and `tests/smoke.spec.ts`, which loads the app and asserts
+      the connected-gated "Create a game" CTA becomes enabled (the smoke
+      test's evolution of the original "Connected" assertion, per the
+      spec's own header comment).
+- [x] AC-03: Given CI runs, then it executes the unit tests (and the build) and
       fails the run if a test fails.
-- [ ] AC-04: Given a developer reads the docs, then the test commands are
+      `.github/workflows/ci.yml` `web` job runs `npm run test:unit` before
+      `npm run build`; the `api` job runs `dotnet test` before build-gated
+      steps complete. Playwright e2e is deliberately NOT wired into CI yet
+      (needs a running API hub) - noted in the workflow's own comments and
+      consistent with this story's Out of Scope.
+- [x] AC-04: Given a developer reads the docs, then the test commands are
       documented (web/README and/or CLAUDE.md).
+      Documented in `web/README.md` ("Testing" section) and CLAUDE.md
+      section 9.
 
 ## Out of Scope
 - A full test pyramid or high coverage targets - cover real risk first.
@@ -32,3 +47,13 @@ risk actually is. See [feature.md](./feature.md) and
 
 ## Dependencies
 None (builds on the skeleton).
+
+## Tests
+- AC-01: the harness itself is proven by the many `web/src/**/*.test.ts`
+  specs it runs (e.g. `web/src/engine/engine.test.ts`,
+  `web/src/content/seedLibrary.test.ts`).
+- AC-02: `tests/smoke.spec.ts` is the sample e2e smoke test this story
+  delivers.
+- AC-03: `.github/workflows/ci.yml` (`web` job's "Unit tests" step; `api`
+  job's `dotnet test` step) - this is the CI config that makes the harness a
+  real gate, not just a local convenience.
