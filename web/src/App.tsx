@@ -1,55 +1,91 @@
 // ----------------------------------------------------------------------------
-//  App - placeholder landing page for the QuibbleStone walking skeleton.
+//  App - the QuibbleStone root, and the app's minimal view router.
 //
-//  This is intentionally NOT a game. Its only job is to prove the web client
-//  can reach the API in real time: it opens the SignalR connection (useGameHub),
-//  fires a single Ping once connected, and shows the connection status plus the
-//  server's echo. Real screens (lobby, word entry, reveal - README section 10)
-//  replace this later.
+//  There is NO react-router in this project (CLAUDE.md - and deliberately not
+//  added): navigation is a single `view` state switched here. The views are
+//  'home', 'join', and 'lobby'; later stories extend this seam (story 03
+//  replaces the Lobby placeholder). Keep the switch small so those stories can
+//  grow it without a rewrite.
+//
+//  App owns the ONE SignalR connection via useGameHub (never a second one). The
+//  LIVE room state lives IN the hook (so RosterChanged broadcasts update every
+//  screen); App reads `room` from there rather than holding its own copy. The
+//  Home "Create a game" CTA calls createRoom and lands the host in the lobby
+//  (session-engine/01, AC-01). "Join a game" opens the Join screen; a successful
+//  join sets the hook's room and flips App to the lobby (session-engine/02,
+//  AC-01), while a failed join stays on Join showing the friendly error.
+//
+//  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { useEffect, useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Box, Container, Stack, Typography } from '@mui/material';
+import { useCallback, useEffect, useState } from 'react';
 import { useGameHub } from './signalr/useGameHub';
-import { ConnectionStatus } from './components';
+import { Home } from './pages/Home';
+import { Join } from './pages/Join';
+import { Lobby } from './pages/Lobby';
+
+// The set of screens App can show.
+type View = 'home' | 'join' | 'lobby';
 
 export default function App() {
-  const { status, ping } = useGameHub();
-  const [echo, setEcho] = useState<string | null>(null);
+  const { status, room, isHost, createRoom, joinRoom, clearRoom } = useGameHub();
+  const [view, setView] = useState<View>('home');
+  const [creating, setCreating] = useState(false);
 
-  // Fire one Ping as soon as we are connected, to prove the round trip.
+  // When a room becomes available (created or joined), land in the lobby. This
+  // is the single place a set room flips the view, so both createRoom and a
+  // successful joinRoom converge here (AC-01).
   useEffect(() => {
-    if (status !== 'connected') return;
+    if (room) {
+      setView('lobby');
+    }
+  }, [room]);
 
-    let active = true;
-    void ping('hello from the web client').then((response) => {
-      if (active && response) setEcho(response);
-    });
+  // "Create a game": ask the hub for a room; the effect above lands us in the
+  // lobby once the hook's room is set.
+  const handleCreateGame = useCallback(async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      await createRoom();
+    } finally {
+      setCreating(false);
+    }
+  }, [creating, createRoom]);
 
-    return () => {
-      active = false;
-    };
-  }, [status, ping]);
+  // "Join a game": open the Join screen (session-engine/02).
+  const handleJoinGame = useCallback(() => {
+    setView('join');
+  }, []);
+
+  // Leave the lobby / Join screen and return Home (drops the room; rooms are
+  // ephemeral and the server sweeps idle ones - AC-05).
+  const handleGoHome = useCallback(() => {
+    clearRoom();
+    setView('home');
+  }, [clearRoom]);
+
+  if (view === 'lobby' && room) {
+    // onStart is the SEAM for group-play/01 (round start). For story 03 it is a
+    // no-op placeholder - the host-only CTA renders, but starting a round is a
+    // later story; do not invent round logic here.
+    return (
+      <Lobby room={room} isHost={isHost} onLeave={handleGoHome} onStart={() => {}} />
+    );
+  }
+
+  if (view === 'join') {
+    return (
+      <Join onJoin={joinRoom} onBack={handleGoHome} disabled={status !== 'connected'} />
+    );
+  }
 
   return (
-    <Container maxWidth="sm">
-      <Stack spacing={4} alignItems="center" sx={{ py: 8, textAlign: 'center' }}>
-        <Box sx={{ fontSize: 64, color: 'secondary.main' }}>
-          <FontAwesomeIcon icon="bolt" />
-        </Box>
-
-        <Typography variant="h3" component="h1" fontWeight={800}>
-          QuibbleStone
-        </Typography>
-
-        <Typography variant="body1" color="text.secondary">
-          Walking skeleton. No game here yet - just proving the web app, the API,
-          and the real-time hub all talk to each other.
-        </Typography>
-
-        <ConnectionStatus status={status} echo={echo} />
-      </Stack>
-    </Container>
+    <Home
+      onCreateGame={() => void handleCreateGame()}
+      onJoinGame={handleJoinGame}
+      creating={creating}
+      disabled={status !== 'connected'}
+    />
   );
 }

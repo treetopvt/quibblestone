@@ -24,7 +24,8 @@
 //  raw hex values.
 // ----------------------------------------------------------------------------
 
-import { createTheme } from '@mui/material/styles';
+import { createTheme, alpha } from '@mui/material/styles';
+import type {} from '@mui/material/Button';
 
 // ----------------------------------------------------------------------------
 //  Design tokens - authoritative values from docs/design/README.md (Global
@@ -39,15 +40,31 @@ const tokens = {
   },
   sandstone: '#E8DCC4',
   card: '#ECE2CC',
+  // Stone-tablet motif gradient stops (docs/design/README.md "Tablet gradient",
+  // 168deg) - the arched glowing-stone panel used by the Home hero (and later
+  // the Lobby/Reveal tablets). Kept as tokens so screens never hardcode them.
+  tabletTop: '#EFE3C7',
+  tabletMid: '#E3D2AC',
+  tabletBottom: '#D6C194',
   // Bottom action bar fade-scrim target color (docs/design/README.md
   // "Bottom action bar pattern") - distinct from the card fill.
   bottomBarScrim: '#F2E8D2',
   stoneSlot: '#DCCFB0',
   stoneSlotAlt: '#DFD2B4',
+  // Lobby roster player-tile (session-engine/03, docs/design/Lobby.dc.html): a
+  // ~74px carved-stone circle - a light parchment fill with a warm sandstone
+  // border - that frames each present player's Guardian. Kept as tokens so the
+  // Lobby never hardcodes these hexes (CLAUDE.md section 4).
+  rosterTileFill: '#FBF6EA',
+  rosterTileBorder: '#E0CDA0',
   textPrimary: '#2B2622',
   textMutedStrong: 'rgba(43,38,34,.66)',
   textMutedSoft: 'rgba(43,38,34,.5)',
   purple: '#6C4BD8',
+  // Hover shade for the filled-purple button contract (session-engine/04
+  // Lobby share widget "Share" CTA) - a slightly darker purple, matching the
+  // pattern of the gold CTA's own darker-on-hover treatment.
+  purpleDeep: '#5A3BC0',
   goldTop: '#FFC24E',
   goldMain: '#FFB22E',
   goldDeep: '#E89A12',
@@ -56,6 +73,18 @@ const tokens = {
   teal: '#2FB8A0',
   tealDeep: '#1F8A78',
   stoneEdge: '#B49B6E',
+  // Guardian variant accent colors (docs/design/README.md Shared Component:
+  // Guardian; matches the eye/feature color each variant uses in
+  // web/src/components/Guardian.tsx). Used as the SOLID accent - tile
+  // backgrounds tint these with alpha (see guardianAccent below), so the Join
+  // avatar grid (session-engine/05) and the Lobby roster (session-engine/03)
+  // stay theme-driven and DRY instead of each re-deriving a tint.
+  guardianPurple: '#6C4BD8',
+  guardianGold: '#E89A12',
+  guardianCoral: '#FF6B57',
+  guardianTeal: '#2FB8A0',
+  guardianSand: '#7C6442',
+  guardianPlum: '#9B7BE0',
   // App-bar icon-button fill (DESIGN_RULES "Consistent App Bar"): a
   // translucent wash of the warm-dark-brown text color.
   appBarIconFill: 'rgba(43,38,34,.07)',
@@ -66,11 +95,27 @@ const tokens = {
 // (parchment gradient stops, the gold CTA scale, accent colors) are available
 // as `theme.palette.parchment`, `theme.palette.gold`, etc. with full type
 // safety - no raw hex literals at call sites.
+// One Guardian variant's theme-driven accent: a solid `main` (matches the
+// Guardian component's eye/feature color for that variant) plus a
+// pre-computed `tileTint` - a light alpha wash of that color used as an
+// avatar tile's background (Join grid, Lobby roster). Keeping the tint here
+// (not re-derived with `alpha()` at each call site) is what keeps those two
+// screens DRY and theme-driven per CLAUDE.md section 4.
+interface GuardianAccentEntry {
+  main: string;
+  tileTint: string;
+}
+type GuardianAccentPalette = Record<
+  'purple' | 'gold' | 'coral' | 'teal' | 'sand' | 'plum',
+  GuardianAccentEntry
+>;
+
 declare module '@mui/material/styles' {
   interface Palette {
     parchment: { top: string; mid: string; bottom: string; gradient: string };
     sandstone: Palette['primary'];
     card: { main: string };
+    tablet: { top: string; mid: string; bottom: string; gradient: string };
     stoneSlot: { main: string; alt: string };
     gold: Palette['primary'];
     coral: Palette['primary'];
@@ -78,11 +123,16 @@ declare module '@mui/material/styles' {
     stoneEdge: { main: string };
     appBarIcon: { fill: string; hoverFill: string };
     bottomBarScrim: { main: string };
+    /** Guardian variant accent colors + tile tints (session-engine/05). */
+    guardianAccent: GuardianAccentPalette;
+    /** Lobby roster player-tile fill + border (session-engine/03). */
+    rosterTile: { fill: string; border: string };
   }
   interface PaletteOptions {
     parchment?: { top: string; mid: string; bottom: string; gradient: string };
     sandstone?: PaletteOptions['primary'];
     card?: { main: string };
+    tablet?: { top: string; mid: string; bottom: string; gradient: string };
     stoneSlot?: { main: string; alt: string };
     gold?: PaletteOptions['primary'];
     coral?: PaletteOptions['primary'];
@@ -90,10 +140,25 @@ declare module '@mui/material/styles' {
     stoneEdge?: { main: string };
     appBarIcon?: { fill: string; hoverFill: string };
     bottomBarScrim?: { main: string };
+    guardianAccent?: GuardianAccentPalette;
+    rosterTile?: { fill: string; border: string };
+  }
+}
+
+// A third Button contract alongside contained (gold CTA) / outlined (purple
+// secondary): a FILLED-PURPLE, white-text variant (session-engine/04, the
+// Lobby share widget's "Share" CTA, docs/design/Lobby.dc.html). Registered as
+// a genuine MUI custom variant (not an inline sx one-off) so any future
+// filled-purple action reuses the same contract. Use it as
+// <Button variant="sharePurple">.
+declare module '@mui/material/Button' {
+  interface ButtonPropsVariantOverrides {
+    sharePurple: true;
   }
 }
 
 const parchmentGradient = `linear-gradient(180deg, ${tokens.parchment.top} 0%, ${tokens.parchment.mid} 42%, ${tokens.parchment.bottom} 100%)`;
+const tabletGradient = `linear-gradient(168deg, ${tokens.tabletTop} 0%, ${tokens.tabletMid} 52%, ${tokens.tabletBottom} 100%)`;
 
 export const theme = createTheme({
   palette: {
@@ -109,6 +174,12 @@ export const theme = createTheme({
     parchment: { ...tokens.parchment, gradient: parchmentGradient },
     sandstone: { main: tokens.sandstone },
     card: { main: tokens.card },
+    tablet: {
+      top: tokens.tabletTop,
+      mid: tokens.tabletMid,
+      bottom: tokens.tabletBottom,
+      gradient: tabletGradient,
+    },
     stoneSlot: { main: tokens.stoneSlot, alt: tokens.stoneSlotAlt },
     gold: { main: tokens.goldMain, light: tokens.goldTop, dark: tokens.goldDeep },
     coral: { main: tokens.coral },
@@ -116,6 +187,21 @@ export const theme = createTheme({
     stoneEdge: { main: tokens.stoneEdge },
     appBarIcon: { fill: tokens.appBarIconFill, hoverFill: tokens.appBarIconFillHover },
     bottomBarScrim: { main: tokens.bottomBarScrim },
+    // Guardian variant accents (session-engine/05, docs/design/Join.dc.html
+    // avatar grid): each tile's background is a light alpha wash of the
+    // variant's accent color. Alpha values match the design reference exactly
+    // (purple .12, gold .14, coral .13, teal .14, sand .10, plum .14).
+    guardianAccent: {
+      purple: { main: tokens.guardianPurple, tileTint: alpha(tokens.guardianPurple, 0.12) },
+      gold: { main: tokens.guardianGold, tileTint: alpha(tokens.guardianGold, 0.14) },
+      coral: { main: tokens.guardianCoral, tileTint: alpha(tokens.guardianCoral, 0.13) },
+      teal: { main: tokens.guardianTeal, tileTint: alpha(tokens.guardianTeal, 0.14) },
+      sand: { main: tokens.guardianSand, tileTint: alpha(tokens.guardianSand, 0.1) },
+      plum: { main: tokens.guardianPlum, tileTint: alpha(tokens.guardianPlum, 0.14) },
+    },
+    // Lobby roster player-tile (session-engine/03): the carved-stone circle that
+    // frames each present player's Guardian avatar.
+    rosterTile: { fill: tokens.rosterTileFill, border: tokens.rosterTileBorder },
   },
   shape: {
     borderRadius: 20, // large rounded buttons/cards default; see DESIGN_RULES card radius (24px) for cards specifically
@@ -240,6 +326,37 @@ export const theme = createTheme({
           },
         },
       },
+      // Filled-purple white-text CTA (session-engine/04 "Share"). Registered
+      // via MUI's custom-variant `variants` array (matched by the augmented
+      // `variant="sharePurple"` prop) rather than a `styleOverrides` key,
+      // since "sharePurple" is not one of MUI's built-in variant names.
+      // Shares the root contract's radius/typography/disableElevation; height
+      // matches the outlined secondary (60) since Share sits stacked beside
+      // Copy in the share widget, not full-width like the primary CTA.
+      variants: [
+        {
+          props: { variant: 'sharePurple' },
+          style: {
+            height: 60,
+            border: 'none',
+            background: tokens.purple,
+            color: '#fff',
+            boxShadow: '0 8px 16px -8px rgba(108,75,216,.9)',
+            '&:hover': {
+              background: tokens.purpleDeep,
+              boxShadow: '0 10px 20px -8px rgba(108,75,216,.95)',
+            },
+            '&:active': {
+              boxShadow: '0 6px 12px -8px rgba(108,75,216,.85)',
+            },
+            '&.Mui-disabled': {
+              background: tokens.stoneSlotAlt,
+              color: tokens.textMutedSoft,
+              boxShadow: 'none',
+            },
+          },
+        },
+      ],
     },
   },
 });

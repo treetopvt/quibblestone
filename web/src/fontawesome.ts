@@ -24,6 +24,27 @@ import {
   faCircleQuestion,
   faHouse,
   faShareNodes,
+  // Home + Lobby icons (session-engine/01): the gold "Create a game" CTA (plus),
+  // the outlined-purple "Join a game" button (login arrow), the "No account
+  // needed" reassurance check, and the Lobby host indicator (crown).
+  faPlus,
+  faRightToBracket,
+  faCheck,
+  faCrown,
+  // Join icons (session-engine/02): the "100% anonymous" reassurance shield,
+  // the display-name field's person icon, and the gold "Join [CODE] ->" CTA
+  // arrow.
+  faShield,
+  faUser,
+  faArrowRight,
+  // Lobby roster icons (session-engine/03): the "Carvers gathered" count chip
+  // (users) and the host-only "Start game" CTA glyph (play).
+  faUsers,
+  faPlay,
+  // Lobby share widget (session-engine/04): the outlined-purple "Copy" CTA's
+  // clipboard glyph. faCheck (already above) becomes the teal confirmation
+  // icon and faShareNodes (already above) is the filled-purple "Share" glyph.
+  faCopy,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -37,4 +58,14 @@ library.add(
   faCircleQuestion,
   faHouse,
   faShareNodes,
+  faPlus,
+  faRightToBracket,
+  faCheck,
+  faCrown,
+  faShield,
+  faUser,
+  faArrowRight,
+  faUsers,
+  faPlay,
+  faCopy,
 );

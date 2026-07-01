@@ -34,9 +34,6 @@ export type { BottomActionBarProps } from './BottomActionBar';
 export { Guardian } from './Guardian';
 export type { GuardianVariant, GuardianProps } from './Guardian';
 
-// Real-time connection readout (presentational).
-export { ConnectionStatus } from './ConnectionStatus';
-
 // The full-size hero mascot lives under web/src/assets (it is illustrative art,
 // not theme chrome), but it is re-exported here so screens import all shared UI
 // from one place (Home and Waiting use it).

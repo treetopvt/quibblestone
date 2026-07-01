@@ -25,6 +25,7 @@
 // ----------------------------------------------------------------------------
 
 using QuibbleStone.Api.Hubs;
+using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -44,6 +45,13 @@ builder.Services.AddControllers();
 // (nicknames, answers) call it in their own later stories; this story owns the
 // contract + the single registration.
 builder.Services.AddSingleton<IContentSafetyFilter, ContentSafetyFilter>();
+
+// Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
+// so every transient GameHub instance (SignalR builds a fresh hub per
+// invocation) shares the SAME set of active rooms. This is the toy's ONLY room
+// state - there is no database (CLAUDE.md section 10); rooms live in memory for
+// the length of a play session and expire when idle (AC-05).
+builder.Services.AddSingleton<RoomRegistry>();
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
