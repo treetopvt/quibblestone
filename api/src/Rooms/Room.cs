@@ -44,15 +44,55 @@ public sealed record Player(
     bool IsHost);
 
 /// <summary>
+/// The mutable state of the room's CURRENT round (group-play). Null while the
+/// room sits in the lobby; set by <see cref="Room.StartRound"/> when the host
+/// starts a round (group-play/01) and mutated in place under the room lock as the
+/// round progresses.
+///
+/// Deliberately EXTENSIBLE - later group-play stories grow this same record
+/// rather than adding parallel round bookkeeping:
+///   - group-play/02 adds per-player blank assignments (index-based, which is why
+///     the catalog already carries BlankCount).
+///   - group-play/03 adds collected submissions + moves <see cref="Phase"/> from
+///     "prompting" toward the reveal.
+///   - group-play/04 increments <see cref="RoundNumber"/> and resets the phase for
+///     the replay loop.
+/// group-play/01 only sets the opening shape below.
+/// </summary>
+public sealed class RoundState
+{
+    /// <summary>1-based round number; group-play/04 increments it on replay.</summary>
+    public required int RoundNumber { get; set; }
+
+    /// <summary>The selected template's id - the key the client resolves full content from (seedLibrary).</summary>
+    public required string TemplateId { get; set; }
+
+    /// <summary>The play mode. Classic blind only for Slice 1 ("classic-blind").</summary>
+    public required string Mode { get; set; }
+
+    /// <summary>
+    /// The round's lifecycle phase. "prompting" once a round starts (players are
+    /// collecting words); group-play/03 advances it toward the reveal. (The lobby
+    /// itself is represented by <see cref="Room.CurrentRound"/> being null, not a
+    /// phase value.)
+    /// </summary>
+    public required string Phase { get; set; }
+}
+
+/// <summary>
 /// An ephemeral, in-memory game room. Not persisted anywhere (CLAUDE.md
 /// section 10): it lives in the <see cref="RoomRegistry"/> only while active.
 /// </summary>
 public sealed class Room
 {
-    // Guards the mutable roster - SignalR invokes on different connections can
-    // touch the same room concurrently.
+    // Guards the mutable roster AND the current round - SignalR invokes on
+    // different connections can touch the same room concurrently.
     private readonly object _gate = new();
     private readonly List<Player> _players = [];
+
+    // The current round, or null while the room is in the lobby. Guarded by
+    // _gate: mutated only under the lock (see StartRound), snapshotted for reads.
+    private RoundState? _round;
 
     private Room(string code)
     {
@@ -184,6 +224,114 @@ public sealed class Room
         lock (_gate)
         {
             return _players.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// The number of players currently seated in the room. Read under the lock so
+    /// it never observes a torn roster mid-mutation. Used by group-play/01 to
+    /// enforce the "at least one other player" rule before a round starts (AC-01).
+    /// </summary>
+    public int PlayerCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _players.Count;
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when the given connection owns the room's HOST player (group-play/01,
+    /// AC-03). The server-authoritative host check: the host is the single roster
+    /// entry with IsHost == true, and only the connection that created the room
+    /// owns it. Guarded by the room lock so it never races a roster mutation.
+    ///
+    /// This is why the host check cannot be trusted to the client - IsHost is on
+    /// the wire as an anonymous flag with no connection identity, so a non-host
+    /// client could claim to be the host; only the SERVER can tie a connection to
+    /// the host player, which is exactly what this method does.
+    /// </summary>
+    /// <param name="connectionId">The calling connection to test.</param>
+    /// <returns>True if that connection owns the host player; false otherwise.</returns>
+    public bool IsHost(string connectionId)
+    {
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            return _players.Any(p => p.IsHost && p.ConnectionId == connectionId);
+        }
+    }
+
+    /// <summary>
+    /// Opens a new round on this room (group-play/01). Sets the round state
+    /// (round number, selected template id, mode, and the "prompting" phase) under
+    /// the room lock so a concurrent roster change cannot interleave, and returns a
+    /// snapshot of the new round for the hub to broadcast.
+    ///
+    /// group-play/01 always opens round 1 in the "prompting" phase; later stories
+    /// grow this (group-play/04 increments the round number for the replay loop,
+    /// group-play/02 and /03 layer assignments and submissions onto the same
+    /// <see cref="RoundState"/>).
+    /// </summary>
+    /// <param name="templateId">The auto-selected template's id (resolved to content client-side).</param>
+    /// <param name="mode">The play mode ("classic-blind" for Slice 1).</param>
+    /// <returns>A snapshot of the round just started, safe to hand to the broadcast.</returns>
+    public RoundState StartRound(string templateId, string mode)
+    {
+        lock (_gate)
+        {
+            _round = new RoundState
+            {
+                RoundNumber = 1,
+                TemplateId = templateId,
+                Mode = mode,
+                Phase = "prompting",
+            };
+            LastActiveUtc = DateTimeOffset.UtcNow;
+
+            // Hand back a detached copy so callers reading it outside the lock
+            // never observe a later in-place mutation of the live round.
+            return new RoundState
+            {
+                RoundNumber = _round.RoundNumber,
+                TemplateId = _round.TemplateId,
+                Mode = _round.Mode,
+                Phase = _round.Phase,
+            };
+        }
+    }
+
+    /// <summary>
+    /// A point-in-time snapshot of the current round, or null while the room is in
+    /// the lobby. Returns a copy so callers cannot mutate the live round outside
+    /// the lock (later group-play stories read this to resume / re-broadcast).
+    /// </summary>
+    public RoundState? CurrentRound
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_round is null)
+                {
+                    return null;
+                }
+
+                return new RoundState
+                {
+                    RoundNumber = _round.RoundNumber,
+                    TemplateId = _round.TemplateId,
+                    Mode = _round.Mode,
+                    Phase = _round.Phase,
+                };
+            }
         }
     }
 }
