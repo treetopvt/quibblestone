@@ -13,9 +13,15 @@
 //  Classic-blind behavior.
 //
 //  The three axes for Classic blind:
-//    - see: 'nothing'    - players never see any story context while
-//                           answering (fully blind - the reassurance panel on
-//                           FillBlank explains this to the player).
+//    - see: 'subject-only' - players see ONLY the tale's title/subject while
+//                           answering (e.g. "The Wobbly Wizard & the Golden
+//                           Sock"), never the surrounding story narrative. So
+//                           it stays blind to the joke - the filled-in words
+//                           and the assembled story are hidden until the end -
+//                           while the FillBlank subject label tells the player
+//                           which tale they are carving. The reassurance panel
+//                           on FillBlank makes the "no peeking at the story"
+//                           promise explicit.
 //    - answer: 'free-text' - players type any word; engine.ts's collectWord
 //                             routes it through the injected SafetyCheck
 //                             before it is ever recorded (AC-05 on this
@@ -45,7 +51,7 @@ import type { ModeConfig } from '../mode';
 export const classicBlind: ModeConfig = {
   id: 'classic-blind',
   label: 'Classic (Blind)',
-  see: 'nothing',
+  see: 'subject-only',
   answer: 'free-text',
   reveal: 'at-end',
 };

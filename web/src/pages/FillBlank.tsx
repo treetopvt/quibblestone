@@ -18,6 +18,10 @@
 //  construction, AC-02/AC-07).
 //
 //  What it renders (AC-01 to AC-06):
+//    - an optional subject label (the tale's title only) when the parent passes
+//      `subject` - Classic blind is `see: 'subject-only'`, so the player sees
+//      WHICH tale they are carving but never the story narrative or the filled
+//      words (the reveal stays a surprise);
 //    - a progress row ("Word N of M" + a chisel icon + "X to go" in teal) and
 //      an adaptive-length segment bar (one segment per blank, not a
 //      hardcoded 8 - AC-01), with completed/current segments gold and the
@@ -54,6 +58,15 @@ import { BottomActionBar, BottomActionBarSpacer } from '../components';
 import type { Blank } from '../engine/template';
 
 export interface FillBlankProps {
+  /**
+   * The tale's title/subject, shown as a small subject label at the top
+   * (Classic blind is `see: 'subject-only'` - the player sees WHICH tale they
+   * are carving, never the surrounding story narrative or the filled words).
+   * The parent passes this only when the active mode's `see` axis is
+   * 'subject-only'; omit it for a fully-blind ('nothing') mode. Never the story
+   * body - just the subject.
+   */
+  subject?: string;
   /** The current blank to fill. FillBlank renders only this - no surrounding story text (blind mode). */
   blank: Blank;
   /** 1-based position of this blank among the round's total blanks, for the progress row. */
@@ -240,6 +253,38 @@ function PromptCard({ blank }: { blank: Blank }) {
   );
 }
 
+/**
+ * The subject-only header (Classic blind is `see: 'subject-only'`): a small
+ * "the tale you are carving" kicker plus the tale's title. This is the ONLY
+ * story-level context shown - never the narrative or the filled words, so the
+ * reveal stays a surprise (AC-02/AC-04). Rendered only when a `subject` is
+ * passed.
+ */
+function SubjectLabel({ subject }: { subject: string }) {
+  return (
+    <Stack alignItems="center" spacing={0.5} sx={{ mb: 3 }}>
+      <Typography
+        variant="overline"
+        sx={{ fontSize: 11, fontWeight: 800, color: 'text.secondary', lineHeight: 1 }}
+      >
+        Your tale
+      </Typography>
+      <Typography
+        sx={{
+          fontFamily: '"Fredoka", sans-serif',
+          fontWeight: 600,
+          fontSize: 16,
+          lineHeight: 1.2,
+          textAlign: 'center',
+          color: 'primary.main',
+        }}
+      >
+        {subject}
+      </Typography>
+    </Stack>
+  );
+}
+
 /** The blind-mode reassurance panel (AC-04): purple tint, eye-slash icon. */
 function BlindReassurance() {
   const theme = useTheme();
@@ -274,7 +319,7 @@ function BlindReassurance() {
   );
 }
 
-export function FillBlank({ blank, wordNumber, totalWords, onSubmitWord, onSkip }: FillBlankProps) {
+export function FillBlank({ subject, blank, wordNumber, totalWords, onSubmitWord, onSkip }: FillBlankProps) {
   const theme = useTheme();
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -311,6 +356,7 @@ export function FillBlank({ blank, wordNumber, totalWords, onSubmitWord, onSkip 
   return (
     <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto' }}>
       <Stack component="form" onSubmit={handleSubmit(submit)} sx={{ px: 5.5, pt: 4 }}>
+        {subject && <SubjectLabel subject={subject} />}
         <ProgressRow wordNumber={wordNumber} totalWords={totalWords} />
         <SegmentBar wordNumber={wordNumber} totalWords={totalWords} />
 

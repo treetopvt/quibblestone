@@ -4,7 +4,7 @@
 //
 //  Two things worth proving here:
 //    1. The config itself is exactly the three axes the story specifies
-//       (see='nothing', answer='free-text', reveal='at-end'), plus stable
+//       (see='subject-only', answer='free-text', reveal='at-end'), plus stable
 //       id/label metadata.
 //    2. A light integration through engine.ts's collectWord: passing
 //       classicBlind + a stub SafetyCheck rejects a failing word (never
@@ -20,7 +20,7 @@ import { blank, text, type Template } from '../template';
 
 describe('classicBlind', () => {
   it('is expressed as exactly the three Classic-blind axis values', () => {
-    expect(classicBlind.see).toBe('nothing');
+    expect(classicBlind.see).toBe('subject-only');
     expect(classicBlind.answer).toBe('free-text');
     expect(classicBlind.reveal).toBe('at-end');
   });
