@@ -1,6 +1,6 @@
 # Story: Create a room and get a join code
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started
+**Feature:** Session & Room Engine  ·  **Status:** In Review
 
 ## Context
 A host needs to start a session that others can join from their own devices.
@@ -8,24 +8,24 @@ This is the front door to group play, and everything else in the room rides on
 it. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I am on the home screen, when I tap "Create a game" (the gold
+- [x] AC-01: Given I am on the home screen, when I tap "Create a game" (the gold
       primary CTA, "+" icon), then a room is created and I land in its lobby as
       the host. The home screen also offers a "Join a game" outlined-purple
       secondary button and a reassurance line "No account needed - just pick a
       name & play" with a teal check icon. See `docs/design/README.md` Screens -
       screen 1 (Home) and `docs/design/screens/01-home.png`.
-- [ ] AC-02: Given a room is created, then I am shown a short, human-friendly join
+- [x] AC-02: Given a room is created, then I am shown a short, human-friendly join
       code that is easy to read aloud and type (4 characters, no ambiguous glyphs
       such as O/0 or I/1/l). The design shows a 4-slot carved code widget (e.g.
       "MOSS") prominently on both the Join and Lobby screens.
-- [ ] AC-03: Given a room is created, then its join code is unique among currently
+- [x] AC-03: Given a room is created, then its join code is unique among currently
       active rooms.
-- [ ] AC-04: Given I am in the lobby and no one else has joined, then I see myself
+- [x] AC-04: Given I am in the lobby and no one else has joined, then I see myself
       marked as host (with the gold HOST chip and crown badge) and a clear
       "waiting for players" state with the code shown; empty player slots show
       dashed borders with pulsing dots. See `docs/design/README.md` Screens -
       screen 3 (Lobby) and `docs/design/screens/03-lobby.png`.
-- [ ] AC-05: Given a room has had no activity for a reasonable window, then it is
+- [x] AC-05: Given a room has had no activity for a reasonable window, then it is
       allowed to expire (rooms are ephemeral; no durable persistence required).
 
 ## Out of Scope
@@ -47,6 +47,15 @@ it. See [feature.md](./feature.md).
   See `docs/design/README.md` Screens screen 1 for full spec.
 - Code generation lives server-side; generate 4-character codes, exclude O, 0,
   I, 1, l.
+
+## Tests
+- `tests/QuibbleStone.Api.Tests/RoomRegistryTests.cs` (xUnit): host is seated as
+  the first player (AC-01); codes are 4 chars from the unambiguous alphabet with
+  no O/0/I/1/l (AC-02); codes are unique among active rooms (AC-03); `TryGet` is
+  case-insensitive. Expiry (AC-05) is left to manual/integration check (the sweep
+  is small and lazy; a fake clock is out of scope for Slice 1).
+- Playwright smoke (`tests/smoke.spec.ts`): Home loads and the gold "Create a
+  game" CTA becomes enabled once the SignalR round trip succeeds (AC-01).
 
 ## Dependencies
 - platform-devops (real-time backbone reachable).

@@ -175,7 +175,7 @@ public sealed class GameHub : Hub
             return new JoinResultDto(false, null, verdict.Message);
         }
 
-        // 5. Default the variant (AC-05) - joiners pick a real one in story 05.
+        // Default the variant (AC-05) - joiners pick a real one in story 05.
         var chosenVariant = string.IsNullOrWhiteSpace(variant) ? "teal" : variant;
 
         // 4. Add the (now-vetted) player under the room lock, which also enforces

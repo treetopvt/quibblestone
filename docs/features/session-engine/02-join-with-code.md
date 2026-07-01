@@ -1,6 +1,6 @@
 # Story: Join a room with a code and nickname
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started
+**Feature:** Session & Room Engine  ·  **Status:** In Review
 
 ## Context
 Players join a host's room from their own device with no account - just a code
@@ -8,27 +8,27 @@ and a nickname. This is the anonymous, no-PII identity posture (README section 3
 and the child-privacy stance (section 6). See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I have a valid join code, when I enter it into the 4-slot
+- [x] AC-01: Given I have a valid join code, when I enter it into the 4-slot
       carved code input and provide a display name, then I join that room and land
       in its lobby. The Join screen has two stacked cards: a room-code card and a
       character card (display name + avatar grid). The pinned gold CTA reads
       "Join [CODE] ->" with the entered code interpolated. See
       `docs/design/README.md` Screens - screen 2 (Join) and
       `docs/design/screens/02-join.png`.
-- [ ] AC-02: Given I am joining, then I am asked only for a code and a display
+- [x] AC-02: Given I am joining, then I am asked only for a code and a display
       name - never for an account, email, or any other personal information. A
       reassurance line "100% anonymous - no email, no account" (shield icon) is
       visible on the screen.
-- [ ] AC-03: Given I enter a display name (max 14 characters; a live character
+- [x] AC-03: Given I enter a display name (max 14 characters; a live character
       counter shows "n/14"), then it is checked by the safety filter before it is
       shown to anyone; a failing name is rejected with a friendly message and I
       can try another. No PII is collected.
-- [ ] AC-04: Given I enter a code that is invalid or expired, then I see a
+- [x] AC-04: Given I enter a code that is invalid or expired, then I see a
       friendly error and I am not joined.
-- [ ] AC-05: Given I successfully join, then the host and other players see me
+- [x] AC-05: Given I successfully join, then the host and other players see me
       appear in the roster in near-real-time, represented by my display name and
       Guardian variant.
-- [ ] AC-06: Given my chosen display name is already in use in that room, then I
+- [x] AC-06: Given my chosen display name is already in use in that room, then I
       am prompted to choose a different one.
 
 ## Out of Scope
@@ -53,6 +53,15 @@ and the child-privacy stance (section 6). See [feature.md](./feature.md).
   `docs/features/child-safety/`); do not show an unfiltered name to anyone.
 - Web: the join form uses MUI; validation messages are friendly and brief (the
   audience includes kids).
+
+## Tests
+- `tests/QuibbleStone.Api.Tests/GameHubJoinTests.cs` (xUnit, 8): unknown/expired
+  code rejected (AC-04); empty/whitespace/over-14 name rejected (AC-03); a blocked
+  name is never added to the roster (AC-03, child safety); case-insensitive
+  duplicate name rejected (AC-06); success path adds the player, subscribes the
+  connection to the room group, and broadcasts `RosterChanged` (AC-01, AC-05);
+  variant defaults to `teal` when unset. Uses the real `GameHub` + `RoomRegistry`
+  + `ContentSafetyFilter` (no mocking lib) with small SignalR fakes.
 
 ## Dependencies
 - session-engine/01-create-room
