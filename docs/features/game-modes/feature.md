@@ -22,10 +22,10 @@ variations - reframed here per-axis, see Decisions below).
 |---|---|---|---|
 | 01 | #27 | Mode interface (the three axes) | Complete |
 | 02 | #28 | Classic blind mode | Complete |
-| 03 | #83 | Mode-aware FillBlank + Reveal (foundation) | In Progress |
-| 04 | #53 | Word Bank mode (answer axis) | In Progress |
-| 05 | #84 | Progressive Story mode (see axis) | In Progress |
-| 06 | #52 | Progressive Reveal mode (reveal axis) | In Progress |
+| 03 | #83 | Mode-aware FillBlank + Reveal (foundation) | Complete |
+| 04 | #53 | Word Bank mode (answer axis) | Complete |
+| 05 | #84 | Progressive Story mode (see axis) | Complete |
+| 06 | #52 | Progressive Reveal mode (reveal axis) | Complete |
 
 ## Dependencies
 - template-model (a mode plays a template).

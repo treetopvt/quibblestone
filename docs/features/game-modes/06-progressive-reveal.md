@@ -1,6 +1,6 @@
 # Story: Progressive Reveal mode
 
-**Feature:** Game Modes Engine  ·  **Status:** In Progress  ·  **Issue:** #52
+**Feature:** Game Modes Engine  ·  **Status:** Complete  ·  **Issue:** #52
 
 ## Context
 The engine's `reveal` axis (`web/src/engine/mode.ts`) declares `'progressively'`
@@ -16,30 +16,30 @@ that `game-modes/03` adds to `Reveal` - it does NOT touch `Reveal.tsx` itself.
 See [feature.md](./feature.md) and README section 4.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given Progressive Reveal mode, when I am filling blanks, then I
+- [x] AC-01: Given Progressive Reveal mode, when I am filling blanks, then I
       see the same subject-only stone-tablet prompt card as Classic blind
       (category chip, prompt, sub-hint, blind reassurance panel) - `see:
       'subject-only'` is unchanged from Classic blind, so this mode supplies no
       `seeContext`/`answerSurface` overrides, only a `revealPresentation`.
-- [ ] AC-02: Given all blanks are filled and I reach the Reveal screen, then
+- [x] AC-02: Given all blanks are filled and I reach the Reveal screen, then
       the assembled story unveils one filled word at a time in body order
       (paced/stepped reveal), rather than the full coral-highlighted body
       appearing all at once (Classic blind's default) - each word pop uses the
       same coral highlight treatment as the default reveal, just staged over
       time instead of shown immediately.
-- [ ] AC-03: Given the progressive reveal is mid-sequence, then the literal
+- [x] AC-03: Given the progressive reveal is mid-sequence, then the literal
       story text around not-yet-revealed words is still visible (readers see
       the sentence shape forming), but the not-yet-revealed WORDS themselves
       are not shown until their step arrives - once every word has been
       revealed, the screen matches the default reveal's final state exactly.
-- [ ] AC-04: Given Progressive Reveal mode, then it is expressed purely as a
+- [x] AC-04: Given Progressive Reveal mode, then it is expressed purely as a
       `ModeConfig` (`see: 'subject-only'`, `answer: 'free-text'`, `reveal:
       'progressively'`) plus one `ModeSurfaces` value (`game-modes/03`)
       supplying `revealPresentation` - no new branch is added to `engine.ts`
       or `assemble.ts`; the presentation reuses `buildRevealParts` READ-ONLY
       against the already-complete `AssembledStory` (pacing is a rendering
       concern, not a collection or assembly concern).
-- [ ] AC-05: Given free-text Progressive Reveal answers, then every submitted
+- [x] AC-05: Given free-text Progressive Reveal answers, then every submitted
       word passes the safety filter before it is recorded (the same
       collection-path seam every free-text mode inherits) - the reveal only
       ever paces out words that are already vetted, so no unfiltered word is

@@ -1,6 +1,6 @@
 # Story: Mode-aware FillBlank + Reveal
 
-**Feature:** Game Modes Engine  ·  **Status:** In Progress  ·  **Issue:** #83
+**Feature:** Game Modes Engine  ·  **Status:** Complete  ·  **Issue:** #83
 
 ## Context
 The engine's three axes (`web/src/engine/mode.ts`) were designed to allow
@@ -19,34 +19,34 @@ with no further edits to the shared screens. See [feature.md](./feature.md) and
 README section 4 (the three axes).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given `FillBlank`, when its parent supplies an optional
+- [x] AC-01: Given `FillBlank`, when its parent supplies an optional
       `seeContext` node, then it is rendered above the prompt card (below the
       existing subject label); when omitted, the layout is pixel-identical to
       today's Classic-blind rendering - `seeContext` is a pure addition, never a
       replacement of the existing `subject` prop.
-- [ ] AC-02: Given `FillBlank`, when its parent supplies an optional
+- [x] AC-02: Given `FillBlank`, when its parent supplies an optional
       `answerSurface` node, then it REPLACES the free-text input + spark-chip
       row entirely (the carved `TextField` and "Need a spark?" row do not
       render); when omitted, the free-text input + spark chips render exactly
       as they do today.
-- [ ] AC-03: Given `Reveal`, when its parent supplies an optional presentation
+- [x] AC-03: Given `Reveal`, when its parent supplies an optional presentation
       override (a `revealPresentation` slot or an equivalent mode-driven prop -
       see Technical Notes for the exact shape), then it is used to render the
       story body INSTEAD of the default coral-highlight paragraph; when
       omitted, `Reveal` renders exactly as it does today (the default at-end,
       all-at-once coral-highlight body via `buildRevealParts`).
-- [ ] AC-04: Given `Solo.tsx` and `GroupRound.tsx` (the two existing callers),
+- [x] AC-04: Given `Solo.tsx` and `GroupRound.tsx` (the two existing callers),
       then NEITHER file is edited by this story and BOTH continue to compile
       and render Classic blind identically to before this story landed - proof
       that the new props are purely additive/optional, not a breaking change to
       the composition contract.
-- [ ] AC-05: Given the new `ModeSurfaces` contract (Technical Notes), then it
+- [x] AC-05: Given the new `ModeSurfaces` contract (Technical Notes), then it
       exports a type describing the optional surfaces a mode MAY supply
       (`answerSurface`, `seeContext`, `revealPresentation`) plus a documented
       "no surfaces" default matching Classic blind's current behavior, so
       stories 04/05/06 each colocate their surfaces with their `ModeConfig`
       rather than inventing their own shape.
-- [ ] AC-06: Given a free-text submission through `FillBlank` regardless of
+- [x] AC-06: Given a free-text submission through `FillBlank` regardless of
       which optional slots are supplied, then it still flows through the
       parent's injected `onSubmitWord` (which itself calls `engine.ts`'s
       `collectWord` and the safety check) exactly as today - no slot added by
