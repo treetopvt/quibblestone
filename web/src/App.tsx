@@ -3,16 +3,22 @@
 //
 //  There is NO react-router in this project (CLAUDE.md - and deliberately not
 //  added): navigation is a single `view` state switched here. The views are
-//  'home', 'join', 'lobby', and 'solo'; later stories extend this seam. Keep the
-//  switch small so those stories can grow it without a rewrite.
+//  'home', 'host-setup', 'join', 'lobby', and 'solo'; later stories extend this
+//  seam. Keep the switch small so those stories can grow it without a rewrite.
 //
 //  App owns the ONE SignalR connection via useGameHub (never a second one). The
 //  LIVE room state lives IN the hook (so RosterChanged broadcasts update every
 //  screen); App reads `room` from there rather than holding its own copy. The
-//  Home "Create a game" CTA calls createRoom and lands the host in the lobby
-//  (session-engine/01, AC-01). "Join a game" opens the Join screen; a successful
-//  join sets the hook's room and flips App to the lobby (session-engine/02,
-//  AC-01), while a failed join stays on Join showing the friendly error.
+//  Home "Create a game" CTA now opens the HostSetup screen (build/host-identity)
+//  where the host names itself + picks a Guardian BEFORE the room is minted (the
+//  host used to be created blank); HostSetup's onCreate calls createRoom with that
+//  vetted name + variant (safety-filtered server-side) and the room-effect lands
+//  the host in the lobby (session-engine/01, AC-01). "Join a game" opens the Join
+//  screen; a successful join sets the hook's room and flips App to the lobby
+//  (session-engine/02, AC-01), while a failed join stays on Join showing the
+//  friendly error. On a successful create OR join we remember the name + Guardian
+//  device-local (identity.ts) and pre-fill both screens from it next time, so a
+//  returning player does not retype (no PII off-device, no account).
 //
 //  group-play/01: the hook's `round` (set from the hub's RoundStarted broadcast)
 //  is the round seam. When it becomes non-null - which happens for EVERY player
@@ -62,16 +68,20 @@ import { seedLibrary } from './content/seedLibrary';
 import { assemble, type SubmittedWord } from './engine/assemble';
 import { Home } from './pages/Home';
 import { Join } from './pages/Join';
+import { HostSetup } from './pages/HostSetup';
 import { Lobby } from './pages/Lobby';
 import { Solo } from './pages/Solo';
 import { GroupRound } from './pages/GroupRound';
 import { Reveal } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
+import { DEFAULT_VARIANT } from './components';
 import type { GuardianVariant } from './components';
+import { loadIdentity, saveIdentity } from './identity';
 
-// The set of screens App can show.
-type View = 'home' | 'join' | 'lobby' | 'solo';
+// The set of screens App can show. build/host-identity adds 'host-setup': the
+// host names itself + picks a Guardian before the room is minted.
+type View = 'home' | 'host-setup' | 'join' | 'lobby' | 'solo';
 
 /**
  * Derive the per-player crew recap from the shared reveal payload (group-play/04,
@@ -187,7 +197,6 @@ export default function App() {
     clearRoom,
   } = useGameHub();
   const [view, setView] = useState<View>('home');
-  const [creating, setCreating] = useState(false);
 
   // group-play/04: whether THIS client is viewing the Round Complete recap (a
   // client-local step shown after the reveal, before the next round; AC-01). Set
@@ -207,6 +216,16 @@ export default function App() {
   // the shared safe-by-default token. The Lobby's Start CTA persists the host's
   // pick here; RoundComplete's "Play another round" reuses it.
   const [lastFamilySafe, setLastFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
+
+  // build/host-identity: pre-fill HostSetup + Join from the player's last-used
+  // name + Guardian (device-local convenience via identity.ts; NO PII off-device,
+  // NO account). Read ONCE on mount - a returning player sees their name already
+  // filled so they do not retype. Falls back to '' + the default variant on a
+  // fresh device / unavailable storage. On a SUCCESSFUL create or join we call
+  // saveIdentity so the next visit is pre-filled.
+  const [identity] = useState(() => loadIdentity());
+  const initialNickname = identity?.nickname ?? '';
+  const initialVariant: GuardianVariant = identity?.variant ?? DEFAULT_VARIANT;
 
   // When a room becomes available (created or joined), land in the lobby. This
   // is the single place a set room flips the view, so both createRoom and a
@@ -263,22 +282,48 @@ export default function App() {
     void backToLobby();
   }, [backToLobby]);
 
-  // "Create a game": ask the hub for a room; the effect above lands us in the
-  // lobby once the hook's room is set.
-  const handleCreateGame = useCallback(async () => {
-    if (creating) return;
-    setCreating(true);
-    try {
-      await createRoom();
-    } finally {
-      setCreating(false);
-    }
-  }, [creating, createRoom]);
+  // "Create a game": open the HostSetup screen (build/host-identity) so the host
+  // names itself + picks a Guardian BEFORE the room is minted (the host used to be
+  // created blank). The actual create happens on HostSetup's onCreate (below); the
+  // room-effect above lands the host in the lobby once the hook's room is set.
+  const handleCreateGame = useCallback(() => {
+    setView('host-setup');
+  }, []);
+
+  // HostSetup's onCreate (build/host-identity): mint the room with the host's
+  // chosen name + variant. The server safety-filters the name (same gate as
+  // joiners); on ok we remember the identity device-local (so a returning host is
+  // pre-filled) and the room-effect lands the host in the lobby, on !ok the
+  // envelope's friendly error is returned to HostSetup to show inline.
+  const handleCreateRoom = useCallback(
+    async (displayName: string, variant: string) => {
+      const result = await createRoom(displayName, variant);
+      if (result.ok) {
+        saveIdentity(displayName.trim(), variant as GuardianVariant);
+      }
+      return result;
+    },
+    [createRoom],
+  );
 
   // "Join a game": open the Join screen (session-engine/02).
   const handleJoinGame = useCallback(() => {
     setView('join');
   }, []);
+
+  // Join's onJoin (build/host-identity wraps session-engine/02's joinRoom): on a
+  // successful join, remember the identity device-local so a returning joiner is
+  // pre-filled next time. The envelope is passed straight back to Join either way.
+  const handleJoinRoom = useCallback(
+    async (code: string, displayName: string, variant: string) => {
+      const result = await joinRoom(code, displayName, variant);
+      if (result.ok) {
+        saveIdentity(displayName.trim(), variant as GuardianVariant);
+      }
+      return result;
+    },
+    [joinRoom],
+  );
 
   // "Or play solo right now" (single-player/01): no hub call, no room - just
   // a local view change.
@@ -376,18 +421,40 @@ export default function App() {
     );
   }
 
+  // build/host-identity: the host names itself + picks a Guardian before the room
+  // is minted. HostSetup's onCreate mints the room (name safety-filtered
+  // server-side); on ok the room-effect lands the host in the lobby, on !ok the
+  // friendly error shows inline and the host stays here. Pre-filled from the
+  // device-local last-used identity so a returning host does not retype.
+  if (view === 'host-setup') {
+    return (
+      <HostSetup
+        onCreate={handleCreateRoom}
+        onBack={handleGoHome}
+        disabled={status !== 'connected'}
+        initialNickname={initialNickname}
+        initialVariant={initialVariant}
+      />
+    );
+  }
+
   if (view === 'join') {
     return (
-      <Join onJoin={joinRoom} onBack={handleGoHome} disabled={status !== 'connected'} />
+      <Join
+        onJoin={handleJoinRoom}
+        onBack={handleGoHome}
+        disabled={status !== 'connected'}
+        initialNickname={initialNickname}
+        initialVariant={initialVariant}
+      />
     );
   }
 
   return (
     <Home
-      onCreateGame={() => void handleCreateGame()}
+      onCreateGame={handleCreateGame}
       onJoinGame={handleJoinGame}
       onPlaySolo={handlePlaySolo}
-      creating={creating}
       disabled={status !== 'connected'}
     />
   );

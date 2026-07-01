@@ -45,7 +45,7 @@ public class GameHubDisconnectTests
     public async Task OnDisconnected_broadcasts_the_trimmed_roster_when_members_remain()
     {
         var registry = new RoomRegistry();
-        var room = registry.CreateRoom("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
         // The joiner's connection drops.
@@ -65,7 +65,7 @@ public class GameHubDisconnectTests
     public async Task OnDisconnected_of_the_last_player_drops_the_room_and_does_not_broadcast()
     {
         var registry = new RoomRegistry();
-        var room = registry.CreateRoom("conn-host"); // host is the only player
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal"); // host is the only player
 
         var (hub, _, clients) = BuildHub("conn-host", registry);
         await hub.OnDisconnectedAsync(null);
@@ -80,7 +80,7 @@ public class GameHubDisconnectTests
     public async Task OnDisconnected_of_an_unseated_connection_is_a_no_op()
     {
         var registry = new RoomRegistry();
-        registry.CreateRoom("conn-host");
+        registry.CreateRoom("conn-host", "Mossy", "teal");
 
         var (hub, _, clients) = BuildHub("conn-stranger", registry);
         await hub.OnDisconnectedAsync(null);
@@ -93,7 +93,7 @@ public class GameHubDisconnectTests
     public async Task LeaveRoom_removes_the_caller_from_the_group_and_broadcasts_the_trimmed_roster()
     {
         var registry = new RoomRegistry();
-        var room = registry.CreateRoom("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
         var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
@@ -119,7 +119,7 @@ public class GameHubDisconnectTests
     public async Task LeaveRoom_of_the_last_player_drops_the_room_and_does_not_broadcast()
     {
         var registry = new RoomRegistry();
-        var room = registry.CreateRoom("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
 
         var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
         var clients = new RecordingClients();
@@ -138,7 +138,7 @@ public class GameHubDisconnectTests
     public async Task LeaveRoom_of_an_unseated_connection_is_a_no_op()
     {
         var registry = new RoomRegistry();
-        registry.CreateRoom("conn-host");
+        registry.CreateRoom("conn-host", "Mossy", "teal");
 
         var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector());
         var clients = new RecordingClients();
