@@ -276,25 +276,34 @@ export function Reveal({ assembled, template, attribution, onPlayAgain, onHome }
     () => typeof navigator !== 'undefined' && typeof navigator.share === 'function',
   );
 
-  const handleShare = async () => {
-    if (canShare) {
-      try {
-        await navigator.share({ title: assembled.title, text: assembled.storyText });
-      } catch {
-        // A user-cancelled share (AbortError) or any other rejection should
-        // never surface as an unhandled error or noisy console log.
-      }
-      return;
-    }
-    // Graceful fallback when Web Share is unavailable: copy the story text so
-    // the player can still paste it somewhere (AC-06 - Share stays visible
-    // and actionable either way).
+  // Copy the tale text as the always-available fallback for Share (AC-06 -
+  // the button must always DO something). Guards navigator/clipboard and
+  // swallows a denied-permission rejection.
+  const copyTale = async () => {
     if (typeof navigator === 'undefined' || !navigator.clipboard) return;
     try {
       await navigator.clipboard.writeText(assembled.storyText);
     } catch {
       // Clipboard permission denied or unavailable - fail silently, no error surfaced.
     }
+  };
+
+  const handleShare = async () => {
+    if (canShare) {
+      try {
+        await navigator.share({ title: assembled.title, text: assembled.storyText });
+      } catch (error) {
+        // A user cancellation (AbortError) is intentional - leave it be. Any
+        // OTHER rejection (non-secure context, unsupported payload, etc.) means
+        // the share never happened, so fall back to clipboard rather than leave
+        // the button a silent no-op (AC-06).
+        if (error instanceof Error && error.name === 'AbortError') return;
+        await copyTale();
+      }
+      return;
+    }
+    // Web Share unavailable at all: copy the tale so Share stays actionable.
+    await copyTale();
   };
 
   return (

@@ -227,7 +227,13 @@ export function Solo({ onExit }: SoloProps) {
   };
 
   const handleSubmitWord = async (word: string) => {
-    if (!currentBlank) return { accepted: true } as const;
+    // Unreachable given the `phase === 'fill' && currentBlank` render guard
+    // below, but return a FAILURE (not a silent success) so an unexpected state
+    // surfaces to the player + logs instead of clearing the input as if the
+    // word were accepted (PR review hardening).
+    if (!currentBlank) {
+      return { accepted: false, message: 'Something went off - please try again.' } as const;
+    }
     const result = await collectWord(
       collectionRef.current,
       template,

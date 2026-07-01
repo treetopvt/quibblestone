@@ -47,9 +47,12 @@ public sealed class ModerationController : ControllerBase
     /// method, for surfaces (single-player) with no SignalR round-trip.
     /// </summary>
     [HttpPost("check")]
-    public async Task<IActionResult> Check([FromBody] ModerationCheckRequest request, CancellationToken cancellationToken)
+    public async Task<IActionResult> Check([FromBody] ModerationCheckRequest? request, CancellationToken cancellationToken)
     {
-        var verdict = await _safety.CheckAsync(request.Text, cancellationToken);
+        // Guard a null body (a JSON `null` or a binder edge case) rather than
+        // dereferencing into a 500; the filter treats null/empty as allowed
+        // (nothing to vet), matching its documented contract (PR review).
+        var verdict = await _safety.CheckAsync(request?.Text, cancellationToken);
         return Ok(new { allowed = verdict.IsAllowed, message = verdict.Message });
     }
 }
