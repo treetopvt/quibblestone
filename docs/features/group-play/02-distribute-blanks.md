@@ -1,6 +1,6 @@
 # Story: Distribute blanks among players
 
-**Feature:** Group Play Experience  ·  **Status:** Not Started
+**Feature:** Group Play Experience  ·  **Status:** In Review
 
 ## Context
 In a group, the blanks of the template are shared out among the players so
@@ -8,17 +8,17 @@ everyone contributes. Each player is asked for their blank(s) blind, Classic-sty
 See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a round has started with N players and a template with M blanks,
+- [x] AC-01: Given a round has started with N players and a template with M blanks,
       then the blanks are distributed **round-robin** (deal blanks out in player
       order, wrapping around) so the work is shared: every blank assigned exactly
       once, everyone contributes, and per-player counts differ by at most one (e.g.
       8 blanks / 5 players -> 2/2/2/1/1). Round-robin (not chunked) spreads each
       player's words across the story, which reads funnier on reveal.
-- [ ] AC-02: Given distribution, then each player is told which blank(s) they owe,
+- [x] AC-02: Given distribution, then each player is told which blank(s) they owe,
       by prompt only ("give me a plural noun") - no story context (Classic blind).
-- [ ] AC-03: Given the Slice-1 target of 2 players, then distribution works for 2
+- [x] AC-03: Given the Slice-1 target of 2 players, then distribution works for 2
       players and a typical template.
-- [ ] AC-04: Given more blanks than players (or fewer), then every blank is
+- [x] AC-04: Given more blanks than players (or fewer), then every blank is
       assigned exactly once and no blank is left unassigned.
 
 ## Out of Scope
