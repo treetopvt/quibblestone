@@ -22,7 +22,7 @@ the smallest data that keeps content fresh and curatable.
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #91 | Length classes + the one selection pipeline | Not Started |
+| 01 | #91 | Length classes + the one selection pipeline | In Progress |
 | 02 | #92 | Quick story option (solo + group) | Not Started |
 | 03 | #93 | Freshness rotation: no repeats until the pool runs dry | Not Started |
 | 04 | #94 | Story delivery metrics (the anonymous serve log) | Not Started |
