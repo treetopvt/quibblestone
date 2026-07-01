@@ -124,6 +124,76 @@ public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNu
 /// <param name="BlankIndices">The blank indices (into the round template's ordered blanks) THIS player owes; empty when fewer blanks than players left this player none.</param>
 public sealed record YourBlanksDto(IReadOnlyList<int> BlankIndices);
 
+/// <summary>
+/// The outcome of <see cref="GameHub.SubmitWord"/> (group-play/03). Like the other
+/// result envelopes here (<see cref="JoinResultDto"/>, <see cref="StartRoundResultDto"/>)
+/// this is a friendly result envelope, NOT an exception channel: every EXPECTED
+/// failure (no round / not in the prompting phase, the word failed the safety
+/// filter, or the blank is not this connection's) comes back as Ok=false with a
+/// kid-readable Error the client shows inline so the player can try again (AC-01).
+/// On success Ok=true and Error is null; the progress and (when the round finishes)
+/// the reveal reach every player via the "CollectProgress" / "RevealReady"
+/// broadcasts, not through this envelope. It maps 1:1 to FillBlank's onSubmitWord
+/// contract on the web side (Ok -> accepted, Error -> message).
+/// </summary>
+/// <param name="Ok">True if the word was recorded; false for an expected rejection.</param>
+/// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
+public sealed record SubmitWordResultDto(bool Ok, string? Error);
+
+/// <summary>
+/// One player's collection progress on the wire (group-play/03), mirroring
+/// <see cref="Rooms.PlayerProgress"/>: an anonymous nickname + Guardian variant +
+/// whether they have submitted ALL their assigned blanks. Carries NO submitted
+/// words (AC-01: words are never shown to other players before the reveal) and no
+/// connectionId (no PII, README section 6).
+/// </summary>
+/// <param name="Nickname">The player's in-session nickname (already filtered on join).</param>
+/// <param name="Variant">The player's Guardian variant.</param>
+/// <param name="Done">True once this player has submitted every blank it was assigned.</param>
+public sealed record PlayerProgressDto(string Nickname, string Variant, bool Done);
+
+/// <summary>
+/// Broadcast to the whole room group as "CollectProgress" after each submission
+/// (group-play/03): the per-player done/writing list plus the "[N] of [M]
+/// quibblers done" counts the Waiting card shows. It carries NO submitted words
+/// (AC-01) - only who is done and who is still writing - so a client can render
+/// the Waiting progress row (done at full opacity + teal check, still-writing
+/// dimmed + pulsing badge) without ever seeing another player's word.
+/// </summary>
+/// <param name="DoneCount">How many players have submitted all their assigned blanks.</param>
+/// <param name="PlayerCount">The total number of players in the round.</param>
+/// <param name="Players">Per-player progress, in roster/assignment order (host first).</param>
+public sealed record CollectProgressDto(
+    int DoneCount,
+    int PlayerCount,
+    IReadOnlyList<PlayerProgressDto> Players);
+
+/// <summary>
+/// One blank position on the wire for the reveal (group-play/03), mirroring
+/// <see cref="Rooms.RevealWord"/>: the submitted word plus its owning player
+/// (nickname + variant), in blank order. A blank with no submission (a player who
+/// left) is an EMPTY word attributed to no one, so the client's assemble() keeps
+/// alignment. Every word here already passed the safety filter (AC-06); no PII
+/// beyond the already-filtered nickname + variant.
+/// </summary>
+/// <param name="Word">The submitted word for this blank position; empty for an unfilled blank.</param>
+/// <param name="Nickname">The owning player's nickname, or empty for an unfilled blank.</param>
+/// <param name="Variant">The owning player's Guardian variant, or empty for an unfilled blank.</param>
+public sealed record RevealWordDto(string Word, string Nickname, string Variant);
+
+/// <summary>
+/// Broadcast to the whole room group as "RevealReady" the moment the LAST assigned
+/// blank is submitted (group-play/03, AC-05): the template id plus the ordered
+/// reveal words (blank order). This is the signal that moves EVERY player (done or
+/// still on the Waiting screen) to the shared Reveal in near-real-time, no refresh.
+/// The server does NOT assemble the story - it ships the id + the ordered words and
+/// each client resolves the template from its bundled seedLibrary and assembles
+/// locally via the web engine (the ONE place assembly lives, AC-05).
+/// </summary>
+/// <param name="TemplateId">The round's template id; the client resolves full content from seedLibrary.</param>
+/// <param name="Words">The ordered reveal words (one per blank position, blank order).</param>
+public sealed record RevealReadyDto(string TemplateId, IReadOnlyList<RevealWordDto> Words);
+
 public sealed class GameHub : Hub
 {
     // The largest a display name may be (AC-03). Kept in sync with the web
@@ -429,6 +499,115 @@ public sealed class GameHub : Hub
         }
 
         return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// group-play/03: a player submits ONE word for ONE of ITS OWN assigned blanks.
+    ///
+    /// This is the crux of group play: server-authoritative collection with the
+    /// child-safety filter as the ONE gate, plus the reveal broadcast. Validation
+    /// runs in a FIXED order and every EXPECTED failure returns a friendly
+    /// <see cref="SubmitWordResultDto"/> (Ok=false, kid-readable Error) rather than
+    /// throwing, mirroring the other hub envelopes:
+    ///
+    ///   1. Unknown / expired code, or no round / not in the prompting phase ->
+    ///      friendly fail (nothing to collect into).
+    ///   2. SAFETY FILTER FIRST (AC-01, AC-06): vet the word server-side BEFORE it
+    ///      is recorded. A blocked word returns the filter's friendly message and is
+    ///      NEVER recorded. An empty/whitespace word (a SKIP) is allowed by the
+    ///      filter and records an empty placeholder, preserving reveal alignment
+    ///      (matching the web engine's skipBlank rule).
+    ///   3. Record via <see cref="Room.RecordSubmission"/>, which rejects if the
+    ///      blank is not THIS connection's (a crafted client cannot fill another
+    ///      player's blank, AC-01) -> friendly fail.
+    ///   4. Broadcast "CollectProgress" to the whole room group: the per-player
+    ///      done/writing list + counts. NEVER the submitted words (AC-01).
+    ///   5. If the round is now complete: advance the phase to "reveal", build the
+    ///      ORDERED reveal payload, and broadcast "RevealReady" to the room group so
+    ///      EVERY player moves to the shared Reveal in near-real-time (AC-05). The
+    ///      server does NOT assemble - it ships the ordered words; clients assemble
+    ///      locally via the web engine.
+    ///
+    /// The word is never echoed to other players before the reveal (AC-01): the
+    /// only broadcast before completion is progress (done/writing), which carries no
+    /// words. On success returns Ok=true / Error=null.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="blankIndex">The blank index (into the template's ordered blanks) this word fills; must be assigned to this connection.</param>
+    /// <param name="word">The player's free-text word (empty for a skip); vetted server-side before recording.</param>
+    public async Task<SubmitWordResultDto> SubmitWord(string code, int blankIndex, string word)
+    {
+        // 1. Look up the room + round. An unknown / expired code, or a room not in a
+        //    prompting round, has nothing to collect into - friendly fail.
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new SubmitWordResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
+        }
+
+        var round = room.CurrentRound;
+        if (round is null || !string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
+        {
+            return new SubmitWordResultDto(
+                false,
+                "This round isn't taking words right now - hang tight.");
+        }
+
+        // 2. SAFETY FILTER FIRST (AC-01, AC-06): vet the word BEFORE recording. A
+        //    blocked word is never stored or shown. An empty/whitespace word (a
+        //    skip) passes the filter and records an empty placeholder to keep the
+        //    reveal aligned (the web engine's skipBlank rule, server-authoritative).
+        var candidate = word ?? string.Empty;
+        var verdict = await _safety.CheckAsync(candidate, Context.ConnectionAborted);
+        if (!verdict.IsAllowed)
+        {
+            // Never record; hand back the filter's friendly retry message so the
+            // player can try another word (FillBlank shows it inline).
+            return new SubmitWordResultDto(false, verdict.Message);
+        }
+
+        // 3. Record AUTHORITATIVELY under the room lock. RecordSubmission rejects if
+        //    the blank is not this connection's own (AC-01) or the round moved past
+        //    prompting since our snapshot above (a late submission racing the
+        //    reveal).
+        var outcome = room.RecordSubmission(Context.ConnectionId, blankIndex, candidate);
+        if (outcome == Room.SubmitOutcome.Rejected)
+        {
+            return new SubmitWordResultDto(
+                false,
+                "That word can't be placed here - please try again.");
+        }
+
+        // 4. Broadcast progress to the whole room group (AC-03). NEVER the words
+        //    (AC-01) - only who is done and who is still writing.
+        var (doneCount, playerCount) = room.GetProgressCounts();
+        var progress = room.GetProgress()
+            .Select(p => new PlayerProgressDto(p.Nickname, p.Variant, p.Done))
+            .ToArray();
+        await Clients.Group(room.Code).SendAsync(
+            "CollectProgress",
+            new CollectProgressDto(doneCount, playerCount, progress));
+
+        // 5. If that was the last outstanding blank, transition to the reveal for
+        //    EVERYONE (AC-05). Build the ordered payload and broadcast it; clients
+        //    resolve the template + assemble locally (the server never assembles).
+        if (outcome == Room.SubmitOutcome.RoundComplete)
+        {
+            // RecordSubmission already advanced the phase to "reveal" atomically
+            // under the room lock when it saw the last blank land - so a late
+            // submission racing this reveal is rejected by the prompting-phase
+            // guard, and only this one call builds/broadcasts the reveal.
+            var words = room.BuildReveal()
+                .Select(w => new RevealWordDto(w.Word, w.Nickname, w.Variant))
+                .ToArray();
+            await Clients.Group(room.Code).SendAsync(
+                "RevealReady",
+                new RevealReadyDto(round.TemplateId, words));
+        }
+
+        return new SubmitWordResultDto(true, null);
     }
 
     /// <summary>

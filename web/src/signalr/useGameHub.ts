@@ -40,6 +40,19 @@
 //  PII). The hook exposes `assignedBlankIndices` (null until it arrives, cleared
 //  on leave / round reset) so GroupRound fills only the blanks this player owes.
 //  The YourBlanks type MIRRORS the hub's YourBlanksDto - keep it in sync BY HAND.
+//
+//  group-play/03 closes the real-time loop on the SAME connection: (a) submitWord
+//  (an invoke that submits ONE word for ONE assigned blank; the server runs the
+//  safety filter FIRST and records only on pass, so this maps 1:1 to FillBlank's
+//  onSubmitWord accepted/message contract), (b) a "CollectProgress" handler ->
+//  `collectProgress` (the "[N] of [M] done" counts + per-player done/writing list
+//  the Waiting screen renders; NO submitted words, AC-01), and (c) a "RevealReady"
+//  handler -> `reveal` (the ordered reveal words that route EVERY player to the
+//  shared Reveal in near-real-time, AC-05 - the client resolves the template + does
+//  assembly LOCALLY via the web engine; the server never assembles). The three new
+//  types MIRROR the hub's SubmitWordResultDto / CollectProgressDto / RevealReadyDto
+//  wire contracts - keep them in sync BY HAND (no codegen). All three states clear
+//  on leave and reset on a fresh RoundStarted so a prior round never bleeds through.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -129,6 +142,71 @@ interface YourBlanks {
   blankIndices: number[];
 }
 
+/**
+ * The result of submitting one word (group-play/03), mirroring the hub's
+ * SubmitWordResultDto wire contract. On a rejected submission (no round / not in
+ * the prompting phase, a word the safety filter blocks, or a blank that is not
+ * this connection's) ok is false and error carries a friendly, kid-readable
+ * message. On success ok is true and error is null. The submitWord invoke maps
+ * this 1:1 to FillBlank's onSubmitWord contract (ok -> accepted, error -> message).
+ */
+interface SubmitWordResult {
+  ok: boolean;
+  error: string | null;
+}
+
+/**
+ * One player's collection progress as sent by the hub's "CollectProgress" event
+ * (PlayerProgressDto): an anonymous nickname + Guardian variant + whether they
+ * have submitted ALL their assigned blanks. NO submitted words (AC-01) and no PII
+ * beyond the already-filtered nickname + variant.
+ */
+export interface PlayerProgress {
+  nickname: string;
+  variant: string;
+  done: boolean;
+}
+
+/**
+ * Room-wide collection progress as broadcast by the hub's "CollectProgress" event
+ * (CollectProgressDto), mirroring its wire contract: the "[N] of [M] quibblers
+ * done" counts plus the per-player done/writing list the Waiting screen renders.
+ * It carries NO submitted words (AC-01) - only who is done and who is still
+ * writing. Null until the first progress arrives, cleared on leave / round reset.
+ */
+export interface CollectProgress {
+  doneCount: number;
+  playerCount: number;
+  players: PlayerProgress[];
+}
+
+/**
+ * One blank position for the reveal as sent by the hub's "RevealReady" event
+ * (RevealWordDto): the submitted word plus its owning player (nickname + variant),
+ * in blank order. An unfilled blank (a player who left) is an empty word
+ * attributed to no one, so the client's assemble() keeps alignment. Every word
+ * here already passed the safety filter server-side (AC-06).
+ */
+export interface RevealWord {
+  word: string;
+  nickname: string;
+  variant: string;
+}
+
+/**
+ * The shared reveal payload as broadcast by the hub's "RevealReady" event
+ * (RevealReadyDto), mirroring its wire contract: the round's template id plus the
+ * ordered reveal words (blank order). This is what routes EVERY player to the
+ * shared Reveal in near-real-time (AC-05). The client resolves the template from
+ * its bundled seedLibrary by id and assembles the story LOCALLY via the web engine
+ * (the server never assembles). Null until it arrives, cleared on leave / round
+ * reset so a prior round's reveal never bleeds into the next.
+ */
+export interface RevealInfo {
+  templateId: string;
+  words: RevealWord[];
+}
+
 export interface UseGameHub {
   status: ConnectionStatus;
   /** The current room (code + live roster), or null when not in one. Owned here so RosterChanged updates flow to every screen. */
@@ -158,6 +236,33 @@ export interface UseGameHub {
    * assignment never bleeds into the next round.
    */
   assignedBlankIndices: number[] | null;
+  /**
+   * Room-wide collection progress (group-play/03), or null until the first
+   * "CollectProgress" broadcast arrives. Carries the "[N] of [M] done" counts and
+   * the per-player done/writing list (NO submitted words, AC-01) the Waiting
+   * screen renders. Cleared on leave and reset on a fresh RoundStarted.
+   */
+  collectProgress: CollectProgress | null;
+  /**
+   * The shared reveal payload (group-play/03), or null until the hub's
+   * "RevealReady" broadcast arrives (the moment the LAST assigned blank is
+   * submitted). Non-null routes EVERY player to the shared Reveal in
+   * near-real-time (AC-05); the client resolves the template + assembles LOCALLY
+   * via the web engine. Cleared on leave and reset on a fresh RoundStarted.
+   */
+  reveal: RevealInfo | null;
+  /**
+   * Submit ONE word for ONE of this client's assigned blanks (group-play/03).
+   * Invokes the hub's SubmitWord with the current room code (from roomCodeRef),
+   * the blank INDEX, and the word; the SERVER runs the safety filter FIRST and
+   * records only on pass (AC-01, AC-06). A SKIP submits an empty word so the blank
+   * records an empty placeholder (preserving reveal alignment). Resolves with
+   * { accepted, message } - the exact shape FillBlank's onSubmitWord expects
+   * (accepted:false shows the message inline and lets the player retry). Does NOT
+   * set `reveal` itself: the server's RevealReady broadcast drives that for
+   * everyone. Returns a not-connected failure if the hub is not ready.
+   */
+  submitWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   /**
    * Start a round as the host (group-play/01). Invokes the hub's host-only
    * StartRound with the current room code (from roomCodeRef) and the host's
@@ -204,6 +309,12 @@ export function useGameHub(): UseGameHub {
   // per-connection "YourBlanks" message and cleared on leave / round reset. Null
   // until it arrives (a brief "dealing your blanks" beat after `round` is set).
   const [assignedBlankIndices, setAssignedBlankIndices] = useState<number[] | null>(null);
+  // Room-wide collection progress (group-play/03), set from "CollectProgress" and
+  // cleared on leave / round reset. Drives the Waiting screen's progress row.
+  const [collectProgress, setCollectProgress] = useState<CollectProgress | null>(null);
+  // The shared reveal payload (group-play/03), set from "RevealReady" and cleared
+  // on leave / round reset. Non-null routes every player into the shared Reveal.
+  const [reveal, setReveal] = useState<RevealInfo | null>(null);
   // Whether this client is currently seated in a room, plus that room's code.
   // Kept as refs (not state) so the stable RosterChanged handler and clearRoom
   // read the latest value without re-binding. The handler guards on inRoomRef so
@@ -249,8 +360,12 @@ export function useGameHub(): UseGameHub {
     const handleRoundStarted = (info: RoundInfo) => {
       if (cancelled || !inRoomRef.current) return;
       // Reset any prior round's assignment so a stale one never shows for the new
-      // round; "YourBlanks" (below) fills it in a beat later (group-play/02).
+      // round; "YourBlanks" (below) fills it in a beat later (group-play/02). Also
+      // drop the prior round's progress + reveal (group-play/03) so a replay starts
+      // clean and a stale reveal never re-routes a fresh round to the payoff screen.
       setAssignedBlankIndices(null);
+      setCollectProgress(null);
+      setReveal(null);
       setRound(info);
     };
     connection.on('RoundStarted', handleRoundStarted);
@@ -265,6 +380,29 @@ export function useGameHub(): UseGameHub {
       setAssignedBlankIndices(payload.blankIndices);
     };
     connection.on('YourBlanks', handleYourBlanks);
+
+    // Collection progress (group-play/03): the hub broadcasts "CollectProgress" to
+    // the whole room group after each submission so every client can render the
+    // Waiting screen's progress row (done/writing) and "[N] of [M] done" counts. It
+    // carries NO submitted words (AC-01). Registered ONCE, guarded by inRoomRef so a
+    // broadcast racing a leave cannot revive state for a player who has gone Home.
+    const handleCollectProgress = (payload: CollectProgress) => {
+      if (cancelled || !inRoomRef.current) return;
+      setCollectProgress(payload);
+    };
+    connection.on('CollectProgress', handleCollectProgress);
+
+    // Reveal transition (group-play/03, AC-05): the hub broadcasts "RevealReady" to
+    // the whole room group the moment the LAST assigned blank is submitted, so every
+    // player - done or still writing - moves to the shared Reveal in near-real-time
+    // without refreshing. It ships the template id + ordered words; the client
+    // resolves the template and assembles LOCALLY (the server never assembles).
+    // Registered ONCE, guarded by inRoomRef.
+    const handleRevealReady = (payload: RevealInfo) => {
+      if (cancelled || !inRoomRef.current) return;
+      setReveal(payload);
+    };
+    connection.on('RevealReady', handleRevealReady);
 
     connection.onreconnecting(() => {
       if (!cancelled) setStatus('connecting');
@@ -291,6 +429,8 @@ export function useGameHub(): UseGameHub {
       connection.off('RosterChanged', handleRosterChanged);
       connection.off('RoundStarted', handleRoundStarted);
       connection.off('YourBlanks', handleYourBlanks);
+      connection.off('CollectProgress', handleCollectProgress);
+      connection.off('RevealReady', handleRevealReady);
       void connection.stop();
     };
   }, []);
@@ -356,6 +496,31 @@ export function useGameHub(): UseGameHub {
     [],
   );
 
+  const submitWord = useCallback(
+    async (blankIndex: number, word: string): Promise<{ accepted: boolean; message?: string }> => {
+      const connection = connectionRef.current;
+      const code = roomCodeRef.current;
+      if (
+        !connection ||
+        connection.state !== HubConnectionState.Connected ||
+        !code
+      ) {
+        return {
+          accepted: false,
+          message: "We're not connected yet - give it a moment and try again.",
+        };
+      }
+      // The SERVER runs the safety filter FIRST and records only on pass (AC-01,
+      // AC-06); we never set `reveal` here - the RevealReady broadcast drives that
+      // for everyone. Map the SubmitWordResult envelope to FillBlank's contract.
+      const result = await connection.invoke<SubmitWordResult>('SubmitWord', code, blankIndex, word);
+      return result.ok
+        ? { accepted: true }
+        : { accepted: false, message: result.error ?? 'That word is not allowed here. Try another!' };
+    },
+    [],
+  );
+
   const clearRoom = useCallback(() => {
     const connection = connectionRef.current;
     const code = roomCodeRef.current;
@@ -366,6 +531,8 @@ export function useGameHub(): UseGameHub {
     setIsHost(false);
     setRound(null); // group-play/01: drop any in-progress round on leave.
     setAssignedBlankIndices(null); // group-play/02: drop this client's blanks on leave.
+    setCollectProgress(null); // group-play/03: drop collection progress on leave.
+    setReveal(null); // group-play/03: drop any shared reveal on leave.
     // Tell the server so this connection leaves the room group and drops off the
     // roster for everyone else (AC-04). Fire-and-forget: returning Home must not
     // block on the network, and a failure (e.g. already disconnected) is harmless.
@@ -380,6 +547,9 @@ export function useGameHub(): UseGameHub {
     isHost,
     round,
     assignedBlankIndices,
+    collectProgress,
+    reveal,
+    submitWord,
     createRoom,
     joinRoom,
     startRound,
