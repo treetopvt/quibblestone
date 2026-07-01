@@ -3,7 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>QuibbleStone</title>
+
+    <!--
+      Primary SEO + PWA metadata. QuibbleStone is a client-rendered SPA, so
+      crawlers and link-unfurlers see THIS shell (not the rendered app) - keep
+      the title/description meaningful here, and let the future landing page
+      carry the richer, crawlable marketing copy. Canonical is the apex domain;
+      www.quibblestone.com 301-redirects to it at the Cloudflare edge.
+    -->
+    <title>QuibbleStone - Fill-in-the-blank word game for friends &amp; family</title>
+    <meta
+      name="description"
+      content="QuibbleStone is a multiplayer fill-in-the-blank word game for hilarious, easy fun with friends and family - same car or different houses. No account needed: just a join code and a nickname."
+    />
+    <link rel="canonical" href="https://quibblestone.com/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#6C4BD8" />
+
+    <!--
+      Favicon: the brand guardian mark (see web/src/components/Guardian.tsx). The
+      SVG covers modern browsers and stops the /favicon.ico 404. TODO: add a
+      raster apple-touch-icon.png (180x180) for iOS home-screen, plus an
+      og-image.png (1200x630) so social shares get a rich image card (then bump
+      twitter:card to summary_large_image below).
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Open Graph / Twitter: text card for now (add og:image per the TODO). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="QuibbleStone" />
+    <meta property="og:title" content="QuibbleStone - Fill-in-the-blank word game for friends &amp; family" />
+    <meta property="og:description" content="A multiplayer fill-in-the-blank word game for hilarious, easy fun with friends and family - same car or different houses." />
+    <meta property="og:url" content="https://quibblestone.com/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="QuibbleStone - Fill-in-the-blank word game for friends &amp; family" />
+    <meta name="twitter:description" content="A multiplayer fill-in-the-blank word game for hilarious, easy fun with friends and family - same car or different houses." />
+
     <!--
       Design-system fonts (design-system/01, AC-02): Fredoka for headings and
       buttons, Nunito for body/labels. Loaded from Google Fonts (not bundled)

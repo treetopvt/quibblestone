@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Starter sitemap - just the canonical apex for now. Expand with real crawlable
+  routes (landing page, how-to-play, pricing) as they are added, and keep
+  <loc> values on the canonical apex domain (never the www or *.azurestaticapps.net host).
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://quibblestone.com/</loc>
+    <lastmod>2026-07-01</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
