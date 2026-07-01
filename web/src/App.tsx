@@ -76,7 +76,7 @@ import { Reveal } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
 import { DEFAULT_VARIANT } from './components';
-import type { GuardianVariant } from './components';
+import { toGuardianVariant, type GuardianVariant } from './components';
 import { loadIdentity, saveIdentity } from './identity';
 
 // The set of screens App can show. build/host-identity adds 'host-setup': the
@@ -111,7 +111,7 @@ function buildCrew(words: RevealInfo['words']): {
     } else {
       byNickname.set(w.nickname, {
         nickname: w.nickname,
-        variant: w.variant as GuardianVariant,
+        variant: toGuardianVariant(w.variant),
         wordCount: 1,
       });
     }
@@ -299,7 +299,7 @@ export default function App() {
     async (displayName: string, variant: string) => {
       const result = await createRoom(displayName, variant);
       if (result.ok) {
-        saveIdentity(displayName.trim(), variant as GuardianVariant);
+        saveIdentity(displayName.trim(), toGuardianVariant(variant));
       }
       return result;
     },
@@ -318,7 +318,7 @@ export default function App() {
     async (code: string, displayName: string, variant: string) => {
       const result = await joinRoom(code, displayName, variant);
       if (result.ok) {
-        saveIdentity(displayName.trim(), variant as GuardianVariant);
+        saveIdentity(displayName.trim(), toGuardianVariant(variant));
       }
       return result;
     },
@@ -393,6 +393,10 @@ export default function App() {
   if (round && room) {
     return (
       <GroupRound
+        // Remount per round so GroupRound's internal state (phase, blank position,
+        // this client's word list) always starts fresh on a replay - never inherits
+        // the previous round's 'submitted' phase or stale words (Copilot review).
+        key={round.roundNumber}
         templateId={round.templateId}
         assignedBlankIndices={assignedBlankIndices}
         collectProgress={collectProgress}

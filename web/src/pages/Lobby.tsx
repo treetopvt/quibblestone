@@ -49,7 +49,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { AppBar, BottomActionBar, FamilySafeToggle, Guardian } from '../components';
-import type { GuardianVariant } from '../components';
+import { toGuardianVariant } from '../components';
 import { FAMILY_SAFE_DEFAULT } from '../content/familySafe';
 import type { Player, RoomState } from '../signalr/useGameHub';
 
@@ -133,7 +133,7 @@ function PlayerTile({ player }: { player: Player }) {
   const theme = useTheme();
   // The variant is a free string on the wire; the server normalizes it to one of
   // the six known values, so treat it as a GuardianVariant for the avatar.
-  const variant = player.variant as GuardianVariant;
+  const variant = toGuardianVariant(player.variant);
 
   return (
     <Stack

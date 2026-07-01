@@ -468,6 +468,7 @@ export function useGameHub(): UseGameHub {
       setReveal(null);
       setCollectProgress(null);
       setAssignedBlankIndices(null);
+      setRoundNotice(null); // clear any stale round-aborted notice on a normal return too (Copilot review).
     };
     connection.on('BackToLobby', handleBackToLobby);
 
@@ -533,14 +534,20 @@ export function useGameHub(): UseGameHub {
       // safety-filters the name server-side (same gate as joiners) before minting
       // the room. On a rejected create the envelope carries a friendly error the
       // HostSetup screen shows inline; on ok it carries the minted room state.
-      const result = await connection.invoke<CreateRoomResult>('CreateRoom', displayName, variant);
-      if (result.ok && result.room) {
-        inRoomRef.current = true;
-        roomCodeRef.current = result.room.code;
-        setRoom(result.room);
-        setIsHost(true); // the creator is the host (AC-05)
+      try {
+        const result = await connection.invoke<CreateRoomResult>('CreateRoom', displayName, variant);
+        if (result.ok && result.room) {
+          inRoomRef.current = true;
+          roomCodeRef.current = result.room.code;
+          setRoom(result.room);
+          setIsHost(true); // the creator is the host (AC-05)
+        }
+        return result;
+      } catch {
+        // A thrown invoke (transient disconnect / hub error) must surface as a
+        // friendly envelope, never an unhandled rejection (Copilot review).
+        return { ok: false, room: null, error: "Something went off - give it a moment and try again." };
       }
-      return result;
     },
     [],
   );
@@ -555,14 +562,19 @@ export function useGameHub(): UseGameHub {
           error: "We're not connected yet - give it a moment and try again.",
         };
       }
-      const result = await connection.invoke<JoinResult>('JoinRoom', code, displayName, variant);
-      if (result.ok && result.room) {
-        inRoomRef.current = true;
-        roomCodeRef.current = result.room.code;
-        setRoom(result.room);
-        setIsHost(false); // a joiner is never the host (AC-05)
+      try {
+        const result = await connection.invoke<JoinResult>('JoinRoom', code, displayName, variant);
+        if (result.ok && result.room) {
+          inRoomRef.current = true;
+          roomCodeRef.current = result.room.code;
+          setRoom(result.room);
+          setIsHost(false); // a joiner is never the host (AC-05)
+        }
+        return result;
+      } catch {
+        // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
+        return { ok: false, room: null, error: "Something went off - give it a moment and try again." };
       }
-      return result;
     },
     [],
   );
@@ -585,7 +597,12 @@ export function useGameHub(): UseGameHub {
       // (AC-03/AC-04). We do NOT set `round` here on success: the hub's
       // RoundStarted broadcast drives the transition for EVERYONE (host included)
       // so all players move together (AC-01, AC-02).
-      return connection.invoke<StartRoundResult>('StartRound', code, familySafe);
+      try {
+        return await connection.invoke<StartRoundResult>('StartRound', code, familySafe);
+      } catch {
+        // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
+        return { ok: false, error: "Something went off - give it a moment and try again." };
+      }
     },
     [],
   );
@@ -608,7 +625,12 @@ export function useGameHub(): UseGameHub {
       // round/reveal here on success: the hub's bare "BackToLobby" broadcast drives
       // that for EVERYONE (host included) so all players fall back to the Lobby
       // together, with the code + roster preserved.
-      return connection.invoke<{ ok: boolean; error: string | null }>('BackToLobby', code);
+      try {
+        return await connection.invoke<{ ok: boolean; error: string | null }>('BackToLobby', code);
+      } catch {
+        // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
+        return { ok: false, error: "Something went off - give it a moment and try again." };
+      }
     },
     [],
   );
@@ -630,10 +652,16 @@ export function useGameHub(): UseGameHub {
       // The SERVER runs the safety filter FIRST and records only on pass (AC-01,
       // AC-06); we never set `reveal` here - the RevealReady broadcast drives that
       // for everyone. Map the SubmitWordResult envelope to FillBlank's contract.
-      const result = await connection.invoke<SubmitWordResult>('SubmitWord', code, blankIndex, word);
-      return result.ok
-        ? { accepted: true }
-        : { accepted: false, message: result.error ?? 'That word is not allowed here. Try another!' };
+      try {
+        const result = await connection.invoke<SubmitWordResult>('SubmitWord', code, blankIndex, word);
+        return result.ok
+          ? { accepted: true }
+          : { accepted: false, message: result.error ?? 'That word is not allowed here. Try another!' };
+      } catch {
+        // The skip path calls this fire-and-forget, so a thrown invoke would be an
+        // unhandled rejection; return a friendly failure instead (Copilot review).
+        return { accepted: false, message: "Something went off - give it a moment and try again." };
+      }
     },
     [],
   );

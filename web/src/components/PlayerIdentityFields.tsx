@@ -50,6 +50,20 @@ export const GUARDIAN_VARIANTS: GuardianVariant[] = [
 /** Default avatar selection (AC-01, docs/design/README.md screen 2 State). */
 export const DEFAULT_VARIANT: GuardianVariant = 'teal';
 
+/**
+ * Narrow an untrusted string (e.g. a Guardian variant off the SignalR wire) to a
+ * known GuardianVariant, falling back to DEFAULT_VARIANT for anything unexpected
+ * (an unknown value or casing drift). Use this instead of casting `x as
+ * GuardianVariant` on wire data - a bad value then renders the default avatar
+ * rather than an undefined-variant one. The server also normalizes variants on
+ * join, so this is defense-in-depth at the render boundary.
+ */
+export function toGuardianVariant(value: string): GuardianVariant {
+  return (GUARDIAN_VARIANTS as readonly string[]).includes(value)
+    ? (value as GuardianVariant)
+    : DEFAULT_VARIANT;
+}
+
 /** Max display-name length (AC-03) - kept in sync with the hub's server check. */
 export const MAX_NAME_LENGTH = 14;
 

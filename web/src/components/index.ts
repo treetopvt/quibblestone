@@ -56,5 +56,6 @@ export {
   GUARDIAN_VARIANTS,
   DEFAULT_VARIANT,
   MAX_NAME_LENGTH,
+  toGuardianVariant,
 } from './PlayerIdentityFields';
 export type { PlayerIdentityFieldsProps } from './PlayerIdentityFields';
