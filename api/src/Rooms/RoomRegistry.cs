@@ -133,6 +133,16 @@ public sealed class RoomRegistry
             // so we can stop scanning. If that was the last player, drop the room
             // and signal "no one to broadcast to" with null; otherwise hand the
             // room back so the hub re-broadcasts the trimmed roster (AC-04).
+            //
+            // Micro-race (acceptable at Slice-1 toy scale): RemovePlayer, IsEmpty,
+            // and TryRemove are not one atomic step, so a joiner calling TryAddPlayer
+            // in the exact window between RemovePlayer and IsEmpty could add a player
+            // to a room that is then dropped here. The probability is negligible (a
+            // join must land in a sub-microsecond window as the last member drops)
+            // and it self-heals - that joiner simply creates/joins again. If room
+            // churn ever needs to be airtight (Phase 2 reconnect hardening), gate
+            // this remove-if-empty behind a per-registry lock or a connection->code
+            // index instead of a scan.
             if (room.IsEmpty)
             {
                 _rooms.TryRemove(pair.Key, out _);
