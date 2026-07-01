@@ -371,50 +371,55 @@ function ShareWidget({ code }: { code: string }) {
         mb: 4,
       }}
     >
-      <Stack direction="row" alignItems="center" justifyContent="space-between">
-        <Box>
-          <Typography
-            variant="overline"
-            sx={{ fontSize: 11, fontWeight: 800, color: 'text.secondary' }}
-          >
-            Room code
-          </Typography>
-          <Typography
-            sx={{
-              fontFamily: '"Fredoka", sans-serif',
-              fontWeight: 700,
-              fontSize: 38,
-              lineHeight: 1,
-              letterSpacing: '5px',
-              color: 'primary.main',
-            }}
-          >
-            {code}
-          </Typography>
-        </Box>
+      {/* Code hero on its own row so it can breathe, then a full-width action
+          row below (design mock stacked the buttons in a cramped right column;
+          on a real phone that squeezed two uneven pills - the product owner
+          asked to rework this). Copy + Share are equal-width and chunky (big tap
+          targets); when Web Share is unavailable, Copy spans the full width. */}
+      <Typography
+        variant="overline"
+        sx={{ fontSize: 11, fontWeight: 800, color: 'text.secondary' }}
+      >
+        Room code
+      </Typography>
+      <Typography
+        sx={{
+          fontFamily: '"Fredoka", sans-serif',
+          fontWeight: 700,
+          fontSize: 40,
+          lineHeight: 1,
+          letterSpacing: '7px',
+          color: 'primary.main',
+        }}
+      >
+        {code}
+      </Typography>
 
-        <Stack spacing={1}>
-          <Button variant="outlined" onClick={handleCopy} sx={{ height: 44, fontSize: 13, px: 2 }}>
-            {copied ? (
-              <Box sx={{ color: 'teal.main', display: 'flex' }}>
-                <FontAwesomeIcon icon="check" style={{ width: 15, height: 15 }} />
-              </Box>
-            ) : (
-              <FontAwesomeIcon icon="copy" style={{ width: 15, height: 15 }} />
-            )}
-            {copied ? 'Copied!' : 'Copy'}
-          </Button>
-          {canShare && (
-            <Button
-              variant="sharePurple"
-              onClick={handleShare}
-              sx={{ height: 44, fontSize: 13, px: 2 }}
-            >
-              <FontAwesomeIcon icon="share-nodes" style={{ width: 15, height: 15 }} />
-              Share
-            </Button>
+      <Stack direction="row" spacing={1.25} sx={{ mt: 2 }}>
+        <Button
+          variant="outlined"
+          onClick={handleCopy}
+          sx={{ flex: 1, height: 48, fontSize: 15, gap: 1 }}
+        >
+          {copied ? (
+            <Box sx={{ color: 'teal.main', display: 'flex' }}>
+              <FontAwesomeIcon icon="check" style={{ width: 16, height: 16 }} />
+            </Box>
+          ) : (
+            <FontAwesomeIcon icon="copy" style={{ width: 16, height: 16 }} />
           )}
-        </Stack>
+          {copied ? 'Copied!' : 'Copy'}
+        </Button>
+        {canShare && (
+          <Button
+            variant="sharePurple"
+            onClick={handleShare}
+            sx={{ flex: 1, height: 48, fontSize: 15, gap: 1 }}
+          >
+            <FontAwesomeIcon icon="share-nodes" style={{ width: 16, height: 16 }} />
+            Share
+          </Button>
+        )}
       </Stack>
 
       <Stack
