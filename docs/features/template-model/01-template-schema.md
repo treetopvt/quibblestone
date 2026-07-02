@@ -1,6 +1,6 @@
 # Story: Template schema (typed blanks, optional word bank, tags)
 
-**Feature:** Template & Content Model  ·  **Status:** In Progress
+**Feature:** Template & Content Model  ·  **Status:** Complete
 
 ## Context
 Every game mode plays the same underlying thing: a template with typed blanks.

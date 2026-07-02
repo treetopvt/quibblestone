@@ -32,7 +32,9 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Deployed** - a live dev environment + auto-deploy to UAT on merge.
 - **Client routing** (react-router) + the `/join/:code` deep-link seam (PR #102).
 - **Solo mode picker** - all four modes playable in SOLO (PR #97, `single-player/02`).
-- **Freshness loop** - length classes, quick-story, no-repeats rotation.
+- **Freshness loop** - length classes, quick-story, no-repeats rotation; plus the
+  anonymous serve log (`story-selection/04`) and device-local favorite-a-story
+  replay (`story-selection/06`) - the whole "Keep It Fresh" arc is closed out.
 - Profanity filter + family-safe toggle; MUI theme + shared components; Vitest +
   Playwright harness gating CI.
 
@@ -47,8 +49,6 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 |---|---|---|
 | Observability (App Insights) | `platform-devops/04` | crashes, errors, latency |
 | Anonymous usage metrics | `platform-devops/05` | modes, session length; reuses 04's pipeline |
-| Favorite a story | `story-selection/06` | device-local replay |
-| Serve log | `story-selection/04` | what got played |
 | Fresh Runes (free half) | `game-modes/07` | deterministic reshuffle, no AI |
 | Group mode selection | `group-play/05` | host picks the mode for the room |
 | Reconnect / rejoin | `session-engine` (deferred) | survive a dropped phone |
@@ -59,8 +59,8 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Go Live, the last mile** - observability (`platform-devops/04`) + anonymous
   usage (`platform-devops/05`). Deployed already, but flying blind until telemetry
   lands. *(App Insights + IaC: I prep it; the Azure provisioning is yours to run.)*
-- **Keep It Fresh, the last two** - favorite a story (`story-selection/06`) + serve
-  log (`story-selection/04`).
+- **Keep It Fresh** - done: the serve log (`story-selection/04`) and device-local
+  favorite-a-story replay (`story-selection/06`) both shipped.
 - **Fresh Runes, free half** - the deterministic word-bank reshuffle (`game-modes/07`,
   non-AI layer).
 - **Don't Lose the Room** - reconnect + rejoin (`session-engine`, deferred hardening).
@@ -118,8 +118,8 @@ session, not identity**.
 ## Recommended sequence
 
 1. **Done** - deploy, routing, solo modes, freshness loop.
-2. **Now** - Land the Laugh + Group modes + the Keep-It-Fresh leftovers (favorite +
-   serve log). All ride things already built.
+2. **Now** - Land the Laugh + Group modes. (The Keep-It-Fresh leftovers - favorite +
+   serve log - are done.) All ride things already built.
 3. **Then** - observability + anonymous usage (see how the alpha plays), then Spread
    the Word (let a shared tale travel).
 4. **Early AI** - the Fresh Runes AI jumble behind the cost gate (proves the whole

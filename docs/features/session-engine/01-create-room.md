@@ -1,6 +1,6 @@
 # Story: Create a room and get a join code
 
-**Feature:** Session & Room Engine  ·  **Status:** In Review
+**Feature:** Session & Room Engine  ·  **Status:** Complete
 
 ## Context
 A host needs to start a session that others can join from their own devices.

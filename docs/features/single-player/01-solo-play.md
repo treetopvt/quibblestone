@@ -1,6 +1,6 @@
 # Story: Solo play (Classic blind end to end)
 
-**Feature:** Single-Player Experience  ·  **Status:** In Review
+**Feature:** Single-Player Experience  ·  **Status:** Complete
 
 ## Context
 The fastest path to a laugh, for one person, with no setup. It is also the funnel

@@ -1,6 +1,6 @@
 # Story: Family-safe toggle
 
-**Feature:** Child Safety & Moderation  ·  **Status:** In Review
+**Feature:** Child Safety & Moderation  ·  **Status:** Complete
 
 ## Context
 Beyond filtering typed words, the curated content itself should be gateable to a

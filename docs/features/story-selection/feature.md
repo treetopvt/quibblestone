@@ -27,7 +27,7 @@ the smallest data that keeps content fresh and curatable.
 | 03 | #93 | Freshness rotation: no repeats until the pool runs dry | Complete |
 | 04 | #94 | Story delivery metrics (the anonymous serve log) | Complete |
 | 05 | #95 | Like / dislike a tale (content feedback) | Complete |
-| 06 | #108 | Favorite a story and replay it (device-local) | In Review |
+| 06 | #108 | Favorite a story and replay it (device-local) | Complete |
 
 ## Dependencies
 - template-model (the seed library + tags this feature selects over; the

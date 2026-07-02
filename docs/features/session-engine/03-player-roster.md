@@ -1,6 +1,6 @@
 # Story: See a live player roster
 
-**Feature:** Session & Room Engine  ·  **Status:** In Review
+**Feature:** Session & Room Engine  ·  **Status:** Complete
 
 ## Context
 Everyone in a room needs to see who else is there - the social anchor of group

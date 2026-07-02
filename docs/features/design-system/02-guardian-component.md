@@ -1,6 +1,6 @@
 # Story: Guardian avatar component (6 variants)
 
-**Feature:** Design System & UI Foundation  ·  **Status:** In Review
+**Feature:** Design System & UI Foundation  ·  **Status:** Complete
 
 ## Context
 The stone-guardian mascot appears as a small avatar on four screens: the Join

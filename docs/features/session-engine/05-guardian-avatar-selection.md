@@ -1,6 +1,6 @@
 # Story: Guardian avatar selection at join
 
-**Feature:** Session & Room Engine  ·  **Status:** In Review
+**Feature:** Session & Room Engine  ·  **Status:** Complete
 
 ## Context
 When joining a room, a player picks one of the six Guardian variants as their

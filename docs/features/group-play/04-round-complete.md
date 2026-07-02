@@ -1,6 +1,6 @@
 # Story: Round complete and replay loop
 
-**Feature:** Group Play Experience  ·  **Status:** In Review
+**Feature:** Group Play Experience  ·  **Status:** Complete
 
 ## Context
 After the reveal, the group can play again without returning to the home screen.

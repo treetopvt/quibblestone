@@ -1,6 +1,6 @@
 # Story: Collect words and ready the reveal
 
-**Feature:** Group Play Experience  ·  **Status:** In Review
+**Feature:** Group Play Experience  ·  **Status:** Complete
 
 ## Context
 Players submit their assigned words; the host watches progress; once everything is

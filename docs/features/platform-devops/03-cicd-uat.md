@@ -1,6 +1,6 @@
 # Story: Continuous delivery to UAT on merge to main
 
-**Feature:** Platform & DevOps  ·  **Status:** In Progress
+**Feature:** Platform & DevOps  ·  **Status:** Complete
 
 ## Context
 Story 02 made the app deployable by hand. This story makes it deploy itself:
