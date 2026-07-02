@@ -28,12 +28,34 @@ export interface GuardianProps {
   variant: GuardianVariant;
   /** Rendered width/height. Numeric values are treated as px. Defaults to 56. */
   size?: number | string;
+  /**
+   * reveal-delight/03 (AC-04): when true, draw a small gold crown overlay ON TOP
+   * of whichever variant this Guardian is - the temporary "Golden Guardian"
+   * badge worn by the contributor of the funniest word for the NEXT round only.
+   * This is a LAYERED overlay, NOT a new variant: the six variants are the
+   * player's chosen identity; the crown is a transient state over that identity
+   * (so a "gold" Guardian keeps its own head feature and wears the crown above
+   * it). The lifecycle (which round it shows for) is decided by the caller /
+   * server round state - this component only draws it when told to. Defaults to
+   * false, so every existing call site renders exactly as before.
+   */
+  crowned?: boolean;
 }
 
 /** Shared carved-stone colors, common to every variant (AC-02). */
 const HEAD_FILL = '#E0CDA0';
 const HEAD_STROKE = '#B49B6E';
 const SMILE_STROKE = '#7C6442';
+
+// reveal-delight/03 (AC-04): the awarded-crown overlay colors. Like the rest of
+// this component these are deliberately HARDCODED illustrative SVG values (the
+// Guardian is the one component that does not pull from the theme) - the gold
+// matches the theme's gold CTA token value (tokens.goldMain, #FFB22E) so the
+// crown reads as the same "gold" as the Reveal winner ring, without importing
+// the theme into this pure SVG.
+const CROWN_FILL = '#FFB22E';
+const CROWN_STROKE = '#B07908';
+const CROWN_JEWEL = '#FFF3D6';
 
 /** Eye color per variant (also reused by some distinguishing features). */
 const EYE_COLOR: Record<GuardianVariant, string> = {
@@ -117,20 +139,51 @@ function GuardianFeature({ variant }: { variant: GuardianVariant }) {
   }
 }
 
-export function Guardian({ variant, size = 56 }: GuardianProps) {
+/**
+ * reveal-delight/03 (AC-04): the awarded "Golden Guardian" crown, drawn as the
+ * TOP-MOST layer so it sits over whichever variant feature is beneath it (a small
+ * three-point crown with a base band and jewels). Deliberately floated in the top
+ * band above the head so it reads as "wearing a crown" rather than replacing the
+ * variant's own head feature. Purely additive - only rendered when `crowned`.
+ */
+function GuardianCrown() {
+  return (
+    <>
+      {/* Crown band + three points, one path so the outline stays crisp. */}
+      <path
+        d="M17 12 L19 4 L24 9 L28 2 L32 9 L37 4 L39 12 Z"
+        fill={CROWN_FILL}
+        stroke={CROWN_STROKE}
+        strokeWidth={1.4}
+        strokeLinejoin="round"
+      />
+      {/* Base band under the points for a solid, chunky read. */}
+      <rect x="17" y="11" width="22" height="3.4" rx="1.2" fill={CROWN_FILL} stroke={CROWN_STROKE} strokeWidth={1.2} />
+      {/* Three small jewels on the points (pale gold highlight). */}
+      <circle cx="19" cy="6" r="1.3" fill={CROWN_JEWEL} />
+      <circle cx="28" cy="4" r="1.5" fill={CROWN_JEWEL} />
+      <circle cx="37" cy="6" r="1.3" fill={CROWN_JEWEL} />
+    </>
+  );
+}
+
+export function Guardian({ variant, size = 56, crowned = false }: GuardianProps) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 56 56"
       role="img"
-      aria-label={`${variant} guardian avatar`}
+      aria-label={crowned ? `${variant} guardian avatar wearing the golden crown` : `${variant} guardian avatar`}
     >
       {/* Sand's ears sit behind the head in the reference; every other
           variant's feature sits in front (crown, horns, sprout, antenna). */}
       {variant === 'sand' && <GuardianFeature variant={variant} />}
       <GuardianBody variant={variant} />
       {variant !== 'sand' && <GuardianFeature variant={variant} />}
+      {/* reveal-delight/03 (AC-04): the awarded crown is the TOP-MOST layer, over
+          the variant feature - a temporary state, never a new variant. */}
+      {crowned && <GuardianCrown />}
     </svg>
   );
 }

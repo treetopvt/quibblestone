@@ -67,7 +67,7 @@
 // ----------------------------------------------------------------------------
 
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Link, Stack, Typography } from '@mui/material';
@@ -137,6 +137,48 @@ export interface RevealProps {
    * play passes one backed by the hub's ReactionCountsChanged broadcast (AC-04).
    */
   reactionRow?: ReactNode;
+  /**
+   * Optional Golden Guardian funniest-word vote (reveal-delight/03). Like every
+   * other slot here this keeps Reveal ROOM-AGNOSTIC: Reveal knows nothing about
+   * the room, the hub, or who won - it only turns each NON-empty coral word into a
+   * tap target and paints the caller-supplied winner. OMIT it entirely in solo
+   * (AC-06: there is no room to vote in, so the mechanic is absent - not a
+   * disabled no-op). When supplied:
+   *   - `phase` 'voting': each coral word is tappable once the carve-in has
+   *     finished (AC-01); a tap calls `onVote(blankId)` to cast/MOVE my single
+   *     vote, and my current pick (`myVote`) is shown selected. A low-key
+   *     "N of M voted" status renders (per-word counts are NOT shown mid-vote,
+   *     AC-02). The host (only) may pass `onCloseVoting` to reveal the winner
+   *     early via a low-pressure affordance (AC-03).
+   *   - `phase` 'resolved': the `winningBlankId` coral word gets a gold ring/glow
+   *     (theme.palette.gold.main) and a short warm announcement names it - never a
+   *     ranked list or a "loser" callout (AC-03).
+   *   - `phase` 'off': render nothing vote-related (a general escape hatch; group
+   *     play uses 'voting'/'resolved', solo omits the prop outright).
+   * The `blankId` value is an OPAQUE token Reveal assigns per coral word (its
+   * body-order blank position) and hands back through `onVote` / matches against
+   * `winningBlankId` - the caller passes it to the hub verbatim (AC-07: it is just
+   * an already-vetted, already-displayed word's position, no new text, no PII).
+   */
+  goldenGuardian?: GoldenGuardianVote;
+}
+
+/** The Golden Guardian vote slot on the Reveal (reveal-delight/03). See RevealProps.goldenGuardian. */
+export interface GoldenGuardianVote {
+  /** 'voting' while the room picks, 'resolved' once a winner is known, 'off' to render nothing. */
+  phase: 'voting' | 'resolved' | 'off';
+  /** Cast (or MOVE) my single vote to the tapped coral word's opaque blank token. */
+  onVote: (blankId: string) => void;
+  /** The blank token I currently voted for (shown selected), or undefined if I have not voted. */
+  myVote?: string;
+  /** How many present players have voted so far (the "N of M voted" status, AC-02). */
+  votedCount: number;
+  /** The total present players who can vote (the "M" in "N of M voted"). */
+  totalVoters: number;
+  /** When resolved: the winning coral word's blank token (gets the gold ring + announcement). */
+  winningBlankId?: string;
+  /** Host-only (AC-03): a low-pressure "Reveal the winner" affordance to close voting early. Omit for non-hosts. */
+  onCloseVoting?: () => void;
 }
 
 // The stone tablet's pulsing glow (docs/design/Reveal.dc.html qsTabletGlow):
@@ -176,6 +218,23 @@ const carveIn = keyframes`
 // (AC-01). Computed per filled-word index, not the raw `parts` index (which
 // also counts literal text gaps).
 const CARVE_STAGGER_MS = 140;
+
+// The carve-in keyframe's own duration (matches the `0.4s` on the word span's
+// animation shorthand below). reveal-delight/03 (AC-01) reads it to know when the
+// LAST word has finished carving, so the vote step only becomes interactive after
+// the story is fully shown.
+const CARVE_DURATION_MS = 400;
+
+// reveal-delight/03 (AC-03): the winning coral word's gentle one-shot pop when the
+// vote resolves. TRANSFORM ONLY (scale) - never an opacity keyframe on this
+// re-rendered word span (this feature's documented footgun) - so a re-render can
+// never strand the winning word invisible. The gold ring/glow itself is a static
+// box-shadow applied via sx, not animated here.
+const winnerPop = keyframes`
+  0% { transform: scale(1); }
+  45% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+`;
 
 /** One CSS-only confetti piece: color, shape, position, and animation timing. */
 interface ConfettiPiece {
@@ -351,9 +410,58 @@ export function Reveal({
   revealPresentation,
   taleFeedback,
   reactionRow,
+  goldenGuardian,
 }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
+
+  // reveal-delight/03 (AC-01): the vote step must only become interactive once the
+  // story is FULLY shown - i.e. once the last coral word has finished carving in
+  // (reveal-delight/02), or IMMEDIATELY when reduced-motion is on / there is no
+  // carve to wait for. Count the filled (non-empty) coral words - the carve stagger
+  // follows their body order - and flip `carveComplete` after the last one lands.
+  const filledWordCount = parts.reduce(
+    (count, part) => (part.kind === 'word' && part.word !== '' ? count + 1 : count),
+    0,
+  );
+  const [carveComplete, setCarveComplete] = useState(false);
+  useEffect(() => {
+    // Respect reduced-motion (the carve is skipped there, so voting is ready at
+    // once) and the no-filled-words edge (nothing to carve). Otherwise wait for the
+    // last word: (n-1) staggers + one carve duration, plus a little slack.
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion || filledWordCount === 0) {
+      setCarveComplete(true);
+      return;
+    }
+    setCarveComplete(false);
+    const totalMs = (filledWordCount - 1) * CARVE_STAGGER_MS + CARVE_DURATION_MS + 80;
+    const timer = setTimeout(() => setCarveComplete(true), totalMs);
+    return () => clearTimeout(timer);
+  }, [filledWordCount]);
+
+  // Voting is live only while phase is 'voting' AND the carve-in has completed
+  // (AC-01). Resolution paints the winner regardless of carve timing.
+  const voteInteractive = goldenGuardian?.phase === 'voting' && carveComplete;
+  const voteResolved = goldenGuardian?.phase === 'resolved';
+
+  // Resolve the winning coral word's TEXT from its opaque blank token (body-order
+  // blank position) for the warm announcement (AC-03) - Reveal owns the token, so
+  // it maps it back here rather than the caller shipping the word.
+  const winningWord = (() => {
+    if (!voteResolved || goldenGuardian?.winningBlankId === undefined) return '';
+    let position = 0;
+    for (const part of parts) {
+      if (part.kind !== 'word') continue;
+      const token = String(position);
+      position += 1;
+      if (token === goldenGuardian.winningBlankId && part.word !== '') return part.word;
+    }
+    return '';
+  })();
 
   // Feature-detect Web Share once - it does not change over the component's
   // lifetime (mirrors Lobby.tsx's ShareWidget, session-engine/04).
@@ -490,6 +598,11 @@ export function Reveal({
                   // follows the story's reading order rather than the raw
                   // `parts` index, which also counts literal text gaps.
                   let filledWordIndex = 0;
+                  // reveal-delight/03: a SEPARATE counter over EVERY blank (empty or
+                  // filled), in body order, so each coral word's opaque vote token
+                  // (its blank position) stays aligned with the server's blank
+                  // indices - a vote token round-trips to the right word/contributor.
+                  let blankPos = 0;
                   return parts.map((part, index) => {
                     if (part.kind === 'text') {
                       return (
@@ -498,20 +611,49 @@ export function Reveal({
                         </Box>
                       );
                     }
+                    // This blank occupies one body-order position whether or not it
+                    // was filled - advance the token counter for empty blanks too so
+                    // it never drifts out of step with the server's blank indices.
+                    const token = String(blankPos);
+                    blankPos += 1;
                     // A skipped blank arrives as an empty-word part. Render it as
                     // plain nothing (no coral treatment) so it reads as a natural
                     // gap rather than a stray zero-width coral underline artifact
                     // (Gate-2 CR-W-001). Only NON-empty, player-supplied words get
-                    // the coral pop.
+                    // the coral pop (and, when voting, the tap target).
                     if (part.word === '') {
                       return <Box key={`p-${index}`} component="span" />;
                     }
                     const delayMs = filledWordIndex * CARVE_STAGGER_MS;
                     filledWordIndex += 1;
+                    // reveal-delight/03: additive vote state on THIS coral word.
+                    const isMyVote = voteInteractive && goldenGuardian?.myVote === token;
+                    const isWinner = voteResolved && goldenGuardian?.winningBlankId === token;
                     return (
                       <Box
                         key={`p-${index}`}
                         component="span"
+                        // reveal-delight/03 (AC-01): a tap casts/moves my single
+                        // vote once voting is interactive; a no-op otherwise. Kept an
+                        // inline span (not a <button>) so the story's text flow is
+                        // preserved; role/tabIndex/keydown make it operable.
+                        onClick={voteInteractive ? () => goldenGuardian?.onVote(token) : undefined}
+                        role={voteInteractive ? 'button' : undefined}
+                        tabIndex={voteInteractive ? 0 : undefined}
+                        aria-pressed={voteInteractive ? isMyVote : undefined}
+                        aria-label={
+                          voteInteractive ? `Vote for "${part.word}" as the funniest word` : undefined
+                        }
+                        onKeyDown={
+                          voteInteractive
+                            ? (event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  goldenGuardian?.onVote(token);
+                                }
+                              }
+                            : undefined
+                        }
                         sx={{
                           // AC-02: coral COLOR comes from the theme token (never a
                           // hardcoded hex); the weight/underline emphasis is
@@ -536,6 +678,27 @@ export function Reveal({
                           '@media (prefers-reduced-motion: reduce)': {
                             animation: 'none',
                           },
+                          // reveal-delight/03 (AC-01): tappable-word affordance while
+                          // voting - ADDITIVE only (coral treatment above unchanged).
+                          // `outline` marks my pick without shifting the inline text.
+                          ...(voteInteractive && {
+                            cursor: 'pointer',
+                            borderRadius: '8px',
+                            px: 0.5,
+                            bgcolor: isMyVote ? alpha(theme.palette.gold.main, 0.22) : 'transparent',
+                            outline: isMyVote ? `2px solid ${theme.palette.gold.main}` : 'none',
+                            outlineOffset: '1px',
+                          }),
+                          // reveal-delight/03 (AC-03): the single winner gets a GOLD
+                          // ring/glow + a gentle transform-only pop. Never a loser
+                          // callout - only this one word is ever styled.
+                          ...(isWinner && {
+                            borderRadius: '8px',
+                            px: 0.5,
+                            bgcolor: alpha(theme.palette.gold.main, 0.2),
+                            boxShadow: `0 0 0 3px ${theme.palette.gold.main}, 0 0 14px ${alpha(theme.palette.gold.main, 0.7)}`,
+                            animation: `${winnerPop} 0.5s ease-out both`,
+                          }),
                         }}
                       >
                         {part.word}
@@ -549,6 +712,109 @@ export function Reveal({
             )}
           </Box>
         </Box>
+
+        {/* Golden Guardian funniest-word vote status (reveal-delight/03). Sits
+            below the story panel: a low-key "tap the funniest word" prompt +
+            "N of M voted" status while voting (AC-02), and a warm, singular winner
+            announcement once resolved (AC-03) - NEVER a ranked list or a loser
+            callout. Rendered only when the caller opts in (absent in solo, AC-06).
+            The gold ring on the winning WORD itself lives in the story body above. */}
+        {goldenGuardian && goldenGuardian.phase !== 'off' && (
+          <Box sx={{ mt: 3, textAlign: 'center' }}>
+            {voteResolved ? (
+              <Stack alignItems="center" spacing={1}>
+                <Box
+                  component="span"
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    px: 2,
+                    py: 1,
+                    borderRadius: 999,
+                    bgcolor: alpha(theme.palette.gold.main, 0.18),
+                    color: theme.palette.gold.dark,
+                    fontFamily: '"Nunito", sans-serif',
+                    fontWeight: 800,
+                    fontSize: 13.5,
+                  }}
+                >
+                  <FontAwesomeIcon icon="crown" style={{ width: 16, height: 16 }} />
+                  {winningWord
+                    ? 'Crowned the funniest word this round'
+                    : 'No favorite picked this round'}
+                </Box>
+                {winningWord && (
+                  <Typography
+                    sx={{
+                      fontFamily: '"Fredoka", sans-serif',
+                      fontWeight: 700,
+                      fontSize: 18,
+                      color: 'primary.main',
+                    }}
+                  >
+                    The funniest word this round: "{winningWord}"
+                  </Typography>
+                )}
+              </Stack>
+            ) : (
+              <Stack alignItems="center" spacing={1.25}>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Box sx={{ color: 'gold.main', display: 'flex' }}>
+                    <FontAwesomeIcon icon="hand-pointer" style={{ width: 16, height: 16 }} />
+                  </Box>
+                  <Typography
+                    sx={{
+                      fontFamily: '"Fredoka", sans-serif',
+                      fontWeight: 600,
+                      fontSize: 16,
+                      color: 'text.primary',
+                    }}
+                  >
+                    {carveComplete
+                      ? 'Tap the funniest word'
+                      : 'The tale is still carving in...'}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" alignItems="center" spacing={0.75}>
+                  <Box sx={{ color: 'teal.main', display: 'flex' }}>
+                    <FontAwesomeIcon icon="circle-check" style={{ width: 14, height: 14 }} />
+                  </Box>
+                  <Typography
+                    sx={{
+                      fontFamily: '"Nunito", sans-serif',
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      color: 'text.secondary',
+                    }}
+                  >
+                    {goldenGuardian.votedCount} of {goldenGuardian.totalVoters} voted
+                  </Typography>
+                </Stack>
+                {/* Host-only low-pressure "Reveal the winner" affordance (AC-03) -
+                    mirrors the Waiting screen's "no rush, but the host can move
+                    things along" posture. Only rendered when the caller (host)
+                    supplies onCloseVoting; never shown to non-hosts. */}
+                {goldenGuardian.onCloseVoting && (
+                  <Link
+                    component="button"
+                    type="button"
+                    onClick={goldenGuardian.onCloseVoting}
+                    underline="none"
+                    sx={{
+                      fontFamily: '"Nunito", sans-serif',
+                      fontWeight: 800,
+                      fontSize: 13,
+                      color: 'gold.dark',
+                    }}
+                  >
+                    Reveal the winner
+                  </Link>
+                )}
+              </Stack>
+            )}
+          </Box>
+        )}
 
         {/* Quiet per-tale curation vote (story-selection/05, AC-01): sits below
             the story panel, visually subordinate to the CTAs in the pinned bar

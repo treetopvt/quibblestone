@@ -125,15 +125,34 @@ function GroupReveal({
   reveal,
   reactionCounts,
   onReact,
+  isHost,
+  goldenGuardianVotedCount,
+  goldenGuardianTotalVoters,
+  goldenGuardianResolved,
+  goldenGuardianWinningBlankId,
+  onCastGoldenGuardianVote,
+  onCloseGoldenGuardianVoting,
   onPlayAgain,
   onHome,
 }: {
   reveal: RevealInfo;
   reactionCounts: ReactionCounts;
   onReact: (type: ReactionType) => void;
+  isHost: boolean;
+  goldenGuardianVotedCount: number;
+  goldenGuardianTotalVoters: number;
+  goldenGuardianResolved: boolean;
+  goldenGuardianWinningBlankId: string | null;
+  onCastGoldenGuardianVote: (blankId: string) => void;
+  onCloseGoldenGuardianVoting: () => void;
   onPlayAgain: () => void;
   onHome: () => void;
 }) {
+  // reveal-delight/03 (AC-01): MY current vote is client-local (I know what I tapped
+  // instantly). GroupReveal remounts per reveal (a new round clears `reveal` to null
+  // first, unmounting this), so this state starts fresh each round - no manual reset.
+  const [myVote, setMyVote] = useState<string | undefined>(undefined);
+
   const template = seedLibrary.find((t) => t.id === reveal.templateId);
 
   if (!template) {
@@ -171,6 +190,25 @@ function GroupReveal({
       // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
       // so every player in the room sees the tally update in near-real-time.
       reactionRow={<ReactionRow counts={reactionCounts} onReact={onReact} />}
+      // reveal-delight/03 (AC-01/02/03): the funniest-word vote. Present ONLY in
+      // group play (solo omits it entirely, AC-06). Reveal turns each coral word into
+      // a tap target and paints the winner; the hub carries votes/resolution and the
+      // crown (which App threads onto the NEXT round's Guardians).
+      goldenGuardian={{
+        phase: goldenGuardianResolved ? 'resolved' : 'voting',
+        onVote: (blankId) => {
+          // Optimistically mark my pick (perceived responsiveness), then fire the
+          // hub invoke - the server keeps one active vote per voter and broadcasts.
+          setMyVote(blankId);
+          onCastGoldenGuardianVote(blankId);
+        },
+        myVote,
+        votedCount: goldenGuardianVotedCount,
+        totalVoters: goldenGuardianTotalVoters,
+        winningBlankId: goldenGuardianWinningBlankId ?? undefined,
+        // Host-only low-pressure "Reveal the winner" affordance (AC-03).
+        onCloseVoting: isHost ? onCloseGoldenGuardianVoting : undefined,
+      }}
     />
   );
 }
@@ -202,6 +240,13 @@ export default function App() {
     reveal,
     reactionCounts,
     react,
+    crownedSessionId,
+    goldenGuardianVotedCount,
+    goldenGuardianTotalVoters,
+    goldenGuardianResolved,
+    goldenGuardianWinningBlankId,
+    castGoldenGuardianVote,
+    closeGoldenGuardianVoting,
     submitWord,
     createRoom,
     joinRoom,
@@ -374,6 +419,7 @@ export default function App() {
             title={template ? template.title : 'Your tale'}
             crew={crew}
             totalWords={totalWords}
+            crownedSessionId={crownedSessionId}
             isHost={isHost}
             canPlayAgain={room.players.length >= 2}
             playAgainError={playAgainError}
@@ -439,6 +485,7 @@ export default function App() {
             <Lobby
               room={room}
               isHost={isHost}
+              crownedSessionId={crownedSessionId}
               onLeave={handleGoHome}
               onStart={handleStartRound}
               notice={roundNotice}
@@ -461,6 +508,7 @@ export default function App() {
               assignedBlankIndices={assignedBlankIndices}
               collectProgress={collectProgress}
               submitWord={submitWord}
+              crownedSessionId={crownedSessionId}
               onLeave={handleGoHome}
             />
           ) : (
@@ -476,6 +524,13 @@ export default function App() {
               reveal={reveal}
               reactionCounts={reactionCounts}
               onReact={react}
+              isHost={isHost}
+              goldenGuardianVotedCount={goldenGuardianVotedCount}
+              goldenGuardianTotalVoters={goldenGuardianTotalVoters}
+              goldenGuardianResolved={goldenGuardianResolved}
+              goldenGuardianWinningBlankId={goldenGuardianWinningBlankId}
+              onCastGoldenGuardianVote={castGoldenGuardianVote}
+              onCloseGoldenGuardianVoting={closeGoldenGuardianVoting}
               onPlayAgain={() => setShowRoundComplete(true)}
               onHome={handleGoHome}
             />
