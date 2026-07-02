@@ -31,6 +31,15 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <!--
+      Web app manifest (design-system/03): prefers portrait for an INSTALLED PWA
+      via "orientation": "portrait". This binds only an installed instance (and
+      iOS Safari ignores manifest orientation entirely), so the Reveal screen
+      ALSO degrades gracefully in landscape - a handed-off phone can still rotate
+      on its own. Metadata only, no PII.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!--
       Open Graph / Twitter: rich image card. og:image must be an absolute URL on
       the canonical apex so crawlers can fetch it. brand-hero.jpg is the full
       1024x1024 source; og-image.jpg is the 1200x630 (1.91:1) share crop.

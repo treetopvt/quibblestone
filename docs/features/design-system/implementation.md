@@ -40,6 +40,7 @@ Sizing rule: a builder owns files **disjoint** from its concurrent siblings. Ove
 |---|---|---|---|---|---|---|
 | 01 theme + app-shell | #16 | `web/src/theme.ts` (extend), `web/src/components/AppBar.tsx`, `web/src/components/BottomActionBar.tsx`, `web/index.html` (Google Fonts), `web/src/assets/HeroGuardian.tsx`; may add app-bar icons to `web/src/fontawesome.ts` | none | 02 (disjoint files), child-safety/01, platform-devops/01-02, template-model/01 | 1 | high |
 | 02 guardian-component | #17 | `web/src/components/Guardian.tsx` | 01 (soft - project/theme exists; SVG colors are hardcoded per spec, not theme tokens) | 01 (footprints disjoint) | 1 | medium |
+| 03 orientation-landscape | TBD | `web/public/manifest.webmanifest` (new), `web/index.html` (manifest link), `web/src/pages/Reveal.tsx` (landscape reflow of the story panel) | 01 (app shell, `index.html`, `BottomActionBar`), the-reveal/01 (the Reveal screen) | 02 (disjoint files) | post-slice-1 | low |
 
 **Concurrency per wave:** Wave 1 = 2 (stories 01 and 02 in parallel - their footprints are disjoint: 01 owns
 `theme.ts`/`AppBar`/`index.html`/hero asset, 02 owns only `Guardian.tsx`). The dependency 02 declares on 01 is a
@@ -79,6 +80,24 @@ sibling here touches it).
   illustrative content, not theme chrome) - this is the one place hardcoded colors are correct, so the component
   does **not** depend on `theme.ts`. No idle/reaction animation here (the consuming screens own animation, keeping
   the component composable). Six variants only in Slice 1.
+
+### 03 - Orientation: prefer portrait, stay readable in landscape
+- **Approach:** two layers, per the "both" decision. (1) Add a `web/public/manifest.webmanifest`
+  (`orientation: portrait`, name/short_name/start_url/display/theme_color=`#6C4BD8`/icons reusing existing
+  `favicon.svg` + `apple-touch-icon.png`) linked from `index.html` - the "prefer portrait" layer for an installed
+  PWA (AC-01). (2) Make landscape degrade gracefully (AC-02, AC-03): in `Reveal.tsx`, replace the fixed
+  `maxHeight: '48vh'` story-scroll cap with an orientation-aware height, widen the `maxWidth: 430` container, and
+  compact the celebration header + narration bar padding in landscape - all behind `@media (orientation: landscape)`
+  so portrait is byte-for-byte unchanged (AC-04).
+- **Key files it owns:** `web/public/manifest.webmanifest` (new), `web/index.html` (manifest `<link>` only), and the
+  landscape-scoped `sx` in `web/src/pages/Reveal.tsx`.
+- **Gotchas:** manifest `orientation` binds only an INSTALLED PWA and iOS Safari ignores it, so the graceful-landscape
+  work is the actual fix, not optional. Mind the `BottomActionBar`/`BottomActionBarSpacer` reserved height so CTAs are
+  never covered in the shorter landscape viewport. No hardcoded hex; big tap targets and `prefers-reduced-motion`
+  preserved (AC-05). Out of scope: a full landscape/tablet redesign, an orientation LOCK / "please rotate" blocker, a
+  service worker/offline pass, and reworking other screens beyond "not broken" (Reveal is the acceptance-critical one).
+  This edits `index.html` (owned by story 01) - serialize behind 01, do not run concurrently with another `index.html`
+  editor.
 
 ## Cross-cutting concerns
 

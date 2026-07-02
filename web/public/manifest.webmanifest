@@ -1,0 +1,25 @@
+{
+  "name": "QuibbleStone",
+  "short_name": "QuibbleStone",
+  "description": "A multiplayer fill-in-the-blank word game for hilarious, easy fun with friends and family.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F2E8D2",
+  "theme_color": "#6C4BD8",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "180x180",
+      "purpose": "any maskable"
+    }
+  ]
+}

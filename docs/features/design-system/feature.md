@@ -15,6 +15,7 @@ MUI theme. No hardcoded colors or pixel spacing in components."
 ## Stories
 - [ ] 01 - MUI theme, AppBar, and Button shell
 - [ ] 02 - Guardian avatar component (6 variants)
+- [ ] 03 - Orientation: prefer portrait, stay readable in landscape
 
 ## Dependencies
 None (this is the UI foundation everything else renders on top of).

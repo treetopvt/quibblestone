@@ -354,7 +354,21 @@ export function Reveal({
   };
 
   return (
-    <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto', overflow: 'hidden' }}>
+    <Box
+      sx={{
+        position: 'relative',
+        minHeight: '100dvh',
+        maxWidth: 430,
+        mx: 'auto',
+        overflow: 'hidden',
+        // Landscape (design-system/03): a handed-off phone that auto-rotates
+        // must not trap the tale in an unreadable sliver. Widen the portrait
+        // column and let the page scroll (overflow visible) so the story below
+        // can render full-length instead of inside a short capped box. Portrait
+        // is untouched - every override is scoped to `orientation: landscape`.
+        '@media (orientation: landscape)': { maxWidth: 720, overflow: 'visible' },
+      }}
+    >
       <Confetti />
 
       {/* Keep the app bar (and its home icon) above the confetti - the confetti
@@ -395,8 +409,19 @@ export function Reveal({
           <NarrationBar title="Hear it in the Guardian's voice" />
 
           {/* Story scroll: independently scrollable, capped so the pinned
-              bottom bar can never obscure it (AC-06). */}
-          <Box sx={{ maxHeight: '48vh', overflowY: 'auto', px: 5, py: 4 }}>
+              bottom bar can never obscure it (AC-06). In landscape the cap is
+              lifted (design-system/03): a short landscape viewport turns 48vh
+              into an unreadable sliver, so the panel renders full-length and the
+              whole page scrolls instead. Portrait keeps the capped inner scroll. */}
+          <Box
+            sx={{
+              maxHeight: '48vh',
+              overflowY: 'auto',
+              px: 5,
+              py: 4,
+              '@media (orientation: landscape)': { maxHeight: 'none', overflowY: 'visible' },
+            }}
+          >
             <Typography
               component="h3"
               sx={{
