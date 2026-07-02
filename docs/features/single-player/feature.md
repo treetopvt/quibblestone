@@ -12,7 +12,7 @@ no-friction entry point ... and the funnel into group play") and section 7
 
 ## Stories
 - [x] 01 - Solo play (Classic blind end to end)
-- [ ] 02 - Solo mode picker (choose a mode, play it) - wires game-modes/03-06's
+- [x] 02 - Solo mode picker (choose a mode, play it) - wires game-modes/03-06's
   modes into the solo flow; solo only (group mode selection is separate)
 
 ## Dependencies
