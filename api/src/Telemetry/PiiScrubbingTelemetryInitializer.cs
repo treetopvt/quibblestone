@@ -66,6 +66,15 @@ public sealed class PiiScrubbingTelemetryInitializer : ITelemetryInitializer
     // future one cannot silently leak identity or content through the Properties
     // bag. Covers the identifiers (join/room code, player/session/connection id)
     // and the free-text/content carriers (nickname, word, answer, story text).
+    //
+    // NOTE (platform-devops/05, AC-03): "deviceId" is deliberately NOT in this set.
+    // The anonymous product-usage events attach a device-local random GUID as
+    // "deviceId" so approximate device REACH is answerable - it is a DEVICE-count
+    // key, explicitly anonymous (no account, reset on storage clear), NOT a
+    // "player session id" (that stays "sessionId"/"connectionId" above, still
+    // dropped). Do not add "deviceId" here or reach telemetry goes dark. The
+    // "mode" / "context" / "playerCount" usage keys are likewise anonymous by
+    // construction (a stable enum-ish label, solo/group, and a count).
     private static readonly HashSet<string> SensitivePropertyKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "nickname", "name", "displayName",

@@ -713,7 +713,65 @@ public sealed class GameHub : Hub
             InstanceId: room.InstanceId);
         FireServeEvent(serveEvent);
 
+        // 9. platform-devops/05 (anonymous product-usage, AC-01): record ONE
+        //    "RoundStarted" App Insights CUSTOM EVENT with the MODE + group context
+        //    (and an anonymous player COUNT), so "which modes get played, solo vs
+        //    group" is answerable. This rides story 04's App Insights pipeline (the
+        //    injected TelemetryClient + the single PII scrubber) - it is a DIFFERENT
+        //    surface from the serve log above (story-selection/04 -> Table Storage,
+        //    content curation) and from 04's operational health (exceptions /
+        //    disconnects); coordinated, never a third stack (AC-06). Fire-and-forget
+        //    and non-throwing - it NEVER gates the round (AC-08). Anonymous by
+        //    construction: no code / nickname / connectionId (AC-04).
+        TrackUsageRoundStarted(round, room.PlayerCount);
+
         return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// platform-devops/05 (AC-01): fire the anonymous "RoundStarted" product-usage
+    /// custom event on story 04's App Insights pipeline. Fire-and-forget and
+    /// non-throwing exactly like <see cref="FireServeEvent"/>: TrackEvent only
+    /// enqueues (no network on this path) and no-ops cleanly with no connection
+    /// string (AC-08/AC-05), but we still swallow any fault so telemetry can NEVER
+    /// delay or error a round. Carries ONLY the anonymous mode + group context + a
+    /// player count, all routed through the single PII scrubber (AC-04).
+    /// </summary>
+    private void TrackUsageRoundStarted(RoundState round, int playerCount)
+    {
+        try
+        {
+            _appInsights.TrackEvent(
+                UsageTelemetry.RoundStartedEvent,
+                UsageTelemetry.BuildProperties(round.Mode, UsageTelemetry.GroupContext, playerCount: playerCount));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Usage RoundStarted event failed (swallowed - telemetry never gates gameplay).");
+        }
+    }
+
+    /// <summary>
+    /// platform-devops/05 (AC-02): fire the anonymous "RoundCompleted" product-usage
+    /// custom event carrying the round DURATION (ms) as a metric, plus the mode +
+    /// group context. Same fire-and-forget, non-throwing posture as
+    /// <see cref="TrackUsageRoundStarted"/> - it never blocks or faults the reveal
+    /// (AC-08). No per-person identity is attached (AC-04): a duration + a mode +
+    /// the group context only.
+    /// </summary>
+    private void TrackUsageRoundCompleted(RoundState round, double durationMs)
+    {
+        try
+        {
+            _appInsights.TrackEvent(
+                UsageTelemetry.RoundCompletedEvent,
+                UsageTelemetry.BuildProperties(round.Mode, UsageTelemetry.GroupContext),
+                UsageTelemetry.BuildDurationMetric(durationMs));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Usage RoundCompleted event failed (swallowed - telemetry never gates gameplay).");
+        }
     }
 
     /// <summary>
@@ -913,6 +971,14 @@ public sealed class GameHub : Hub
             await Clients.Group(room.Code).SendAsync(
                 "RevealReady",
                 new RevealReadyDto(round.TemplateId, words));
+
+            // platform-devops/05 (AC-02): the reveal just fired, so the round is
+            // complete - record the anonymous "RoundCompleted" usage event with the
+            // round DURATION (now minus the round's StartedUtc, captured under the
+            // lock in StartRound). Fire-and-forget on 04's App Insights pipeline;
+            // never blocks or faults the reveal (AC-08), no per-person identity (AC-04).
+            var durationMs = (DateTimeOffset.UtcNow - round.StartedUtc).TotalMilliseconds;
+            TrackUsageRoundCompleted(round, durationMs);
         }
 
         return new SubmitWordResultDto(true, null);

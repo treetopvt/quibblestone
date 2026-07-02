@@ -146,6 +146,16 @@ public sealed class RoundState
     /// <summary>1-based round number; group-play/04 increments it on replay (round 2, 3, ...).</summary>
     public required int RoundNumber { get; set; }
 
+    /// <summary>
+    /// When this round OPENED (UTC), stamped once under the room lock by
+    /// <see cref="Room.StartRound"/> (platform-devops/05, AC-02). It exists purely so
+    /// the anonymous product-usage "RoundCompleted" event can measure round DURATION
+    /// (reveal time minus this) - an anonymous session length, never tied to a
+    /// person. Immutable for the life of the round; copied verbatim into every
+    /// snapshot so a duration read outside the lock is consistent.
+    /// </summary>
+    public required DateTimeOffset StartedUtc { get; init; }
+
     /// <summary>The selected template's id - the key the client resolves full content from (seedLibrary).</summary>
     public required string TemplateId { get; set; }
 
@@ -467,6 +477,9 @@ public sealed class Room
                 TemplateId = templateId,
                 Mode = mode,
                 Phase = "prompting",
+                // platform-devops/05 (AC-02): stamp the open time under the lock so
+                // the anonymous RoundCompleted event can measure round duration.
+                StartedUtc = DateTimeOffset.UtcNow,
                 Assignments = assignments,
                 // group-play/03: a fresh, empty submission store for the new round.
                 Submissions = new Dictionary<int, Submission>(),
@@ -483,6 +496,7 @@ public sealed class Room
                 TemplateId = _round.TemplateId,
                 Mode = _round.Mode,
                 Phase = _round.Phase,
+                StartedUtc = _round.StartedUtc,
                 Assignments = _round.Assignments,
                 // A round just started, so there are no submissions yet; hand back
                 // a fresh empty copy so this snapshot never aliases the live store.
@@ -650,6 +664,7 @@ public sealed class Room
                     TemplateId = _round.TemplateId,
                     Mode = _round.Mode,
                     Phase = _round.Phase,
+                    StartedUtc = _round.StartedUtc,
                     Assignments = _round.Assignments,
                     // Detached copy of the submission store so a read outside the
                     // lock never observes a later RecordSubmission mutation. The

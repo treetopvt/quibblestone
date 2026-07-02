@@ -77,6 +77,53 @@ az monitor scheduled-query create \
   --condition-query exceptions="exceptions | where timestamp > ago(5m)"
 ```
 
+## Product usage (platform-devops/05)
+
+Beyond "is it broken" (04), anonymous PRODUCT-USAGE events answer "how is the toy
+actually used" - which modes get played, how long a session lasts, and roughly how
+many distinct devices play. They ride this SAME App Insights pipeline as **custom
+events** (no new resource, no dashboard, no third telemetry stack): the group hub
+emits them server-side and the solo client forwards through `/api/usage`, and both
+flow through the same PII scrubber. Anonymous by construction (README sections 3 +
+6): the only fields are `mode`, `context` (solo/group), a `playerCount`, a
+`durationMs` metric, and - for solo - an anonymous `deviceId` (a device-local
+random GUID, an APPROXIMATE device count, never a verified person; it resets on
+storage clear, and unique-person identity is deferred to accounts / Phase 2).
+
+The three headline questions are each a one-line KQL query (App Insights ->
+Logs) - no dashboard or workbook (demand-driven, README section 12):
+
+- **Which modes get played, over time (AC-01):**
+
+  ```kusto
+  customEvents
+  | where name == "RoundStarted"
+  | summarize plays = count() by mode = tostring(customDimensions.mode), bin(timestamp, 1d)
+  | order by timestamp asc
+  ```
+
+- **Median session length (AC-02):**
+
+  ```kusto
+  customEvents
+  | where name == "RoundCompleted"
+  | summarize medianMs = percentile(todouble(customMeasurements.durationMs), 50)
+  ```
+
+- **Approximate active-device count (AC-03 - a DEVICE count, never unique people):**
+
+  ```kusto
+  customEvents
+  | where name in ("RoundStarted", "RoundCompleted") and isnotempty(tostring(customDimensions.deviceId))
+  | summarize approxDevices = dcount(tostring(customDimensions.deviceId))
+  ```
+
+  Note the honest limit: `deviceId` rides SOLO events only (a solo tab has an
+  anonymous device-local id). GROUP rounds are server-side and carry no per-device
+  id, so they contribute `RoundStarted` volume and `context == "group"` but not
+  device reach - true cross-device / unique-person counting needs accounts (Phase 2,
+  out of scope). Split solo vs group with `context = tostring(customDimensions.context)`.
+
 ## Cost lever: `appServicePlanSku`
 
 Everything above is on Free/near-zero SKUs except the App Service Plan, so that
