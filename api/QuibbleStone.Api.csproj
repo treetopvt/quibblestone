@@ -45,4 +45,21 @@
     <PackageReference Include="Azure.Data.Tables" Version="12.9.1" />
   </ItemGroup>
 
+  <!--
+    platform-devops/04 (operational observability): the ASP.NET Core Application
+    Insights SDK. This is the OPERATIONAL telemetry pipeline (unhandled
+    exceptions, failed requests, request rate + duration, dependency calls) - a
+    pipeline DISTINCT from the anonymous serve log above (Azure.Data.Tables,
+    story-selection/04), which stays untouched. It is IN CHARTER (the charter
+    names App Insights for the footprint, CLAUDE.md section 3 / README section 9)
+    and needs NO auth token to restore. It cleanly NO-OPS when no connection
+    string is configured (local dev, CI, a fresh clone), so this reference adds a
+    dependency but emits nothing until APPLICATIONINSIGHTS_CONNECTION_STRING is
+    present (see Program.cs, AC-02/AC-05). NO-PII is enforced by the ONE
+    PiiScrubbingTelemetryInitializer every telemetry path flows through (AC-04).
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.23.0" />
+  </ItemGroup>
+
 </Project>

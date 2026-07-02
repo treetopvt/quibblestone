@@ -93,6 +93,17 @@
 //  each RANDOM round start (beginRound with record:true), and story-selection/05
 //  shows a quiet per-tale thumbs vote on Reveal (taleFeedback) - both anonymous,
 //  both never gate the flow (see recordSoloServe / TaleFeedback).
+//
+//  platform-devops/05 (anonymous product-usage) adds two more fire-and-forget,
+//  no-PII beacons on the SAME never-gate posture: a "RoundStarted" (the mode
+//  played) and a "RoundCompleted" with the session DURATION when the round reaches
+//  the reveal (see recordSoloRoundStarted / recordSoloRoundCompleted). Unlike the
+//  serve log + freshness history above (content curation, RANDOM-pick only),
+//  product usage counts EVERY round - a favorite replay (record:false) included -
+//  so these fire on BOTH paths, before the record gate. They ride story 04's App
+//  Insights pipeline (a DIFFERENT surface from the serve log's Table Storage):
+//  which modes get played + how long a session lasts + approximate anonymous
+//  device reach, never a person.
 // ----------------------------------------------------------------------------
 
 import { useEffect, useRef, useState } from 'react';
@@ -122,6 +133,7 @@ import {
 import { getBlanks, type Template } from '../engine/template';
 import { checkWord } from '../safety/checkWord';
 import { recordSoloServe } from '../telemetry/serveLog';
+import { recordSoloRoundCompleted, recordSoloRoundStarted } from '../telemetry/usageBeacon';
 import { FillBlank } from './FillBlank';
 import { Reveal } from './Reveal';
 import { DEFAULT_SOLO_MODE, SOLO_MODES, type SoloMode } from './soloModes';
@@ -375,6 +387,12 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   // instead, matching engine.ts's "mutates and returns `collected`" contract.
   const collectionRef = useRef<CollectedWords>(createCollection());
 
+  // platform-devops/05 (AC-02): when the current round OPENED (Date.now() ms), so
+  // the anonymous "RoundCompleted" usage beacon can measure this solo session's
+  // DURATION (reveal time minus this). A ref, not state - it never drives a render,
+  // and it must survive the fill -> reveal transition without re-triggering one.
+  const roundStartRef = useRef<number | null>(null);
+
   const handleFamilySafeChange = (checked: boolean) => {
     setFamilySafe(checked);
     // If the current mode has no eligible template at the new family-safe
@@ -404,6 +422,18 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     setTemplate(chosen);
     setBlankIndex(0);
     setPhase('fill');
+    // platform-devops/05 (anonymous product-usage, AC-01/AC-02): mark the round
+    // start time and fire-and-forget one anonymous "RoundStarted" usage event with
+    // the selected MODE (solo context) so "which modes get played" is answerable.
+    // This runs on EVERY round - BEFORE the record gate below - because product
+    // usage counts a favorite replay (record:false) too, unlike the serve log +
+    // freshness history (content curation, random-pick only). It rides story 04's
+    // App Insights pipeline via /api/usage (a DIFFERENT surface from the serve log,
+    // Table Storage) - never awaits, never retries, never blocks the transition to
+    // 'fill' (AC-08). Carries no PII - just the stable mode id + an anonymous
+    // device id (AC-04).
+    roundStartRef.current = Date.now();
+    recordSoloRoundStarted(mode.config.id);
     if (!record) return;
     // story-selection/04 (anonymous serve log, AC-02): fire-and-forget one
     // anonymous "template served" event. It never awaits, never retries, and
@@ -504,6 +534,20 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
 
   const advance = () => {
     if (isCollectionComplete(template, collectionRef.current)) {
+      // platform-devops/05 (AC-02): the round just completed (moving to the
+      // reveal), so fire-and-forget one anonymous "RoundCompleted" usage event
+      // with the MODE + the measured session DURATION (now minus the round start).
+      // ONE-SHOT LATCH: setPhase('reveal') is async, so a double-tap of the final
+      // blank could re-enter here before the fill UI unmounts; guarding on (and
+      // then clearing) roundStartRef makes the completion event fire EXACTLY ONCE
+      // per round (beginRound re-stamps it next round). It never blocks the
+      // transition and carries no PII - a duration + a stable mode id + an
+      // anonymous device id (AC-04/AC-08).
+      const startedAt = roundStartRef.current;
+      if (startedAt !== null) {
+        roundStartRef.current = null;
+        recordSoloRoundCompleted(mode.config.id, Date.now() - startedAt);
+      }
       setPhase('reveal');
       return;
     }
