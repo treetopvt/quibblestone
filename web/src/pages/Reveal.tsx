@@ -67,11 +67,12 @@
 // ----------------------------------------------------------------------------
 
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Link, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, TaleFeedback } from '../components';
+import { AppBar, BottomActionBar, BottomActionBarSpacer, Guardian, TaleFeedback } from '../components';
+import type { GuardianVariant } from '../components';
 import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
 import { buildRevealParts } from './revealParts';
@@ -161,6 +162,46 @@ export interface RevealProps {
    * an already-vetted, already-displayed word's position, no new text, no PII).
    */
   goldenGuardian?: GoldenGuardianVote;
+  /**
+   * Optional per-word "carved by [nickname]" attribution (reveal-delight/04,
+   * AC-01/AC-02/AC-06). Like every other slot here this keeps Reveal
+   * ROOM-AGNOSTIC: Reveal knows nothing about the roster or the hub, it only
+   * asks the caller to resolve a word's `playerSessionId` (the same value
+   * `buildRevealParts` already carries on each `RevealWordPart`) to a
+   * contributor. OMIT it entirely in solo (AC-04: every word is mine, so
+   * naming a contributor is noise - Solo.tsx does not pass this prop).
+   *
+   * Treatment: a coral word with a resolvable contributor becomes a
+   * tap-to-reveal target for a small "carved by [nickname]" chip (with their
+   * Guardian) - it never forces a name onto every word inline, which would
+   * drown the coral contrast (AC-02). This tap is DELIBERATELY separate from
+   * the Golden Guardian vote tap (reveal-delight/03): while voting is
+   * interactive (`goldenGuardian.phase === 'voting'` and the carve-in has
+   * finished), the SAME coral word's tap is already taken to cast a vote, so
+   * attribution reveal is inert there and only becomes tappable once voting
+   * is resolved / absent - the two gestures never fight over the same word.
+   * A word with no resolvable contributor (an unfilled blank, or a
+   * contributor who has since left the room) is never tappable and never
+   * renders "carved by undefined" (AC-03).
+   */
+  wordAttribution?: WordAttribution;
+}
+
+/**
+ * The word-attribution slot on the Reveal (reveal-delight/04). See
+ * RevealProps.wordAttribution.
+ */
+export interface WordAttribution {
+  /**
+   * Resolve a filled word's `playerSessionId` (already carried on
+   * `RevealWordPart`, unchanged by this feature) to the in-session
+   * contributor's nickname + Guardian variant, sourced from the roster /
+   * reveal payload the room already broadcasts (AC-01, AC-06). Return
+   * `undefined` for an unattributed blank or a contributor who has since
+   * left the room (AC-03) - Reveal then renders that word with no
+   * attribution affordance at all, rather than a broken tile.
+   */
+  contributorFor: (playerSessionId: string) => { nickname: string; variant: GuardianVariant } | undefined;
 }
 
 /** The Golden Guardian vote slot on the Reveal (reveal-delight/03). See RevealProps.goldenGuardian. */
@@ -233,6 +274,15 @@ const CARVE_DURATION_MS = 400;
 const winnerPop = keyframes`
   0% { transform: scale(1); }
   45% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+`;
+
+// reveal-delight/04 (AC-02): the "carved by [nickname]" chip's tap-to-reveal
+// pop, keyed by a single word. TRANSFORM ONLY (scale) - never an opacity
+// keyframe on this reused span - so a re-render can never strand the chip
+// invisible (this feature's shared footgun, see implementation.md).
+const attributionPop = keyframes`
+  0% { transform: scale(.6); }
   100% { transform: scale(1); }
 `;
 
@@ -411,9 +461,17 @@ export function Reveal({
   taleFeedback,
   reactionRow,
   goldenGuardian,
+  wordAttribution,
 }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
+
+  // reveal-delight/04 (AC-02): which coral word's "carved by" chip is
+  // currently revealed, keyed by its opaque blank token (the same body-order
+  // position token 03 uses for votes). Client-local, tap-to-toggle - never
+  // shared over the hub (AC-06). Reset is implicit: GroupReveal remounts per
+  // reveal, so this starts fresh each round.
+  const [revealedAttribution, setRevealedAttribution] = useState<string | null>(null);
 
   // reveal-delight/03 (AC-01): the vote step must only become interactive once the
   // story is FULLY shown - i.e. once the last coral word has finished carving in
@@ -629,20 +687,59 @@ export function Reveal({
                     // reveal-delight/03: additive vote state on THIS coral word.
                     const isMyVote = voteInteractive && goldenGuardian?.myVote === token;
                     const isWinner = voteResolved && goldenGuardian?.winningBlankId === token;
-                    return (
+                    // reveal-delight/04 (AC-01/AC-03): resolve this word's
+                    // contributor from its playerSessionId (unchanged data
+                    // from buildRevealParts). Undefined for an unfilled blank
+                    // or a contributor who has since left the room - never
+                    // rendered, never tappable, never "carved by undefined".
+                    const contributor =
+                      wordAttribution && part.playerSessionId !== undefined
+                        ? wordAttribution.contributorFor(part.playerSessionId)
+                        : undefined;
+                    // reveal-delight/04: the attribution tap is DELIBERATELY
+                    // inert while the Golden Guardian vote tap owns this same
+                    // word (voteInteractive) - the two gestures never fight
+                    // over one coral word. It becomes live once voting is
+                    // resolved/absent and a contributor is resolvable.
+                    const attributionInteractive =
+                      contributor !== undefined && !voteInteractive;
+                    const attributionRevealed =
+                      attributionInteractive && revealedAttribution === token;
+                    const toggleAttribution = () =>
+                      setRevealedAttribution((current) => (current === token ? null : token));
+                    const wordBox = (
                       <Box
-                        key={`p-${index}`}
                         component="span"
                         // reveal-delight/03 (AC-01): a tap casts/moves my single
-                        // vote once voting is interactive; a no-op otherwise. Kept an
-                        // inline span (not a <button>) so the story's text flow is
-                        // preserved; role/tabIndex/keydown make it operable.
-                        onClick={voteInteractive ? () => goldenGuardian?.onVote(token) : undefined}
-                        role={voteInteractive ? 'button' : undefined}
-                        tabIndex={voteInteractive ? 0 : undefined}
-                        aria-pressed={voteInteractive ? isMyVote : undefined}
+                        // vote once voting is interactive. reveal-delight/04
+                        // (AC-02): once voting is not interactive, the same tap
+                        // instead toggles this word's "carved by" chip, but only
+                        // when a contributor is resolvable. A no-op otherwise.
+                        // Kept an inline span (not a <button>) so the story's
+                        // text flow is preserved; role/tabIndex/keydown make it
+                        // operable either way.
+                        onClick={
+                          voteInteractive
+                            ? () => goldenGuardian?.onVote(token)
+                            : attributionInteractive
+                              ? toggleAttribution
+                              : undefined
+                        }
+                        role={voteInteractive || attributionInteractive ? 'button' : undefined}
+                        tabIndex={voteInteractive || attributionInteractive ? 0 : undefined}
+                        aria-pressed={
+                          voteInteractive
+                            ? isMyVote
+                            : attributionInteractive
+                              ? attributionRevealed
+                              : undefined
+                        }
                         aria-label={
-                          voteInteractive ? `Vote for "${part.word}" as the funniest word` : undefined
+                          voteInteractive
+                            ? `Vote for "${part.word}" as the funniest word`
+                            : attributionInteractive && contributor
+                              ? `Show who carved "${part.word}"`
+                              : undefined
                         }
                         onKeyDown={
                           voteInteractive
@@ -652,7 +749,14 @@ export function Reveal({
                                   goldenGuardian?.onVote(token);
                                 }
                               }
-                            : undefined
+                            : attributionInteractive
+                              ? (event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    toggleAttribution();
+                                  }
+                                }
+                              : undefined
                         }
                         sx={{
                           // AC-02: coral COLOR comes from the theme token (never a
@@ -699,10 +803,59 @@ export function Reveal({
                             boxShadow: `0 0 0 3px ${theme.palette.gold.main}, 0 0 14px ${alpha(theme.palette.gold.main, 0.7)}`,
                             animation: `${winnerPop} 0.5s ease-out both`,
                           }),
+                          // reveal-delight/04 (AC-02): a subtle tappable cue for
+                          // attribution, ADDITIVE only - never overrides the coral
+                          // color/weight/underline above, and never fires while
+                          // the vote tap (styled separately above) owns this word.
+                          ...(attributionInteractive &&
+                            !isWinner && {
+                              cursor: 'pointer',
+                            }),
                         }}
                       >
                         {part.word}
                       </Box>
+                    );
+
+                    return (
+                      <Fragment key={`p-${index}`}>
+                        {wordBox}
+                        {/* reveal-delight/04 (AC-01/AC-02): the "carved by
+                            [nickname]" chip, tap-revealed per word - never
+                            forced inline by default (that would drown the
+                            coral contrast this reveal depends on). Sits right
+                            after the word so it reads inline with the story
+                            text; a scale-only pop, never opacity keyframes
+                            (this feature's shared footgun). */}
+                        {attributionRevealed && contributor && (
+                          <Box
+                            component="span"
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                              ml: 0.5,
+                              px: 1,
+                              py: 0.25,
+                              borderRadius: 999,
+                              bgcolor: alpha(theme.palette.primary.main, 0.12),
+                              color: theme.palette.primary.dark,
+                              fontFamily: '"Nunito", sans-serif',
+                              fontWeight: 800,
+                              fontSize: 11.5,
+                              verticalAlign: 'middle',
+                              transformOrigin: 'left center',
+                              animation: `${attributionPop} 0.2s ease-out both`,
+                              '@media (prefers-reduced-motion: reduce)': {
+                                animation: 'none',
+                              },
+                            }}
+                          >
+                            <Guardian variant={contributor.variant} size={16} />
+                            carved by {contributor.nickname}
+                          </Box>
+                        )}
+                      </Fragment>
                     );
                   });
                 })()}
