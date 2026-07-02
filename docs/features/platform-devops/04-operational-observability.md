@@ -1,6 +1,6 @@
 # Story: Operational observability (Application Insights)
 
-**Feature:** Platform & DevOps  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Platform & DevOps  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #106
 
 ## Context
 The app is effectively unobserved: there is no Application Insights, no exception
