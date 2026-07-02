@@ -26,6 +26,7 @@ variations - reframed here per-axis, see Decisions below).
 | 04 | #53 | Word Bank mode (answer axis) | Complete |
 | 05 | #84 | Progressive Story mode (see axis) | Complete |
 | 06 | #52 | Progressive Reveal mode (reveal axis) | Complete |
+| 07 | TBD | Jumble the word bank (fresh options on demand) | Not Started |
 
 ## Dependencies
 - template-model (a mode plays a template).
@@ -95,8 +96,12 @@ variations - reframed here per-axis, see Decisions below).
   they come up, not designed speculatively here).
 - Per-player mode selection within a single round (README section 5 assumes one
   mode per round, chosen at round start).
-- AI-personalized spark chips / word banks generated per player (template-model
-  Phase 2 territory, not a mode concern).
+- AI-personalized spark chips / word banks generated per PLAYER (template-model
+  Phase 2 territory, not a mode concern). Note: the by-CATEGORY "jumble" (story
+  07) is the nearer, non-personalized cousin of this - it swaps in a fresh set of
+  options (deterministically from the curated pool for free, or AI-generated on
+  theme as a gated delight), the SAME set for whoever is on that blank; the
+  parked idea here is the further, per-player personalization step.
 
 ## Decisions
 - 2026-07-01: **Re-planned this feature** as a tight, foundation-first, 3-mode
