@@ -87,6 +87,12 @@ import {
   // so only the laugh face + heart are genuinely new.
   faFaceLaughBeam,
   faHeart,
+  // Golden Guardian icons (reveal-delight/03, issue #58): the "tap the funniest
+  // word" vote affordance uses faHandPointer; the crowned winner reuses faCrown
+  // (already registered above for the Lobby host indicator) and the "N of M
+  // voted" tick reuses faCircleCheck (already registered above for the Waiting
+  // status). So faHandPointer is the only genuinely new glyph here.
+  faHandPointer,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -124,4 +130,5 @@ library.add(
   faThumbsDown,
   faFaceLaughBeam,
   faHeart,
+  faHandPointer,
 );

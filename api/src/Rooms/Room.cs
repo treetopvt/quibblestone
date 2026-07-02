@@ -183,7 +183,71 @@ public sealed class RoundState
     /// </summary>
     public IReadOnlyDictionary<int, Submission> Submissions { get; set; } =
         new Dictionary<int, Submission>();
+
+    /// <summary>
+    /// reveal-delight/03 (AC-01/AC-02): the Golden Guardian "funniest word" votes
+    /// cast during THIS round's reveal, keyed by the voter's connection id -> the
+    /// blank TOKEN they chose (the blank's body-order position, as a string - the
+    /// same opaque token the web Reveal assigns each coral word). One active vote per
+    /// voter (a re-cast overwrites, mirroring web/src/engine/vote.ts). Ephemeral and
+    /// per-round: a fresh round starts empty. No PII - a connection id is a
+    /// server-side handle, and the token is an already-vetted, already-displayed
+    /// word's position (AC-07). Mutated only under the room lock.
+    /// </summary>
+    public Dictionary<string, string> GoldenGuardianVotes { get; set; } =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// reveal-delight/03: the voter connection ids in FIRST-cast order, so the
+    /// tie-break ("first blank to reach the max count") is deterministic - the exact
+    /// rule web/src/engine/vote.ts documents and pins in its Vitest spec. A voter
+    /// that MOVES its vote keeps its original position (still one voter).
+    /// </summary>
+    public List<string> GoldenGuardianCastOrder { get; set; } = [];
+
+    /// <summary>
+    /// reveal-delight/03 (AC-03): true once the funniest-word vote has RESOLVED (every
+    /// present player voted, or the host closed voting early). Resolves exactly once
+    /// per round; further votes after resolution are ignored.
+    /// </summary>
+    public bool GoldenGuardianResolved { get; set; }
+
+    /// <summary>
+    /// reveal-delight/03 (AC-03): the winning blank token once resolved, or null (not
+    /// yet resolved, or resolved with zero votes -> no winner, no crown).
+    /// </summary>
+    public string? GoldenGuardianWinningBlankId { get; set; }
+
+    /// <summary>
+    /// reveal-delight/03 (AC-04): the nickname crowned FOR this round - moved from the
+    /// room's PENDING crown when this round opens (<see cref="Room.StartRound"/>) so
+    /// the previous round's funniest-word winner wears the crown for exactly this one
+    /// round. Null when no crown applies. Server-tracked round state, never a client
+    /// timer.
+    /// </summary>
+    public string? CrownedNickname { get; set; }
 }
+
+/// <summary>
+/// reveal-delight/03: the outcome of a Golden Guardian vote action (a cast or a
+/// host close), for the hub to broadcast. Carries the live "N of M voted" figures
+/// plus, once the vote resolves, the winning blank token and the winning
+/// contributor's nickname (the crown's future wearer). Not a result envelope for the
+/// caller (a stray vote needs no retry) - it drives the room-wide broadcasts.
+/// </summary>
+/// <param name="Accepted">True if this cast was recorded (a valid, still-open vote); false if ignored (no reveal, already resolved, or an unknown/empty blank).</param>
+/// <param name="VotedCount">How many CURRENTLY-present players have voted (the "N").</param>
+/// <param name="TotalVoters">How many players are present and can vote (the "M").</param>
+/// <param name="Resolved">True if this action resolved the vote (transitioned to a final winner).</param>
+/// <param name="WinningBlankId">The winning blank token when resolved, or null (not resolved, or zero votes).</param>
+/// <param name="WinnerNickname">The winning contributor's nickname when resolved with a winner, else null (no crown).</param>
+public sealed record GoldenGuardianVoteResult(
+    bool Accepted,
+    int VotedCount,
+    int TotalVoters,
+    bool Resolved,
+    string? WinningBlankId,
+    string? WinnerNickname);
 
 /// <summary>
 /// An ephemeral, in-memory game room. Not persisted anywhere (CLAUDE.md
@@ -240,6 +304,17 @@ public sealed class Room
             ["wow"] = 0,
             ["star"] = 0,
         };
+
+    // reveal-delight/03 (AC-04): the PENDING Golden Guardian crown - the nickname
+    // that won the most recent funniest-word vote and should wear the crown for the
+    // NEXT round. Set when a vote resolves (CastGoldenGuardianVote / Close
+    // GoldenGuardianVoting) and CONSUMED at the next StartRound (moved onto that
+    // round's CrownedNickname, then cleared here). So the crown lasts exactly one
+    // round: round N's reveal awards it, round N+1 wears it, round N+2 clears it
+    // unless round N+1's reveal awarded a fresh one. Deliberately NOT cleared by
+    // BackToLobby, so the crown carries whether the host plays again or returns to
+    // the lobby first. Guarded by _gate. Never PII beyond an in-session nickname.
+    private string? _pendingCrownNickname;
 
     private Room(string code)
     {
@@ -479,6 +554,13 @@ public sealed class Room
         {
             var assignments = ComputeAssignments(_players, blankCount);
 
+            // reveal-delight/03 (AC-04): CONSUME the pending crown (if any) onto this
+            // round, then clear it - so the previous round's funniest-word winner
+            // wears the crown for exactly THIS one round. A round with no pending
+            // crown carries null (the crown clears if it is not re-awarded).
+            var crownedNickname = _pendingCrownNickname;
+            _pendingCrownNickname = null;
+
             _round = new RoundState
             {
                 // group-play/04: increment off the previous round (or 0 when the room
@@ -491,6 +573,9 @@ public sealed class Room
                 Assignments = assignments,
                 // group-play/03: a fresh, empty submission store for the new round.
                 Submissions = new Dictionary<int, Submission>(),
+                // reveal-delight/03: the crown this round wears (from the pending
+                // crown above); the vote fields start empty for the new round.
+                CrownedNickname = crownedNickname,
             };
 
             // reveal-delight/01 (AC-04): reactions are ephemeral per reveal, so a
@@ -517,6 +602,9 @@ public sealed class Room
                 // A round just started, so there are no submissions yet; hand back
                 // a fresh empty copy so this snapshot never aliases the live store.
                 Submissions = new Dictionary<int, Submission>(),
+                // reveal-delight/03: expose the crown on the snapshot so the hub can
+                // broadcast it on RoundStarted (who wears the crown this round).
+                CrownedNickname = _round.CrownedNickname,
             };
         }
     }
@@ -617,6 +705,214 @@ public sealed class Room
             LastActiveUtc = DateTimeOffset.UtcNow;
             return new Dictionary<string, int>(_reactionCounts, StringComparer.Ordinal);
         }
+    }
+
+    /// <summary>
+    /// reveal-delight/03 (AC-01/AC-02): record ONE player's Golden Guardian vote for
+    /// the funniest coral word, then report the live progress and (if this cast
+    /// completes the vote) the resolution.
+    ///
+    /// Only valid during the reveal phase (the vote lives on the reveal). One active
+    /// vote per voter - a re-cast MOVES the vote (overwrites the connection's entry;
+    /// the voter keeps its first-cast position for the tie-break), mirroring
+    /// web/src/engine/vote.ts. The <paramref name="blankToken"/> must name a real
+    /// FILLED blank (a non-empty submitted word) - a token outside that set is
+    /// ignored (AC-07: a vote is only ever one of the already-vetted, already-shown
+    /// coral words). The vote AUTO-RESOLVES once every CURRENTLY-present player has
+    /// voted; the host may also close it early via <see cref="CloseGoldenGuardian"/>.
+    /// Resolving sets the pending crown to the winning word's contributor for the
+    /// next round (AC-04). Mutated only under the room lock.
+    /// </summary>
+    /// <param name="connectionId">The voting connection (server-side handle; no PII on the wire).</param>
+    /// <param name="blankToken">The chosen blank's body-order position token (must be a filled blank).</param>
+    /// <returns>The cast outcome + live "N of M" figures + any resolution, for the hub to broadcast.</returns>
+    public GoldenGuardianVoteResult CastGoldenGuardianVote(string connectionId, string blankToken)
+    {
+        lock (_gate)
+        {
+            // A vote only exists on a reveal that has not already resolved.
+            if (_round is null ||
+                !string.Equals(_round.Phase, "reveal", StringComparison.Ordinal) ||
+                _round.GoldenGuardianResolved)
+            {
+                return BuildVoteResult(accepted: false, resolved: false);
+            }
+
+            // Only a SEATED player may vote (a stray/left connection cannot skew the
+            // tally). The vote is keyed by connection id, a server-side handle.
+            if (!_players.Any(p => p.ConnectionId == connectionId))
+            {
+                return BuildVoteResult(accepted: false, resolved: false);
+            }
+
+            // The token must be one of the offered options: a FILLED (non-empty)
+            // blank. Anything else (an empty/skipped blank or a crafted token) is
+            // ignored - never recorded (AC-07).
+            if (!IsFilledBlankToken(blankToken))
+            {
+                return BuildVoteResult(accepted: false, resolved: false);
+            }
+
+            // One active vote per voter: a first-time voter joins the cast order; a
+            // returning voter keeps its position and just moves its choice.
+            if (!_round.GoldenGuardianVotes.ContainsKey(connectionId))
+            {
+                _round.GoldenGuardianCastOrder.Add(connectionId);
+            }
+            _round.GoldenGuardianVotes[connectionId] = blankToken;
+            LastActiveUtc = DateTimeOffset.UtcNow;
+
+            // Auto-resolve once every present player has voted (AC-03).
+            var everyPresentVoted =
+                _players.Count > 0 &&
+                _players.All(p => _round.GoldenGuardianVotes.ContainsKey(p.ConnectionId));
+            if (everyPresentVoted)
+            {
+                ResolveGoldenGuardian();
+            }
+
+            return BuildVoteResult(accepted: true, resolved: _round.GoldenGuardianResolved);
+        }
+    }
+
+    /// <summary>
+    /// reveal-delight/03 (AC-03): the HOST closes Golden Guardian voting early via the
+    /// low-pressure "Reveal the winner" affordance, resolving it with whatever votes
+    /// are in (mirroring the host's "move things along" posture elsewhere). Host-only
+    /// is ENFORCED by the caller (the hub checks <see cref="IsHost"/>); this method
+    /// only resolves. Idempotent: closing an already-resolved (or non-reveal) vote is
+    /// a no-op that reports the current state. A close with zero votes resolves with
+    /// no winner (no crown). Mutated only under the room lock.
+    /// </summary>
+    /// <returns>The resolution + live "N of M" figures for the hub to broadcast.</returns>
+    public GoldenGuardianVoteResult CloseGoldenGuardian()
+    {
+        lock (_gate)
+        {
+            if (_round is null ||
+                !string.Equals(_round.Phase, "reveal", StringComparison.Ordinal))
+            {
+                return BuildVoteResult(accepted: false, resolved: false);
+            }
+            if (!_round.GoldenGuardianResolved)
+            {
+                ResolveGoldenGuardian();
+                LastActiveUtc = DateTimeOffset.UtcNow;
+            }
+            return BuildVoteResult(accepted: true, resolved: _round.GoldenGuardianResolved);
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="blankToken"/> names a FILLED blank in the current
+    /// round (a submission with a non-empty word) - the offered vote option set.
+    /// Must be called under <see cref="_gate"/>.
+    /// </summary>
+    private bool IsFilledBlankToken(string? blankToken)
+    {
+        if (_round is null ||
+            string.IsNullOrEmpty(blankToken) ||
+            !int.TryParse(blankToken, out var index))
+        {
+            return false;
+        }
+        return _round.Submissions.TryGetValue(index, out var submission) &&
+               !string.IsNullOrEmpty(submission.Word);
+    }
+
+    /// <summary>
+    /// reveal-delight/03: resolve the funniest-word vote - pick the winning blank
+    /// token and set the pending crown to its contributor. The winner is the blank
+    /// with the most votes; ties are broken by "first blank to REACH that max count",
+    /// walking the cast order (the exact deterministic rule web/src/engine/vote.ts
+    /// pins). Zero votes -> no winner, no crown (a friendly non-event). Must be called
+    /// under <see cref="_gate"/> with a non-null round in the reveal phase.
+    /// </summary>
+    private void ResolveGoldenGuardian()
+    {
+        if (_round is null)
+        {
+            return;
+        }
+
+        _round.GoldenGuardianResolved = true;
+
+        // Tally per token.
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var token in _round.GoldenGuardianVotes.Values)
+        {
+            counts[token] = counts.TryGetValue(token, out var c) ? c + 1 : 1;
+        }
+        if (counts.Count == 0)
+        {
+            // No votes cast - resolved with no winner, so no crown is awarded.
+            _round.GoldenGuardianWinningBlankId = null;
+            return;
+        }
+
+        var maxCount = counts.Values.Max();
+
+        // Tie-break: replay the cast order and take the first token to reach maxCount.
+        var running = new Dictionary<string, int>(StringComparer.Ordinal);
+        string? winningToken = null;
+        foreach (var connectionId in _round.GoldenGuardianCastOrder)
+        {
+            if (!_round.GoldenGuardianVotes.TryGetValue(connectionId, out var token))
+            {
+                continue;
+            }
+            running[token] = running.TryGetValue(token, out var c) ? c + 1 : 1;
+            if (running[token] == maxCount)
+            {
+                winningToken = token;
+                break;
+            }
+        }
+
+        _round.GoldenGuardianWinningBlankId = winningToken;
+
+        // Award the pending crown to the winning word's contributor for the NEXT
+        // round (AC-04). The token is the blank's body-order index into the ordered
+        // submissions, so map it straight to that submission's nickname.
+        if (winningToken is not null &&
+            int.TryParse(winningToken, out var winnerIndex) &&
+            _round.Submissions.TryGetValue(winnerIndex, out var winnerSubmission) &&
+            !string.IsNullOrEmpty(winnerSubmission.Nickname))
+        {
+            _pendingCrownNickname = winnerSubmission.Nickname;
+        }
+    }
+
+    /// <summary>
+    /// Build a <see cref="GoldenGuardianVoteResult"/> from the live round: the
+    /// "N of M" figures (N = present players who have voted, M = present players) and
+    /// the current resolution. Must be called under <see cref="_gate"/>.
+    /// </summary>
+    private GoldenGuardianVoteResult BuildVoteResult(bool accepted, bool resolved)
+    {
+        if (_round is null)
+        {
+            return new GoldenGuardianVoteResult(accepted, 0, 0, resolved, null, null);
+        }
+
+        var totalVoters = _players.Count;
+        var votedCount = _players.Count(p => _round.GoldenGuardianVotes.ContainsKey(p.ConnectionId));
+        string? winnerNickname = null;
+        if (_round.GoldenGuardianResolved &&
+            _round.GoldenGuardianWinningBlankId is not null &&
+            int.TryParse(_round.GoldenGuardianWinningBlankId, out var winnerIndex) &&
+            _round.Submissions.TryGetValue(winnerIndex, out var winnerSubmission))
+        {
+            winnerNickname = winnerSubmission.Nickname;
+        }
+
+        return new GoldenGuardianVoteResult(
+            accepted,
+            votedCount,
+            totalVoters,
+            _round.GoldenGuardianResolved,
+            _round.GoldenGuardianResolved ? _round.GoldenGuardianWinningBlankId : null,
+            winnerNickname);
     }
 
     /// <summary>

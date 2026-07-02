@@ -136,7 +136,8 @@ public sealed record StartRoundResultDto(bool Ok, string? Error);
 /// <param name="TemplateId">The selected template's id; the client resolves full content from seedLibrary.</param>
 /// <param name="Mode">The play mode ("classic-blind" for Slice 1).</param>
 /// <param name="RoundNumber">1-based round number; group-play/04 increments it on replay (2, 3, ...), and it drives the Round Complete "ROUND N CARVED" badge.</param>
-public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNumber);
+/// <param name="CrownedNickname">reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown for THIS round (the previous round's funniest-word winner), or null when no crown applies. Server-tracked round state; the crown clears on the next round unless re-awarded.</param>
+public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNumber, string? CrownedNickname);
 
 /// <summary>
 /// Sent to ONE player as "YourBlanks" right after the round starts
@@ -249,6 +250,31 @@ public sealed record RoundAbortedDto(string Reason);
 /// <param name="Wow">The Wow tally.</param>
 /// <param name="Star">The Star tally.</param>
 public sealed record ReactionCountsDto(int Laugh, int Heart, int Wow, int Star);
+
+/// <summary>
+/// Broadcast to the whole room group as "GoldenGuardianVoteCast" whenever a player
+/// casts (or moves) a funniest-word vote (reveal-delight/03, AC-02): just the live
+/// "N of M voted" figures the Reveal shows as a low-key status. Deliberately carries
+/// NO per-word tallies (those stay hidden mid-vote, AC-02) and no identity (AC-07,
+/// no PII) - only the two counts.
+/// </summary>
+/// <param name="VotedCount">How many present players have voted (the "N").</param>
+/// <param name="TotalVoters">How many players are present and can vote (the "M").</param>
+public sealed record GoldenGuardianVoteCastDto(int VotedCount, int TotalVoters);
+
+/// <summary>
+/// Broadcast to the whole room group as "GoldenGuardianResolved" the moment the
+/// funniest-word vote resolves (every present player voted, or the host closed it
+/// early - reveal-delight/03, AC-03). Carries the winning blank token (the coral
+/// word the Reveal rings in gold) and the winning contributor's nickname (the crown's
+/// next-round wearer, AC-04). Both are null when the vote resolved with zero votes (a
+/// friendly non-event - no winner, no crown, never a loser callout). The blank token
+/// is an already-vetted, already-displayed word's position - no new text, no PII
+/// (AC-07).
+/// </summary>
+/// <param name="WinningBlankId">The winning blank token, or null when there was no winner.</param>
+/// <param name="PlayerSessionId">The winning contributor's nickname (the anonymous in-session id the web attributes words by), or null when there was no winner.</param>
+public sealed record GoldenGuardianResolvedDto(string? WinningBlankId, string? PlayerSessionId);
 
 public sealed class GameHub : Hub
 {
@@ -675,7 +701,7 @@ public sealed class GameHub : Hub
         //    server ships only the id + mode + round number.
         await Clients.Group(room.Code).SendAsync(
             "RoundStarted",
-            new RoundStartedDto(round.TemplateId, round.Mode, round.RoundNumber));
+            new RoundStartedDto(round.TemplateId, round.Mode, round.RoundNumber, round.CrownedNickname));
 
         // 7. Deal each player ONLY its own blanks (group-play/02, AC-02). This is a
         //    per-connection send (NOT a group broadcast): a player never learns
@@ -861,6 +887,103 @@ public sealed class GameHub : Hub
         await Clients.Group(room.Code).SendAsync(
             "ReactionCountsChanged",
             new ReactionCountsDto(tally["laugh"], tally["heart"], tally["wow"], tally["star"]));
+    }
+
+    /// <summary>
+    /// reveal-delight/03: a player casts (or MOVES) their Golden Guardian vote for the
+    /// funniest coral word on the reveal (AC-01/AC-02).
+    ///
+    /// Rides the SAME one connection the roster/reveal/reactions use. The payload is
+    /// an already-vetted, already-displayed word's blank TOKEN (its body-order
+    /// position) - no free text, no identity (AC-07, no PII). Vote state is ephemeral
+    /// per-round in-memory on the <see cref="Room"/> (discarded when the round moves
+    /// on). Like <see cref="React"/> this is fire-and-forget from the client (no result
+    /// envelope): an unknown/expired code, a vote outside the reveal, an already-
+    /// resolved vote, or a token that is not one of the room's filled coral words is a
+    /// silent no-op (a stray vote needs no retry).
+    ///
+    /// On a recorded cast it broadcasts "GoldenGuardianVoteCast" (the live "N of M
+    /// voted" figures) to the whole room group. When that cast RESOLVES the vote (every
+    /// present player has voted) it ALSO broadcasts "GoldenGuardianResolved" with the
+    /// winning blank token + the winning contributor's nickname, so every player sees
+    /// the same gold winner (AC-03) and the crown is set for the next round (AC-04).
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="blankId">The chosen coral word's blank token (body-order position); anything outside the filled-word set is ignored.</param>
+    public async Task CastGoldenGuardianVote(string code, string blankId)
+    {
+        // An unknown / expired room has nothing to vote on - silently ignore.
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return;
+        }
+
+        var result = room.CastGoldenGuardianVote(Context.ConnectionId, blankId);
+        if (!result.Accepted)
+        {
+            // Not in the reveal, already resolved, not a seated player, or an unknown
+            // token - nothing recorded, nothing to broadcast (a stray vote is harmless).
+            return;
+        }
+
+        // Broadcast the live "N of M voted" status to the whole room group (AC-02).
+        await Clients.Group(room.Code).SendAsync(
+            "GoldenGuardianVoteCast",
+            new GoldenGuardianVoteCastDto(result.VotedCount, result.TotalVoters));
+
+        // If this cast completed the vote, announce the single winner to everyone
+        // (AC-03) - the winning word + its contributor (the crown's next-round wearer).
+        if (result.Resolved)
+        {
+            await Clients.Group(room.Code).SendAsync(
+                "GoldenGuardianResolved",
+                new GoldenGuardianResolvedDto(result.WinningBlankId, result.WinnerNickname));
+        }
+    }
+
+    /// <summary>
+    /// reveal-delight/03: the HOST closes Golden Guardian voting early via the
+    /// low-pressure "Reveal the winner" affordance (AC-03), mirroring the "no rush,
+    /// but the host can move things along" posture group play already establishes.
+    ///
+    /// HOST-ONLY and SERVER-ENFORCED: the UI only shows the affordance to the host,
+    /// but this method is the authoritative check - a non-host caller is a silent
+    /// no-op. Resolves the vote with whatever votes are in (zero votes -> no winner,
+    /// no crown) and broadcasts the final "GoldenGuardianVoteCast" + "Golden
+    /// GuardianResolved" to the whole room group so every player lands on the same
+    /// result. Fire-and-forget from the client (no result envelope); an unknown/expired
+    /// code or a non-reveal round is a silent no-op.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    public async Task CloseGoldenGuardianVoting(string code)
+    {
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return;
+        }
+
+        // Server-enforced host check (AC-03): only the host may close voting early.
+        if (!room.IsHost(Context.ConnectionId))
+        {
+            return;
+        }
+
+        var result = room.CloseGoldenGuardian();
+        if (!result.Accepted)
+        {
+            // Not in the reveal (nothing to close) - silent no-op.
+            return;
+        }
+
+        // Push the final "N of M" figures, then the resolved winner, to everyone.
+        await Clients.Group(room.Code).SendAsync(
+            "GoldenGuardianVoteCast",
+            new GoldenGuardianVoteCastDto(result.VotedCount, result.TotalVoters));
+        await Clients.Group(room.Code).SendAsync(
+            "GoldenGuardianResolved",
+            new GoldenGuardianResolvedDto(result.WinningBlankId, result.WinnerNickname));
     }
 
     /// <summary>
