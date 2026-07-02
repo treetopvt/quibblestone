@@ -558,16 +558,19 @@ export function Reveal({
           <TaleFeedback templateId={taleFeedback.templateId} mode={taleFeedback.mode} />
         )}
 
-        {/* Reaction row (reveal-delight/01, AC-01): sits in the bottom region,
-            ABOVE the pinned action bar, inside the SAME BottomActionBarSpacer
-            reservation below so it is never obscured by the pinned bar. Reveal
-            stays room-agnostic - it renders whatever node the caller passed. */}
-        {reactionRow}
-
         <BottomActionBarSpacer />
       </Stack>
 
       <BottomActionBar>
+        {/* Reaction row (reveal-delight/01, AC-01): pinned ABOVE the action
+            buttons, inside the same bottom cluster, so it is always visible and
+            tappable regardless of viewport height. It must live INSIDE the bar
+            (not just above the BottomActionBarSpacer): Reveal's bar holds two
+            CTAs plus the exit link, so it is far taller than the spacer's
+            single-CTA reservation - a row placed only above the spacer sits
+            under the taller absolute bar and its scrim swallows the tap. Reveal
+            stays room-agnostic - it renders whatever node the caller passed. */}
+        {reactionRow}
         <Button
           variant="contained"
           fullWidth
