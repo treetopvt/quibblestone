@@ -1,6 +1,6 @@
 # Story: Favorite a story and replay it (device-local)
 
-**Feature:** Story Selection & Freshness  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Story Selection & Freshness  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #108
 
 ## Context
 A kid finds a few tales they love and wants to play THOSE again, with different

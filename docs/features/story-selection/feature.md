@@ -27,7 +27,7 @@ the smallest data that keeps content fresh and curatable.
 | 03 | #93 | Freshness rotation: no repeats until the pool runs dry | Complete |
 | 04 | #94 | Story delivery metrics (the anonymous serve log) | Complete |
 | 05 | #95 | Like / dislike a tale (content feedback) | Complete |
-| 06 | TBD | Favorite a story and replay it (device-local) | Not Started |
+| 06 | #108 | Favorite a story and replay it (device-local) | In Progress |
 
 ## Dependencies
 - template-model (the seed library + tags this feature selects over; the
@@ -112,6 +112,23 @@ the smallest data that keeps content fresh and curatable.
   features touch the same seam.
 - 2026-07-01: Telemetry (04) lands before feedback (05) and owns the storage
   plumbing; 05 reuses 04's sink. Why: one Table Storage integration, not two.
+- 2026-07-02: Story 06 orchestration decisions (build session). (a) A played
+  favorite is an EXPLICIT replay, so it bypasses freshness AND is NOT logged to
+  the serve log (04) on either side - solo skips recordSoloServe + appendPlayedId,
+  group's StartRound skips MarkTemplatePlayed + the serve-log epilogue. Rationale:
+  a star is private + device-local (story 06 tech note), so replaying favorites
+  must not skew per-template serve/curation counts. (b) Family-safe stays the
+  FIRST gate for a favorite: solo runs the pinned template through selectTemplates
+  at FAMILY_SAFE_DEFAULT before starting; group validates the explicit templateId
+  against the family-safe-allowed pool server-side (a non-eligible favorite fails
+  friendly). All seed templates are family-safe today, so this is defensive. (c)
+  Group host-pick surface = the Lobby (an inline, host-only "Play a favorite"
+  picker), keeping room state rather than navigating away. (d) The explicit pick
+  travels on the EXISTING StartRound invoke as one optional trailing arg
+  (templateId) - no second hub method, mirroring how story 02 added lengthPref.
+  (e) Outline star uses the free @fortawesome/free-regular-svg-icons pack (filled
+  solid = favorited, regular outline = not); a free pack, no auth token, not on
+  the excluded-deps list.
 - 2026-07-02: Added story 06 (favorite a story) after play surfaced a kid
   wanting to revisit a few loved tales and replay them with new words. Scoped as
   device-local (localStorage, anonymous, account-free - the same posture as
