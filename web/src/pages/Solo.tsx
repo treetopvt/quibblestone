@@ -58,6 +58,26 @@
 //  if the length preference would leave nothing, AC-06) -> pickRandomTemplate.
 //  The length choice is sticky across the solo session's replay, exactly like
 //  the family-safe toggle already is (see handlePlayAgain below).
+//
+//  story-selection/03 adds the FRESHNESS stage as the LAST filter before the
+//  random pick (AC-05): ... -> selectByLengthOrFallback -> selectFreshOrRecycle
+//  (../content/fresh.ts, filtering out templates this DEVICE has already
+//  played, per ../content/playedHistory.ts's localStorage-backed history) ->
+//  pickRandomTemplate. Both handleStart and handlePlayAgain are fresh RANDOM
+//  picks, so both route through pickTemplate below and both APPEND the chosen
+//  id to device history in beginRound, AFTER the pick (AC-01). Freshness never
+//  re-widens the pool - it only narrows the already safety+length-filtered
+//  set, and recycles (reopens) it once every template has been played rather
+//  than erroring (AC-03). The device history stores template IDS ONLY, no
+//  words, no PII (AC-06); it SURVIVES a page refresh because it lives in
+//  localStorage, not component state.
+//
+//  AC-04 bypass seam (no pinned-replay UI exists yet): a FUTURE pinned-
+//  template "replay this exact tale" affordance would call beginRound directly
+//  with a specific template, SKIPPING both pickTemplate's freshness filter and
+//  beginRound's appendPlayedId call - see the comment on beginRound below for
+//  exactly where that branch would go. Today, every call site (handleStart,
+//  handlePlayAgain) is a random pick, so both filter and both record history.
 // ----------------------------------------------------------------------------
 
 import { useRef, useState } from 'react';
@@ -70,7 +90,9 @@ import {
   StoryLengthChoice,
 } from '../components';
 import { FAMILY_SAFE_DEFAULT, selectTemplates } from '../content/familySafe';
+import { selectFreshOrRecycle } from '../content/fresh';
 import { selectByLengthOrFallback, type LengthPreference } from '../content/length';
+import { appendPlayedId, loadPlayedIds } from '../content/playedHistory';
 import { seedLibrary } from '../content/seedLibrary';
 import {
   assembleStory,
@@ -219,16 +241,35 @@ export function Solo({ onExit }: SoloProps) {
     // retries, and never blocks the transition to 'fill' (AC-03), and carries no
     // PII - just the template + the current family-safe toggle (AC-04).
     recordSoloServe({ template: chosen, familySafe });
+    // story-selection/03 (freshness rotation, AC-01): record this template as
+    // played on THIS device, AFTER the pick, so the NEXT pickTemplate() call
+    // excludes it until the eligible pool runs dry. Both call sites that reach
+    // beginRound today (handleStart, handlePlayAgain) are fresh RANDOM picks
+    // that already ran through selectFreshOrRecycle, so both must append here.
+    //
+    // AC-04 bypass seam: a FUTURE pinned-template replay ("play this exact
+    // tale again") would call beginRound with a specific template WITHOUT this
+    // appendPlayedId call (and without the caller having filtered through
+    // selectFreshOrRecycle) - replaying a favorite must not make the random
+    // pick "forget" the other templates this device has not seen yet. No such
+    // path exists today; this comment marks where it would branch in.
+    appendPlayedId(chosen.id);
   };
 
-  // story-selection/02: compose the content-selection stages in FIXED order,
-  // safety FIRST (AC-05) - the family-safe gate runs before the length stage,
-  // so relaxing length can never widen the safety set. selectByLengthOrFallback
-  // degrades to the family-safe pool if the length preference would leave
-  // nothing (AC-06), so this never returns an empty pool the family-safe gate
-  // did not already allow.
+  // story-selection/02 + /03: compose the content-selection stages in FIXED
+  // order, safety FIRST, freshness LAST (AC-05) - family-safe gate -> length
+  // stage (degrades to the family-safe pool if the length preference would
+  // leave nothing, AC-06) -> freshness stage (excludes templates already
+  // played on this device; recycles the whole pool once it runs dry rather
+  // than erroring, AC-03) -> pickRandomTemplate. Freshness only ever narrows
+  // within the already safety+length-filtered pool - it never widens it.
   const pickTemplate = () =>
-    pickRandomTemplate(selectByLengthOrFallback(selectTemplates(seedLibrary, familySafe), lengthPref));
+    pickRandomTemplate(
+      selectFreshOrRecycle(
+        selectByLengthOrFallback(selectTemplates(seedLibrary, familySafe), lengthPref),
+        loadPlayedIds(),
+      ),
+    );
 
   const handleStart = () => {
     const chosen = pickTemplate();

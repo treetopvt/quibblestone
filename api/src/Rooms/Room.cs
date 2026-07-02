@@ -200,6 +200,26 @@ public sealed class Room
     // _gate: mutated only under the lock (see StartRound), snapshotted for reads.
     private RoundState? _round;
 
+    // story-selection/03 (freshness rotation, AC-02): the ordered, in-memory,
+    // room-lifetime history of template ids this room has already played,
+    // oldest-first / most-recently-played last - the shape
+    // FreshnessContentSelector.SelectFreshOrRecycle's recycle step wants. Lives
+    // ONLY on this Room (ephemeral, dies with the room, README section 4/10 -
+    // this is a toy, not a system of record) and is NEVER persisted, mirroring
+    // the solo device's localStorage-backed history
+    // (web/src/content/playedHistory.ts) one level down: same "ids only, no
+    // words, no PII" contract (AC-06), just server-side and per-room instead of
+    // device-local. Guarded by _gate; mutated only via MarkTemplatePlayed.
+    private readonly List<string> _playedTemplateIds = [];
+
+    // A generous ceiling on how many template ids the per-room history can
+    // hold - well above any realistic catalog size (today's catalog is under
+    // 20 entries, and MarkTemplatePlayed dedupes so this list can never exceed
+    // the number of DISTINCT templates ever played). A defensive backstop
+    // against unbounded growth, not a limit a normal session should ever reach
+    // (mirrors the web module's MAX_HISTORY_SIZE rationale).
+    private const int MaxPlayedTemplateHistory = 200;
+
     private Room(string code)
     {
         Code = code;
@@ -490,6 +510,58 @@ public sealed class Room
         {
             _round = null;
             LastActiveUtc = DateTimeOffset.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// A point-in-time snapshot of this room's played-template history
+    /// (story-selection/03, AC-02): the ids already played in this room,
+    /// oldest-first / most-recently-played last - the input
+    /// <see cref="Safety.FreshnessContentSelector.SelectFreshOrRecycle"/> reads
+    /// to filter/recycle the next round's pool. Ephemeral (in-memory, room-
+    /// lifetime only) and ID-ONLY (AC-06 - no words, no PII). Returns a
+    /// detached copy so a caller reading it outside the lock never observes a
+    /// later <see cref="MarkTemplatePlayed"/> mutation.
+    /// </summary>
+    public IReadOnlyList<string> PlayedTemplateIds
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _playedTemplateIds.ToArray();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Records <paramref name="templateId"/> as just-played in this room
+    /// (story-selection/03, AC-02), for the NEXT StartRound's freshness filter
+    /// to exclude it. Dedupes: if the id is already present it is moved to the
+    /// end (it is the most recently played again, e.g. after a recycle),
+    /// otherwise it is appended. Trims from the FRONT (oldest dropped first) if
+    /// the history would exceed <see cref="MaxPlayedTemplateHistory"/> - a
+    /// defensive backstop, not a limit normal play should reach (see the field
+    /// comment). Mutated only under the room lock.
+    ///
+    /// AC-04 bypass seam: this is called from GameHub.StartRound's RANDOM-pick
+    /// path only. A FUTURE pinned-template replay (replay-remix/01, "carve it
+    /// again") must SKIP this call entirely for that round - replaying a
+    /// favorite must not make the random pick "forget" the other templates this
+    /// room has not seen yet. No such path exists today; see the comment at the
+    /// GameHub.StartRound call site marking exactly where that branch would go.
+    /// </summary>
+    /// <param name="templateId">The id of the template a random pick just served.</param>
+    public void MarkTemplatePlayed(string templateId)
+    {
+        lock (_gate)
+        {
+            _playedTemplateIds.Remove(templateId);
+            _playedTemplateIds.Add(templateId);
+            if (_playedTemplateIds.Count > MaxPlayedTemplateHistory)
+            {
+                _playedTemplateIds.RemoveAt(0);
+            }
         }
     }
 

@@ -45,7 +45,7 @@ public class GameHubStartRoundTests
     {
         var registry = new RoomRegistry();
         var sink = telemetry ?? new FakeTelemetrySink();
-        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), sink, NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), sink, NullLogger<GameHub>.Instance);
 
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
@@ -117,6 +117,81 @@ public class GameHubStartRoundTests
 
         Assert.True(result.Ok, result.Error);
         Assert.NotNull(room.CurrentRound);
+    }
+
+    [Fact]
+    public async Task StartRound_repeated_calls_never_repeat_a_template_until_the_eligible_pool_is_exhausted()
+    {
+        // story-selection/03, AC-02: repeated StartRound on ONE room, filtered to
+        // the small "quick" length class, must serve every eligible template
+        // exactly once before any of them repeats.
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var quickIds = Catalog.Entries
+            .Where(e => e.BlankCount <= LengthContentSelector.QuickMaxBlanks)
+            .Select(e => e.Id)
+            .ToHashSet();
+        Assert.True(quickIds.Count > 1); // sanity: need more than one to prove no-repeat
+
+        var servedInFirstPass = new HashSet<string>();
+        for (var i = 0; i < quickIds.Count; i++)
+        {
+            var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "quick");
+
+            Assert.True(result.Ok, result.Error);
+            var served = room.CurrentRound!.TemplateId;
+            Assert.Contains(served, quickIds);
+            Assert.True(servedInFirstPass.Add(served), $"template '{served}' repeated before the eligible pool ran dry");
+        }
+
+        // Every eligible template was served exactly once across the full pass.
+        Assert.Equal(quickIds, servedInFirstPass);
+    }
+
+    [Fact]
+    public async Task StartRound_recycles_after_the_eligible_pool_is_exhausted_without_error()
+    {
+        // story-selection/03, AC-03: once the eligible pool has been fully
+        // played, further rounds must keep succeeding (recycle) rather than
+        // erroring or getting stuck.
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var quickIds = Catalog.Entries
+            .Where(e => e.BlankCount <= LengthContentSelector.QuickMaxBlanks)
+            .Select(e => e.Id)
+            .ToHashSet();
+
+        // Run well past one full pass (exhaust, then recycle several times).
+        for (var i = 0; i < quickIds.Count * 3; i++)
+        {
+            var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "quick");
+
+            Assert.True(result.Ok, result.Error);
+            Assert.Contains(room.CurrentRound!.TemplateId, quickIds);
+        }
+
+        // The room's played history never grows past the number of DISTINCT
+        // eligible templates (MarkTemplatePlayed dedupes).
+        Assert.True(room.PlayedTemplateIds.Count <= quickIds.Count);
+    }
+
+    [Fact]
+    public async Task StartRound_records_the_served_template_in_the_rooms_played_history()
+    {
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        Assert.Empty(room.PlayedTemplateIds);
+
+        var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "quick");
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Contains(room.CurrentRound!.TemplateId, room.PlayedTemplateIds);
     }
 
     [Fact]

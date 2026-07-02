@@ -275,6 +275,7 @@ public sealed class GameHub : Hub
     private readonly TemplateCatalog _catalog;
     private readonly FamilySafeContentSelector _familySafe;
     private readonly LengthContentSelector _length;
+    private readonly FreshnessContentSelector _freshness;
     private readonly ITelemetrySink _telemetry;
     private readonly ILogger<GameHub> _logger;
 
@@ -284,6 +285,7 @@ public sealed class GameHub : Hub
         TemplateCatalog catalog,
         FamilySafeContentSelector familySafe,
         LengthContentSelector length,
+        FreshnessContentSelector freshness,
         ITelemetrySink telemetry,
         ILogger<GameHub> logger)
     {
@@ -292,6 +294,10 @@ public sealed class GameHub : Hub
         _catalog = catalog;
         _familySafe = familySafe;
         _length = length;
+        // story-selection/03: the freshness/recycle stage, LAST before the
+        // random pick (see StartRound). Reads/writes the room's own
+        // PlayedTemplateIds history - this selector itself stays pure/stateless.
+        _freshness = freshness;
         // story-selection/04: the anonymous serve-log sink. Fired fire-and-forget
         // at the END of a group round start (never awaited on the round-start path,
         // AC-03). NoOp locally, Table Storage in a configured environment (AC-05).
@@ -518,11 +524,14 @@ public sealed class GameHub : Hub
     ///   4. Select a template: filter the server catalog through the family-safe
     ///      selector using the host's toggle value (AC-04), then (story-selection/02,
     ///      AC-03) narrow by the host's story-length choice through
-    ///      <see cref="LengthContentSelector"/>, then auto-pick one at random from
-    ///      the allowed subset (no picker UI in Slice 1). If somehow nothing is
-    ///      allowed after the family-safe gate, friendly fail rather than throw; an
-    ///      empty LENGTH pool instead degrades to the family-safe pool (AC-06 - see
-    ///      Stage 2 below).
+    ///      <see cref="LengthContentSelector"/>, then (story-selection/03, AC-02)
+    ///      narrow by this ROOM's played-template history through
+    ///      <see cref="FreshnessContentSelector"/> (recycling the whole pool once it
+    ///      runs dry, AC-03), then auto-pick one at random from the final subset (no
+    ///      picker UI in Slice 1). If somehow nothing is allowed after the
+    ///      family-safe gate, friendly fail rather than throw; an empty LENGTH pool
+    ///      instead degrades to the family-safe pool (AC-06 - see Stage 2 below), and
+    ///      an exhausted FRESHNESS pool recycles rather than failing (Stage 3 below).
     ///
     /// On success it sets the room's round state (round 1, the chosen template,
     /// Classic blind, "prompting") and broadcasts "RoundStarted" to the whole room
@@ -600,8 +609,24 @@ public sealed class GameHub : Hub
         //    not in callers.
         var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
 
-        //    Stage 3 - RANDOM PICK from the final pool (no picker UI in Slice 1).
-        var chosen = pool[Random.Shared.Next(pool.Count)];
+        //    Stage 3 - FRESHNESS FILTER + recycle (story-selection/03, AC-02/AC-03):
+        //    narrow the safety+length-filtered pool to templates this ROOM has not
+        //    yet played (Room.PlayedTemplateIds - ephemeral, in-memory, dies with the
+        //    room, AC-06 - ids only, no PII). If every template in the pool has
+        //    already been played, SelectFreshOrRecycle reopens the WHOLE pool
+        //    (least-recently-played first) rather than failing the round - a repeat
+        //    is a fine outcome once the pool runs dry, an errored round is not.
+        //
+        //    AC-04 bypass seam: this is the RANDOM-pick path. A FUTURE pinned-
+        //    template replay (replay-remix/01, "carve it again") would SKIP both this
+        //    freshness stage AND the room.MarkTemplatePlayed call below (Step 5a) for
+        //    that one round - replaying a favorite must not make the random pick
+        //    "forget" the other templates this room has not seen yet. No such path
+        //    exists today; every current call site here is a fresh random pick.
+        var freshPool = _freshness.SelectFreshOrRecycle(pool, room.PlayedTemplateIds);
+
+        //    Stage 4 - RANDOM PICK from the final pool (no picker UI in Slice 1).
+        var chosen = freshPool[Random.Shared.Next(freshPool.Count)];
 
         // 5. Set the room's round state (round 1, Classic blind, "prompting") AND
         //    compute the round-robin blank assignment (group-play/02). The deal
@@ -610,6 +635,13 @@ public sealed class GameHub : Hub
         //    it deals to (a join/leave racing this lands fully before or after the
         //    deal, never mid-deal). The C# deal MIRRORS web/src/engine/distribute.ts.
         var round = room.StartRound(chosen.Id, ClassicBlindMode, chosen.BlankCount);
+
+        // 5a. story-selection/03 (AC-02): record the chosen id in THIS room's
+        //     played-template history, AFTER the round has opened, so the NEXT
+        //     StartRound's freshness stage (Stage 3 above) excludes it. This is
+        //     the RANDOM-pick path's bookkeeping - see the AC-04 bypass seam noted
+        //     at Stage 3: a future pinned-template replay would skip this call.
+        room.MarkTemplatePlayed(chosen.Id);
 
         // 6. Broadcast to the WHOLE room group (host included) so all players
         //    transition into word collection together (AC-01, AC-02). Full

@@ -71,6 +71,17 @@ builder.Services.AddSingleton<FamilySafeContentSelector>();
 // (kept in sync BY HAND) and NEVER runs before or around the family-safe gate.
 builder.Services.AddSingleton<LengthContentSelector>();
 
+// story-selection/03: the server-side freshness-ROTATION content stage - the
+// THIRD and LAST stage of the ONE selection pipeline, running immediately after
+// the length stage and immediately before the random pick. It excludes
+// templates already played in the CURRENT room (Room.PlayedTemplateIds) and
+// recycles (reopens) the whole pool once every template has been played rather
+// than failing a round (AC-03). Pure + stateless, so it is a singleton like the
+// other two selectors. It is the server mirror of web/src/content/fresh.ts
+// (kept in sync BY HAND) and NEVER runs before or around the family-safe /
+// length gates.
+builder.Services.AddSingleton<FreshnessContentSelector>();
+
 // story-selection/04 (anonymous serve log): the ONE telemetry sink, chosen at
 // STARTUP by whether a storage connection string is configured. With a connection
 // string (supplied per-environment from Key Vault / an app setting, NEVER a
