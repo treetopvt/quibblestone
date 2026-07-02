@@ -34,6 +34,7 @@
 
 using Microsoft.AspNetCore.Mvc;
 using QuibbleStone.Api.Content;
+using QuibbleStone.Api.Safety;
 using QuibbleStone.Api.Telemetry;
 
 namespace QuibbleStone.Api.Controllers;
@@ -43,15 +44,13 @@ namespace QuibbleStone.Api.Controllers;
 /// ONLY anonymous facts - never a nickname, join code, or any PII (AC-04). An
 /// unknown <see cref="TemplateId"/> is dropped silently server-side.
 /// </summary>
-/// <param name="TemplateId">The served template's id; validated against the catalog and dropped silently if unknown.</param>
+/// <param name="TemplateId">The served template's id; validated against the catalog and dropped silently if unknown. The length class is DERIVED server-side from this id's authoritative blank count - the client no longer supplies it.</param>
 /// <param name="Mode">The play mode; solo always sends "solo" (defaulted server-side when absent).</param>
-/// <param name="LengthClass">The derived length class ("quick" or "full") the client computed off the template's blank count.</param>
 /// <param name="FamilySafe">The family-safe toggle position the solo round was played under.</param>
 /// <param name="SessionId">An opaque, per-device session GUID (localStorage-minted). NOT an account and NOT tied to a person (AC-04).</param>
 public sealed record ServeLogRequest(
     string? TemplateId,
     string? Mode,
-    string? LengthClass,
     bool FamilySafe,
     string? SessionId);
 
@@ -116,22 +115,34 @@ public sealed class TelemetryController : ControllerBase
         // Validate the template id against the catalog and DROP junk silently
         // (AC-02): an unknown, empty, or invented id records NOTHING but still
         // returns 202 so the endpoint never leaks which ids are real. A null body
-        // (a JSON `null` or binder edge case) is likewise dropped silently.
+        // (a JSON `null` or binder edge case) is likewise dropped silently. We
+        // resolve the actual catalog ENTRY (not just presence) so the length class
+        // can be derived server-side below.
         var templateId = request?.TemplateId;
-        var known = !string.IsNullOrWhiteSpace(templateId)
-            && _catalog.Entries.Any(e => string.Equals(e.Id, templateId, StringComparison.Ordinal));
-        if (!known || templateId is null)
+        var entry = string.IsNullOrWhiteSpace(templateId)
+            ? null
+            : _catalog.Entries.FirstOrDefault(e => string.Equals(e.Id, templateId, StringComparison.Ordinal));
+        if (entry is null || templateId is null)
         {
             return Accepted();
         }
+
+        // Derive the length class from the AUTHORITATIVE catalog blank count - the
+        // same rule the group serve path (GameHub.StartRound) uses - rather than
+        // trusting a client-supplied value. A crafted client cannot poison length
+        // metrics, and the web/server classification cannot silently drift (the
+        // server is the single source of truth, exactly like the family-safe gate).
+        var lengthClass = entry.BlankCount <= LengthContentSelector.QuickMaxBlanks
+            ? QuickLengthClass
+            : FullLengthClass;
 
         var serveEvent = new ServeEvent(
             TemplateId: templateId,
             TimestampUtc: DateTimeOffset.UtcNow,
             Mode: SoloMode,
-            LengthClass: NormalizeLengthClass(request!.LengthClass),
+            LengthClass: lengthClass,
             PlayerCount: 1, // a solo round is always one player (a COUNT, never identity).
-            FamilySafe: request.FamilySafe,
+            FamilySafe: request!.FamilySafe,
             InstanceId: request.SessionId ?? string.Empty);
 
         // Fire-and-forget (AC-03): start the write but do NOT await it onto the
@@ -207,14 +218,4 @@ public sealed class TelemetryController : ControllerBase
 
         return Accepted();
     }
-
-    /// <summary>
-    /// Normalizes a client-supplied length class to "quick" or "full" (defaulting
-    /// to "full", the solo UI's own default), so a malformed client can never
-    /// inject an arbitrary label into the serve log.
-    /// </summary>
-    private static string NormalizeLengthClass(string? lengthClass) =>
-        string.Equals(lengthClass, QuickLengthClass, StringComparison.OrdinalIgnoreCase)
-            ? QuickLengthClass
-            : FullLengthClass;
 }

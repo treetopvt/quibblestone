@@ -67,11 +67,21 @@ public sealed class TableStorageTelemetrySink : ITelemetrySink
     private readonly TableClient _feedbackTable;
     private readonly ILogger<TableStorageTelemetrySink> _logger;
 
+    // Ensure-once guards (story-selection review hardening): CreateIfNotExists is
+    // a network round-trip (and a billable transaction) we only need on the FIRST
+    // write to each table, not on every serve/feedback event. Once a create has
+    // succeeded the flag short-circuits it, so the hot path is just the Add/Upsert.
+    // A benign race (two concurrent first-writes both call CreateIfNotExists) is
+    // harmless - the call is idempotent - and a failed create leaves the flag
+    // false so the next write retries rather than being wedged forever.
+    private volatile bool _tableEnsured;
+    private volatile bool _feedbackTableEnsured;
+
     /// <summary>
     /// Constructs the sink over a storage connection string (from configuration /
     /// Key Vault, NEVER a committed literal - see Program.cs). The connection is
-    /// resolved once at startup; the actual tables are created lazily on each
-    /// one's first successful write.
+    /// resolved once at startup; each table is created lazily on its first write
+    /// and then ensured only once (see the ensure-once guards below).
     /// </summary>
     /// <param name="connectionString">The Azure Storage connection string (supplied per-environment).</param>
     /// <param name="logger">Logs swallowed write failures server-side (AC-03/AC-05).</param>
@@ -87,8 +97,13 @@ public sealed class TableStorageTelemetrySink : ITelemetrySink
     {
         try
         {
-            // Create-if-not-exists is fine for a toy footprint (no migration story).
-            await _table.CreateIfNotExistsAsync(cancellationToken);
+            // Ensure the table exists ONCE (lazy); after the first success the
+            // guard skips the extra round-trip on every subsequent write.
+            if (!_tableEnsured)
+            {
+                await _table.CreateIfNotExistsAsync(cancellationToken);
+                _tableEnsured = true;
+            }
 
             var entity = new TableEntity(serveEvent.TemplateId, BuildRowKey(serveEvent.TimestampUtc))
             {
@@ -122,8 +137,13 @@ public sealed class TableStorageTelemetrySink : ITelemetrySink
     {
         try
         {
-            // Create-if-not-exists is fine for a toy footprint (no migration story).
-            await _feedbackTable.CreateIfNotExistsAsync(cancellationToken);
+            // Ensure the feedback table exists ONCE (lazy); after the first success
+            // the guard skips the extra round-trip on every subsequent vote write.
+            if (!_feedbackTableEnsured)
+            {
+                await _feedbackTable.CreateIfNotExistsAsync(cancellationToken);
+                _feedbackTableEnsured = true;
+            }
 
             var entity = new TableEntity(feedbackEvent.TemplateId, BuildFeedbackRowKey(feedbackEvent.VoteId))
             {

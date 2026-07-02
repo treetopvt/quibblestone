@@ -30,11 +30,10 @@ public class TelemetryControllerTests
         var fake = new FakeTelemetrySink();
         var controller = new TelemetryController(Catalog, fake);
 
-        // "space-llama" is a real catalog id (a full story).
+        // "space-llama" is a real catalog id (a full story - 10 blanks).
         var result = controller.Serve(new ServeLogRequest(
             TemplateId: "space-llama",
             Mode: "solo",
-            LengthClass: "full",
             FamilySafe: true,
             SessionId: "device-session-guid"));
 
@@ -43,6 +42,8 @@ public class TelemetryControllerTests
         var evt = Assert.Single(fake.Events);
         Assert.Equal("space-llama", evt.TemplateId);
         Assert.Equal("solo", evt.Mode);
+        // The length class is DERIVED server-side from the catalog blank count
+        // (space-llama has 10 -> "full"), never trusted from the client.
         Assert.Equal("full", evt.LengthClass);
         // AC-04: a solo round is one player (a COUNT), and the opaque session id is
         // carried through the instance-id slot - never a nickname or PII.
@@ -62,7 +63,6 @@ public class TelemetryControllerTests
         var result = controller.Serve(new ServeLogRequest(
             TemplateId: "totally-made-up-template",
             Mode: "solo",
-            LengthClass: "quick",
             FamilySafe: false,
             SessionId: "device-session-guid"));
 
@@ -82,7 +82,6 @@ public class TelemetryControllerTests
         var result = controller.Serve(new ServeLogRequest(
             TemplateId: templateId,
             Mode: "solo",
-            LengthClass: "quick",
             FamilySafe: false,
             SessionId: "device-session-guid"));
 
@@ -99,7 +98,6 @@ public class TelemetryControllerTests
         var result = controller.Serve(new ServeLogRequest(
             TemplateId: "space-llama",
             Mode: "solo",
-            LengthClass: "full",
             FamilySafe: true,
             SessionId: "device-session-guid"));
 
@@ -107,22 +105,23 @@ public class TelemetryControllerTests
     }
 
     [Fact]
-    public void Serve_normalizes_a_malformed_length_class_to_full()
+    public void Serve_derives_the_length_class_from_the_catalog_not_the_client()
     {
-        // A crafted client sending a junk length class cannot inject an arbitrary
-        // label - it normalizes to "full" (the solo UI's own default).
+        // The client no longer sends a length class - the server DERIVES it from
+        // the template's authoritative blank count. "sneezy-dinosaur" is a quick
+        // seed template (5 blanks), so the recorded class is "quick" with no client
+        // input at all: a crafted client cannot poison length metrics.
         var fake = new FakeTelemetrySink();
         var controller = new TelemetryController(Catalog, fake);
 
         var result = controller.Serve(new ServeLogRequest(
-            TemplateId: "space-llama",
+            TemplateId: "sneezy-dinosaur",
             Mode: "solo",
-            LengthClass: "not-a-length",
             FamilySafe: true,
             SessionId: "device-session-guid"));
 
         Assert.IsType<AcceptedResult>(result);
         var evt = Assert.Single(fake.Events);
-        Assert.Equal("full", evt.LengthClass);
+        Assert.Equal("quick", evt.LengthClass);
     }
 }

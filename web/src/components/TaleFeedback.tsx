@@ -57,6 +57,7 @@ import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Box, Stack, Typography } from '@mui/material';
 import { recordFeedback, type FeedbackVote } from '../telemetry/feedbackLog';
+import { safeUuid } from '../telemetry/serveLog';
 
 export interface TaleFeedbackProps {
   /** The story template this vote is about (the curation subject, not the round instance). */
@@ -90,8 +91,10 @@ export function applyVoteTap(_current: FeedbackVote | null, tapped: FeedbackVote
 export function TaleFeedback({ templateId, mode }: TaleFeedbackProps) {
   // One opaque VoteId per mount (i.e. per round's viewing of this screen), so a
   // changed vote upserts the SAME row server-side (AC-02) rather than creating
-  // a fresh, double-counted row per tap.
-  const [voteId] = useState(() => crypto.randomUUID());
+  // a fresh, double-counted row per tap. safeUuid (not crypto.randomUUID direct)
+  // because this runs during render and crypto.randomUUID is absent on http over
+  // a LAN IP (QuibbleStone's multiplayer case) - a raw call would crash the screen.
+  const [voteId] = useState(() => safeUuid());
   const [vote, setVote] = useState<FeedbackVote | null>(null);
 
   const handleVote = (next: FeedbackVote) => {

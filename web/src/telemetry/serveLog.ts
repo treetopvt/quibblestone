@@ -19,12 +19,15 @@
 //  cost a player their turn.
 //
 //  NO PII (AC-04, README section 6): the body carries ONLY anonymous facts -
-//  the template id, mode "solo", the derived length class, the family-safe flag,
-//  and an OPAQUE per-device session GUID. Never a nickname, never a join code
-//  (solo has none), never anything traceable to a person. The session GUID is
-//  minted once with crypto.randomUUID() and reused from localStorage thereafter
-//  (the same device-local, no-account posture identity.ts already uses) - it is
-//  NOT an account and identifies a device-local session, never a human.
+//  the template id, mode "solo", the family-safe flag, and an OPAQUE per-device
+//  session GUID. The length class is NOT sent: the server derives it
+//  authoritatively from the template's blank count (a crafted client cannot
+//  poison length metrics, and there is no client/server drift surface). Never a
+//  nickname, never a join code (solo has none), never anything traceable to a
+//  person. The session GUID is minted once with safeUuid() and reused from
+//  localStorage thereafter (the same device-local, no-account posture
+//  identity.ts already uses) - it is NOT an account and identifies a device-local
+//  session, never a human.
 //
 //  Config: the API base URL comes from import.meta.env.VITE_API_BASE_URL (typed
 //  in web/src/vite-env.d.ts) - never hardcoded, per CLAUDE.md section 4. Secrets
@@ -33,18 +36,38 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { classifyLength } from '../content/length';
 import type { Template } from '../engine/template';
 
 /** localStorage key for the opaque, device-local serve-log session id. */
 const SESSION_ID_STORAGE_KEY = 'quibblestone.telemetry.sessionId.v1';
 
 /**
+ * Mints an opaque, anonymous id that NEVER throws (story-selection review
+ * hardening). crypto.randomUUID is only defined in a SECURE context - it is
+ * absent on http over a LAN IP, which is exactly QuibbleStone's "different
+ * houses / same car" multiplayer case - and calling it there throws. Since these
+ * ids are minted during render (a feedback vote id) and on every telemetry write
+ * (the session id), a throw would crash the payoff screens. So we guard it and
+ * fall back to a non-cryptographic, still-unique-enough id. These ids are opaque
+ * telemetry keys, never secrets, so cryptographic strength is not required.
+ */
+export function safeUuid(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // fall through to the non-crypto fallback below
+  }
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
  * Returns the opaque per-device session GUID, minting one on first use and
  * reusing it thereafter (device-local only, never an account, no PII - AC-04).
- * Never throws: if storage is unavailable or crypto.randomUUID is missing, it
- * falls back to a transient id so a serve event can still be sent anonymously
- * without ever breaking the solo flow.
+ * Never throws: if storage is unavailable, it falls back to a transient
+ * safeUuid() id so a serve event can still be sent anonymously without ever
+ * breaking the solo flow.
  *
  * Exported (story-selection/05) so the per-tale feedback vote
  * (telemetry/feedbackLog.ts) reuses this SAME device-session GUID rather than
@@ -56,17 +79,14 @@ export function getOrCreateSessionId(): string {
     if (existing !== null && existing.length > 0) {
       return existing;
     }
-    const minted = crypto.randomUUID();
+    const minted = safeUuid();
     window.localStorage.setItem(SESSION_ID_STORAGE_KEY, minted);
     return minted;
   } catch {
-    // Storage disabled / quota / crypto unavailable: fall back to a transient,
-    // still-anonymous id. Telemetry is best-effort - never break gameplay for it.
-    try {
-      return crypto.randomUUID();
-    } catch {
-      return 'anonymous-session';
-    }
+    // Storage disabled / quota: fall back to a transient, still-anonymous id.
+    // safeUuid never throws, so this fallback is itself safe. Telemetry is
+    // best-effort - never break gameplay for it.
+    return safeUuid();
   }
 }
 
@@ -85,12 +105,13 @@ export interface SoloServe {
  * swallowed; there is no retry (AC-03). Carries no PII (AC-04).
  */
 export function recordSoloServe({ template, familySafe }: SoloServe): void {
-  // Derive the length class the SAME way the content pipeline does (story-01),
-  // so the log's length class matches what was actually served.
+  // The length class is DERIVED server-side from the template's authoritative
+  // blank count (the server owns the catalog) - the client no longer sends it,
+  // so a crafted client cannot poison length metrics and the two sides cannot
+  // drift. We send only the template id + mode + toggle + opaque session id.
   const body = {
     templateId: template.id,
     mode: 'solo',
-    lengthClass: classifyLength(template),
     familySafe,
     sessionId: getOrCreateSessionId(),
   };
