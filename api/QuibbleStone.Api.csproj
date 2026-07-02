@@ -31,4 +31,18 @@
     <EmbeddedResource Include="src/Safety/blocklist.txt" LogicalName="QuibbleStone.Api.Safety.blocklist.txt" />
   </ItemGroup>
 
+  <!--
+    story-selection/04 (anonymous serve log): the Azure Table Storage SDK. This is
+    the ONLY external NuGet the API takes on for telemetry - it writes ONE tiny,
+    PII-free "template served" entity per round start into the provisioned Storage
+    account's Table service (Storage is the in-charter sink, README section 9). It
+    is IN CHARTER (not on the excluded list) and needs NO auth token to restore.
+    With no storage connection configured (local dev), the app never touches this
+    SDK at all - it falls back to the NoOp sink (see Program.cs), so this reference
+    adds a dependency but no runtime coupling until a connection string exists.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Azure.Data.Tables" Version="12.9.1" />
+  </ItemGroup>
+
 </Project>

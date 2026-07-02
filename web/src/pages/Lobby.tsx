@@ -26,15 +26,21 @@
 //    - A transient dark bottom-center toast "[Name] pulled up a stone" when a new
 //      player appears (not on the initial roster, not for yourself) (AC-02).
 //    - ONLY when this client is the host: the host-only family-safe toggle
-//      (group-play/01), the pinned gold "Start game" CTA, and the crown note
-//      "You're the host - start whenever your crew's ready" (AC-05). Non-hosts see
-//      none of these. Tapping "Start game" calls onStart with the host's
-//      family-safe toggle value (group-play/01) - App wires that to the hub's
-//      host-only startRound, which the SERVER enforces + filters by (AC-03/AC-04).
+//      (group-play/01), the host-only story-length choice (story-selection/02,
+//      placed the SAME way - host-only, right beside the family-safe toggle),
+//      the pinned gold "Start game" CTA, and the crown note "You're the host -
+//      start whenever your crew's ready" (AC-05). Non-hosts see none of these.
+//      Tapping "Start game" calls onStart with the host's family-safe toggle
+//      value AND the host's length choice (story-selection/02 AC-02, ONE more
+//      parameter on the SAME onStart/startRound seam, not a new hub method) -
+//      App wires that to the hub's host-only startRound, which the SERVER
+//      enforces + filters by both (AC-03/AC-04, story-selection/02 AC-03).
 //
 //  Child safety (AC-06): names arrive already vetted by the join-time safety
 //  filter (session-engine/02); this screen renders them verbatim and never takes
-//  free text of its own, so no unfiltered name is ever shown.
+//  free text of its own, so no unfiltered name is ever shown. The length choice
+//  never weakens safety (story-selection/02 AC-05): the family-safe gate still
+//  runs first server-side regardless of the length pick.
 //
 //  Styling: all colors / radii / spacing come from the MUI theme (no hex/px
 //  literals here). Animations use transform (scale / box-shadow) - NEVER opacity
@@ -48,9 +54,10 @@ import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, FamilySafeToggle, Guardian } from '../components';
+import { AppBar, BottomActionBar, FamilySafeToggle, Guardian, StoryLengthChoice } from '../components';
 import { toGuardianVariant } from '../components';
 import { FAMILY_SAFE_DEFAULT } from '../content/familySafe';
+import type { LengthPreference } from '../content/length';
 import type { Player, RoomState } from '../signalr/useGameHub';
 
 // Room capacity for Slice 1: the roster tops out at six carvers (AC-01). The
@@ -74,11 +81,14 @@ export interface LobbyProps {
   onLeave: () => void;
   /**
    * Start the game (host only, group-play/01). Called with the host's current
-   * family-safe toggle position; App wires this to the hub's host-only startRound
-   * (the SERVER enforces the host check and filters templates by this flag, AC-03
-   * / AC-04). Only ever invoked from the host-only Start CTA below.
+   * family-safe toggle position AND the host's story-length choice
+   * (story-selection/02 AC-02 - one more parameter on the SAME seam, not a new
+   * hub method); App wires this to the hub's host-only startRound (the SERVER
+   * enforces the host check and filters templates by both, authoritative -
+   * AC-03/AC-04, story-selection/02 AC-03). Only ever invoked from the
+   * host-only Start CTA below.
    */
-  onStart: (familySafe: boolean) => void;
+  onStart: (familySafe: boolean, lengthPref: LengthPreference) => void;
   /**
    * Optional notice shown at the top of the lobby - e.g. "a carver left, so the
    * round was reset" when the hub aborts a round mid-collection (group-play
@@ -491,6 +501,13 @@ export function Lobby({ room, isHost, onLeave, onStart, notice, onDismissNotice 
   // never render or hold this (the toggle + CTA are inside the isHost block).
   const [familySafe, setFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
 
+  // Host-only story-length choice (story-selection/02, AC-02/AC-06): placed the
+  // SAME way as the family-safe toggle - host-only, defaulting to 'full' so a
+  // lobby that never touches this control starts a round identically to before
+  // this story existed. Its value travels out through onStart alongside
+  // familySafe, as one more parameter on the existing startRound seam.
+  const [lengthPref, setLengthPref] = useState<LengthPreference>('full');
+
   // Join toast (AC-02): a short-lived message shown when a NEW name appears in
   // the roster. We diff the previous player-name set against the current one in
   // an effect; the first render seeds the baseline WITHOUT toasting (so the
@@ -696,14 +713,16 @@ export function Lobby({ room, isHost, onLeave, onStart, notice, onDismissNotice 
         </Box>
       )}
 
-      {/* Host-only family-safe toggle + Start CTA + crown note (AC-05, AC-04).
-          Non-hosts see none of these. The toggle sits directly above the CTA so
-          the host sets the family-safe posture right where they start; its value
-          is handed to onStart -> the hub's startRound (server-authoritative). */}
+      {/* Host-only family-safe toggle + story-length choice + Start CTA + crown
+          note (AC-05, AC-04, story-selection/02 AC-02). Non-hosts see none of
+          these. Both controls sit directly above the CTA so the host sets the
+          family-safe + length posture right where they start; their values are
+          handed to onStart -> the hub's startRound (server-authoritative). */}
       {isHost && (
         <BottomActionBar>
           <FamilySafeToggle checked={familySafe} onChange={setFamilySafe} />
-          <Button variant="contained" fullWidth onClick={() => onStart(familySafe)}>
+          <StoryLengthChoice value={lengthPref} onChange={setLengthPref} />
+          <Button variant="contained" fullWidth onClick={() => onStart(familySafe, lengthPref)}>
             <FontAwesomeIcon icon="play" style={{ width: 22, height: 22 }} />
             Start game
           </Button>

@@ -29,8 +29,8 @@ telemetry service + controller + infra) and can run beside 02. 05 needs 04's sin
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
 | 01 (foundation) | #91 | `web/src/content/length.ts` + test, `web/src/content/seedLibrary.ts` (quick templates), `seedLibrary.test.ts`, `web/src/content/README.md`, `api/src/Content/TemplateCatalog.cs`, `api/src/Safety/LengthContentSelector.cs` + test, `GameHub.cs` (pipeline refactor), `Program.cs` (DI) | - | - | 1 | high |
-| 02 | #92 | `web/src/pages/Solo.tsx`, group lobby screen, `web/src/signalr/useGameHub.ts`, `api/src/Hubs/GameHub.cs` (param), `api/src/Rooms/Room.cs` (length pref) | 01 | 04 | 2 | medium |
-| 04 | #94 | `api/src/Telemetry/*` (sink + implementations), new controller, `Program.cs` (DI), `infra/main.bicep` (app setting/table), API tests | 01 | 02 | 2 | medium |
+| 02 | #92 | `web/src/pages/Solo.tsx`, group lobby screen, `web/src/signalr/useGameHub.ts`, `api/src/Hubs/GameHub.cs` (StartRound param), `web/src/components/StoryLengthChoice.tsx` (new). NOTE: length is client-sticky, so `Room.cs` is NOT touched (footprint corrected during orchestration). | 01 | - | 2 | medium |
+| 04 | #94 | `api/src/Telemetry/*` (sink + implementations), new controller, `Program.cs` (DI), `api/src/Hubs/GameHub.cs` (StartRound epilogue write - overlaps 02, so 04 is SERIALIZED after 02, not parallel), `infra/main.bicep` (app setting/table), API tests | 01, 02 | - | 2 | medium |
 | 03 | #93 | `web/src/content/fresh.ts` + history module + tests, `web/src/pages/Solo.tsx`, `api/src/Hubs/GameHub.cs`, `api/src/Rooms/Room.cs` (played ids) | 02 (file overlap, not logic) | - | 3 | medium |
 | 05 | #95 | `web/src/components/TaleFeedback.tsx`, `Reveal.tsx` / `RoundComplete.tsx` wiring, feedback endpoint + table, API tests | 04, 03 (screen/file overlap) | - | 4 | medium |
 
@@ -50,8 +50,12 @@ callers.
 ### 02 - Quick story option
 Pure configuration UI + one new param on the existing start-round wire
 contract. Mirrors the family-safe flag's journey exactly (client toggle ->
-invoke param -> server-enforced filter -> Room state). Do not add a second
-hub method.
+invoke param -> server-enforced filter). As-built the pref is CLIENT-STICKY
+(App.tsx re-sends the last length on the replay invoke, exactly like
+`lastFamilySafe`) - NOT stored on the Room record, because `Room.StartRound`
+takes only (templateId, mode, blankCount) and family-safe itself is not Room
+state. Do not add a second hub method. (Superseded the earlier "-> Room state"
+note; story 03's played-ids are the feature's real Room state.)
 
 ### 03 - Freshness rotation
 Two small pure exclusion stages (web reference spec + C# mirror) plus two tiny

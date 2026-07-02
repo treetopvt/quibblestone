@@ -1,6 +1,6 @@
 # Story: Freshness rotation: no repeats until the pool runs dry
 
-**Feature:** Story Selection & Freshness  ·  **Status:** Not Started  ·  **Issue:** #93
+**Feature:** Story Selection & Freshness  ·  **Status:** In Review  ·  **Issue:** #93
 
 ## Context
 With ~15 templates and a uniform random pick, a family playing five rounds has
@@ -14,28 +14,28 @@ what an account-less game can know: this device (solo), this room (group). See
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given solo play on one device, when I play consecutive rounds via
+- [x] AC-01: Given solo play on one device, when I play consecutive rounds via
       the random pick, then no template repeats until every template in my
       eligible pool (after safety + length filters) has been played once; the
       history survives a page refresh (device-local persistence).
-- [ ] AC-02: Given a group room, when the host starts consecutive rounds, then
+- [x] AC-02: Given a group room, when the host starts consecutive rounds, then
       no template repeats within that room's lifetime until the eligible pool
       is exhausted. The room's played history lives on the server Room record
       and dies with the room (ephemeral, like the rest of room state).
-- [ ] AC-03: Given the eligible pool is exhausted, then selection recycles
+- [x] AC-03: Given the eligible pool is exhausted, then selection recycles
       (least-recently-played first preferred; at minimum the full pool
       reopens) and play continues without error or visible hiccup.
-- [ ] AC-04: Given an explicit replay (solo "Play again" with the same
+- [x] AC-04: Given an explicit replay (solo "Play again" with the same
       template, or a pinned-template replay per replay-remix/01), then the
       freshness filter is bypassed AND the replay does not re-stamp the
       template's freshness history - replaying a favorite must not make the
       random pick "forget" other unplayed stories.
-- [ ] AC-05: Given freshness filtering, then it composes as the LAST filter
+- [x] AC-05: Given freshness filtering, then it composes as the LAST filter
       before the random pick (safety -> length -> freshness -> random) and
       never weakens the earlier stages; with an empty freshness result the
       fallback of AC-03 applies within the already-safe, already-length-
       filtered pool.
-- [ ] AC-06: Given the solo device history, then it stores template ids and
+- [x] AC-06: Given the solo device history, then it stores template ids and
       nothing else - no words, no timestamps traceable to a person, no PII
       (README section 6); clearing browser storage simply resets freshness.
 
@@ -81,3 +81,21 @@ what an account-less game can know: this device (solo), this room (group). See
 - session-engine / group-play (the Room record and StartRound) - Complete.
 - replay-remix/01 (seam coordination only - neither blocks the other; see
   Technical Notes).
+
+## Orchestration notes (Gate 1 - build/ss-03)
+- Tests: `web/src/content/fresh.test.ts` + `playedHistory.test.ts` (AC-01/03/05/06),
+  `tests/QuibbleStone.Api.Tests/FreshnessContentSelectorTests.cs` +
+  `RoomPlayedHistoryTests.cs` + new `GameHubStartRoundTests.cs` cases
+  (AC-02/03/04). All green.
+- Gate-1 review: clean, no blockers. Pipeline order (safety -> length ->
+  freshness -> random) and the web/C# mirror verified behavior-identical;
+  ids-only history both sides; AC-04 bypass seam documented at every call site;
+  wire contract + engine untouched.
+- W-001 (recycle boundary) - RESOLVED (user sign-off 2026-07-02): tightened the
+  recycle to EXCLUDE the single most-recently-played story when the pool holds
+  >=2, so the wrap can never immediately repeat the tale just served (a 1-story
+  pool still returns it - a repeat is then unavoidable). Applied identically on
+  both sides (fresh.ts `recycleExcludingMostRecent` / FreshnessContentSelector
+  `RecycleExcludingMostRecent`) with new "never immediately repeats across a
+  wrap" + size-1 tests both in web and C#. This delivers AC-03's
+  "least-recently-played first" intent functionally rather than as an inert sort.

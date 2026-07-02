@@ -71,7 +71,7 @@ import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Link, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer } from '../components';
+import { AppBar, BottomActionBar, BottomActionBarSpacer, TaleFeedback } from '../components';
 import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
 import { buildRevealParts } from './revealParts';
@@ -118,6 +118,15 @@ export interface RevealProps {
    * (AC-03).
    */
   revealPresentation?: ReactNode;
+  /**
+   * Optional per-tale thumbs feedback slot (story-selection/05, AC-01): when
+   * supplied, renders the quiet <TaleFeedback> control below the story panel,
+   * subordinate to the CTAs. Single-player passes this ({@link templateId} +
+   * mode "solo"). Group play's transient reveal (before its own Round Complete
+   * recap, group-play/04) OMITS it - the group's vote surface lives on
+   * RoundComplete.tsx instead, so a single round is never asked about twice.
+   */
+  taleFeedback?: { templateId: string; mode: string };
 }
 
 // The stone tablet's pulsing glow (docs/design/Reveal.dc.html qsTabletGlow):
@@ -313,6 +322,7 @@ export function Reveal({
   onHome,
   exitAction,
   revealPresentation,
+  taleFeedback,
 }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
@@ -461,6 +471,14 @@ export function Reveal({
             )}
           </Box>
         </Box>
+
+        {/* Quiet per-tale curation vote (story-selection/05, AC-01): sits below
+            the story panel, visually subordinate to the CTAs in the pinned bar
+            below. Omitted entirely when the caller does not opt in (group
+            play's transient reveal - see the taleFeedback prop doc). */}
+        {taleFeedback && (
+          <TaleFeedback templateId={taleFeedback.templateId} mode={taleFeedback.mode} />
+        )}
 
         <BottomActionBarSpacer />
       </Stack>

@@ -16,12 +16,23 @@
 import { describe, expect, it } from 'vitest';
 import { assemble, type SubmittedWord } from '../engine/assemble';
 import { getBlanks } from '../engine/template';
+import { classifyLength } from './length';
 import { seedLibrary } from './seedLibrary';
 
 describe('seedLibrary', () => {
-  it('has between 10 and 15 templates', () => {
+  it('has between 10 and 20 templates', () => {
     expect(seedLibrary.length).toBeGreaterThanOrEqual(10);
-    expect(seedLibrary.length).toBeLessThanOrEqual(15);
+    expect(seedLibrary.length).toBeLessThanOrEqual(20);
+  });
+
+  it('carries at least 4 quick templates (4-6 blanks) for story-selection', () => {
+    const quick = seedLibrary.filter((t) => classifyLength(t) === 'quick');
+    expect(quick.length).toBeGreaterThanOrEqual(4);
+    for (const template of quick) {
+      const count = getBlanks(template).length;
+      expect(count, `${template.id} quick blank count`).toBeGreaterThanOrEqual(4);
+      expect(count, `${template.id} quick blank count`).toBeLessThanOrEqual(6);
+    }
   });
 
   it('has unique template ids', () => {
