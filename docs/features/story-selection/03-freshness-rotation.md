@@ -1,6 +1,6 @@
 # Story: Freshness rotation: no repeats until the pool runs dry
 
-**Feature:** Story Selection & Freshness  ·  **Status:** In Review  ·  **Issue:** #93
+**Feature:** Story Selection & Freshness  ·  **Status:** Complete  ·  **Issue:** #93
 
 ## Context
 With ~15 templates and a uniform random pick, a family playing five rounds has

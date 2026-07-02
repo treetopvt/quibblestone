@@ -19,14 +19,14 @@ are deliberately NOT that - they are a toy-grade serve log and a thumbs count,
 the smallest data that keeps content fresh and curatable.
 
 ## Stories
-<!-- Status: Not Started | In Review | Complete | Blocked | Dropped -->
+<!-- Status: Not Started | Complete | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #91 | Length classes + the one selection pipeline | In Review |
-| 02 | #92 | Quick story option (solo + group) | In Review |
-| 03 | #93 | Freshness rotation: no repeats until the pool runs dry | In Review |
-| 04 | #94 | Story delivery metrics (the anonymous serve log) | In Review |
-| 05 | #95 | Like / dislike a tale (content feedback) | In Review |
+| 01 | #91 | Length classes + the one selection pipeline | Complete |
+| 02 | #92 | Quick story option (solo + group) | Complete |
+| 03 | #93 | Freshness rotation: no repeats until the pool runs dry | Complete |
+| 04 | #94 | Story delivery metrics (the anonymous serve log) | Complete |
+| 05 | #95 | Like / dislike a tale (content feedback) | Complete |
 
 ## Dependencies
 - template-model (the seed library + tags this feature selects over; the

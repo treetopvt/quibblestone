@@ -1,6 +1,6 @@
 # Story: Quick story option (solo + group)
 
-**Feature:** Story Selection & Freshness  ·  **Status:** In Review  ·  **Issue:** #92
+**Feature:** Story Selection & Freshness  ·  **Status:** Complete  ·  **Issue:** #92
 
 ## Context
 Story 01 gave the pipeline a length filter; this story gives the PLAYER the
