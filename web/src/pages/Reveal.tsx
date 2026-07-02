@@ -696,13 +696,16 @@ export function Reveal({
                       wordAttribution && part.playerSessionId !== undefined
                         ? wordAttribution.contributorFor(part.playerSessionId)
                         : undefined;
-                    // reveal-delight/04: the attribution tap is DELIBERATELY
-                    // inert while the Golden Guardian vote tap owns this same
-                    // word (voteInteractive) - the two gestures never fight
-                    // over one coral word. It becomes live once voting is
-                    // resolved/absent and a contributor is resolvable.
+                    // reveal-delight/04: the attribution tap only goes live once
+                    // the story is FULLY shown (carveComplete, AC-01), matching the
+                    // vote gate - so it never fires mid-carve. It is also
+                    // DELIBERATELY inert while the Golden Guardian vote tap owns
+                    // this same word (voteInteractive) - the two gestures never
+                    // fight over one coral word. So: once carving is done and a
+                    // contributor is resolvable, attribution is live except while
+                    // voting is interactive (then the vote owns the tap).
                     const attributionInteractive =
-                      contributor !== undefined && !voteInteractive;
+                      contributor !== undefined && carveComplete && !voteInteractive;
                     const attributionRevealed =
                       attributionInteractive && revealedAttribution === token;
                     const toggleAttribution = () =>
