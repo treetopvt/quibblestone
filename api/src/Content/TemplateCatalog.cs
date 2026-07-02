@@ -5,12 +5,12 @@
 //  This catalog MIRRORS web/src/content/seedLibrary.ts - one entry per template,
 //  matched by Id. It is a WIRE-CONTRACT-STYLE mirror (same discipline as the
 //  PlayerDto / RoomStateDto DTOs in GameHub.cs): when a template is added,
-//  removed, renamed, or its familySafe tag / blank count changes in
-//  seedLibrary.ts, THIS file MUST be updated to match by hand. There is no
-//  codegen and no shared source - the two drift silently if you forget.
+//  removed, renamed, or its familySafe tag / blank count / word-bank presence
+//  changes in seedLibrary.ts, THIS file MUST be updated to match by hand. There
+//  is no codegen and no shared source - the two drift silently if you forget.
 //  ============================================================================
 //
-//  Why the server holds ONLY { Id, FamilySafe, BlankCount } and NOT the prose:
+//  Why the server holds ONLY { Id, FamilySafe, BlankCount, HasWordBank } and NOT the prose:
 //  QuibbleStone's charter is "one engine, many thin modes" (README section 4) -
 //  the template PROSE / prompts / body / titles stay CLIENT-SIDE in seedLibrary,
 //  and each client resolves a template's full content from that bundled library
@@ -25,6 +25,9 @@
 //    - BlankCount : carried NOW (group-play/01) so group-play/02's index-based
 //                   blank distribution / attribution does not have to reshape this
 //                   catalog later. group-play/01 itself does not read it.
+//    - HasWordBank: group-play/05 - the one signal the Word Bank mode's per-mode
+//                   eligibility gate reads (mirrors the web's offerWordBankTemplates),
+//                   so a bank-less template is never picked for a Word Bank round.
 //
 //  This is PURE DATA (like seedLibrary), stateless, and registered as a singleton
 //  in DI (Program.cs) so every transient GameHub instance shares the one catalog.
@@ -44,7 +47,8 @@ namespace QuibbleStone.Api.Content;
 /// <param name="Id">Stable template id - the key the client resolves full prose/body from seedLibrary.</param>
 /// <param name="FamilySafe">True when the template is tagged family-safe (seedLibrary tags.familySafe). The one signal the family-safe gate reads (AC-04).</param>
 /// <param name="BlankCount">Number of blanks in the template - carried for group-play/02's distribution; unused by group-play/01.</param>
-public sealed record TemplateCatalogEntry(string Id, bool FamilySafe, int BlankCount);
+/// <param name="HasWordBank">True when the template carries a curated word bank (seedLibrary `wordBank`). group-play/05: the ONLY signal the Word Bank mode's per-mode eligibility gate reads, mirroring the web's offerWordBankTemplates rule - a bank-less template is never offered for Word Bank, so the mode can never draw one and render an empty tap list. Defaults to false, so a template not tagged here is simply never a Word Bank pick.</param>
+public sealed record TemplateCatalogEntry(string Id, bool FamilySafe, int BlankCount, bool HasWordBank = false);
 
 /// <summary>
 /// The minimal server-side template catalog: one <see cref="TemplateCatalogEntry"/>
@@ -69,10 +73,10 @@ public sealed class TemplateCatalog
         // Full stories (9-10 blanks).
         new TemplateCatalogEntry("wobbly-wizard", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("space-llama", FamilySafe: true, BlankCount: 10),
-        new TemplateCatalogEntry("road-trip-disaster", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("road-trip-disaster", FamilySafe: true, BlankCount: 10, HasWordBank: true),
         new TemplateCatalogEntry("school-of-noodles", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("monster-under-bed", FamilySafe: true, BlankCount: 10),
-        new TemplateCatalogEntry("food-truck-frenzy", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("food-truck-frenzy", FamilySafe: true, BlankCount: 9, HasWordBank: true),
         new TemplateCatalogEntry("backyard-safari", FamilySafe: true, BlankCount: 9),
         new TemplateCatalogEntry("pirate-puddle", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("robot-recital", FamilySafe: true, BlankCount: 9),

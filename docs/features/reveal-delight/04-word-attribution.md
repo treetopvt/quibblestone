@@ -84,7 +84,7 @@ story / attribution (unchanged by this feature)").
 |---|---|
 | AC-01 | manual (two browser contexts, 2+ players): each coral word can reveal the correct contributor's nickname + Guardian |
 | AC-02 | manual: the default reveal stays readable (coral contrast intact); attribution is opt-in per word or a non-intrusive legend |
-| AC-03 | unit (`revealParts`/render): a blank with `playerSessionId === undefined` shows no contributor and never "carved by undefined" |
+| AC-03 | unit (`web/src/App.test.ts`, `buildContributorLookup`): an undefined/empty `playerSessionId` resolves to no contributor, so the chip never renders "carved by undefined" |
 | AC-04 | manual: a solo reveal shows no per-word attribution at all |
 | AC-05 | code review: only roster nickname + Guardian shown; no PII; no new text input introduced |
 | AC-06 | code review: no new hub invoke/broadcast and no second `HubConnection`; attribution reads only existing client state |

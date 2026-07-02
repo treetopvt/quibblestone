@@ -24,6 +24,7 @@
 //  Azure setup.
 // ----------------------------------------------------------------------------
 
+using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
@@ -36,6 +37,33 @@ var builder = WebApplication.CreateBuilder(args);
 
 // REST controllers (attribute-routed). See Controllers/HealthController.cs.
 builder.Services.AddControllers();
+
+// platform-devops/04 (operational observability): the OPERATIONAL Application
+// Insights pipeline - unhandled exceptions, failed requests, request rate +
+// duration, and outbound dependency calls (AC-02). This is DISTINCT from the
+// anonymous serve-log sink below (ITelemetrySink / Table Storage,
+// story-selection/04): that is content-curation telemetry, this is operational
+// health; they live side by side, neither replaces the other.
+//
+// ALWAYS registered (AC-02/AC-05): AddApplicationInsightsTelemetry reads
+// APPLICATIONINSIGHTS_CONNECTION_STRING from config/env automatically and cleanly
+// NO-OPS when it is absent (local dev, CI, a fresh clone) - it emits nothing and
+// errors nothing. Registering it unconditionally also always registers
+// TelemetryClient in DI, so the hub filter, the client-error controller, and
+// story-05's future usage events can depend on it without branching. The
+// connection string comes from Key Vault via an App Service app setting in a
+// deployed environment - NEVER a committed literal, NEVER a VITE_ var (AC-01/AC-05).
+builder.Services.AddApplicationInsightsTelemetry();
+
+// AC-04 (child-safety / PII, NON-NEGOTIABLE): the ONE choke point every App
+// Insights telemetry item flows through before send. Registered as a SINGLETON
+// ITelemetryInitializer so the SDK runs EVERY item (requests, exceptions,
+// dependencies, custom events - including story-05's future anonymous usage
+// events and the client-error beacon) through it: it zeroes the client IP, strips
+// request query strings (route/path only), and defensively drops any
+// known-sensitive custom-property key. Only anonymous operational data leaves the
+// process (README section 6). See PiiScrubbingTelemetryInitializer for the full rationale.
+builder.Services.AddSingleton<Microsoft.ApplicationInsights.Extensibility.ITelemetryInitializer, PiiScrubbingTelemetryInitializer>();
 
 // Child safety (README section 6, non-negotiable). The ONE server-side content
 // safety filter: every free-text surface (nicknames, blank answers) resolves
@@ -115,7 +143,17 @@ builder.Services.AddSingleton<RoomRegistry>();
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
 //       .AddAzureSignalR(builder.Configuration["AzureSignalR:ConnectionString"]);
-builder.Services.AddSignalR();
+//
+// platform-devops/04 (AC-03): register the HubTelemetryFilter so a hub METHOD
+// exception surfaces in App Insights carrying ONLY the anonymous method name -
+// never the arguments (nicknames / words / codes, AC-04). The abnormal-DISCONNECT
+// half of AC-03 lives in GameHub.OnDisconnectedAsync. Both resolve TelemetryClient
+// from DI and no-op cleanly with no connection string (AC-05). The filter is a
+// SINGLETON so SignalR resolves the one instance from DI rather than reconstructing
+// it (via ActivatorUtilities) on every hub invocation - it is stateless past its
+// injected TelemetryClient.
+builder.Services.AddSingleton<HubTelemetryFilter>();
+builder.Services.AddSignalR(options => options.AddFilter<HubTelemetryFilter>());
 
 // CORS: the web client runs on its own origin in dev (Vite, http://localhost:5173).
 // Allowed origins come from configuration so each environment sets its own.

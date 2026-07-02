@@ -118,6 +118,20 @@ forward. You build the cost-control seam now (for safety and cost) and attach re
 charging to it later. Players stay anonymous - the gate meters **compute per
 session, not identity**.
 
+> **Now planned (2026-07-02).** The gate + the first AI slice are decomposed into
+> buildable stories, ready for an `/orchestrate-feature` session: the new
+> [`ai-cost-gate`](./features/ai-cost-gate/feature.md) feature (6 stories: proxy,
+> entitlement-at-session, quota/meter, spend circuit-breaker + attribution,
+> moderate-before-display, IaC seam), the free reshuffle
+> [`game-modes/07`](./features/game-modes/07-word-bank-jumble.md) (ships first, no
+> AI), and the AI jumble [`ai-on-demand-generation/05`](./features/ai-on-demand-generation/05-ai-word-bank-jumble.md)
+> + its moderation [`/02`](./features/ai-on-demand-generation/02-live-moderation-gate.md).
+> Provider/model + cost decisions: [ADR 0001](./adr/0001-ai-provider.md) (Azure AI
+> Foundry, gpt-4o-mini, in-app proxy, existing filter now + Content Safety later,
+> AI jumble free-for-all in alpha behind quota + breaker). The cross-feature build
+> order (gate foundation -> free jumble -> AI jumble) is in
+> [`ai-cost-gate/implementation.md`](./features/ai-cost-gate/implementation.md).
+
 ## Recommended sequence
 
 1. **Done** - deploy, routing, solo modes, freshness loop, and Land the Laugh

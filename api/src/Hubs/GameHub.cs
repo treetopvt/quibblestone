@@ -51,6 +51,7 @@
 //  shape and add joinRoom / roster-broadcast methods here.
 // ----------------------------------------------------------------------------
 
+using Microsoft.ApplicationInsights;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Rooms;
@@ -134,9 +135,10 @@ public sealed record StartRoundResultDto(bool Ok, string? Error);
 /// so each client learns only its own prompts.
 /// </summary>
 /// <param name="TemplateId">The selected template's id; the client resolves full content from seedLibrary.</param>
-/// <param name="Mode">The play mode ("classic-blind" for Slice 1).</param>
+/// <param name="Mode">The play mode the HOST chose (group-play/05): one of the offered ids ("classic-blind", "word-bank", "progressive-reveal"). The client resolves it through the shared mode registry to render the right surfaces. Populated for real now - it was pinned to "classic-blind" through Slice 1.</param>
 /// <param name="RoundNumber">1-based round number; group-play/04 increments it on replay (2, 3, ...), and it drives the Round Complete "ROUND N CARVED" badge.</param>
-public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNumber);
+/// <param name="CrownedNickname">reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown for THIS round (the previous round's funniest-word winner), or null when no crown applies. Server-tracked round state; the crown clears on the next round unless re-awarded.</param>
+public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNumber, string? CrownedNickname);
 
 /// <summary>
 /// Sent to ONE player as "YourBlanks" right after the round starts
@@ -234,6 +236,47 @@ public sealed record RevealReadyDto(string TemplateId, IReadOnlyList<RevealWordD
 /// <param name="Reason">A friendly, kid-readable explanation shown on the lobby.</param>
 public sealed record RoundAbortedDto(string Reason);
 
+/// <summary>
+/// Broadcast to the whole room group as "ReactionCountsChanged" whenever any
+/// player reacts on the reveal (reveal-delight/01, AC-04): the FULL per-type
+/// tally for the current reveal, so every client renders the same count in
+/// near-real-time. Server-authoritative (no client double-counts). The four
+/// fields serialize to camelCase (laugh/heart/wow/star) - the EXACT shape the
+/// web's ReactionCounts (Record&lt;ReactionType, number&gt;) mirrors, so the hook
+/// hands the payload straight to the ReactionRow. A reaction carries no text and
+/// no identity (AC-06, no PII) - only these counts.
+/// </summary>
+/// <param name="Laugh">The Laugh tally.</param>
+/// <param name="Heart">The Heart tally.</param>
+/// <param name="Wow">The Wow tally.</param>
+/// <param name="Star">The Star tally.</param>
+public sealed record ReactionCountsDto(int Laugh, int Heart, int Wow, int Star);
+
+/// <summary>
+/// Broadcast to the whole room group as "GoldenGuardianVoteCast" whenever a player
+/// casts (or moves) a funniest-word vote (reveal-delight/03, AC-02): just the live
+/// "N of M voted" figures the Reveal shows as a low-key status. Deliberately carries
+/// NO per-word tallies (those stay hidden mid-vote, AC-02) and no identity (AC-07,
+/// no PII) - only the two counts.
+/// </summary>
+/// <param name="VotedCount">How many present players have voted (the "N").</param>
+/// <param name="TotalVoters">How many players are present and can vote (the "M").</param>
+public sealed record GoldenGuardianVoteCastDto(int VotedCount, int TotalVoters);
+
+/// <summary>
+/// Broadcast to the whole room group as "GoldenGuardianResolved" the moment the
+/// funniest-word vote resolves (every present player voted, or the host closed it
+/// early - reveal-delight/03, AC-03). Carries the winning blank token (the coral
+/// word the Reveal rings in gold) and the winning contributor's nickname (the crown's
+/// next-round wearer, AC-04). Both are null when the vote resolved with zero votes (a
+/// friendly non-event - no winner, no crown, never a loser callout). The blank token
+/// is an already-vetted, already-displayed word's position - no new text, no PII
+/// (AC-07).
+/// </summary>
+/// <param name="WinningBlankId">The winning blank token, or null when there was no winner.</param>
+/// <param name="PlayerSessionId">The winning contributor's nickname (the anonymous in-session id the web attributes words by), or null when there was no winner.</param>
+public sealed record GoldenGuardianResolvedDto(string? WinningBlankId, string? PlayerSessionId);
+
 public sealed class GameHub : Hub
 {
     // The largest a display name may be (AC-03). Kept in sync with the web
@@ -249,10 +292,12 @@ public sealed class GameHub : Hub
         "purple", "gold", "coral", "teal", "sand", "plum",
     };
 
-    // group-play/01: the only mode in Slice 1 (README section 7 - Classic blind
-    // only). The wire value the round carries and the client resolves against its
-    // Classic-blind mode config. A mode PICKER is out of scope here.
-    private const string ClassicBlindMode = "classic-blind";
+    // group-play/05: the mode a group round runs in is now the HOST's choice,
+    // resolved + validated server-side against GameModeCatalog.Offered (Classic
+    // Blind, Word Bank, Progressive Reveal) and broadcast on RoundStartedDto.Mode.
+    // It was pinned to "classic-blind" through Slice 1 (group-play/01) - see
+    // StartRound step 3b. The offered-mode list lives in GameModeCatalog, not here,
+    // so an unoffered mode (e.g. progressive-story) can never leak in.
 
     // story-selection/02: the DEFENSIVE fallback for a malformed lengthPref -
     // null, empty, or any value the client sends that is not one of the three
@@ -270,6 +315,16 @@ public sealed class GameHub : Hub
         LengthContentSelector.Quick, LengthContentSelector.Full, LengthContentSelector.Any,
     };
 
+    // reveal-delight/01 (AC-04): the ONLY four reaction types a client may send
+    // (mirrors the web's ReactionType union). A crafted client could send any
+    // string, so this is the server-side source of truth - React ignores anything
+    // else, exactly like NormalizeVariant guards an unknown variant. The payload is
+    // a TYPE ENUM only, so this set is the entire contract (no free text - AC-06).
+    private static readonly HashSet<string> KnownReactions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "laugh", "heart", "wow", "star",
+    };
+
     private readonly RoomRegistry _rooms;
     private readonly IContentSafetyFilter _safety;
     private readonly TemplateCatalog _catalog;
@@ -277,6 +332,7 @@ public sealed class GameHub : Hub
     private readonly LengthContentSelector _length;
     private readonly FreshnessContentSelector _freshness;
     private readonly ITelemetrySink _telemetry;
+    private readonly TelemetryClient _appInsights;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -287,6 +343,7 @@ public sealed class GameHub : Hub
         LengthContentSelector length,
         FreshnessContentSelector freshness,
         ITelemetrySink telemetry,
+        TelemetryClient appInsights,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -302,6 +359,13 @@ public sealed class GameHub : Hub
         // at the END of a group round start (never awaited on the round-start path,
         // AC-03). NoOp locally, Table Storage in a configured environment (AC-05).
         _telemetry = telemetry;
+        // platform-devops/04 (AC-03): the OPERATIONAL App Insights client, used
+        // ONLY to make abnormal disconnects observable in OnDisconnectedAsync
+        // below (hub method exceptions are tracked by HubTelemetryFilter). This is
+        // a DIFFERENT pipeline from _telemetry above (the content serve log): this
+        // one is operational health. No-ops cleanly with no connection string
+        // (AC-05); it is always registered so DI stays simple.
+        _appInsights = appInsights;
         _logger = logger;
     }
 
@@ -470,9 +534,36 @@ public sealed class GameHub : Hub
     /// SignalR auto-removes the connection from its groups on disconnect, so the
     /// broadcast below reaches exactly the remaining members. We always chain to
     /// base.OnDisconnectedAsync so the framework's own teardown still runs.
+    ///
+    /// platform-devops/04 (AC-03): an ABNORMAL close (a non-null exception - a
+    /// dropped network, a transport error, a client crash, as opposed to a clean
+    /// LeaveRoom / tab close where exception is null) is tracked in App Insights so
+    /// a disconnect STORM is diagnosable rather than invisible. The tracked event
+    /// carries NO room code, nickname, or connectionId (AC-04) - just the fact of
+    /// an abnormal close plus the transport exception's type/stack, which the PII
+    /// scrubber's allowed shape permits. No-ops cleanly with no connection string
+    /// configured (AC-05).
     /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        if (exception is not null)
+        {
+            // Abnormal close only (a clean disconnect passes null). Track the
+            // anonymous fact + the transport exception - never any room/player payload.
+            // Wrapped so an unexpected telemetry failure can NEVER interfere with the
+            // disconnect cleanup / room removal below (AC-08 posture, matching
+            // TrackUsageRoundStarted/Completed and FireServeEvent).
+            try
+            {
+                _appInsights.TrackEvent("HubAbnormalDisconnect");
+                _appInsights.TrackException(exception);
+            }
+            catch
+            {
+                // Swallowed: telemetry must never break hub teardown.
+            }
+        }
+
         var room = _rooms.RemoveConnection(Context.ConnectionId);
         await HandlePlayerLeftAsync(room);
 
@@ -533,8 +624,8 @@ public sealed class GameHub : Hub
     ///      instead degrades to the family-safe pool (AC-06 - see Stage 2 below), and
     ///      an exhausted FRESHNESS pool recycles rather than failing (Stage 3 below).
     ///
-    /// On success it sets the room's round state (round 1, the chosen template,
-    /// Classic blind, "prompting") and broadcasts "RoundStarted" to the whole room
+    /// On success it sets the room's round state (round 1, the chosen template, the
+    /// host's chosen mode, "prompting") and broadcasts "RoundStarted" to the whole room
     /// group so EVERY player (host included) transitions into word collection
     /// together in near-real-time (AC-01, AC-02), then returns Ok=true.
     ///
@@ -549,8 +640,9 @@ public sealed class GameHub : Hub
     /// <param name="code">The room's join code (case-insensitive).</param>
     /// <param name="familySafe">The host's family-safe toggle position; the SERVER filters the catalog by it (authoritative, AC-04).</param>
     /// <param name="lengthPref">The host's story-length choice ("quick" | "full" | "any"); the SERVER filters the family-safe pool by it (authoritative, story-selection/02 AC-03). Null/empty/unrecognized falls back to "any".</param>
-    /// <param name="templateId">story-selection/06 (favorite a story, AC-03/AC-04): an OPTIONAL explicit template id. When the host starts a round from their device-local favorites, this names the exact tale to play. It still passes the family-safe gate first (AC-06) but SKIPS the length + freshness stages and is neither re-stamped into the room's played history nor logged to the serve log (a private replay, not a curation signal). Null/empty means the normal random pick (the pre-06 behavior, unchanged).</param>
-    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref, string? templateId = null)
+    /// <param name="mode">group-play/05 (host picks the mode, AC-02): the mode id the host chose. The SERVER validates it against the OFFERED set (<see cref="GameModeCatalog"/>) and rejects an unknown or deferred mode (e.g. progressive-story, AC-05); it then draws the template from THAT mode's eligible pool (Word Bank needs a word bank, AC-06). Null/empty/legacy 3-arg callers default to Classic Blind. The chosen mode is broadcast on <see cref="RoundStartedDto.Mode"/> for real (it was pinned before this story).</param>
+    /// <param name="templateId">story-selection/06 (favorite a story, AC-03/AC-04): an OPTIONAL explicit template id. When the host starts a round from their device-local favorites, this names the exact tale to play. It still passes the family-safe gate first (AC-06) but SKIPS the length + freshness stages and is neither re-stamped into the room's played history nor logged to the serve log (a private replay, not a curation signal). Null/empty means the normal random pick (the pre-06 behavior, unchanged). It must still be eligible for the chosen mode (group-play/05, AC-06).</param>
+    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref, string? mode = null, string? templateId = null)
     {
         // 1. Look up the room first (an unknown / expired code has nothing to start).
         var room = _rooms.TryGet(code);
@@ -579,6 +671,20 @@ public sealed class GameHub : Hub
                 "You need at least one more carver before you can start.");
         }
 
+        // 3b. group-play/05 (AC-02): resolve the host's chosen mode against the
+        //     OFFERED set, server-authoritatively. An unknown or DEFERRED mode
+        //     (progressive-story is known but not offered for group, AC-05) resolves
+        //     to null and is rejected here, so it can never begin a round no matter
+        //     what the client sends. A null/empty/legacy value defaults to Classic
+        //     Blind (the pre-05 behavior), mirroring the length/variant normalizers.
+        var resolvedMode = GameModeCatalog.ResolveOffered(mode);
+        if (resolvedMode is null)
+        {
+            return new StartRoundResultDto(
+                false,
+                "That game mode isn't ready for group play yet - pick another one.");
+        }
+
         // 4. Select a template through the ONE explicit selection pipeline
         //    (story-selection/01 AC-03). The stages run in a FIXED order and the
         //    family-safe gate is ALWAYS FIRST - no path around it:
@@ -600,6 +706,25 @@ public sealed class GameHub : Hub
                 "No tales are available right now - please try again.");
         }
 
+        //    Stage 1b - PER-MODE ELIGIBILITY (group-play/05, AC-06): narrow the
+        //    family-safe pool to the templates the CHOSEN mode may draw. Word Bank
+        //    keeps only templates that carry a curated word bank (so it never picks
+        //    a bank-less tale and renders an empty tap list); every other offered
+        //    mode is bank-agnostic and this is a no-op. The gate lives in
+        //    GameModeCatalog (mirroring the web's offerWordBankTemplates), never
+        //    inlined here. If no template survives (e.g. Word Bank under a family-safe
+        //    round with no safe word-bank tale), fail friendly rather than throw -
+        //    the web disables an unstartable mode, so this is defensive.
+        var modePool = familySafePool
+            .Where(entry => GameModeCatalog.IsEligible(entry, resolvedMode))
+            .ToList();
+        if (modePool.Count == 0)
+        {
+            return new StartRoundResultDto(
+                false,
+                "No tales are available for that mode right now - try another mode.");
+        }
+
         //    story-selection/06 (favorite a story, AC-03/AC-04) - the EXPLICIT
         //    pinned-template branch, the AC-04 bypass seam Stage 3 reserved. When
         //    the host started this round from their device-local favorites,
@@ -614,16 +739,19 @@ public sealed class GameHub : Hub
         TemplateCatalogEntry chosen;
         if (explicitPick)
         {
-            var favorite = familySafePool.FirstOrDefault(
+            var favorite = modePool.FirstOrDefault(
                 entry => string.Equals(entry.Id, templateId, StringComparison.Ordinal));
             if (favorite is null)
             {
-                // Unknown id, or a favorite the family-safe gate excludes in this
-                // game (AC-06) - fail friendly rather than throw or silently fall
-                // back to a random tale the host did not ask for.
+                // Unknown id, or a favorite the family-safe gate OR the chosen mode's
+                // eligibility excludes in this game (group-play/05, AC-06 - e.g. a
+                // bank-less favorite under Word Bank) - fail friendly rather than throw
+                // or silently fall back to a random tale the host did not ask for. The
+                // message hints at the mode, since a favorite now plays in the host's
+                // chosen mode and the likeliest miss is a mode-ineligible tale.
                 return new StartRoundResultDto(
                     false,
-                    "That favorite tale isn't available in this game right now.");
+                    "That favorite tale isn't available in this mode right now - try another mode or tale.");
             }
 
             chosen = favorite;
@@ -631,14 +759,14 @@ public sealed class GameHub : Hub
         else
         {
             //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
-            //    family-safe pool to the requested length class using the host's
+            //    safety+mode pool to the requested length class using the host's
             //    story-length choice (story-selection/02, AC-03). A malformed/unknown
             //    lengthPref is normalized to "any" first so a crafted client cannot
             //    break the pick. If the requested length would leave an EMPTY pool, the
-            //    selector DEGRADES to the family-safe pool rather than failing the round
+            //    selector DEGRADES to the mode pool rather than failing the round
             //    (a longer story, never an error) - the fallback lives in THIS pipeline,
             //    not in callers.
-            var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
+            var pool = _length.SelectByLengthOrFallback(modePool, NormalizeLengthPreference(lengthPref));
 
             //    Stage 3 - FRESHNESS FILTER + recycle (story-selection/03, AC-02/AC-03):
             //    narrow the safety+length-filtered pool to templates this ROOM has not
@@ -653,13 +781,13 @@ public sealed class GameHub : Hub
             chosen = freshPool[Random.Shared.Next(freshPool.Count)];
         }
 
-        // 5. Set the room's round state (round 1, Classic blind, "prompting") AND
+        // 5. Set the room's round state (round 1, the host's chosen mode, "prompting") AND
         //    compute the round-robin blank assignment (group-play/02). The deal
         //    happens under the room lock inside StartRound, using the template's
         //    BlankCount from the catalog, so it is atomic with the roster snapshot
         //    it deals to (a join/leave racing this lands fully before or after the
         //    deal, never mid-deal). The C# deal MIRRORS web/src/engine/distribute.ts.
-        var round = room.StartRound(chosen.Id, ClassicBlindMode, chosen.BlankCount);
+        var round = room.StartRound(chosen.Id, resolvedMode, chosen.BlankCount);
 
         // 5a. story-selection/03 (AC-02): record the chosen id in THIS room's
         //     played-template history, AFTER the round has opened, so the NEXT
@@ -678,7 +806,7 @@ public sealed class GameHub : Hub
         //    server ships only the id + mode + round number.
         await Clients.Group(room.Code).SendAsync(
             "RoundStarted",
-            new RoundStartedDto(round.TemplateId, round.Mode, round.RoundNumber));
+            new RoundStartedDto(round.TemplateId, round.Mode, round.RoundNumber, round.CrownedNickname));
 
         // 7. Deal each player ONLY its own blanks (group-play/02, AC-02). This is a
         //    per-connection send (NOT a group broadcast): a player never learns
@@ -723,7 +851,65 @@ public sealed class GameHub : Hub
             FireServeEvent(serveEvent);
         }
 
+        // 9. platform-devops/05 (anonymous product-usage, AC-01): record ONE
+        //    "RoundStarted" App Insights CUSTOM EVENT with the MODE + group context
+        //    (and an anonymous player COUNT), so "which modes get played, solo vs
+        //    group" is answerable. This rides story 04's App Insights pipeline (the
+        //    injected TelemetryClient + the single PII scrubber) - it is a DIFFERENT
+        //    surface from the serve log above (story-selection/04 -> Table Storage,
+        //    content curation) and from 04's operational health (exceptions /
+        //    disconnects); coordinated, never a third stack (AC-06). Fire-and-forget
+        //    and non-throwing - it NEVER gates the round (AC-08). Anonymous by
+        //    construction: no code / nickname / connectionId (AC-04).
+        TrackUsageRoundStarted(round, room.PlayerCount);
+
         return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// platform-devops/05 (AC-01): fire the anonymous "RoundStarted" product-usage
+    /// custom event on story 04's App Insights pipeline. Fire-and-forget and
+    /// non-throwing exactly like <see cref="FireServeEvent"/>: TrackEvent only
+    /// enqueues (no network on this path) and no-ops cleanly with no connection
+    /// string (AC-08/AC-05), but we still swallow any fault so telemetry can NEVER
+    /// delay or error a round. Carries ONLY the anonymous mode + group context + a
+    /// player count, all routed through the single PII scrubber (AC-04).
+    /// </summary>
+    private void TrackUsageRoundStarted(RoundState round, int playerCount)
+    {
+        try
+        {
+            _appInsights.TrackEvent(
+                UsageTelemetry.RoundStartedEvent,
+                UsageTelemetry.BuildProperties(round.Mode, UsageTelemetry.GroupContext, playerCount: playerCount));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Usage RoundStarted event failed (swallowed - telemetry never gates gameplay).");
+        }
+    }
+
+    /// <summary>
+    /// platform-devops/05 (AC-02): fire the anonymous "RoundCompleted" product-usage
+    /// custom event carrying the round DURATION (ms) as a metric, plus the mode +
+    /// group context. Same fire-and-forget, non-throwing posture as
+    /// <see cref="TrackUsageRoundStarted"/> - it never blocks or faults the reveal
+    /// (AC-08). No per-person identity is attached (AC-04): a duration + a mode +
+    /// the group context only.
+    /// </summary>
+    private void TrackUsageRoundCompleted(RoundState round, double durationMs)
+    {
+        try
+        {
+            _appInsights.TrackEvent(
+                UsageTelemetry.RoundCompletedEvent,
+                UsageTelemetry.BuildProperties(round.Mode, UsageTelemetry.GroupContext),
+                UsageTelemetry.BuildDurationMetric(durationMs));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Usage RoundCompleted event failed (swallowed - telemetry never gates gameplay).");
+        }
     }
 
     /// <summary>
@@ -817,6 +1003,158 @@ public sealed class GameHub : Hub
         await Clients.Group(room.Code).SendAsync("BackToLobby");
 
         return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// reveal-delight/01: a player reacts on the reveal (AC-04).
+    ///
+    /// The lightest-weight room-wide real-time surface: a player taps one of the
+    /// four reaction pills (Laugh/Heart/Wow/Star) and every player in the room sees
+    /// that reaction's count tick up in near-real-time, over the SAME one connection
+    /// the roster and reveal already use. This is FIRE-AND-FORGET from the client's
+    /// side (it returns void, not a result envelope) - the tapper's perceived
+    /// responsiveness comes from an instant local floating-icon pop, and the
+    /// authoritative count arrives for everyone (the tapper included) via the
+    /// "ReactionCountsChanged" broadcast, so no client ever double-counts.
+    ///
+    /// A reaction is a TYPE ENUM only (AC-06): no text and no player identity travel
+    /// on the wire, so there is nothing for the safety filter to check and no PII is
+    /// collected - the payload is just "someone in this room reacted with X". The
+    /// type is validated server-side against the four allowed values (a crafted
+    /// client sending anything else is simply ignored, no throw), then the room's
+    /// ephemeral per-reveal tally is incremented and the full updated tally is
+    /// broadcast to the whole room group. The counts reset when a new round starts
+    /// (see <see cref="Room.StartRound"/>) - they are per-reveal, not persisted.
+    ///
+    /// An unknown/expired code, or a type outside the allowed set, is a silent no-op
+    /// (a stray reaction is harmless) rather than a friendly error envelope - unlike
+    /// the word/round methods there is nothing the player needs to retry.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="reactionType">One of laugh/heart/wow/star; anything else is ignored server-side.</param>
+    public async Task React(string code, string reactionType)
+    {
+        // An unknown / expired room has nothing to react to - silently ignore.
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return;
+        }
+
+        // Validate the type against the four allowed values (AC-06). A crafted
+        // client sending anything else is ignored - never trust the wire value.
+        if (string.IsNullOrWhiteSpace(reactionType) || !KnownReactions.Contains(reactionType))
+        {
+            return;
+        }
+
+        // Increment the room's ephemeral per-reveal tally under its lock and get a
+        // detached snapshot to broadcast. Lowercase to the canonical key the tally
+        // uses (the client already sends lowercase, but normalize defensively).
+        var tally = room.IncrementReaction(reactionType.ToLowerInvariant());
+
+        // Broadcast the full updated tally to the whole room group so every player
+        // (the tapper included) sees the count update in near-real-time (AC-04).
+        await Clients.Group(room.Code).SendAsync(
+            "ReactionCountsChanged",
+            new ReactionCountsDto(tally["laugh"], tally["heart"], tally["wow"], tally["star"]));
+    }
+
+    /// <summary>
+    /// reveal-delight/03: a player casts (or MOVES) their Golden Guardian vote for the
+    /// funniest coral word on the reveal (AC-01/AC-02).
+    ///
+    /// Rides the SAME one connection the roster/reveal/reactions use. The payload is
+    /// an already-vetted, already-displayed word's blank TOKEN (its body-order
+    /// position) - no free text, no identity (AC-07, no PII). Vote state is ephemeral
+    /// per-round in-memory on the <see cref="Room"/> (discarded when the round moves
+    /// on). Like <see cref="React"/> this is fire-and-forget from the client (no result
+    /// envelope): an unknown/expired code, a vote outside the reveal, an already-
+    /// resolved vote, or a token that is not one of the room's filled coral words is a
+    /// silent no-op (a stray vote needs no retry).
+    ///
+    /// On a recorded cast it broadcasts "GoldenGuardianVoteCast" (the live "N of M
+    /// voted" figures) to the whole room group. When that cast RESOLVES the vote (every
+    /// present player has voted) it ALSO broadcasts "GoldenGuardianResolved" with the
+    /// winning blank token + the winning contributor's nickname, so every player sees
+    /// the same gold winner (AC-03) and the crown is set for the next round (AC-04).
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="blankId">The chosen coral word's blank token (body-order position); anything outside the filled-word set is ignored.</param>
+    public async Task CastGoldenGuardianVote(string code, string blankId)
+    {
+        // An unknown / expired room has nothing to vote on - silently ignore.
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return;
+        }
+
+        var result = room.CastGoldenGuardianVote(Context.ConnectionId, blankId);
+        if (!result.Accepted)
+        {
+            // Not in the reveal, already resolved, not a seated player, or an unknown
+            // token - nothing recorded, nothing to broadcast (a stray vote is harmless).
+            return;
+        }
+
+        // Broadcast the live "N of M voted" status to the whole room group (AC-02).
+        await Clients.Group(room.Code).SendAsync(
+            "GoldenGuardianVoteCast",
+            new GoldenGuardianVoteCastDto(result.VotedCount, result.TotalVoters));
+
+        // If this cast completed the vote, announce the single winner to everyone
+        // (AC-03) - the winning word + its contributor (the crown's next-round wearer).
+        if (result.Resolved)
+        {
+            await Clients.Group(room.Code).SendAsync(
+                "GoldenGuardianResolved",
+                new GoldenGuardianResolvedDto(result.WinningBlankId, result.WinnerNickname));
+        }
+    }
+
+    /// <summary>
+    /// reveal-delight/03: the HOST closes Golden Guardian voting early via the
+    /// low-pressure "Reveal the winner" affordance (AC-03), mirroring the "no rush,
+    /// but the host can move things along" posture group play already establishes.
+    ///
+    /// HOST-ONLY and SERVER-ENFORCED: the UI only shows the affordance to the host,
+    /// but this method is the authoritative check - a non-host caller is a silent
+    /// no-op. Resolves the vote with whatever votes are in (zero votes -> no winner,
+    /// no crown) and broadcasts the final "GoldenGuardianVoteCast" + "Golden
+    /// GuardianResolved" to the whole room group so every player lands on the same
+    /// result. Fire-and-forget from the client (no result envelope); an unknown/expired
+    /// code or a non-reveal round is a silent no-op.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    public async Task CloseGoldenGuardianVoting(string code)
+    {
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return;
+        }
+
+        // Server-enforced host check (AC-03): only the host may close voting early.
+        if (!room.IsHost(Context.ConnectionId))
+        {
+            return;
+        }
+
+        var result = room.CloseGoldenGuardian();
+        if (!result.Accepted)
+        {
+            // Not in the reveal (nothing to close) - silent no-op.
+            return;
+        }
+
+        // Push the final "N of M" figures, then the resolved winner, to everyone.
+        await Clients.Group(room.Code).SendAsync(
+            "GoldenGuardianVoteCast",
+            new GoldenGuardianVoteCastDto(result.VotedCount, result.TotalVoters));
+        await Clients.Group(room.Code).SendAsync(
+            "GoldenGuardianResolved",
+            new GoldenGuardianResolvedDto(result.WinningBlankId, result.WinnerNickname));
     }
 
     /// <summary>
@@ -923,6 +1261,14 @@ public sealed class GameHub : Hub
             await Clients.Group(room.Code).SendAsync(
                 "RevealReady",
                 new RevealReadyDto(round.TemplateId, words));
+
+            // platform-devops/05 (AC-02): the reveal just fired, so the round is
+            // complete - record the anonymous "RoundCompleted" usage event with the
+            // round DURATION (now minus the round's StartedUtc, captured under the
+            // lock in StartRound). Fire-and-forget on 04's App Insights pipeline;
+            // never blocks or faults the reveal (AC-08), no per-person identity (AC-04).
+            var durationMs = (DateTimeOffset.UtcNow - round.StartedUtc).TotalMilliseconds;
+            TrackUsageRoundCompleted(round, durationMs);
         }
 
         return new SubmitWordResultDto(true, null);

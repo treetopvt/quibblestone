@@ -93,19 +93,30 @@
 //  each RANDOM round start (beginRound with record:true), and story-selection/05
 //  shows a quiet per-tale thumbs vote on Reveal (taleFeedback) - both anonymous,
 //  both never gate the flow (see recordSoloServe / TaleFeedback).
+//
+//  platform-devops/05 (anonymous product-usage) adds two more fire-and-forget,
+//  no-PII beacons on the SAME never-gate posture: a "RoundStarted" (the mode
+//  played) and a "RoundCompleted" with the session DURATION when the round reaches
+//  the reveal (see recordSoloRoundStarted / recordSoloRoundCompleted). Unlike the
+//  serve log + freshness history above (content curation, RANDOM-pick only),
+//  product usage counts EVERY round - a favorite replay (record:false) included -
+//  so these fire on BOTH paths, before the record gate. They ride story 04's App
+//  Insights pipeline (a DIFFERENT surface from the serve log's Table Storage):
+//  which modes get played + how long a session lasts + approximate anonymous
+//  device reach, never a person.
 // ----------------------------------------------------------------------------
 
 import { useEffect, useRef, useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import {
   AppBar,
   BottomActionBar,
   BottomActionBarSpacer,
   FamilySafeToggle,
+  ReactionRow,
   StoryLengthChoice,
 } from '../components';
+import type { ReactionCounts, ReactionType } from '../components';
 import { FAMILY_SAFE_DEFAULT, selectTemplates } from '../content/familySafe';
 import { selectFreshOrRecycle } from '../content/fresh';
 import { selectByLengthOrFallback, type LengthPreference } from '../content/length';
@@ -122,8 +133,10 @@ import {
 import { getBlanks, type Template } from '../engine/template';
 import { checkWord } from '../safety/checkWord';
 import { recordSoloServe } from '../telemetry/serveLog';
+import { recordSoloRoundCompleted, recordSoloRoundStarted } from '../telemetry/usageBeacon';
 import { FillBlank } from './FillBlank';
 import { Reveal } from './Reveal';
+import { ModePicker } from './ModePicker';
 import { DEFAULT_SOLO_MODE, SOLO_MODES, type SoloMode } from './soloModes';
 
 export interface SoloProps {
@@ -146,6 +159,9 @@ export interface SoloProps {
  * single browser tab with no server-side notion of "this player."
  */
 const SOLO_PLAYER_ID = 'solo-player';
+
+/** A fresh all-zero reaction tally for a new solo reveal (reveal-delight/01, AC-05). */
+const ZERO_REACTIONS: ReactionCounts = { laugh: 0, heart: 0, wow: 0, star: 0 };
 
 /** The three phases of the local solo state machine. */
 type SoloPhase = 'setup' | 'fill' | 'reveal';
@@ -199,89 +215,6 @@ function PersonalSummary({ title, filledCount }: { title: string; filledCount: n
   );
 }
 
-/**
- * One tappable mode card in the solo picker (single-player/02, AC-01): icon +
- * label + blurb as a big tap target, teal-highlighted when selected (reusing
- * the same teal tap language as WordBankAnswer's chips and FillBlank's spark
- * row). Disabled when the mode has no eligible template for the current
- * family-safe position, so a player can never select a mode that cannot start
- * (AC-04).
- *
- * A11y: the picker is a SINGLE-CHOICE control, so each card is a `role="radio"`
- * with `aria-checked` (not a toggle button with `aria-pressed`) inside the
- * parent `role="radiogroup"` - screen readers then announce "one of N" rather
- * than an independent on/off toggle.
- */
-function ModeCard({
-  mode,
-  selected,
-  disabled,
-  onSelect,
-}: {
-  mode: SoloMode;
-  selected: boolean;
-  disabled: boolean;
-  onSelect: () => void;
-}) {
-  const theme = useTheme();
-  return (
-    <Box
-      component="button"
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      disabled={disabled}
-      onClick={onSelect}
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        width: '100%',
-        textAlign: 'left',
-        cursor: 'pointer',
-        border: `2px solid ${selected ? theme.palette.teal.main : alpha(theme.palette.teal.main, 0.24)}`,
-        borderRadius: 3,
-        px: 2.5,
-        py: 2,
-        bgcolor: selected ? alpha(theme.palette.teal.main, 0.14) : 'background.paper',
-        '&:hover': { bgcolor: alpha(theme.palette.teal.main, 0.08) },
-        '&:focus-visible': { outline: `2px solid ${theme.palette.teal.dark}`, outlineOffset: 2 },
-        '&:disabled': { cursor: 'not-allowed', opacity: 0.45 },
-      }}
-    >
-      <Box
-        sx={{
-          flexShrink: 0,
-          width: 44,
-          height: 44,
-          borderRadius: 2,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: alpha(theme.palette.teal.main, 0.16),
-          color: theme.palette.teal.dark,
-        }}
-      >
-        <FontAwesomeIcon icon={mode.icon} style={{ width: 20, height: 20 }} />
-      </Box>
-      <Stack spacing={0.25} sx={{ flexGrow: 1 }}>
-        <Typography sx={{ fontWeight: 800, fontSize: 15.5, color: 'text.primary' }}>
-          {mode.config.label}
-        </Typography>
-        <Typography sx={{ fontWeight: 600, fontSize: 13, color: 'text.secondary', lineHeight: 1.4 }}>
-          {mode.blurb}
-        </Typography>
-      </Stack>
-      {selected && (
-        <FontAwesomeIcon
-          icon="circle-check"
-          style={{ width: 20, height: 20, color: theme.palette.teal.main, flexShrink: 0 }}
-        />
-      )}
-    </Box>
-  );
-}
-
 /** The lightweight solo setup screen: family-safe toggle + length choice + mode picker + a gold "Start" CTA. */
 function SoloSetup({
   familySafe,
@@ -317,32 +250,12 @@ function SoloSetup({
         <FamilySafeToggle checked={familySafe} onChange={onFamilySafeChange} />
         <StoryLengthChoice value={lengthPref} onChange={onLengthPrefChange} />
 
-        <Stack spacing={1.5} role="radiogroup" aria-labelledby="solo-mode-picker-label">
-          <Typography
-            id="solo-mode-picker-label"
-            sx={{
-              fontWeight: 800,
-              fontSize: 12.5,
-              color: 'text.secondary',
-              textTransform: 'uppercase',
-              letterSpacing: 0.6,
-            }}
-          >
-            Pick a mode
-          </Typography>
-          {SOLO_MODES.map((soloMode) => (
-            <ModeCard
-              key={soloMode.config.id}
-              mode={soloMode}
-              selected={soloMode.config.id === mode.config.id}
-              // A mode with no eligible template at the current family-safe
-              // position (e.g. Word Bank when no family-safe template has a
-              // bank) is disabled, not a dead Start button (AC-04).
-              disabled={soloMode.eligibleTemplates(seedLibrary, familySafe).length === 0}
-              onSelect={() => onModeChange(soloMode)}
-            />
-          ))}
-        </Stack>
+        <ModePicker
+          modes={SOLO_MODES}
+          selectedId={mode.config.id}
+          onSelect={onModeChange}
+          familySafe={familySafe}
+        />
 
         <BottomActionBarSpacer />
       </Stack>
@@ -369,11 +282,27 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   const [mode, setMode] = useState<SoloMode>(DEFAULT_SOLO_MODE);
   const [template, setTemplate] = useState<Template | undefined>(undefined);
   const [blankIndex, setBlankIndex] = useState(0);
+  // reveal-delight/01 (AC-05): solo reactions are purely LOCAL - a single tab
+  // reacting to its own tale, no room and no hub. Counts start at zero and a tap
+  // bumps this state (the ReactionRow spawns its own floater). Reset each new
+  // round in beginRound so counts are ephemeral per reveal (Out of Scope: no
+  // persistence across a replay).
+  const [reactionCounts, setReactionCounts] = useState<ReactionCounts>(ZERO_REACTIONS);
+
+  const handleReact = (type: ReactionType) => {
+    setReactionCounts((current) => ({ ...current, [type]: current[type] + 1 }));
+  };
 
   // The collection lives in a ref (not state): collectWord mutates it in
   // place and FillBlank re-renders are driven by `blankIndex`/`phase`
   // instead, matching engine.ts's "mutates and returns `collected`" contract.
   const collectionRef = useRef<CollectedWords>(createCollection());
+
+  // platform-devops/05 (AC-02): when the current round OPENED (Date.now() ms), so
+  // the anonymous "RoundCompleted" usage beacon can measure this solo session's
+  // DURATION (reveal time minus this). A ref, not state - it never drives a render,
+  // and it must survive the fill -> reveal transition without re-triggering one.
+  const roundStartRef = useRef<number | null>(null);
 
   const handleFamilySafeChange = (checked: boolean) => {
     setFamilySafe(checked);
@@ -403,7 +332,22 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     collectionRef.current = createCollection();
     setTemplate(chosen);
     setBlankIndex(0);
+    // reveal-delight/01 (AC-05): reactions are per-reveal ephemeral, so a fresh
+    // round starts every count back at zero.
+    setReactionCounts(ZERO_REACTIONS);
     setPhase('fill');
+    // platform-devops/05 (anonymous product-usage, AC-01/AC-02): mark the round
+    // start time and fire-and-forget one anonymous "RoundStarted" usage event with
+    // the selected MODE (solo context) so "which modes get played" is answerable.
+    // This runs on EVERY round - BEFORE the record gate below - because product
+    // usage counts a favorite replay (record:false) too, unlike the serve log +
+    // freshness history (content curation, random-pick only). It rides story 04's
+    // App Insights pipeline via /api/usage (a DIFFERENT surface from the serve log,
+    // Table Storage) - never awaits, never retries, never blocks the transition to
+    // 'fill' (AC-08). Carries no PII - just the stable mode id + an anonymous
+    // device id (AC-04).
+    roundStartRef.current = Date.now();
+    recordSoloRoundStarted(mode.config.id);
     if (!record) return;
     // story-selection/04 (anonymous serve log, AC-02): fire-and-forget one
     // anonymous "template served" event. It never awaits, never retries, and
@@ -504,6 +448,20 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
 
   const advance = () => {
     if (isCollectionComplete(template, collectionRef.current)) {
+      // platform-devops/05 (AC-02): the round just completed (moving to the
+      // reveal), so fire-and-forget one anonymous "RoundCompleted" usage event
+      // with the MODE + the measured session DURATION (now minus the round start).
+      // ONE-SHOT LATCH: setPhase('reveal') is async, so a double-tap of the final
+      // blank could re-enter here before the fill UI unmounts; guarding on (and
+      // then clearing) roundStartRef makes the completion event fire EXACTLY ONCE
+      // per round (beginRound re-stamps it next round). It never blocks the
+      // transition and carries no PII - a duration + a stable mode id + an
+      // anonymous device id (AC-04/AC-08).
+      const startedAt = roundStartRef.current;
+      if (startedAt !== null) {
+        roundStartRef.current = null;
+        recordSoloRoundCompleted(mode.config.id, Date.now() - startedAt);
+      }
       setPhase('reveal');
       return;
     }
@@ -591,6 +549,7 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
       taleFeedback={{ templateId: template.id, mode: 'solo' }}
       favorite={{ templateId: template.id, title: template.title }}
       revealPresentation={revealSurfaces.revealPresentation}
+      reactionRow={<ReactionRow counts={reactionCounts} onReact={handleReact} />}
     />
   );
 }
