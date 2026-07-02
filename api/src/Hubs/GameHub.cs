@@ -22,10 +22,13 @@
 //                    group as "RosterChanged" so everyone sees the newcomer live.
 //    - StartRound  : group-play/01 + /02. HOST-ONLY (server-enforced) round
 //                    start: auto-selects a template from the minimal server
-//                    catalog, filtered by the family-safe toggle the host sends,
-//                    sets the room's round state, broadcasts "RoundStarted" to the
-//                    room group so ALL players move into word collection together,
-//                    then (group-play/02) computes the ROUND-ROBIN blank
+//                    catalog, filtered by the family-safe toggle the host sends
+//                    (ALWAYS FIRST) then (story-selection/02) by the host's
+//                    story-length choice - one more parameter on this SAME
+//                    invoke, never a new hub method - sets the room's round
+//                    state, broadcasts "RoundStarted" to the room group so ALL
+//                    players move into word collection together, then
+//                    (group-play/02) computes the ROUND-ROBIN blank
 //                    distribution and sends EACH player "YourBlanks" - only its own
 //                    blank indices, blind (prompt only), never another player's.
 //    - BackToLobby : group-play/04. HOST-ONLY (server-enforced) return to the
@@ -52,6 +55,7 @@ using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Telemetry;
 
 namespace QuibbleStone.Api.Hubs;
 
@@ -250,21 +254,55 @@ public sealed class GameHub : Hub
     // Classic-blind mode config. A mode PICKER is out of scope here.
     private const string ClassicBlindMode = "classic-blind";
 
+    // story-selection/02: the DEFENSIVE fallback for a malformed lengthPref -
+    // null, empty, or any value the client sends that is not one of the three
+    // known preferences. "any" means the length stage does not filter, so a
+    // malformed client can only ever fall back to "no length filtering", never
+    // to something that widens or bypasses the family-safe gate. Mirrors how
+    // NormalizeVariant guards an unknown variant string.
+    private const string DefaultLengthPreference = LengthContentSelector.Any;
+
+    // story-selection/02: the length preferences a client may legitimately send
+    // (mirrors the web's LengthPreference union). Anything else is treated as
+    // DefaultLengthPreference by NormalizeLengthPreference below.
+    private static readonly HashSet<string> KnownLengthPreferences = new(StringComparer.OrdinalIgnoreCase)
+    {
+        LengthContentSelector.Quick, LengthContentSelector.Full, LengthContentSelector.Any,
+    };
+
     private readonly RoomRegistry _rooms;
     private readonly IContentSafetyFilter _safety;
     private readonly TemplateCatalog _catalog;
     private readonly FamilySafeContentSelector _familySafe;
+    private readonly LengthContentSelector _length;
+    private readonly FreshnessContentSelector _freshness;
+    private readonly ITelemetrySink _telemetry;
+    private readonly ILogger<GameHub> _logger;
 
     public GameHub(
         RoomRegistry rooms,
         IContentSafetyFilter safety,
         TemplateCatalog catalog,
-        FamilySafeContentSelector familySafe)
+        FamilySafeContentSelector familySafe,
+        LengthContentSelector length,
+        FreshnessContentSelector freshness,
+        ITelemetrySink telemetry,
+        ILogger<GameHub> logger)
     {
         _rooms = rooms;
         _safety = safety;
         _catalog = catalog;
         _familySafe = familySafe;
+        _length = length;
+        // story-selection/03: the freshness/recycle stage, LAST before the
+        // random pick (see StartRound). Reads/writes the room's own
+        // PlayedTemplateIds history - this selector itself stays pure/stateless.
+        _freshness = freshness;
+        // story-selection/04: the anonymous serve-log sink. Fired fire-and-forget
+        // at the END of a group round start (never awaited on the round-start path,
+        // AC-03). NoOp locally, Table Storage in a configured environment (AC-05).
+        _telemetry = telemetry;
+        _logger = logger;
     }
 
     /// <summary>
@@ -484,18 +522,34 @@ public sealed class GameHub : Hub
     ///   3. Fewer than 2 players -> "you need at least one more carver" (AC-01
     ///      requires the host plus at least one other player).
     ///   4. Select a template: filter the server catalog through the family-safe
-    ///      selector using the host's toggle value (AC-04), then auto-pick one at
-    ///      random from the allowed subset (no picker UI in Slice 1). If somehow
-    ///      nothing is allowed, friendly fail rather than throw.
+    ///      selector using the host's toggle value (AC-04), then (story-selection/02,
+    ///      AC-03) narrow by the host's story-length choice through
+    ///      <see cref="LengthContentSelector"/>, then (story-selection/03, AC-02)
+    ///      narrow by this ROOM's played-template history through
+    ///      <see cref="FreshnessContentSelector"/> (recycling the whole pool once it
+    ///      runs dry, AC-03), then auto-pick one at random from the final subset (no
+    ///      picker UI in Slice 1). If somehow nothing is allowed after the
+    ///      family-safe gate, friendly fail rather than throw; an empty LENGTH pool
+    ///      instead degrades to the family-safe pool (AC-06 - see Stage 2 below), and
+    ///      an exhausted FRESHNESS pool recycles rather than failing (Stage 3 below).
     ///
     /// On success it sets the room's round state (round 1, the chosen template,
     /// Classic blind, "prompting") and broadcasts "RoundStarted" to the whole room
     /// group so EVERY player (host included) transitions into word collection
     /// together in near-real-time (AC-01, AC-02), then returns Ok=true.
+    ///
+    /// story-selection/02, AC-03: <paramref name="lengthPref"/> is the host's
+    /// story-length choice, sent as ONE MORE PARAMETER on this SAME invoke (never a
+    /// new hub method) - the SERVER enforces it, exactly like the family-safe
+    /// toggle; the client's pick is never trusted directly. A null/empty/unrecognized
+    /// value defensively falls back to "any" (<see cref="NormalizeLengthPreference"/>)
+    /// so a malformed client can only ever WIDEN toward no filtering, never bypass or
+    /// weaken the family-safe gate that always runs first (AC-05).
     /// </summary>
     /// <param name="code">The room's join code (case-insensitive).</param>
     /// <param name="familySafe">The host's family-safe toggle position; the SERVER filters the catalog by it (authoritative, AC-04).</param>
-    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe)
+    /// <param name="lengthPref">The host's story-length choice ("quick" | "full" | "any"); the SERVER filters the family-safe pool by it (authoritative, story-selection/02 AC-03). Null/empty/unrecognized falls back to "any".</param>
+    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref)
     {
         // 1. Look up the room first (an unknown / expired code has nothing to start).
         var room = _rooms.TryGet(code);
@@ -524,24 +578,55 @@ public sealed class GameHub : Hub
                 "You need at least one more carver before you can start.");
         }
 
-        // 4. Select a template: the family-safe toggle the host sent decides which
-        //    catalog entries are allowed (AC-04), and the server auto-picks one at
-        //    random from that subset (no picker UI in Slice 1). Filtering happens
-        //    HERE, server-side, so the toggle is authoritative - the client never
-        //    sends a template id.
-        var allowed = _familySafe.SelectAllowed(_catalog.Entries, familySafe);
-        if (allowed.Count == 0)
+        // 4. Select a template through the ONE explicit selection pipeline
+        //    (story-selection/01 AC-03). The stages run in a FIXED order and the
+        //    family-safe gate is ALWAYS FIRST - no path around it:
+        //
+        //    Stage 1 - FAMILY-SAFE GATE (always first, AC-04): the family-safe
+        //    toggle the host sent decides which catalog entries are allowed.
+        //    Filtering happens HERE, server-side, so the toggle is authoritative -
+        //    the client never sends a template id.
+        var familySafePool = _familySafe.SelectAllowed(_catalog.Entries, familySafe);
+        if (familySafePool.Count == 0)
         {
             // Defensive: every current seed template is family-safe, so this is
             // structurally unreachable today - but fail friendly rather than throw
             // if the catalog is ever emptied or fully non-family-safe under a
-            // family-safe round.
+            // family-safe round. This is the ONLY empty-pool that fails the round;
+            // an empty LENGTH pool degrades instead (Stage 2), never errors.
             return new StartRoundResultDto(
                 false,
                 "No tales are available right now - please try again.");
         }
 
-        var chosen = allowed[Random.Shared.Next(allowed.Count)];
+        //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
+        //    family-safe pool to the requested length class using the host's
+        //    story-length choice (story-selection/02, AC-03). A malformed/unknown
+        //    lengthPref is normalized to "any" first so a crafted client cannot
+        //    break the pick. If the requested length would leave an EMPTY pool, the
+        //    selector DEGRADES to the family-safe pool rather than failing the round
+        //    (a longer story, never an error) - the fallback lives in THIS pipeline,
+        //    not in callers.
+        var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
+
+        //    Stage 3 - FRESHNESS FILTER + recycle (story-selection/03, AC-02/AC-03):
+        //    narrow the safety+length-filtered pool to templates this ROOM has not
+        //    yet played (Room.PlayedTemplateIds - ephemeral, in-memory, dies with the
+        //    room, AC-06 - ids only, no PII). If every template in the pool has
+        //    already been played, SelectFreshOrRecycle reopens the WHOLE pool
+        //    (least-recently-played first) rather than failing the round - a repeat
+        //    is a fine outcome once the pool runs dry, an errored round is not.
+        //
+        //    AC-04 bypass seam: this is the RANDOM-pick path. A FUTURE pinned-
+        //    template replay (replay-remix/01, "carve it again") would SKIP both this
+        //    freshness stage AND the room.MarkTemplatePlayed call below (Step 5a) for
+        //    that one round - replaying a favorite must not make the random pick
+        //    "forget" the other templates this room has not seen yet. No such path
+        //    exists today; every current call site here is a fresh random pick.
+        var freshPool = _freshness.SelectFreshOrRecycle(pool, room.PlayedTemplateIds);
+
+        //    Stage 4 - RANDOM PICK from the final pool (no picker UI in Slice 1).
+        var chosen = freshPool[Random.Shared.Next(freshPool.Count)];
 
         // 5. Set the room's round state (round 1, Classic blind, "prompting") AND
         //    compute the round-robin blank assignment (group-play/02). The deal
@@ -550,6 +635,13 @@ public sealed class GameHub : Hub
         //    it deals to (a join/leave racing this lands fully before or after the
         //    deal, never mid-deal). The C# deal MIRRORS web/src/engine/distribute.ts.
         var round = room.StartRound(chosen.Id, ClassicBlindMode, chosen.BlankCount);
+
+        // 5a. story-selection/03 (AC-02): record the chosen id in THIS room's
+        //     played-template history, AFTER the round has opened, so the NEXT
+        //     StartRound's freshness stage (Stage 3 above) excludes it. This is
+        //     the RANDOM-pick path's bookkeeping - see the AC-04 bypass seam noted
+        //     at Stage 3: a future pinned-template replay would skip this call.
+        room.MarkTemplatePlayed(chosen.Id);
 
         // 6. Broadcast to the WHOLE room group (host included) so all players
         //    transition into word collection together (AC-01, AC-02). Full
@@ -573,7 +665,65 @@ public sealed class GameHub : Hub
                 new YourBlanksDto(assignment.BlankIndices));
         }
 
+        // 8. story-selection/04 (anonymous serve log, AC-01): record ONE serve
+        //    event as a FIRE-AND-FORGET epilogue. This is deliberately the LAST
+        //    thing StartRound does and is NOT awaited on the round-start path -
+        //    the round has already started and every player has already been dealt
+        //    their blanks above, so a slow / down / misconfigured sink can never
+        //    delay or block the round (AC-03). The event carries ONLY anonymous
+        //    facts: the template id, mode, derived length class, player COUNT, the
+        //    family-safe flag, and the room's OPAQUE instance id - never a
+        //    connectionId, nickname, or the join code (AC-04).
+        var serveEvent = new ServeEvent(
+            TemplateId: chosen.Id,
+            TimestampUtc: DateTimeOffset.UtcNow,
+            Mode: round.Mode,
+            // Derive the length class from the chosen template's blank count using
+            // story-01's single threshold (mirrors the web's classifyLength).
+            LengthClass: chosen.BlankCount <= LengthContentSelector.QuickMaxBlanks ? "quick" : "full",
+            PlayerCount: room.PlayerCount,
+            FamilySafe: familySafe,
+            InstanceId: room.InstanceId);
+        FireServeEvent(serveEvent);
+
         return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// story-selection/04: fire the serve event WITHOUT awaiting it on the
+    /// round-start path (AC-03). The sink already swallows its own write failures,
+    /// but a fire-and-forget task must ALSO never surface an unobserved exception,
+    /// so this wraps the call and logs anything that somehow escapes. Gameplay is
+    /// completely unaffected whether the sink succeeds, fails, or hangs.
+    /// </summary>
+    private void FireServeEvent(ServeEvent serveEvent)
+    {
+        try
+        {
+            // Start the write but do NOT await it on the round-start path (AC-03).
+            var writeTask = _telemetry.RecordServeAsync(serveEvent, CancellationToken.None);
+
+            // Observe an ASYNCHRONOUS fault so a fire-and-forget task never becomes
+            // an unobserved throw, still without awaiting it here. RecordServeAsync
+            // is contractually non-throwing, so this is belt-and-braces.
+            _ = writeTask.ContinueWith(
+                faulted => _logger.LogWarning(
+                    faulted.Exception,
+                    "Serve-log epilogue faulted for template {TemplateId} (swallowed - telemetry never gates gameplay).",
+                    serveEvent.TemplateId),
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+        }
+        catch (Exception ex)
+        {
+            // A sink that throws SYNCHRONOUSLY (before its first await) must not
+            // fault StartRound either - the round has already started (AC-03).
+            _logger.LogWarning(
+                ex,
+                "Serve-log epilogue threw for template {TemplateId} (swallowed - telemetry never gates gameplay).",
+                serveEvent.TemplateId);
+        }
     }
 
     /// <summary>
@@ -786,6 +936,25 @@ public sealed class GameHub : Hub
         }
 
         return variant.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// story-selection/02: normalize a client-supplied length preference string to
+    /// one of the three known values (case-insensitive), defaulting to
+    /// <see cref="DefaultLengthPreference"/> ("any") for null, empty, or
+    /// unrecognized input. Mirrors <see cref="NormalizeVariant"/>'s defensive
+    /// posture: a malformed client can only ever widen toward "no length
+    /// filtering", never toward anything that bypasses the family-safe gate
+    /// (that gate always runs first, unconditionally - AC-05).
+    /// </summary>
+    private static string NormalizeLengthPreference(string? lengthPref)
+    {
+        if (string.IsNullOrWhiteSpace(lengthPref) || !KnownLengthPreferences.Contains(lengthPref))
+        {
+            return DefaultLengthPreference;
+        }
+
+        return lengthPref.ToLowerInvariant();
     }
 
     // Map the in-memory Room to the wire DTO (drops the server-only connectionId).

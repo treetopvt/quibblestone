@@ -29,10 +29,16 @@ for the provider key), section 6 (only vetted text is ever spoken).
 | Story | Issue | Title | Status |
 |---|---|---|---|
 | 01 | TBD | Narrate the assembled tale with TTS | Not Started |
-| 02 | TBD | Character voice picker (pirate / robot / wizard / Guardian) | Not Started |
+| 02 | TBD | Character voice picker - player chooses AND changes the narrator's voice (**filed ahead:** [`02-character-voice-picker.md`](./02-character-voice-picker.md)) | Not Started |
 | 03 | TBD | Wire the reserved narration bar (play/pause, waveform) | Not Started |
 | 04 | TBD | Safety: only vetted, family-safe text is spoken | Not Started |
 | 05 | TBD | Gate behind the ai.voice entitlement | Not Started |
+
+> Note: this feature is still a **sketch** (no `implementation.md`; the rest of the
+> stories are decomposed when Phase 3 comes up). Story 02 is the one exception - it
+> was filed as a full story file ahead of that pass because play surfaced a concrete
+> want: the narrator should be swappable on demand (a woman's / man's / silly / scary /
+> robot / kid's voice, plus persona voices), the way a storyteller does characters.
 
 ## Dependencies
 - the-reveal (the assembled tale text, and the narration bar hooks
@@ -53,8 +59,19 @@ for the provider key), section 6 (only vetted text is ever spoken).
 - **Latency + caching.** Generate audio async and cache per `(tale, voice)` in
   Blob; a short "conjuring the voice..." state is fine, but never block the
   reveal's laugh.
-- **Character voices ARE the delight**, not neutral TTS: a small curated set
-  (pirate, robot, wizard, a warm Guardian narrator), family-safe by construction.
+- **Character voices ARE the delight**, not neutral TTS: a curated set that spans
+  both GENDER-flavored voices (a woman's, a man's, a kid's voice) AND
+  CHARACTER/effect voices (silly, scary, robot, plus personas - pirate, wizard, a
+  warm Guardian narrator). The exact roster is a live design brainstorm (story 02
+  ships a starting set + the data-driven seam to grow it), family-safe by
+  construction. Model voices as DATA (id, label, glyph, provider params,
+  family-safe flag) so adding one is config, not a code fork - the "one engine,
+  many thin modes" bet (CLAUDE.md section 2) applied to voices.
+- **The player can CHANGE the voice, not just pick one once** (story 02): swapping
+  the narrator re-narrates the SAME already-assembled tale on demand (the round is
+  never replayed), the way a storyteller switches characters mid-story. This
+  changeability is the core of the delight, so `(tale, voice)` audio is cached
+  (Blob) to keep swaps instant.
 - **Safety.** Only already-filtered coral words + vetted template text are ever
   spoken (README section 6); no unfiltered text reaches TTS. The family-safe
   toggle may limit which voice styles are offered.
@@ -79,3 +96,14 @@ for the provider key), section 6 (only vetted text is ever spoken).
   `the-reveal/01` already reserved rather than introduce new layout, and (2)
   generated audio uses the provisioned Blob resource with per-`(tale, voice)`
   caching, and only already-filtered text is ever spoken.
+- 2026-07-02: Filed story 02 (character voice picker) as a full story file ahead
+  of the rest of the phase decomposition, because play surfaced a concrete want:
+  the narrator should be player-CHANGEABLE (swap the voice, re-hear the same tale),
+  and the voice set should span gender-flavored voices (woman / man / kid) as well
+  as character/effect voices (silly / scary / robot / pirate / wizard / Guardian).
+  Recorded that the voice roster is a live brainstorm shipped as DATA (adding a
+  voice is config), that changeability re-narrates without replaying the round, and
+  that safety (family-safe toggle filters the roster) and entitlement (`ai.voice`
+  at session-creation, gate owned by story 05) are decided with the session, never
+  per playback. The other stories (01, 03, 04, 05) remain sketch until Phase 3;
+  no `implementation.md` is created yet (the feature is still a sketch overall).

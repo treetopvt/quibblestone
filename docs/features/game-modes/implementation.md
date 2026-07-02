@@ -31,6 +31,8 @@ never touches `GameHub.cs`.
 | Reveal's optional slot (**new in 03**) | `revealPresentation` (replaces the default coral-highlight body) | `web/src/pages/Reveal.tsx` |
 | Word-highlight rendering (reused read-only by 05/06) | `buildRevealParts()` + the coral highlight approach (**the-reveal/01**) | `web/src/pages/revealParts.ts`, `web/src/pages/Reveal.tsx` |
 | Word-bank source data | `Template.wordBank` / `WordBankEntry` (**template-model/01**, already defined, optional field) | `web/src/engine/template.ts` |
+| Word-bank jumble reshuffle (story 07) | a NEW pure helper mirroring `wordBankOffering.ts`; category filter reuses `wordsForCategory` (**gm/04**) | `web/src/content/wordBankJumble.ts` (new) |
+| AI-generated jumble words (story 07, premium) | the live generate + moderate pipeline (**ai-on-demand-generation**) - delegated, NOT re-implemented | `docs/features/ai-on-demand-generation/` |
 | Family-safe content gating (reused for word-bank offering, 04) | the family-safe rule (**child-safety/02**) | `web/src/content/familySafe.ts` |
 | Styling / theme tokens | the MUI theme (**design-system/01**) | `web/src/theme.ts` |
 | Shared UI contracts | gold-CTA Button, teal spark/category Chips, `BottomActionBar` (**design-system/01**) | `web/src/components/` |
@@ -62,6 +64,7 @@ coordination.
 | 04 word-bank | #53 | `web/src/engine/modes/wordBank.ts`, `web/src/pages/fillblank/WordBankAnswer.tsx`, `web/src/content/wordBankOffering.ts`, tests | gm/03, template-model/01, child-safety/02 | 05, 06 | 2 | medium |
 | 05 progressive-story | TBD | `web/src/engine/modes/progressiveStory.ts`, `web/src/pages/fillblank/StorySoFarContext.tsx`, tests | gm/03, the-reveal/01 | 04, 06 | 2 | medium |
 | 06 progressive-reveal | #52 | `web/src/engine/modes/progressiveReveal.ts`, `web/src/pages/reveal/ProgressiveRevealPresentation.tsx`, tests | gm/03, the-reveal/01 | 04, 05 | 2 | medium |
+| 07 word-bank-jumble | TBD | `web/src/pages/fillblank/WordBankAnswer.tsx` (add jumble control + swappable source), `web/src/content/wordBankJumble.ts` (new, pure reshuffle) + test; AI path delegates to ai-on-demand-generation | gm/04, template-model/01, child-safety/01+02; (AI path) ai-on-demand-generation, billing-entitlements | - | 3 (post-slice) | medium |
 
 **Concurrency per wave:** Wave 0 (01, 02) is already Complete. **Wave 1 = 03 alone, serial** - it is the only story
 permitted to edit `FillBlank.tsx`/`Reveal.tsx`, and 04/05/06 all depend on the slots it adds (`ModeSurfaces`,
@@ -136,6 +139,23 @@ extends `FillBlank.tsx` with new OPTIONAL props (regression parity is an explici
   already-vetted words. Real-time synchronization of the paced reveal across a group's players is a group-play hub
   concern, out of scope. No cumulative score, no vote, no Versus-shaped mechanic (that is the parked Versus/Duel
   mode, a genuine engine stretch, not this story's concern).
+
+### 07 - Jumble the word bank (fresh options on demand)
+- **Approach:** an enhancement to Word Bank's ANSWER SURFACE, not a new axis. Add a jumble control to
+  `WordBankAnswer.tsx` and make the offered options a swappable source. Two layers: (1) FREE deterministic reshuffle -
+  a new pure helper `web/src/content/wordBankJumble.ts` re-samples a different in-category subset from the growing
+  curated (pre-vetted) pool, unit-tested like `wordBankOffering.ts`; (2) PREMIUM AI jumble - fresh on-theme words
+  DELEGATED to `ai-on-demand-generation`'s generate + moderate pipeline, gated by an `ai.*` key at session-creation.
+- **Owns / exports:** the jumble control + swappable source in `WordBankAnswer.tsx`, and `wordBankJumble.ts` (pure
+  reshuffle). It does NOT own or fork any AI generator - that stays in `ai-on-demand-generation`.
+- **Gotchas:** curated words keep skipping the free-text filter (as gm/04), but AI-sourced words are NOT pre-vetted -
+  every one MUST pass `IContentSafetyFilter` + the family-safe gate BEFORE display (the one exception to gm/04's
+  filter-skip). No engine/axis change and no edit to `FillBlank.tsx`/`Reveal.tsx` (jumbled picks submit via the same
+  `collectWord` path) - if jumble forces an engine change, that is an abstraction leak, flag it. Deterministic
+  reshuffle is free; only the AI path is gated (entitlement at session-creation) and metered (quota, a separate seam
+  from the gate). On-brand label "Fresh runes" (the chosen name), not "shuffle" - a copy/theme token. Out of
+  scope: the AI generator itself, a cosmetic reorder of the same words (gm/04's parked shuffle), owner-curated banks,
+  and per-player personalization.
 
 ## Cross-cutting concerns
 

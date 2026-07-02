@@ -28,6 +28,7 @@
 
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
@@ -44,7 +45,7 @@ public class GameHubSubmitWordTests
         SpySafetyFilter safety,
         string connectionId)
     {
-        var hub = new GameHub(registry, safety, new TemplateCatalog(), new FamilySafeContentSelector());
+        var hub = new GameHub(registry, safety, new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), NullLogger<GameHub>.Instance);
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
         hub.Clients = clients;

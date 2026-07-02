@@ -1,6 +1,6 @@
 # Story: Story delivery metrics (the anonymous serve log)
 
-**Feature:** Story Selection & Freshness  ·  **Status:** Not Started  ·  **Issue:** #94
+**Feature:** Story Selection & Freshness  ·  **Status:** Complete  ·  **Issue:** #94
 
 ## Context
 Over time the questions that matter for the content library are: which stories
@@ -15,28 +15,28 @@ an analytics platform (root README section 12 parks that as demand-driven).
 See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a group round starts, then the server writes one serve
+- [x] AC-01: Given a group round starts, then the server writes one serve
       event: template id, UTC timestamp, mode, length class, player count,
       family-safe flag, and an opaque room instance id (a GUID minted per
       room, NOT the join code) - and nothing else.
-- [ ] AC-02: Given a solo round starts, then the client fire-and-forgets one
+- [x] AC-02: Given a solo round starts, then the client fire-and-forgets one
       serve event to a small REST endpoint carrying template id, mode
       (`solo`), length class, family-safe flag, and an opaque per-device
       session GUID - and nothing else. The endpoint validates the template id
       against the catalog and drops junk silently.
-- [ ] AC-03: Given the telemetry sink is down, slow, or misconfigured, then
+- [x] AC-03: Given the telemetry sink is down, slow, or misconfigured, then
       gameplay is completely unaffected: round start never awaits the write,
       failures are logged server-side and swallowed, and the client call has
       no retry loop that can wedge the solo flow.
-- [ ] AC-04: Given any serve event, then it contains no PII and nothing
+- [x] AC-04: Given any serve event, then it contains no PII and nothing
       traceable to a person: no nickname, no join code, no IP capture in our
       table, no player session ids from the hub (README section 6). An
       engineer reading the table can learn WHAT was served WHEN and how
       often - never to whom by name.
-- [ ] AC-05: Given local development with no Azure connection, then the sink
+- [x] AC-05: Given local development with no Azure connection, then the sink
       degrades to a no-op (or console) implementation behind the same
       interface, and the app runs exactly as today with zero setup.
-- [ ] AC-06: Given the stored events, then frequency questions ("how many
+- [x] AC-06: Given the stored events, then frequency questions ("how many
       times was `space-llama` served this month, split by mode?") are
       answerable with a straightforward table query - partition/row key design
       makes per-template time-range reads cheap.
@@ -88,3 +88,21 @@ See [feature.md](./feature.md).
   independent of 02/03 and can run in parallel with them).
 - group-play / single-player round starts (the hook points) - Complete.
 - infra/platform-devops (Storage account exists) - Complete.
+
+## Orchestration notes (Gate 1 - build/ss-04)
+- Built serialized AFTER story 02 (both edit `GameHub.StartRound`); the serve
+  write is a fire-and-forget epilogue after the RoundStarted broadcast, so it
+  hooks 02's final method with no conflict.
+- Gate-1 review: clean, no blockers. Both crux fences verified - telemetry never
+  gates gameplay (sync + async sink faults both swallowed; controller always
+  202) and no PII (a reflection test pins the `ServeEvent` field set so a future
+  PII field fails CI).
+- Carry-forward before feature-close (non-blocking):
+  - `infra/main.bicep` was NOT validated locally (`az`/`bicep` CLI absent) and CI
+    does not gate Bicep - run `az bicep build --file infra/main.bicep` before any
+    deploy. The change (StoryServes table + one deploy-composed app setting, no
+    literal secret) was eyeballed correct.
+  - MN-1: `TelemetryController` guards only synchronous sink faults; async faults
+    rely on the sinks' non-throwing contract (belt-and-braces; hub side observes
+    both). MN-2: no Vitest spec for `web/src/telemetry/serveLog.ts` yet (AC-02's
+    client half is manual-only for now).

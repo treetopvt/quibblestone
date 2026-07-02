@@ -107,6 +107,19 @@ resource apiApp 'Microsoft.Web/sites@2024-04-01' = {
       // F1). They switch on automatically when you scale the plan up.
       alwaysOn: isPaidPlan
       healthCheckPath: isPaidPlan ? '/health' : null
+      // story-selection/04 (anonymous serve log): carry the Storage connection so
+      // the API's telemetry sink writes anonymous, PII-free "template served"
+      // events to the StoryServes table (see api/src/Program.cs, which reads
+      // Telemetry:StorageConnectionString). The value is composed at DEPLOY time
+      // from the storage account's own key (storage.listKeys()) - it is NEVER a
+      // committed literal secret. Double-underscore is ASP.NET Core's config
+      // convention for the nested key "Telemetry:StorageConnectionString".
+      appSettings: [
+        {
+          name: 'Telemetry__StorageConnectionString'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+        }
+      ]
     }
   }
 }
@@ -156,6 +169,36 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     allowBlobPublicAccess: false
     supportsHttpsTrafficOnly: true
   }
+}
+
+// story-selection/04 (anonymous serve log): the Table service + the StoryServes
+// table the API's telemetry sink writes to. One tiny, PII-free "template served"
+// entity per round start lands here (partitioned by template id for cheap
+// per-template frequency reads). This is the "Table" half of the Storage account
+// the footprint already provisions (README section 9); the sink creates the table
+// on first write too, so this just makes the footprint explicit in IaC.
+resource storageTableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+}
+
+resource storyServesTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: storageTableService
+  name: 'StoryServes'
+}
+
+// story-selection/05 (per-tale thumbs feedback, issue #95): the StoryFeedback
+// table the API's telemetry sink upserts one anonymous, PII-free curation vote
+// into per player per round (PartitionKey = template id, RowKey = the opaque
+// client-minted vote id, so a changed vote overwrites - see
+// TableStorageTelemetrySink.cs). Joinable against StoryServes by template id for
+// a like-rate-per-serve report (AC-06). Sits alongside StoryServes on the SAME
+// storage account's Table service; the sink also creates it on first write, so
+// this just makes the footprint explicit in IaC (unvalidated locally if the
+// az/bicep CLI is absent - see this story's build notes).
+resource storyFeedbackTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: storageTableService
+  name: 'StoryFeedback'
 }
 
 // --- 5. Key Vault - secrets (Stripe keys, AI provider keys) once they exist --

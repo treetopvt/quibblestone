@@ -14,9 +14,15 @@ README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
 - [ ] 01 - Test harness (Vitest + Playwright)
 - [ ] 02 - Deploy to a dev environment
 - [ ] 03 - Continuous delivery to UAT on merge to main
+- [ ] 04 - Operational observability (Application Insights)
+- [ ] 05 - Anonymous product-usage metrics (game types, session length, approximate reach)
 
 ## Dependencies
-None. This is the base of the stack.
+- None for the Slice-1 stories (01-03) - this is the base of the stack.
+- child-safety (stories 04-05: telemetry must be no-PII / no-content by
+  construction, README section 6 - the audience is kids).
+- infra Key Vault (story 04: the App Insights connection string is its first real
+  consumer; CLAUDE.md section 10).
 
 ## Design notes
 - **Already delivered by the walking-skeleton PR:** monorepo (`api/`, `web/`,
@@ -28,3 +34,15 @@ None. This is the base of the stack.
   `.claude/agents/testing-agent.md`.
 - Keep the footprint tiny - do not gold-plate. New resources or pipeline steps
   must earn their place.
+- **Observability (stories 04-05) is the named-but-unspecified part of this
+  feature's remit** (see Summary). It splits deliberately: story 04 is
+  OPERATIONAL health (Application Insights - exceptions, failed requests, hub
+  failures, latency; the "find and fix bugs" layer, low privacy surface), and
+  story 05 is PRODUCT usage (anonymous game-type / session-length / approximate
+  reach). The split keeps the child-privacy-sensitive usage tracking in its own
+  tightly-scoped story. Both are **no-PII / no-content by construction** (README
+  section 6) and reuse one App Insights pipeline plus the anonymous telemetry
+  philosophy `story-selection/04` already set - not three parallel systems.
+- **README phasing:** operational observability is Platform/DevOps scope (README
+  section 7); product analytics is parked as "demand-driven" (README section 12).
+  Story 05 is that demand now being pulled forward, deliberately, and kept anonymous.
