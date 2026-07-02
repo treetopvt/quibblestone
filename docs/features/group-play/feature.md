@@ -16,10 +16,13 @@ real-time sync early de-risks the scariest part").
 - [ ] 02 - Distribute blanks among players
 - [ ] 03 - Collect words and ready the reveal
 - [ ] 04 - Round complete and replay loop
+- [ ] 05 - Group mode selection (the host picks the mode for the room)
 
 ## Dependencies
 - session-engine (room + roster)
-- game-modes (Classic blind)
+- game-modes (Classic blind for Slice 1; story 05 wires the other built modes -
+  Word Bank, Progressive Reveal - into group play via the shared mode registry)
+- single-player/02 (the solo mode picker + registry that story 05 generalizes)
 - template-model
 - the-reveal
 - child-safety
@@ -42,7 +45,24 @@ real-time sync early de-risks the scariest part").
   countdown - "no rush, the stone waits for everyone." This is a product
   stance, not a technical gap.
 
+## Design notes (mode selection, story 05)
+- Slice 1 hardcoded Classic Blind (`GameHub.StartRound` pins `Mode = "classic-blind"`;
+  `GroupRound` renders `FillBlank` with no mode surfaces). Solo shipped the picker +
+  the `SOLO_MODES` registry first (`single-player/02`); story 05 generalizes that
+  registry so the HOST picks the mode for the whole room. The seam already exists:
+  `RoundStartedDto` carries a `Mode` field - it is just pinned today.
+- Three of the four modes port to group as pure WIRING (no new real-time surface):
+  Classic Blind, Word Bank (swap the answer surface), and Progressive Reveal (pace the
+  already-broadcast reveal client-side). **Progressive Story is the exception** - its
+  "story so far" must reflect other players' in-progress fills, which needs a live
+  partial-fill broadcast (a new real-time surface). Story 05 deliberately does NOT offer
+  Progressive Story in the group picker; it is deferred to its own story rather than
+  shipped half-working. See story 05 AC-04/AC-05.
+
 ## Parked - Phase 2+
+- Progressive Story in a group (needs a live cross-player "story so far" broadcast -
+  see story 05's deferral). A follow-up story adds that real-time surface, then offers
+  the mode in the group picker.
 - Host controls to kick a player, skip a slow writer, or override a player who
   never submits (design pack Expansion 6 and 8).
 - Capacity beyond 6 players.

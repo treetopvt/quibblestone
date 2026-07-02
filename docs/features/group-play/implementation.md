@@ -42,6 +42,7 @@ serial.
 | 02 distribute-blanks | #31 | `web/src/engine/distribute.ts` (pure round-robin), edits `GameHub.cs` (assign + tell each client its own prompts) | gp/01, game-modes/01, session-engine/03 | single-player/01 | 2 | medium |
 | 03 collect-words | #32 | edits `GameHub.cs` (submission + filter + progress broadcast + reveal transition), `useGameHub.ts`, `web/src/pages/Waiting.tsx` | gp/02, the-reveal/01, child-safety/01, design-system/02 | single-player/01 | 3 | high |
 | 04 round-complete | #33 | edits `GameHub.cs` (round number, play-again, back-to-lobby, attribution payload), `useGameHub.ts`, `web/src/pages/RoundComplete.tsx` | gp/03, the-reveal/01, gp/02 (attribution), design-system/02 | single-player/01 | 4 | medium |
+| 05 group-mode-selection | TBD | shared mode registry (generalize `web/src/pages/soloModes.ts`), host mode picker on `Lobby.tsx`, `GroupRound.tsx` (resolve `round.mode` -> surfaces/config), `GameHub.cs` (`StartRound` `mode` param + per-mode template pick; populate `RoundStartedDto.Mode`), `useGameHub.ts` | gp/01-04, single-player/02 (registry), game-modes/03-06, child-safety/02 | - | 5 | medium |
 
 **Concurrency per wave:** 1 at every wave. The chain is `01 -> 02 -> 03 -> 04`, dictated both by the round lifecycle
 dependency and by the shared `GameHub.cs` + `useGameHub.ts` (and 01 shares `Lobby.tsx` with `session-engine/03`).
@@ -101,6 +102,22 @@ hub, so it serializes anyway. The whole feature runs **in parallel with `single-
   pieces), no canvas. Every displayed name has already passed the filter (AC-06); no PII shown. Out of scope:
   image/keepsake export, a Round Complete share sheet (the Reveal's share is the place), scoring/leaderboards,
   kicking players.
+
+### 05 - Group mode selection (the host picks the mode)
+- **Approach:** composition, not new mechanics. Generalize `single-player/02`'s `soloModes.ts` into a SHARED mode
+  registry (each entry = `ModeConfig` + `eligibleTemplates` + fill/reveal surface builders) that both `Solo.tsx` and
+  `GroupRound.tsx` consume. Add a host-only mode picker to the Lobby's Start flow; give `StartRound` a `mode`
+  parameter (validate against the OFFERED set, pick the template from that mode's eligible list, honor family-safe);
+  populate the already-present `RoundStartedDto.Mode` for real. `GroupRound` reads `round.mode`, resolves the registry
+  entry, and passes its surfaces into `FillBlank` (via `game-modes/03`'s optional slots) and its config into the
+  submit path.
+- **Owns / exports:** the shared registry (Solo now imports it too, unchanged behavior), the host mode picker, and the
+  real per-mode group round.
+- **Gotchas:** offer only the three modes that need NO new real-time surface - Classic Blind, Word Bank, Progressive
+  Reveal. **Progressive Story is deferred** (AC-05): its group "story so far" needs a live partial-fill broadcast (a
+  new hub surface) - do not offer a half-working version. Word Bank still skips the free-text filter (curated);
+  family-safe narrows each mode's templates at offering time. No engine edit (`engine.ts`/`assemble.ts`/`FillBlank.tsx`/
+  `Reveal.tsx`) - a leak if forced. Replay (gp/04) reuses the sticky mode; the host may change it.
 
 ## Cross-cutting concerns
 
