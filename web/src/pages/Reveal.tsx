@@ -37,6 +37,19 @@
 //  (AC-06) - unlike ShareWidget's Copy/Share pair, there is no separate Copy
 //  button here, so Share must always offer SOME action.
 //
+//  Save as image (keepsake-gallery/01, AC-01): a LOW-KEY link (not a full-size
+//  Button) sits below the outlined "Share the tale" button - secondary weight,
+//  deliberately not competing with the gold "Play another round" CTA. On tap
+//  it renders the SAME tablet via `renderTabletImage()` (../gallery/renderTablet.ts,
+//  which itself reuses `buildRevealParts` - never a second text derivation)
+//  and triggers a client-side download; there is no server round-trip (AC-06).
+//  A `savingImage` flag disables re-taps and swaps the label to "Saving
+//  image..." while it renders (AC-03). The optional `saveImageByline` prop
+//  carries the SAME attribution text the caller already shows via
+//  `attribution` (when the caller has a plain-text form of it to give) - see
+//  its own doc comment below for why Reveal never derives a second byline
+//  format and why this prop is presently unwired from any caller.
+//
 //  Narration bar (AC-07): rendered but INACTIVE in Slice 1 - the play button is
 //  disabled (a "coming soon" affordance) and the waveform bars are static (no
 //  animation). The real estate is reserved so Phase 3 can wire TTS with no
@@ -75,6 +88,7 @@ import { AppBar, BottomActionBar, BottomActionBarSpacer, FavoriteStarButton, Gua
 import type { GuardianVariant } from '../components';
 import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
+import { renderTabletImage } from '../gallery/renderTablet';
 import { buildRevealParts } from './revealParts';
 
 export interface RevealProps {
@@ -194,6 +208,25 @@ export interface RevealProps {
    * `taleFeedback`'s "never ask about a round twice" rule.
    */
   favorite?: { templateId: string; title: string };
+  /**
+   * Optional plain-text byline for the "Save as image" action (keepsake-
+   * gallery/01, AC-02): rendered onto the saved PNG as "carved by [names] &
+   * crew", sourced from the SAME attribution content the caller already
+   * passes to `attribution` above - never a second byline format invented by
+   * Reveal. Reveal stays ROOM-AGNOSTIC here too: it does not know about crews
+   * or solo, it only forwards this string (or omits the byline entirely, a
+   * still-valid image per AC-02) to `renderTabletImage()`.
+   *
+   * Presently no caller supplies this (see this file's header comment):
+   * `attribution` is a `ReactNode`, so wiring a matching plain-text string
+   * through Solo.tsx / App.tsx's group-play wrapper would touch files beyond
+   * this one for a byline that group play does not even render today (its
+   * transient reveal wrapper omits `attribution` entirely - see App.tsx). The
+   * saved image today renders the title + coral story faithfully with no
+   * byline; wiring a real byline through those callers is left as a follow-up
+   * (recorded in keepsake-gallery/01's Technical Notes).
+   */
+  saveImageByline?: string;
 }
 
 /**
@@ -472,6 +505,7 @@ export function Reveal({
   goldenGuardian,
   wordAttribution,
   favorite,
+  saveImageByline,
 }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
@@ -565,6 +599,44 @@ export function Reveal({
     }
     // Web Share unavailable at all: copy the tale so Share stays actionable.
     await copyTale();
+  };
+
+  // keepsake-gallery/01 (AC-01/AC-03): a client-local "is the image rendering
+  // right now" flag - disables re-taps and swaps the label while renderTablet
+  // does its work. Never shared with the hub; purely a UI affordance.
+  const [savingImage, setSavingImage] = useState(false);
+
+  // A filesystem-safe filename slug from the story title (AC-02: the download
+  // should read as "this tale", not a generic name). Falls back to a fixed
+  // name for a title that turns out to be all punctuation/whitespace.
+  const slugifyTitle = (title: string): string => {
+    const slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return slug.length > 0 ? slug : 'quibblestone-tale';
+  };
+
+  const handleSaveImage = async () => {
+    if (savingImage) return;
+    setSavingImage(true);
+    try {
+      const blob = await renderTabletImage({ assembled, template, theme, byline: saveImageByline });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${slugifyTitle(assembled.title)}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch {
+      // Rendering/download can fail (an unsupported canvas API, a blocked
+      // download) - fail quietly rather than surface an error UI in Slice 1,
+      // mirroring the Share button's own silent-failure posture above.
+    } finally {
+      setSavingImage(false);
+    }
   };
 
   return (
@@ -1035,6 +1107,34 @@ export function Reveal({
         >
           Share the tale
         </Button>
+        {/* Save as image (keepsake-gallery/01, AC-01): deliberately a low-key
+            Link, not a third full-width Button - it must read as secondary to
+            both the gold CTA and the outlined Share button above. Disabled
+            mid-render (AC-03) so a slow phone cannot queue up repeat taps. */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={handleSaveImage}
+            disabled={savingImage}
+            aria-busy={savingImage}
+            underline="none"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              fontFamily: '"Nunito", sans-serif',
+              fontWeight: 700,
+              fontSize: 13.5,
+              color: 'text.secondary',
+              opacity: savingImage ? 0.6 : 1,
+              cursor: savingImage ? 'default' : 'pointer',
+            }}
+          >
+            <FontAwesomeIcon icon="image" style={{ width: 14, height: 14 }} />
+            {savingImage ? 'Saving image...' : 'Save as image'}
+          </Link>
+        </Box>
         {exitAction && (
           <Box sx={{ textAlign: 'center' }}>
             <Link

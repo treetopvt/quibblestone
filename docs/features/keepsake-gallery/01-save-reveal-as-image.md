@@ -1,6 +1,6 @@
 # Story: Save the reveal as a stone-tablet image
 
-**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** #63
+**Feature:** Keepsake Gallery  ·  **Status:** In Progress  ·  **Issue:** #63
 
 ## Context
 The finished tale on the Reveal screen - confetti, "Your tale is carved!"
@@ -11,30 +11,33 @@ foundation both the share story (02) and the local-history gallery (03) build
 on. See [feature.md](./feature.md) and `docs/features/the-reveal/01-text-reveal.md`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a completed reveal on the Reveal screen, then I see an
+- [x] AC-01: Given a completed reveal on the Reveal screen, then I see an
       action to save it as an image (e.g. a "Save as image" affordance,
       secondary weight, not competing with the existing gold "Play another
       round" CTA).
-- [ ] AC-02: Given I trigger the save action, then an image is rendered
+- [x] AC-02: Given I trigger the save action, then an image is rendered
       containing: the story title, the story body with every filled-in word
       shown in coral (matching the Reveal screen's existing coral treatment),
       a byline in the form "carved by [names] & crew" (using the same
       attribution the Reveal screen already shows, when present), and the
       stone-tablet visual treatment (gradient, carved rim) - the image reads
       as a recognizable snapshot of the Reveal screen, not a plain text dump.
-- [ ] AC-03: Given the image is rendered, then it resolves in a reasonable
+      Byline mechanism is built and renders correctly when supplied (renders
+      nothing when omitted, which is valid per "when present"); no caller
+      currently supplies one - see Technical Notes.
+- [x] AC-03: Given the image is rendered, then it resolves in a reasonable
       time on a mid-range mobile device (target: under ~2 seconds) so the
       save action does not feel broken or hung; a loading state is shown
       while it renders if it takes longer than a moment.
-- [ ] AC-04: Given the rendered image, then only content that has already
+- [x] AC-04: Given the rendered image, then only content that has already
       passed the safety filter appears on it - the image introduces no new
       free-text surface and renders nothing that was not already vetted and
       shown on the live Reveal screen.
-- [ ] AC-05: Given the rendered image, then the only identity shown is the
+- [x] AC-05: Given the rendered image, then the only identity shown is the
       in-session nickname(s) + Guardian variant(s) already present in the
       byline - no PII (no real name, no email, no device identifier) is ever
       rendered onto the image.
-- [ ] AC-06: Given the rendering approach, then it is client-side (canvas or
+- [x] AC-06: Given the rendering approach, then it is client-side (canvas or
       DOM-to-image) with no new server round-trip required to produce the
       image; if client-side fidelity proves insufient during implementation,
       the story's Technical Notes record the fallback decision (a server-side
@@ -75,6 +78,36 @@ on. See [feature.md](./feature.md) and `docs/features/the-reveal/01-text-reveal.
 - Consider device-pixel-ratio scaling for a crisp image on high-DPI phones
   (the most common share target), but do not over-engineer resolution options
   for Slice-1-adjacent scope - one sensible fixed output size is enough.
+
+### Implementation record (2026-07-02)
+- Shipped a hand-built `<canvas>` render (`web/src/gallery/renderTablet.ts`):
+  no new dependency was added or needed. Public surface:
+  `renderTabletImage(input: RenderTabletInput): Promise<Blob>` and a
+  `renderTabletDataUrl(input): Promise<string>` convenience variant for a
+  future consumer (story 03) that may prefer a data URL over an object-URL
+  lifecycle. `RenderTabletInput = { assembled, template, theme, byline? }`.
+- Word-wrap layout was extracted into a separate PURE module
+  (`web/src/gallery/tabletLayout.ts`, `wrapRevealPartsIntoLines` /
+  `wrapPlainTextIntoLines`) that takes a measurement function as a dependency,
+  so it is Vitest-unit-tested (`web/src/gallery/tabletLayout.test.ts`) without
+  needing a real `<canvas>` (Vitest's `node` environment has none).
+  `renderTablet.ts` supplies the real `CanvasRenderingContext2D.measureText`
+  measurer; only the actual paint calls live outside test coverage.
+- **Byline-wiring decision:** `RevealProps.saveImageByline?: string` was added
+  to `Reveal.tsx` as the minimal seam, but it is NOT wired through any caller
+  in this story. `attribution` (the existing slot) is a `ReactNode`, not a
+  string, and group play's transient reveal (`App.tsx`'s `GroupReveal`
+  wrapper) does not pass `attribution` at all today - only solo's
+  `PersonalSummary` does, and it has no "carved by ... & crew" text to give
+  (solo has no crew). Threading a real plain-text byline through Solo.tsx
+  and/or App.tsx would touch files outside this story's `Reveal.tsx` +
+  `web/src/gallery/` footprint for behavior neither caller currently has a
+  faithful string to supply. Per this story's brief, the saved image
+  presently renders the title + coral story faithfully with NO byline (a
+  valid image per AC-02's "when present" wording); wiring a real byline into
+  Solo.tsx/App.tsx is left as a small, disjoint follow-up (a natural fit for
+  story 02 or its own tiny follow-up, since it only needs a one-line prop
+  addition once a caller has plain-text byline content to give).
 
 ## Tests
 | AC | Test |
