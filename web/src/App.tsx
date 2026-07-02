@@ -3,9 +3,9 @@
 //
 //  Routing model: real URLs via react-router, but REAL-TIME STATE STAYS THE
 //  AUTHORITY. The routes are '/' (Home), '/host' (HostSetup), '/join' +
-//  '/join/:code' (Join, deep-link pre-filled), '/solo', '/lobby', '/round',
-//  '/reveal', '/recap'. Entry screens ('/', '/host', '/join', '/solo') are
-//  user-driven. The LIVE game screens are driven by the hub: a single effect
+//  '/join/:code' (Join, deep-link pre-filled), '/solo', '/favorites', '/lobby',
+//  '/round', '/reveal', '/recap'. Entry screens ('/', '/host', '/join', '/solo',
+//  '/favorites') are user-driven. The LIVE game screens are driven by the hub: a single effect
 //  derives the target path from hook state (reveal-recap > reveal > round >
 //  lobby - the same precedence the old `view` switch used) and navigates there,
 //  so a RoundStarted / RevealReady broadcast still routes EVERY player into the
@@ -53,12 +53,29 @@
 //  both to the hook's startRound as ONE more parameter on the existing invoke -
 //  no new hub method. The Lobby's onStart type is updated to match.
 //
+//  story-selection/06 ("Favorite a story and replay it (device-local)") adds
+//  the '/favorites' entry screen plus TWO replay seams on the SAME startRound
+//  invoke (never a new hub method, AC-03):
+//    - SOLO: picking a favorite on the Favorites screen sets `pendingFavorite`
+//      (a tiny `{ templateId }`) and navigates to '/solo', which renders Solo
+//      with `initialFavorite={pendingFavorite}` - Solo's own mount effect does
+//      the actual family-safe-gated, freshness-bypassing start (AC-04/AC-06).
+//      `pendingFavorite` is cleared right after navigating so a LATER, plain
+//      "Or play solo right now" visit to '/solo' never re-fires the same
+//      favorite (Solo only ever consumes `initialFavorite` once per mount).
+//    - GROUP: the host picks from an INLINE favorites picker on Lobby.tsx
+//      (no navigation, room state stays put); `handlePlayFavorite` invokes the
+//      hub's startRound with the Lobby's CURRENT family-safe toggle (AC-06)
+//      plus the picked `templateId` - the server plays that EXACT template,
+//      still family-safe-gated first (AC-06), and the existing RoundStarted
+//      broadcast routes everyone into the round exactly like any other start.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useGameHub, type RevealInfo } from './signalr/useGameHub';
+import { useGameHub, type RevealInfo, type StartRoundResult } from './signalr/useGameHub';
 import { seedLibrary } from './content/seedLibrary';
 import { assemble, type SubmittedWord } from './engine/assemble';
 import { Home } from './pages/Home';
@@ -66,6 +83,8 @@ import { Join, type JoinProps } from './pages/Join';
 import { HostSetup } from './pages/HostSetup';
 import { Lobby } from './pages/Lobby';
 import { Solo } from './pages/Solo';
+import { Favorites } from './pages/Favorites';
+import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { Reveal } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
@@ -139,6 +158,7 @@ function GroupReveal({
         onCreateGame={onHome}
         onJoinGame={onHome}
         onPlaySolo={onHome}
+        onFavorites={onHome}
         creating={false}
         disabled={false}
       />
@@ -226,6 +246,14 @@ export default function App() {
   // the same room reuses it without re-picking. Defaults to 'full' (AC-06).
   const [lastLengthPref, setLastLengthPref] = useState<LengthPreference>('full');
 
+  // story-selection/06 (AC-03): a favorite picked on the Favorites screen for
+  // the SOLO replay seam - set right before navigating to '/solo', passed
+  // through as Solo's `initialFavorite` prop, then cleared once Solo has
+  // rendered with it (the effect below) so a LATER plain visit to '/solo'
+  // never re-fires the same favorite (Solo remounts fresh per route change,
+  // so its own fired-once ref alone cannot guard across remounts).
+  const [pendingFavorite, setPendingFavorite] = useState<{ templateId: string } | null>(null);
+
   // build/host-identity: pre-fill HostSetup + Join from the player's last-used
   // name + Guardian (device-local via identity.ts; NO PII off-device, NO account).
   // Read ONCE on mount. Falls back to '' + the default variant on a fresh device.
@@ -257,6 +285,17 @@ export default function App() {
       setPlayAgainError(null);
     }
   }, [reveal]);
+
+  // story-selection/06 (AC-03/AC-04): once Solo has rendered at '/solo' with a
+  // pending favorite (passed as its `initialFavorite` prop, which Solo's own
+  // mount effect consumes exactly once), clear it here so navigating away and
+  // back to '/solo' later (e.g. "Or play solo right now") starts a fresh,
+  // ordinary solo session rather than re-replaying the same favorite.
+  useEffect(() => {
+    if (pendingFavorite && location.pathname === '/solo') {
+      setPendingFavorite(null);
+    }
+  }, [pendingFavorite, location.pathname]);
 
   // Start a round (host) with the host's family-safe + story-length picks,
   // remembering both as sticky for the replay loop (group-play/04,
@@ -338,6 +377,38 @@ export default function App() {
     navigate('/solo');
   }, [navigate]);
 
+  // "My favorites" (story-selection/06, AC-02): no hub call, no room - a route change.
+  const handleOpenFavorites = useCallback(() => {
+    navigate('/favorites');
+  }, [navigate]);
+
+  // Favorites screen's onPick (SOLO replay, AC-03/AC-04): remember the picked
+  // template and route to '/solo', where Solo's own mount effect resolves it,
+  // gates it through family-safe, and starts it with the freshness bypass.
+  const handlePickFavorite = useCallback(
+    (entry: FavoriteEntry) => {
+      setPendingFavorite({ templateId: entry.templateId });
+      navigate('/solo');
+    },
+    [navigate],
+  );
+
+  // Lobby's host-only inline favorites picker (GROUP replay, AC-03/AC-04/AC-06):
+  // invokes the SAME startRound seam with an explicit templateId - the server
+  // plays that exact template (family-safe-gated first, freshness bypassed,
+  // AC-04) instead of a random pick. Reuses the host's sticky family-safe /
+  // length picks (the length preference is moot once a templateId is supplied,
+  // but travels along on the same call for wire-contract consistency). No new
+  // hub method; the existing RoundStarted broadcast routes everyone in on success.
+  const handlePlayFavorite = useCallback(
+    // The Lobby passes its CURRENT family-safe toggle (not the sticky value) so a
+    // favorite is gated on exactly what the host sees on that screen (AC-06). The
+    // server re-enforces the gate authoritatively regardless.
+    (templateId: string, familySafe: boolean): Promise<StartRoundResult> =>
+      startRound(familySafe, lastLengthPref, templateId),
+    [startRound, lastLengthPref],
+  );
+
   // Leave the current flow and return Home (drops the room; rooms are ephemeral and
   // the server sweeps idle ones). Solo never sets a room, so clearRoom() is a harmless
   // no-op when returning from '/solo'.
@@ -386,9 +457,14 @@ export default function App() {
             onCreateGame={handleCreateGame}
             onJoinGame={handleJoinGame}
             onPlaySolo={handlePlaySolo}
+            onFavorites={handleOpenFavorites}
             disabled={status !== 'connected'}
           />
         }
+      />
+      <Route
+        path="/favorites"
+        element={<Favorites onBack={handleGoHome} onPick={handlePickFavorite} />}
       />
       <Route
         path="/host"
@@ -418,7 +494,10 @@ export default function App() {
           }
         />
       ))}
-      <Route path="/solo" element={<Solo onExit={handleGoHome} />} />
+      <Route
+        path="/solo"
+        element={<Solo onExit={handleGoHome} initialFavorite={pendingFavorite ?? undefined} />}
+      />
       {/* Live game screens: guarded so a refresh with no live room redirects home
           (AC-05). The real-time effect above keeps the URL in sync while playing. */}
       <Route
@@ -430,6 +509,7 @@ export default function App() {
               isHost={isHost}
               onLeave={handleGoHome}
               onStart={handleStartRound}
+              onPlayFavorite={handlePlayFavorite}
               notice={roundNotice}
               onDismissNotice={dismissRoundNotice}
             />
