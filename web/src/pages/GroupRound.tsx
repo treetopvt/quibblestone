@@ -78,7 +78,7 @@ export interface GroupRoundProps {
    * the Waiting screen so the crowned player's Guardian shows the crown in the
    * progress row.
    */
-  crownedSessionId?: string | null;
+  crownedNickname?: string | null;
   /** Leave the round and return Home. */
   onLeave: () => void;
 }
@@ -134,7 +134,7 @@ export function GroupRound({
   assignedBlankIndices,
   collectProgress,
   submitWord,
-  crownedSessionId,
+  crownedNickname,
   onLeave,
 }: GroupRoundProps) {
   // Resolve the full template from the bundled seed library BY ID (the server
@@ -194,7 +194,7 @@ export function GroupRound({
       <Waiting
         progress={collectProgress}
         myWords={myWordsRef.current}
-        crownedSessionId={crownedSessionId}
+        crownedNickname={crownedNickname}
         onLeave={onLeave}
       />
     );

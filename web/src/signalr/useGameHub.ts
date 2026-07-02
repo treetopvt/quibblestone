@@ -187,7 +187,7 @@ export interface RoundInfo {
    * reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown for
    * THIS round (the previous round's funniest-word winner), or null when no crown
    * applies. Server-tracked round state (mirrors RoundStartedDto.CrownedNickname);
-   * the hook lifts it into `crownedSessionId` for the screens that render a
+   * the hook lifts it into `crownedNickname` for the screens that render a
    * Guardian, and it clears on the next round unless re-awarded.
    */
   crownedNickname: string | null;
@@ -367,7 +367,7 @@ export interface UseGameHub {
    * / on back-to-lobby / on leave. App threads it to Lobby/Waiting/RoundComplete so
    * the matching player's <Guardian crowned /> shows the crown.
    */
-  crownedSessionId: string | null;
+  crownedNickname: string | null;
   /**
    * reveal-delight/03 (AC-02): how many present players have voted in the current
    * reveal's Golden Guardian funniest-word vote (the "N" in "N of M voted"), from the
@@ -505,7 +505,7 @@ export function useGameHub(): UseGameHub {
   // round after a vote resolves; cleared on the next round (unless re-awarded) /
   // BackToLobby / RoundAborted / leave. App threads it to the Guardian-rendering
   // screens so the winner wears the crown.
-  const [crownedSessionId, setCrownedSessionId] = useState<string | null>(null);
+  const [crownedNickname, setCrownedSessionId] = useState<string | null>(null);
   // reveal-delight/03 (AC-02/AC-03): the current reveal's Golden Guardian vote state,
   // fed by the "GoldenGuardianVoteCast" (live "N of M") and "GoldenGuardianResolved"
   // (winner) broadcasts. All ephemeral per reveal: RESET on a fresh RoundStarted /
@@ -542,7 +542,7 @@ export function useGameHub(): UseGameHub {
 
     // reveal-delight/03: reset the ephemeral Golden Guardian VOTE state (the per-reveal
     // "N of M" + winner). Used by the round-ending handlers (BackToLobby / RoundAborted)
-    // and clearRoom's leave. It does NOT touch `crownedSessionId`: the crown is
+    // and clearRoom's leave. It does NOT touch `crownedNickname`: the crown is
     // server-tracked round state that lasts the whole NEXT round (AC-04), so it must
     // survive a back-to-lobby (the crowned player still wears it in the lobby and the
     // round that follows). The crown is only ever (re)set by "RoundStarted" (from the
@@ -662,7 +662,7 @@ export function useGameHub(): UseGameHub {
     // the winning contributor's nickname. winningBlankId is null when nobody voted (no
     // winner, no crown). The CROWN itself is applied on the NEXT round's RoundStarted
     // (server-tracked), so this handler only paints the current reveal's winner - it
-    // does NOT set crownedSessionId. Registered ONCE, guarded by inRoomRef.
+    // does NOT set crownedNickname. Registered ONCE, guarded by inRoomRef.
     const handleGoldenGuardianResolved = (payload: GoldenGuardianResolved) => {
       if (cancelled || !inRoomRef.current) return;
       setGoldenGuardianResolved(true);
@@ -991,7 +991,7 @@ export function useGameHub(): UseGameHub {
     reveal,
     reactionCounts,
     react,
-    crownedSessionId,
+    crownedNickname,
     goldenGuardianVotedCount,
     goldenGuardianTotalVoters,
     goldenGuardianResolved,

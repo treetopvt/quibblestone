@@ -851,27 +851,42 @@ public sealed class Room
 
         _round.GoldenGuardianResolved = true;
 
-        // Tally per token.
+        // Only votes from players STILL PRESENT count toward the winner. A player who
+        // voted then left the room during the reveal (HandlePlayerLeftAsync does not
+        // abort a reveal-phase round) must not skew the winner or the crown, and must
+        // not sit in the tie-break replay's cast order either - this keeps the resolved
+        // winner consistent with the "N of M present voted" tally (Copilot review on #112).
+        var presentConnectionIds = _players
+            .Select(p => p.ConnectionId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Tally per token, present voters only.
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var token in _round.GoldenGuardianVotes.Values)
+        foreach (var (connectionId, token) in _round.GoldenGuardianVotes)
         {
+            if (!presentConnectionIds.Contains(connectionId))
+            {
+                continue;
+            }
             counts[token] = counts.TryGetValue(token, out var c) ? c + 1 : 1;
         }
         if (counts.Count == 0)
         {
-            // No votes cast - resolved with no winner, so no crown is awarded.
+            // No votes from present players - resolved with no winner, so no crown.
             _round.GoldenGuardianWinningBlankId = null;
             return;
         }
 
         var maxCount = counts.Values.Max();
 
-        // Tie-break: replay the cast order and take the first token to reach maxCount.
+        // Tie-break: replay the cast order (present voters only) and take the first
+        // token to reach maxCount.
         var running = new Dictionary<string, int>(StringComparer.Ordinal);
         string? winningToken = null;
         foreach (var connectionId in _round.GoldenGuardianCastOrder)
         {
-            if (!_round.GoldenGuardianVotes.TryGetValue(connectionId, out var token))
+            if (!presentConnectionIds.Contains(connectionId) ||
+                !_round.GoldenGuardianVotes.TryGetValue(connectionId, out var token))
             {
                 continue;
             }

@@ -123,16 +123,27 @@ function FloatingIcon({
   // Start visible, then flip to trigger the opacity TRANSITION (never a keyframe).
   const [leaving, setLeaving] = useState(false);
 
+  // Keep the latest onDone in a ref so the mount effect below can fire it without
+  // listing it as a dependency. The parent (ReactionRow) passes a fresh inline
+  // `onDone` on every render (it closes over removeFloater), so depending on it
+  // would restart this effect - re-arming the fade and pushing the removal
+  // timeout out - on any parent re-render (e.g. a live count update), leaving the
+  // floater on screen far longer than FLOAT_MS.
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
   useEffect(() => {
     // Kick the fade on the next frame so the transition has a start state to move
-    // from, and schedule removal once the ~1100ms rise/fade completes.
+    // from, and schedule removal once the ~1100ms rise/fade completes. Runs ONCE
+    // on mount (empty deps) - the removal fires exactly FLOAT_MS after the icon
+    // appears, regardless of parent re-renders.
     const raf = requestAnimationFrame(() => setLeaving(true));
-    const timer = window.setTimeout(onDone, FLOAT_MS);
+    const timer = window.setTimeout(() => onDoneRef.current(), FLOAT_MS);
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(timer);
     };
-  }, [onDone]);
+  }, []);
 
   return (
     <Box

@@ -94,7 +94,7 @@ export interface LobbyProps {
    * round (the previous round's funniest-word winner), or null when no crown applies.
    * The matching roster tile's Guardian shows the crown overlay.
    */
-  crownedSessionId?: string | null;
+  crownedNickname?: string | null;
   /** Leave the lobby and return Home (the app-bar close action). */
   onLeave: () => void;
   /**
@@ -521,7 +521,7 @@ function ShareWidget({ code }: { code: string }) {
 export function Lobby({
   room,
   isHost,
-  crownedSessionId,
+  crownedNickname,
   onLeave,
   onStart,
   onPlayFavorite,
@@ -717,7 +717,7 @@ export function Lobby({
             <PlayerTile
               key={player.nickname}
               player={player}
-              crowned={!!crownedSessionId && player.nickname === crownedSessionId}
+              crowned={!!crownedNickname && player.nickname === crownedNickname}
             />
           ))}
           {Array.from({ length: emptyCount }, (_, index) => (

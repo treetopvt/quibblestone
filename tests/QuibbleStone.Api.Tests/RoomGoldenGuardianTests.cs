@@ -161,4 +161,38 @@ public class RoomGoldenGuardianTests
         var roundAfter = room.StartRound("tmpl-3", "classic-blind", blankCount: 2);
         Assert.Null(roundAfter.CrownedNickname);
     }
+
+    [Fact]
+    public void DepartedVoter_DoesNotSkewTheWinner()
+    {
+        // Four players so three can vote without auto-resolving (the 4th abstains),
+        // leaving room to make voters LEAVE before the host closes the vote.
+        var room = Room.CreateHosted("ABCD", "conn-0", "Host", "teal");
+        Assert.True(room.TryAddPlayer("P1", "gold", "conn-1"));
+        Assert.True(room.TryAddPlayer("P2", "coral", "conn-2"));
+        Assert.True(room.TryAddPlayer("P3", "plum", "conn-3"));
+        room.StartRound("tmpl-1", "classic-blind", blankCount: 4);
+        room.RecordSubmission("conn-0", 0, "alpha");
+        room.RecordSubmission("conn-1", 1, "bravo");
+        room.RecordSubmission("conn-2", 2, "charlie");
+        Assert.Equal(Room.SubmitOutcome.RoundComplete, room.RecordSubmission("conn-3", 3, "delta"));
+
+        // P1 and P2 vote blank "2" (P2's "charlie"); Host votes blank "0" (its "alpha").
+        // P3 abstains, so the vote does NOT auto-resolve (3 of 4).
+        room.CastGoldenGuardianVote("conn-1", "2");
+        room.CastGoldenGuardianVote("conn-2", "2");
+        Assert.False(room.CastGoldenGuardianVote("conn-0", "0").Resolved);
+
+        // The two "2" voters leave the room during the reveal (their votes stay recorded).
+        Assert.True(room.RemovePlayer("conn-1"));
+        Assert.True(room.RemovePlayer("conn-2"));
+
+        // Host closes voting. Only the present voter (Host -> "0") counts - the two
+        // departed votes for "2" are excluded, so the winner is "0" (Host's word),
+        // NOT "2". A leave-after-vote can never skew the winner or the crown.
+        var result = room.CloseGoldenGuardian();
+        Assert.True(result.Resolved);
+        Assert.Equal("0", result.WinningBlankId);
+        Assert.Equal("Host", result.WinnerNickname);
+    }
 }

@@ -87,7 +87,7 @@ export interface RoundCompleteProps {
    * round (the previous round's funniest-word winner), or null when no crown applies.
    * The matching crew tile's Guardian shows the crown overlay.
    */
-  crownedSessionId?: string | null;
+  crownedNickname?: string | null;
   /** Whether THIS client is the host - gates the two action buttons (Slice 1 host-driven). */
   isHost: boolean;
   /**
@@ -296,7 +296,7 @@ export function RoundComplete({
   title,
   crew,
   totalWords,
-  crownedSessionId,
+  crownedNickname,
   isHost,
   canPlayAgain,
   playAgainError,
@@ -413,7 +413,7 @@ export function RoundComplete({
               <CrewTile
                 key={member.nickname}
                 member={member}
-                crowned={!!crownedSessionId && member.nickname === crownedSessionId}
+                crowned={!!crownedNickname && member.nickname === crownedNickname}
               />
             ))}
           </Stack>

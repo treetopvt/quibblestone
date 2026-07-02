@@ -75,7 +75,7 @@ export interface WaitingProps {
    * round (the previous round's funniest-word winner), or null when no crown applies.
    * The matching player's Guardian in the progress row shows the crown overlay.
    */
-  crownedSessionId?: string | null;
+  crownedNickname?: string | null;
   /** Leave the round and return Home. */
   onLeave: () => void;
 }
@@ -311,7 +311,7 @@ function ReviewMyWords({ myWords, onBack, onLeave }: { myWords: MyWord[]; onBack
   );
 }
 
-export function Waiting({ progress, myWords, crownedSessionId, onLeave }: WaitingProps) {
+export function Waiting({ progress, myWords, crownedNickname, onLeave }: WaitingProps) {
   // Local, client-side toggle for the read-only "Review my words" view (AC-04) -
   // no server round-trip, no routing change; this screen owns it.
   const [reviewing, setReviewing] = useState(false);
@@ -360,7 +360,7 @@ export function Waiting({ progress, myWords, crownedSessionId, onLeave }: Waitin
                 nickname={player.nickname}
                 variant={player.variant}
                 done={player.done}
-                crowned={!!crownedSessionId && player.nickname === crownedSessionId}
+                crowned={!!crownedNickname && player.nickname === crownedNickname}
               />
             ))}
           </Stack>

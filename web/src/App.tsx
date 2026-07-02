@@ -289,7 +289,7 @@ export default function App() {
     reveal,
     reactionCounts,
     react,
-    crownedSessionId,
+    crownedNickname,
     goldenGuardianVotedCount,
     goldenGuardianTotalVoters,
     goldenGuardianResolved,
@@ -519,7 +519,7 @@ export default function App() {
             title={template ? template.title : 'Your tale'}
             crew={crew}
             totalWords={totalWords}
-            crownedSessionId={crownedSessionId}
+            crownedNickname={crownedNickname}
             isHost={isHost}
             canPlayAgain={room.players.length >= 2}
             playAgainError={playAgainError}
@@ -593,7 +593,7 @@ export default function App() {
             <Lobby
               room={room}
               isHost={isHost}
-              crownedSessionId={crownedSessionId}
+              crownedNickname={crownedNickname}
               onLeave={handleGoHome}
               onStart={handleStartRound}
               onPlayFavorite={handlePlayFavorite}
@@ -617,7 +617,7 @@ export default function App() {
               assignedBlankIndices={assignedBlankIndices}
               collectProgress={collectProgress}
               submitWord={submitWord}
-              crownedSessionId={crownedSessionId}
+              crownedNickname={crownedNickname}
               onLeave={handleGoHome}
             />
           ) : (

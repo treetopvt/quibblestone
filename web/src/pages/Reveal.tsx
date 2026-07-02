@@ -824,6 +824,13 @@ export function Reveal({
                             bgcolor: alpha(theme.palette.gold.main, 0.2),
                             boxShadow: `0 0 0 3px ${theme.palette.gold.main}, 0 0 14px ${alpha(theme.palette.gold.main, 0.7)}`,
                             animation: `${winnerPop} 0.5s ease-out both`,
+                            // The winner's animation override re-adds motion on top of the
+                            // carve-in's reduced-motion guard above, so re-assert the guard
+                            // here (emitted last, it wins): a reduced-motion player gets the
+                            // static gold ring with no pop (Copilot review on #112).
+                            '@media (prefers-reduced-motion: reduce)': {
+                              animation: 'none',
+                            },
                           }),
                           // reveal-delight/04 (AC-02): a subtle tappable cue for
                           // attribution, ADDITIVE only - never overrides the coral
