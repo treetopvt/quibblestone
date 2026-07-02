@@ -83,4 +83,18 @@ public sealed class AiOptions
     /// 0001: gpt-4o-mini = 0.60). See <see cref="InputCostPerMillion"/>.
     /// </summary>
     public decimal OutputCostPerMillion { get; set; } = 0.60m;
+
+    /// <summary>
+    /// The per-anonymous-session AI call quota (ai-cost-gate/03, AC-01) - how many
+    /// AI units ("Fresh Runes") one session (keyed by the anonymous Room.InstanceId)
+    /// may spend before it degrades to the deterministic fallback. Bound from
+    /// <c>Ai:QuotaPerSession</c> so N lives in ONE config place, never scattered
+    /// literals. The alpha default is a sensible, generous-but-bounded ceiling: enough
+    /// to play with the AI runes across a session, low enough that a replaying client
+    /// cannot multiply spend without bound. <see cref="AiQuota"/> reads this; the
+    /// remaining count is server-authoritative and threaded to the client meter. A
+    /// value &lt;= 0 means "no allowance" (every call falls back), which is the
+    /// fail-safe side, never "unlimited".
+    /// </summary>
+    public int QuotaPerSession { get; set; } = 20;
 }

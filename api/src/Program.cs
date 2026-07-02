@@ -24,6 +24,7 @@
 //  Azure setup.
 // ----------------------------------------------------------------------------
 
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Content;
@@ -171,10 +172,59 @@ else
 // pass-through moderator default is NEVER shipped to a real AI consumer - story 05
 // lands before ai-on-demand-generation/05 goes live. Every future AI feature is a
 // CONSUMER of GatedAiCompletionClient, never a new gate.
-builder.Services.AddSingleton<IAiQuota, UnlimitedAiQuota>();
+// ai-cost-gate/03 (#122): the REAL per-anonymous-session quota replaces the story-01
+// pass-through (UnlimitedAiQuota). It enforces a per-session AI call allowance keyed
+// on the anonymous Room.InstanceId (never PII) BEFORE the transport, and reports the
+// server-authoritative "N Fresh Runes left" count for the client meter. In-memory +
+// thread-safe + fail-safe (deny on any error, never unlimited). Singleton so every
+// transient GameHub invocation shares the one counter (mirrors RoomRegistry). The
+// per-IP abuse guard (AC-03) is the SEPARATE named rate-limiter registered below.
+builder.Services.AddSingleton<IAiQuota, AiQuota>();
 builder.Services.AddSingleton<IAiSpendGuard, NoOpAiSpendGuard>();
 builder.Services.AddSingleton<IAiOutputModerator, PassthroughAiOutputModerator>();
 builder.Services.AddSingleton<GatedAiCompletionClient>();
+
+// ai-cost-gate/03 (#122) AC-03: the per-IP abuse guard - a COARSE cap on the
+// aggregate AI call rate from one origin, on top of the per-session quota above, so
+// spinning up many anonymous sessions from one client cannot multiply spend without
+// bound. This is a NAMED, endpoint-scoped policy (AiPerIpRateLimitPolicy) partitioned
+// by the remote IP - it is deliberately NOT a GLOBAL limiter, so it never throttles
+// the existing REST / SignalR surface. The future AI consumer (the Fresh Runes jumble,
+// ai-on-demand-generation/05) OPTS IN by decorating its endpoint with
+// [EnableRateLimiting(Program.AiPerIpRateLimitPolicy)] (or the equivalent on its hub
+// path); no AI HTTP endpoint exists in THIS feature yet, so the policy is registered
+// and inert until a consumer applies it. The IP is used TRANSIENTLY as the partition
+// key ONLY (AC-03/AC-04): it is never persisted here, never logged, and never attached
+// to telemetry (the PiiScrubbingTelemetryInitializer already zeroes client IP on the
+// telemetry path). app.UseRateLimiter() (below) adds the middleware that enforces the
+// policy where an endpoint opts in.
+builder.Services.AddRateLimiter(options =>
+{
+    // A rejected request degrades gracefully (AC-05): 429 rather than an error page.
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Fixed window per remote IP. The limits are coarse abuse-guard values (a family
+    // toy, not a hardened public API): generous for real play, low enough to blunt a
+    // scripted spin-up. Kept as local consts (one place), not scattered literals.
+    const int aiPerIpPermitPerWindow = 30;
+    var aiPerIpWindow = TimeSpan.FromMinutes(1);
+
+    options.AddPolicy(AiPerIpRateLimitPolicy, httpContext =>
+    {
+        // Partition on the remote IP (transient key only - never stored/logged). A
+        // missing IP (unusual) folds into one shared "unknown" bucket rather than
+        // bypassing the guard.
+        var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey,
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = aiPerIpPermitPerWindow,
+                Window = aiPerIpWindow,
+                QueueLimit = 0,
+            });
+    });
+});
 
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
 // so every transient GameHub instance (SignalR builds a fresh hub per
@@ -221,6 +271,14 @@ var app = builder.Build();
 
 app.UseCors(webClientCorsPolicy);
 
+// ai-cost-gate/03 (#122) AC-03: enforce the rate-limiter middleware in the pipeline
+// so the NAMED per-IP AI policy (registered above) applies wherever the future AI
+// consumer opts in with [EnableRateLimiting(Program.AiPerIpRateLimitPolicy)]. With no
+// global limiter configured, this is INERT for every current REST / hub endpoint - it
+// only ever engages on an endpoint that names the policy, so the existing surface is
+// never throttled.
+app.UseRateLimiter();
+
 // REST endpoints (e.g. GET /health from HealthController).
 app.MapControllers();
 
@@ -228,3 +286,14 @@ app.MapControllers();
 app.MapHub<GameHub>("/hubs/game");
 
 app.Run();
+
+// ai-cost-gate/03 (#122) AC-03: the shared name of the per-IP AI rate-limit policy,
+// exposed on the top-level Program class so the future AI consumer can reference it
+// symbolically ([EnableRateLimiting(Program.AiPerIpRateLimitPolicy)]) instead of
+// re-typing a string literal. Program is the class the top-level statements above
+// compile into; this partial adds the one shared const.
+public partial class Program
+{
+    /// <summary>The named per-IP AI rate-limit policy (ai-cost-gate/03, AC-03).</summary>
+    public const string AiPerIpRateLimitPolicy = "ai-per-ip";
+}
