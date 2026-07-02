@@ -89,6 +89,29 @@ describe('loadFavorites', () => {
     expect(loadFavorites()).toEqual([]);
   });
 
+  it('rejects entries whose fields are whitespace-only', () => {
+    fakeStorage.setItem(STORAGE_KEY, JSON.stringify([{ templateId: '   ', title: 'Blank id' }]));
+    expect(loadFavorites()).toEqual([]);
+    fakeStorage.setItem(STORAGE_KEY, JSON.stringify([{ templateId: 'wobbly-wizard', title: '  ' }]));
+    expect(loadFavorites()).toEqual([]);
+  });
+
+  it('normalizes each entry to exactly { templateId, title }, dropping stray fields (AC-05)', () => {
+    // A pre-existing / corrupted entry carrying extra fields must not survive a
+    // load - otherwise a later removeFavorite would write the junk back.
+    fakeStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([{ templateId: 'wobbly-wizard', title: 'The Wobbly Wizard', words: ['secret'], sneaky: true }]),
+    );
+    expect(loadFavorites()).toEqual([{ templateId: 'wobbly-wizard', title: 'The Wobbly Wizard' }]);
+    // And the junk cannot round-trip back to storage on a subsequent write.
+    removeFavorite('some-other-id');
+    const raw = fakeStorage.getItem(STORAGE_KEY);
+    expect(raw).not.toBeNull();
+    const stored: unknown = JSON.parse(raw ?? '[]');
+    expect(stored).toEqual([{ templateId: 'wobbly-wizard', title: 'The Wobbly Wizard' }]);
+  });
+
   it('never throws when storage is unavailable', () => {
     (globalThis as unknown as { window: Window }).window = {} as unknown as Window;
     expect(() => loadFavorites()).not.toThrow();

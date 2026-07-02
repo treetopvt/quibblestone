@@ -641,12 +641,17 @@ export function useGameHub(): UseGameHub {
       // transition for EVERYONE (host included) so all players move together
       // (AC-01, AC-02).
       try {
+        // Normalize the explicit-pick id client-side: an empty or whitespace-only
+        // string is NOT an explicit pick, so send null rather than passing it over
+        // the wire (the server treats blank as "no pick" too, but normalizing here
+        // avoids ever sending an ambiguous value from a corrupted favorite id).
+        const explicitTemplateId = templateId && templateId.trim().length > 0 ? templateId : null;
         return await connection.invoke<StartRoundResult>(
           'StartRound',
           code,
           familySafe,
           lengthPref,
-          templateId ?? null,
+          explicitTemplateId,
         );
       } catch {
         // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).

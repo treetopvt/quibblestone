@@ -70,9 +70,14 @@ export interface FavoriteEntry {
   title: string;
 }
 
-/** True when `value` is a non-empty string. */
+/**
+ * True when `value` is a NON-BLANK string. Whitespace-only values (e.g. `'   '`)
+ * are rejected so corrupted storage can never yield a favorite with a blank
+ * templateId/title, matching the server's IsNullOrWhiteSpace convention for the
+ * explicit-pick templateId.
+ */
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 /** True when `value` is a well-shaped FavoriteEntry (AC-05: templateId + title only). */
@@ -105,10 +110,17 @@ export function loadFavorites(): FavoriteEntry[] {
       return [];
     }
 
+    // Normalize each entry to EXACTLY { templateId, title } (AC-05: nothing
+    // else). Any stray fields from corruption, an older stored shape, or a
+    // manual edit are dropped HERE, so they can never be preserved in memory
+    // and written back on a later add/remove - the "ids + title only" storage
+    // contract holds even for pre-existing junk.
+    const normalized = parsed.map((entry) => ({ templateId: entry.templateId, title: entry.title }));
+
     // Defensive backstop (see file header): even a corrupted/oversized entry
     // never grows the in-memory list past the cap - the newest-first order
     // means the OLDEST entries (the tail) are the ones dropped.
-    return parsed.length > MAX_FAVORITES ? parsed.slice(0, MAX_FAVORITES) : parsed;
+    return normalized.length > MAX_FAVORITES ? normalized.slice(0, MAX_FAVORITES) : normalized;
   } catch {
     // Storage unavailable / disabled, quota, or malformed JSON - treat as "none".
     return [];
