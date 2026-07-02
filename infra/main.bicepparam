@@ -18,3 +18,12 @@ param environmentName = 'dev'
 // location defaults to the resource group's location (resourceGroup().location).
 // Override only if the resources must live in a different region than the group:
 //   param location = 'eastus'
+
+// --- AI cost gate deploy inputs (ai-cost-gate/06) ----------------------------
+// All optional with safe defaults (see main.bicep). Non-secret knobs can live here;
+// the alert EMAIL must NOT (AC-07) - pass it at deploy time instead:
+//   az deployment group create ... -p alertEmail='you@example.com'
+// Leave alertEmail unset and the budget + action group are simply not provisioned.
+//   param monthlyBudgetUsd = 20          // the $20/month backstop ceiling (default)
+//   param deployContentSafety = false    // flip true to add the optional 2nd moderation layer
+//   param budgetStartDate = '2026-07-01' // first of the month you provision in
