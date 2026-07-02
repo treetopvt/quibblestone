@@ -1,6 +1,6 @@
 # Story: Story delivery metrics (the anonymous serve log)
 
-**Feature:** Story Selection & Freshness  ·  **Status:** In Progress  ·  **Issue:** #94
+**Feature:** Story Selection & Freshness  ·  **Status:** In Review  ·  **Issue:** #94
 
 ## Context
 Over time the questions that matter for the content library are: which stories

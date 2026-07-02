@@ -1,6 +1,6 @@
 # Story: Length classes + the one selection pipeline
 
-**Feature:** Story Selection & Freshness  ·  **Status:** In Progress  ·  **Issue:** #91
+**Feature:** Story Selection & Freshness  ·  **Status:** In Review  ·  **Issue:** #91
 
 ## Context
 Today both template picks (solo in `Solo.tsx`, group in `GameHub.StartRound`)
