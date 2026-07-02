@@ -20,6 +20,21 @@
 //  a second copy of the feature-detect/AbortError dance.
 // ----------------------------------------------------------------------------
 
+/**
+ * A filesystem-safe filename slug from a tale title, so a shared/downloaded
+ * image reads as "this tale" rather than a generic name. Falls back to a fixed
+ * name for a title that is all punctuation/whitespace. The ONE slug rule -
+ * both Reveal.tsx's "Save as image" download and Gallery.tsx's re-share import
+ * it, rather than each keeping its own copy.
+ */
+export function slugifyTitle(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : 'quibblestone-tale';
+}
+
 /** Input to {@link shareImageFile}. */
 export interface ShareImageFileInput {
   /** The image file to share (already built by the caller - this module never renders one). */

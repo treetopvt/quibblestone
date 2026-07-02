@@ -119,7 +119,7 @@ import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
 import { renderTabletImage } from '../gallery/renderTablet';
 import { saveTale } from '../gallery/localGallery';
-import { shareImageFile } from '../gallery/shareImageFile';
+import { shareImageFile, slugifyTitle } from '../gallery/shareImageFile';
 import { buildRevealParts } from './revealParts';
 
 export interface RevealProps {
@@ -613,17 +613,6 @@ export function Reveal({
     }
   };
 
-  // A filesystem-safe filename slug from the story title (AC-02: the download/
-  // shared file should read as "this tale", not a generic name). Falls back to
-  // a fixed name for a title that turns out to be all punctuation/whitespace.
-  // Shared by the image-share path below and handleSaveImage (one slug rule).
-  const slugifyTitle = (title: string): string => {
-    const slug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    return slug.length > 0 ? slug : 'quibblestone-tale';
-  };
 
   // The EXISTING text-only share path (session-engine/04 pattern), unchanged
   // by this story: feature-detect `navigator.share`, swallow a user-cancelled

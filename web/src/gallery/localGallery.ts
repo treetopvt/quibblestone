@@ -156,6 +156,11 @@ function openDatabase(): Promise<IDBDatabase> {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('Failed to open the gallery database.'));
+    // Cannot fire at DB_VERSION 1, but a future schema bump while another tab
+    // holds the DB open would otherwise leave this promise forever unsettled
+    // (hanging every getDb() await). Reject instead - callers swallow it, so
+    // the gallery degrades to empty rather than hanging (keepsake/03 SUG-02).
+    request.onblocked = () => reject(new Error('The gallery database is blocked by another open tab.'));
   });
 }
 

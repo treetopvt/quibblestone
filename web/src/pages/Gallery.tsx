@@ -46,20 +46,11 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { AppBar } from '../components';
 import { getTaleImage, listTales, type TaleMeta } from '../gallery/localGallery';
-import { shareImageFile } from '../gallery/shareImageFile';
+import { shareImageFile, slugifyTitle } from '../gallery/shareImageFile';
 
 export interface GalleryProps {
   /** Return to Home (the app-bar back action). */
   onBack: () => void;
-}
-
-/** A filesystem-safe filename slug from the tale title - mirrors Reveal.tsx's slugifyTitle (one slug rule). */
-function slugifyTitle(title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug.length > 0 ? slug : 'quibblestone-tale';
 }
 
 /** A short, friendly saved-date string ("Jul 2, 2026"). Falls back to '' rather than throwing on an odd timestamp. */
@@ -172,6 +163,13 @@ export function Gallery({ onBack }: GalleryProps) {
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resharing, setResharing] = useState(false);
+  // Set when a re-share tap could not open the share sheet (no Web Share file
+  // support - most desktops). Without this the button would silently do
+  // nothing; instead we tell the player where sharing does work. The stored
+  // tale has no engine story text to fall back to sharing as plain text, so an
+  // honest "not here" message is the right graceful degrade (keepsake/03 review
+  // WARN-01). Cleared whenever a fresh share is attempted or the view changes.
+  const [reshareUnavailable, setReshareUnavailable] = useState(false);
 
   // Load the saved tale list + each tale's image as an object URL. Every URL
   // created is tracked in the effect-local `urls` map and revoked on cleanup
@@ -205,6 +203,12 @@ export function Gallery({ onBack }: GalleryProps) {
     };
   }, []);
 
+  // Clear any "sharing not available" note when switching tales / leaving the
+  // detail view, so it never lingers onto a different tale (keepsake/03 WARN-01).
+  useEffect(() => {
+    setReshareUnavailable(false);
+  }, [selectedId]);
+
   const selectedTale = tales.find((tale) => tale.id === selectedId);
   const selectedUrl = selectedId ? imageUrls[selectedId] : undefined;
 
@@ -214,18 +218,22 @@ export function Gallery({ onBack }: GalleryProps) {
   const handleReshare = async () => {
     if (!selectedTale || resharing) return;
     setResharing(true);
+    setReshareUnavailable(false);
     try {
       const blob = await getTaleImage(selectedTale.id);
       if (!blob) return;
       const file = new File([blob], `${slugifyTitle(selectedTale.title)}.png`, { type: 'image/png' });
-      await shareImageFile({
+      // shareImageFile never throws; it resolves false when Web Share file
+      // support is absent (or the share failed for a non-cancel reason). The
+      // stored image has no engine text to fall back to sharing as plain text,
+      // so instead of a silent no-op we surface a brief "not on this device"
+      // note so the tap is never a dead end (keepsake/03 review WARN-01).
+      const shared = await shareImageFile({
         file,
         title: selectedTale.title,
         text: selectedTale.bylineNames ?? selectedTale.title,
       });
-      // shareImageFile never throws; when file sharing is unsupported it
-      // simply resolves false and the tap is a graceful no-op - the stored
-      // image has no engine text to fall back to sharing as plain text.
+      if (!shared) setReshareUnavailable(true);
     } finally {
       setResharing(false);
     }
@@ -274,6 +282,14 @@ export function Gallery({ onBack }: GalleryProps) {
           >
             {resharing ? 'Preparing to share...' : 'Share this tale'}
           </Button>
+          {reshareUnavailable && (
+            <Typography
+              role="status"
+              sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}
+            >
+              Sharing isn't available on this device - it works from a phone's share menu.
+            </Typography>
+          )}
         </Stack>
       ) : (
         <Stack sx={{ px: 5.5, pt: 3, pb: 6 }} spacing={3}>
