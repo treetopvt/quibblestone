@@ -16,6 +16,7 @@ MUI theme. No hardcoded colors or pixel spacing in components."
 - [ ] 01 - MUI theme, AppBar, and Button shell
 - [ ] 02 - Guardian avatar component (6 variants)
 - [ ] 03 - Orientation: prefer portrait, stay readable in landscape
+- [x] 04 - Client routing (react-router) - real URLs + `/join/:code` deep link
 
 ## Dependencies
 None (this is the UI foundation everything else renders on top of).
@@ -37,13 +38,15 @@ None (this is the UI foundation everything else renders on top of).
   character. It can ship as an optimized SVG asset or illustrated component;
   it is in scope for story 01 as an asset, not a parameterised component.
 
-## Parked - Phase 2+
-- **Client routing with react-router** (#59): replace the single-`view`-state
-  navigation in `web/src/App.tsx` with real routes - URLs, browser back/forward,
-  refresh-to-current-screen, and a deep-link join URL (`/join/:code`). Decided (the
-  overhead is worth it). Keep `useGameHub` mounted once ABOVE the router so the one
-  SignalR connection is never remounted/duplicated; hub/API URLs still from
-  `import.meta.env`. Pairs with the parked reconnect hardening (session-engine).
+## Delivered
+- **Client routing with react-router** (#59, story 04): the single-`view`-state
+  navigation in `web/src/App.tsx` is now real routes (`/`, `/host`, `/join`,
+  `/join/:code`, `/solo`, `/lobby`, `/round`, `/reveal`, `/recap`) with a deep-link
+  join URL. `useGameHub` is mounted once ABOVE `<Routes>` (one connection, never
+  remounted); real-time state stays the navigation authority so the live flow is
+  unchanged. Unblocks `session-engine/06` (the share payload for `/join/:code`) and
+  pairs with the parked reconnect hardening (session-engine). See
+  `04-client-routing.md`.
 
 ## Parked - Phase 4
 - Dyslexia-friendly font option and reduced-motion variants of all animations
