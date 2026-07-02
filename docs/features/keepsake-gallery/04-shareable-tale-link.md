@@ -119,10 +119,28 @@ child-safety and privacy guardrails. See [feature.md](./feature.md).
   public `GET /t/{slug}`). Registered in `Program.cs` connection-string-gated,
   exactly like the telemetry sink. NO new NuGet (`Azure.Data.Tables` already
   referenced).
-- **Server-side re-vet (AC-03):** every coral word AND the byline run through the
-  injected `IContentSafetyFilter` on publish; any failure rejects the whole publish
-  (400) with a generic message. Literal template text is author-safe and not
-  re-vetted. All stored content is HTML-encoded on render (XSS defense in depth).
+- **Server-side re-vet (AC-03):** EVERY non-empty part - coral words AND "literal"
+  template runs - plus the byline run through the injected `IContentSafetyFilter`
+  on publish; any failure rejects the whole publish (400) with a generic message.
+  All stored content is HTML-encoded on render (XSS defense in depth).
+  - **Security-review fix (CR-001, 2026-07-02):** the first cut re-vetted only the
+    parts the CLIENT flagged `IsWord=true` and trusted "literal" parts verbatim.
+    That was an exploitable child-safety bypass: a crafted anonymous POST could
+    mark unfiltered text as a `literal` part and land it on the public,
+    child-visible page (HTML-encoding stops script injection but not unsafe content
+    DISPLAY). Fixed to re-vet every non-empty part regardless of the client's
+    classification - the server has no template to verify a "literal" claim against
+    and the endpoint is untrusted. Genuine author template text is
+    false-positive-resistant and passes. Covered by
+    `PublishedTalesControllerTests.Publish_rejects_an_unsafe_LITERAL_part_a_lying_client_tags_as_not_a_word`.
+- **Open, anonymous write endpoint - PRE-DEPLOY REQUIREMENT (security-review W-001):**
+  `POST /api/tales` has no rate limit / quota. Size caps bound a single payload but
+  not volume. This is acceptable while the feature is OFF (no connection string) and
+  UNDEPLOYED, but it MUST NOT be exposed on a real public URL without at least a
+  minimal per-IP throttle / quota (same "cost gate" spirit the roadmap applies to
+  AI). Recorded as a hard item on the provisioning runbook's pre-deploy checklist.
+  A periodic reaper / Storage lifecycle policy for never-read expired rows is a
+  softer follow-up (lazy expiry-on-read only deletes rows that get fetched).
 - **noindex (AC-03):** `X-Robots-Tag: noindex, nofollow` header on every `/t/{slug}`
   response plus `<meta name="robots" content="noindex, nofollow">`.
 - **Web (host-gated, opt-in):** `web/src/gallery/publishTale.ts`

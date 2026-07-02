@@ -15,10 +15,15 @@
 //
 //  CHILD SAFETY, NON-NEGOTIABLE (AC-03) - enforced HERE, server-side, because a
 //  public page must NEVER show unfiltered content even if a client lies:
-//    - SERVER-SIDE RE-VET: every coral player-word (and the byline names) is run
-//      through the authoritative IContentSafetyFilter on publish; if ANY fails,
-//      the whole publish is REJECTED (400). The literal template text is author-
-//      authored and safe by construction, so it is not re-vetted.
+//    - SERVER-SIDE RE-VET: EVERY non-empty part (coral player-words AND the
+//      "literal" template runs) plus the byline names is run through the
+//      authoritative IContentSafetyFilter on publish; if ANY fails, the whole
+//      publish is REJECTED (400). We do NOT trust the client's word-vs-literal
+//      classification: the server has no template to verify a "literal" claim
+//      against, and the endpoint is public + anonymous, so a lying client could
+//      otherwise smuggle unfiltered text onto the child-visible page as a
+//      "literal" part. Genuine author template text is false-positive-resistant
+//      and passes harmlessly.
 //    - UNGUESSABLE SLUG: SlugGenerator mints a 12-char cryptographically-random,
 //      non-sequential slug (resists enumeration).
 //    - noindex: the public page sends an X-Robots-Tag: noindex, nofollow HEADER
@@ -160,9 +165,16 @@ public sealed class PublishedTalesController : ControllerBase
         }
 
         // SERVER-SIDE RE-VET (AC-03, critical): a public page must never show
-        // anything a family-safe session would not have. Re-run every coral
-        // player-word AND the byline names through the authoritative filter; reject
-        // the WHOLE publish if any fails. The rejected text is never echoed back.
+        // anything a family-safe session would not have. Re-run EVERY non-empty
+        // part - coral player-words AND "literal" template runs - plus the byline
+        // through the authoritative filter; reject the WHOLE publish if any fails.
+        // We deliberately do NOT trust the client's IsWord classification here: the
+        // server has no template to verify a "literal" claim against, and this
+        // endpoint is public + anonymous, so trusting the flag would let a crafted
+        // request smuggle unfiltered text onto the child-visible page as a
+        // "literal" part (security review CR-001). Genuine author template text is
+        // false-positive-resistant and passes harmlessly. The rejected text is
+        // never echoed back.
         var parts = new List<TalePart>(requestParts.Count);
         foreach (var part in requestParts)
         {
@@ -172,29 +184,26 @@ public sealed class PublishedTalesController : ControllerBase
                 return BadRequest(new { message = "Part of that tale is too long to publish." });
             }
 
-            if (part.IsWord)
+            // Skip empty coral word slots (an unfilled blank renders as a gap,
+            // exactly like the reveal) so an empty coral part never reaches the page.
+            if (part.IsWord && text.Trim().Length == 0)
             {
-                // Skip empty word slots (an unfilled blank renders as a gap, exactly
-                // like the reveal) so an empty coral part never reaches the page.
-                if (text.Trim().Length == 0)
-                {
-                    continue;
-                }
+                continue;
+            }
 
+            // Re-vet any non-empty text regardless of word/literal (see above).
+            // Empty literal text (inter-word spacing/punctuation) has nothing to
+            // vet and is stored as-is so the story reads correctly.
+            if (text.Trim().Length > 0)
+            {
                 var verdict = await _safety.CheckAsync(text, cancellationToken);
                 if (!verdict.IsAllowed)
                 {
                     return BadRequest(new { message = "That tale cannot be shared publicly - some content did not pass the family-safe check." });
                 }
+            }
 
-                parts.Add(new TalePart(IsWord: true, Text: text));
-            }
-            else
-            {
-                // Literal template text is author-authored and safe by construction
-                // (never re-vetted, per AC-03) - stored verbatim.
-                parts.Add(new TalePart(IsWord: false, Text: text));
-            }
+            parts.Add(new TalePart(IsWord: part.IsWord, Text: text));
         }
 
         if (parts.Count == 0)

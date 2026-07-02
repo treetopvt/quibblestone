@@ -85,6 +85,29 @@ public class PublishedTalesControllerTests
     }
 
     [Fact]
+    public async Task Publish_rejects_an_unsafe_LITERAL_part_a_lying_client_tags_as_not_a_word()
+    {
+        // Security review CR-001: the server must NOT trust the client's IsWord
+        // flag - a crafted request marking unfiltered text as a "literal" template
+        // run (IsWord=false) must still be re-vetted and rejected, or unsafe content
+        // reaches the public, child-visible page. This is the whole point of AC-03's
+        // server-side re-vet (the client is not trusted).
+        var store = new FakePublishedTaleStore();
+        var controller = NewController(store);
+
+        var request = new PublishTaleRequest(
+            Title: "x",
+            Parts: [new PublishTalePartRequest(IsWord: false, Text: "shit")],
+            BylineNames: string.Empty);
+
+        var result = await controller.Publish(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        // NOTHING may be stored when a literal part fails the re-vet.
+        Assert.Empty(store.Tales);
+    }
+
+    [Fact]
     public async Task Publish_rejects_a_byline_that_fails_the_safety_filter()
     {
         var store = new FakePublishedTaleStore();
