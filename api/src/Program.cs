@@ -25,6 +25,7 @@
 // ----------------------------------------------------------------------------
 
 using Microsoft.AspNetCore.SignalR;
+using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
@@ -132,6 +133,48 @@ else
             telemetryConnectionString,
             sp.GetRequiredService<ILogger<TableStorageTelemetrySink>>()));
 }
+
+// ai-cost-gate/01 (server-side AI proxy): the ONE server-side AI transport,
+// chosen at STARTUP by whether `Ai:Endpoint` is configured - EXACTLY the
+// ITelemetrySink config-presence idiom above. WITH an endpoint (supplied per-
+// environment; the optional key is Key Vault-backed, NEVER a committed literal and
+// NEVER a VITE_* var, AC-03), the Foundry-backed client talks to Azure OpenAI
+// (gpt-4o-mini, ADR 0001) using the App Service managed identity (preferred) or the
+// key fallback. WITHOUT one (local dev, CI, a fresh clone, before provisioning), it
+// degrades to the no-op client that reports "AI unavailable" cleanly, so the app
+// builds + runs with ZERO AI config and every consumer falls back deterministically
+// (AC-04). A singleton either way - the client is stateless after construction. The
+// AiOptions (model id + per-model $/1M rate constants together, so a model swap is
+// one change - story 04 reads the rates) is registered for the whole gate to inject.
+var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
+builder.Services.AddSingleton(aiOptions);
+if (string.IsNullOrWhiteSpace(aiOptions.Endpoint))
+{
+    builder.Services.AddSingleton<IAiCompletionClient, NoOpAiCompletionClient>();
+}
+else
+{
+    builder.Services.AddSingleton<IAiCompletionClient>(sp =>
+        new FoundryAiCompletionClient(
+            aiOptions,
+            sp.GetRequiredService<ILogger<FoundryAiCompletionClient>>()));
+}
+
+// ai-cost-gate: the ordered gate PIPELINE seam every AI feature routes through
+// (entitlement@session-creation [02] -> quota [03] -> spend-ceiling [04] ->
+// transport [01] -> spend-record/attribution [04] -> moderate [05]). Story 01
+// establishes the seam + ordering + envelope; the three stage services are
+// registered here with their SEAM defaults (no-op / pass-through) so the app runs
+// green with zero config. Wave-2 leaf builders REPLACE these registrations with the
+// real per-session quota (03), the monthly-total spend breaker + attribution (04),
+// and the IContentSafetyFilter + family-safe moderation composition (05). The
+// pass-through moderator default is NEVER shipped to a real AI consumer - story 05
+// lands before ai-on-demand-generation/05 goes live. Every future AI feature is a
+// CONSUMER of GatedAiCompletionClient, never a new gate.
+builder.Services.AddSingleton<IAiQuota, UnlimitedAiQuota>();
+builder.Services.AddSingleton<IAiSpendGuard, NoOpAiSpendGuard>();
+builder.Services.AddSingleton<IAiOutputModerator, PassthroughAiOutputModerator>();
+builder.Services.AddSingleton<GatedAiCompletionClient>();
 
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
 // so every transient GameHub instance (SignalR builds a fresh hub per
