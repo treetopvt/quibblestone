@@ -69,6 +69,14 @@
 //  NOTE: `round` is deliberately kept set THROUGH the reveal (RevealReady does NOT
 //  clear it) so Round Complete can read round.roundNumber for its "ROUND N CARVED"
 //  badge; round is cleared only on leave or on BackToLobby.
+//
+//  story-selection/02 adds ONE MORE PARAMETER to the EXISTING startRound invoke
+//  (never a new hub method): the host's story-length choice ('quick' | 'full' |
+//  'any', ../content/length.ts) travels alongside familySafe on the SAME
+//  StartRound call, so the wire contract is now StartRound(code, familySafe,
+//  lengthPref). The server enforces it authoritatively (same posture as the
+//  family-safe gate) - keep this WIRE CONTRACT in sync BY HAND with
+//  api/src/Hubs/GameHub.cs's StartRound signature.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -78,6 +86,7 @@ import {
   HubConnectionState,
   LogLevel,
 } from '@microsoft/signalr';
+import type { LengthPreference } from '../content/length';
 
 const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
 
@@ -294,15 +303,17 @@ export interface UseGameHub {
    */
   submitWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   /**
-   * Start a round as the host (group-play/01). Invokes the hub's host-only
-   * StartRound with the current room code (from roomCodeRef) and the host's
-   * family-safe toggle value; the SERVER enforces the host check and filters the
-   * template catalog by the toggle (authoritative, AC-03/AC-04). Resolves with
-   * the StartRoundResult envelope (ok + friendly error). Returns a not-connected
+   * Start a round as the host (group-play/01; story-selection/02 adds the
+   * length parameter). Invokes the hub's host-only StartRound with the current
+   * room code (from roomCodeRef), the host's family-safe toggle value, and the
+   * host's story-length choice; the SERVER enforces the host check and filters
+   * the template catalog by both - family-safe FIRST, then length (authoritative,
+   * AC-03/AC-04, story-selection/02 AC-03/AC-05). Resolves with the
+   * StartRoundResult envelope (ok + friendly error). Returns a not-connected
    * error envelope if the hub is not ready. Does NOT set `round` itself - the
    * server's RoundStarted broadcast drives that for everyone, including the host.
    */
-  startRound: (familySafe: boolean) => Promise<StartRoundResult>;
+  startRound: (familySafe: boolean, lengthPref: LengthPreference) => Promise<StartRoundResult>;
   /**
    * Return the whole group to the lobby as the host (group-play/04, AC-05).
    * Invokes the hub's host-only BackToLobby with the current room code (from
@@ -580,7 +591,7 @@ export function useGameHub(): UseGameHub {
   );
 
   const startRound = useCallback(
-    async (familySafe: boolean): Promise<StartRoundResult> => {
+    async (familySafe: boolean, lengthPref: LengthPreference): Promise<StartRoundResult> => {
       const connection = connectionRef.current;
       const code = roomCodeRef.current;
       if (
@@ -594,11 +605,12 @@ export function useGameHub(): UseGameHub {
         };
       }
       // The server enforces the host check and filters the catalog by familySafe
-      // (AC-03/AC-04). We do NOT set `round` here on success: the hub's
-      // RoundStarted broadcast drives the transition for EVERYONE (host included)
-      // so all players move together (AC-01, AC-02).
+      // (family-safe FIRST) then lengthPref (story-selection/02 AC-03/AC-05,
+      // AC-04). We do NOT set `round` here on success: the hub's RoundStarted
+      // broadcast drives the transition for EVERYONE (host included) so all
+      // players move together (AC-01, AC-02).
       try {
-        return await connection.invoke<StartRoundResult>('StartRound', code, familySafe);
+        return await connection.invoke<StartRoundResult>('StartRound', code, familySafe, lengthPref);
       } catch {
         // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
         return { ok: false, error: "Something went off - give it a moment and try again." };

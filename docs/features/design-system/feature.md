@@ -15,6 +15,7 @@ MUI theme. No hardcoded colors or pixel spacing in components."
 ## Stories
 - [ ] 01 - MUI theme, AppBar, and Button shell
 - [ ] 02 - Guardian avatar component (6 variants)
+- [ ] 03 - Orientation: prefer portrait, stay readable in landscape
 - [x] 04 - Client routing (react-router) - real URLs + `/join/:code` deep link
 
 ## Dependencies

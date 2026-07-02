@@ -1,6 +1,6 @@
 # Story: Like / dislike a tale (content feedback)
 
-**Feature:** Story Selection & Freshness  ·  **Status:** Not Started  ·  **Issue:** #95
+**Feature:** Story Selection & Freshness  ·  **Status:** Complete  ·  **Issue:** #95
 
 ## Context
 Content creators (today: whoever hand-writes seedLibrary; tomorrow: the AI
@@ -13,29 +13,29 @@ of this telling); it is a curation signal about the template itself. See
 [feature.md](./feature.md) Design notes for that boundary.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the end of a tale (solo Reveal and group Round Complete),
+- [x] AC-01: Given the end of a tale (solo Reveal and group Round Complete),
       then I see an unobtrusive "Did you like this story?" thumbs up / thumbs
       down control - big tap targets, theme-styled, FontAwesome icons -
       placed so it never competes with the primary replay CTAs.
-- [ ] AC-02: Given I tap a thumb, then my vote is recorded for that template
+- [x] AC-02: Given I tap a thumb, then my vote is recorded for that template
       and round, I see a small acknowledgement (the control reflects my
       choice), and I can change my vote until I leave the screen; only my
       final state counts.
-- [ ] AC-03: Given a group round, then every player (host or not) can vote
+- [x] AC-03: Given a group round, then every player (host or not) can vote
       independently, and one player's vote never blocks, reveals, or alters
       another's - votes are per-player-per-round, tallied per template.
-- [ ] AC-04: Given a recorded vote, then it carries template id, up/down, UTC
+- [x] AC-04: Given a recorded vote, then it carries template id, up/down, UTC
       timestamp, mode, and the same opaque instance ids story 04 uses - no
       nickname, no join code, no PII (README section 6). No free text
       anywhere on this surface (nothing for the safety filter to filter; the
       family-safe posture is unaffected).
-- [ ] AC-05: Given the sink is unavailable, then voting fails soft: the UI
+- [x] AC-05: Given the sink is unavailable, then voting fails soft: the UI
       still acknowledges locally and the game flow is never blocked (same
       posture as story 04's AC-03).
-- [ ] AC-06: Given stored votes, then per-template totals (ups, downs, by
+- [x] AC-06: Given stored votes, then per-template totals (ups, downs, by
       time range) are answerable with a straightforward table query, joinable
       against serve counts (story 04) to get a like-rate per serve.
-- [ ] AC-07: Given I skip voting entirely, then nothing nags me - no modal,
+- [x] AC-07: Given I skip voting entirely, then nothing nags me - no modal,
       no reminder, no badge. Silence is a valid answer and is simply absent
       from the data.
 
@@ -84,3 +84,22 @@ of this telling); it is a curation signal about the template itself. See
 ## Dependencies
 - story-selection/04 (the sink and storage plumbing this reuses).
 - the-reveal / group-play/04 (the screens this control lands on) - Complete.
+
+## Orchestration notes (Gate 1 - build/ss-05)
+- Tests: `web/src/components/TaleFeedback.test.ts` (vote-state transition, AC-02),
+  `tests/QuibbleStone.Api.Tests/TelemetryControllerFeedbackTests.cs` (PII shape
+  AC-04, junk dropped, throwing sink still 202 AC-05, upsert forwarding). Green.
+- Gate-1 review: clean, no blockers, no warnings. All fences verified: no PII in
+  the event/DTO/table (a shape test fails CI if a field is added), fail-soft 202
+  + no nag (nothing writes on mount/unmount, only a tap), NOT the reveal-delight
+  Reaction row (plain per-device REST, no SignalR/room state/aggregate UI),
+  upsert last-write-wins (RowKey=VoteId), subordinate placement, and the group
+  TRANSIENT reveal deliberately omits the control so a round is asked exactly
+  once (on Round Complete).
+- Accepted non-blocking minors (toy-grade, left as-is): S-1 the AC-07 test case
+  asserts a local literal (AC-07's "nothing writes on skip" is structural, held
+  by code review); S-2 re-tapping the SAME thumb re-POSTs an idempotent upsert
+  (same VoteId -> same row, harmless).
+- `infra/main.bicep` StoryFeedback table unvalidated locally (`az`/`bicep` CLI
+  absent) - mirrors story 04's StoryServes exactly; run `az bicep build` before
+  any deploy (same carry-forward as story 04).

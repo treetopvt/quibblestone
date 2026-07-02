@@ -49,7 +49,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, Guardian } from '../components';
+import { AppBar, BottomActionBar, BottomActionBarSpacer, Guardian, TaleFeedback } from '../components';
 import type { GuardianVariant } from '../components';
 
 /** One crew member's recap tile data (already safety-filtered at join; no PII). */
@@ -67,6 +67,15 @@ export interface RoundCompleteProps {
   roundNumber: number;
   /** The story title shown on the keepsake panel (resolved from the template client-side). */
   title: string;
+  /**
+   * The just-played template's id (story-selection/05, AC-01): threaded from
+   * App.tsx's `reveal.templateId` so the quiet <TaleFeedback> curation vote
+   * below the crew row can attribute the vote to the right template. This is
+   * group play's ONE vote surface for a round - the shared Reveal screen omits
+   * it for group play (see Reveal.tsx's `taleFeedback` prop doc) so a round is
+   * never asked about twice.
+   */
+  templateId: string;
   /** The crew recap, in reveal order (nickname + variant + per-player word count). */
   crew: RoundCompleteCrewMember[];
   /** Total blanks in the template (the "{n} words" pill); the per-player counts sum to this. */
@@ -285,6 +294,7 @@ export function RoundComplete({
   onPlayAgain,
   onBackToLobby,
   onLeave,
+  templateId,
 }: RoundCompleteProps) {
   const theme = useTheme();
   const crewCount = crew.length;
@@ -389,6 +399,11 @@ export function RoundComplete({
             ))}
           </Stack>
         </Box>
+
+        {/* Quiet per-tale curation vote (story-selection/05, AC-01): sits below
+            the crew row, visually subordinate to the host's CTAs pinned below -
+            group play's ONE feedback surface for this round. */}
+        <TaleFeedback templateId={templateId} mode="classic-blind" />
 
         <BottomActionBarSpacer />
       </Stack>
