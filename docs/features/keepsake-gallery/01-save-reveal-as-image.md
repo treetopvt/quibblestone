@@ -15,16 +15,21 @@ on. See [feature.md](./feature.md) and `docs/features/the-reveal/01-text-reveal.
       action to save it as an image (e.g. a "Save as image" affordance,
       secondary weight, not competing with the existing gold "Play another
       round" CTA).
-- [x] AC-02: Given I trigger the save action, then an image is rendered
-      containing: the story title, the story body with every filled-in word
-      shown in coral (matching the Reveal screen's existing coral treatment),
-      a byline in the form "carved by [names] & crew" (using the same
-      attribution the Reveal screen already shows, when present), and the
-      stone-tablet visual treatment (gradient, carved rim) - the image reads
-      as a recognizable snapshot of the Reveal screen, not a plain text dump.
-      Byline mechanism is built and renders correctly when supplied (renders
-      nothing when omitted, which is valid per "when present"); no caller
-      currently supplies one - see Technical Notes.
+- [~] AC-02 (PARTIAL): Given I trigger the save action, then an image is
+      rendered containing: the story title, the story body with every
+      filled-in word shown in coral (matching the Reveal screen's existing
+      coral treatment), a byline in the form "carved by [names] & crew" (using
+      the same attribution the Reveal screen already shows, when present), and
+      the stone-tablet visual treatment (gradient, carved rim) - the image
+      reads as a recognizable snapshot of the Reveal screen, not a plain text
+      dump. Title + coral story + tablet treatment ship and match the live
+      screen; the byline MECHANISM is built and unit-tested but is UNWIRED - no
+      caller supplies `saveImageByline` yet, so no shipping image renders a
+      byline today. Solo does show an `attribution` on the live Reveal, so the
+      byline is a genuine gap (not merely "not present"). Wiring the byline for
+      the solo case is folded into keepsake-gallery/02 (which already extends
+      the same render + Reveal share path). Do not flip this AC to `[x]` /
+      the story to Complete until a caller actually renders the byline.
 - [x] AC-03: Given the image is rendered, then it resolves in a reasonable
       time on a mid-range mobile device (target: under ~2 seconds) so the
       save action does not feel broken or hung; a loading state is shown
@@ -113,7 +118,7 @@ on. See [feature.md](./feature.md) and `docs/features/the-reveal/01-text-reveal.
 | AC | Test |
 |---|---|
 | AC-01 | manual: Reveal screen shows the save action as secondary, not competing with "Play another round" |
-| AC-02 | manual: rendered image visually matches title, coral words, byline, and tablet styling against the live screen |
+| AC-02 | unit: `web/src/gallery/tabletLayout.test.ts` covers the title/body/byline wrap + coral-segment layout (the real coverage today, since the canvas paint + byline visual are not yet caller-rendered); manual: rendered image visually matches title, coral words, and tablet styling against the live screen |
 | AC-03 | manual: timed render on a throttled mobile device profile; loading state shown if render exceeds a moment |
 | AC-04 | manual: confirm no rejected/unfiltered word ever appears (image only ever renders already-vetted `AssembledStory` content) |
 | AC-05 | manual: inspect rendered image for any PII field; confirm only nickname + Guardian variant appear |
