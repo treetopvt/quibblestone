@@ -1,13 +1,19 @@
 // ----------------------------------------------------------------------------
-//  Solo - the local, single-client Classic-blind round (single-player/01,
-//  issue #29, "my family is laughing in the car" thin slice).
+//  Solo - the local, single-client solo round (single-player/01 + /02, the
+//  "my family is laughing in the car" thin slice).
 //
 //  This screen is almost entirely COMPOSITION, not new mechanics: it wires
 //  together pieces that already exist -
 //    - the engine (createCollection / collectWord / isCollectionComplete /
 //      assembleStory, ../engine/engine.ts)
-//    - the Classic-blind mode config (../engine/modes/classicBlind.ts)
-//    - the family-safe content gate (selectTemplates, ../content/familySafe.ts)
+//    - the solo mode registry (./soloModes.ts): the player picks one of the
+//      four modes (Classic blind, Word Bank, Progressive Story, Progressive
+//      Reveal) at setup and the round plays it, resolving that mode's config
+//      (passed to collectWord) and its ModeSurfaces (into FillBlank / Reveal's
+//      game-modes/03 optional slots) - this file never edits those two screens
+//    - the family-safe content gate (via each mode's eligibleTemplates, which
+//      applies ../content/familySafe.ts's selectTemplates rule)
+//    - the length + freshness selection stages (story-selection/01-03)
 //    - the real safety filter client (checkWord, ../safety/checkWord.ts)
 //    - the shared FillBlank filler screen and Reveal payoff screen (both
 //      REUSED as-is - this file never edits them, per the reuse contract
@@ -39,22 +45,64 @@
 //
 //  The replay loop (AC-06, "one tap, no bounce back to setup"): Reveal's
 //  "Play another round" button calls handlePlayAgain directly, which picks a
-//  fresh random template from the SAME family-safe selection, resets the
+//  fresh random template from the SAME selection pipeline, resets the
 //  collection and blank index, and goes straight back to 'fill' - it never
-//  revisits 'setup'. The family-safe toggle position is therefore sticky for
-//  the whole solo session until the player exits to Home.
+//  revisits 'setup'. The family-safe toggle, length choice, and mode are
+//  therefore sticky for the whole solo session until the player exits to Home.
 //
-//  Child safety: every free-text submission is routed through collectWord's
+//  Child safety: every FREE-TEXT submission is routed through collectWord's
 //  injected SafetyCheck hook (checkWord, the real server-backed filter) BEFORE
-//  it is ever recorded (AC-04) - this file never reimplements or bypasses
-//  that check. The family-safe toggle only narrows which curated templates
-//  selectTemplates offers; it never touches the profanity filter.
+//  it is ever recorded (AC-04) - this file never reimplements or bypasses that
+//  check, and passes the SELECTED mode's config to collectWord so the seam is
+//  identical across modes. Word Bank is the one mode that legitimately skips the
+//  free-text filter (its words are curated, pre-vetted content, gated by
+//  family-safe at OFFERING time via each mode's eligibleTemplates, not per tap) -
+//  collectWord already branches on mode.answer === 'word-bank' for exactly this.
+//  The family-safe toggle only narrows which curated templates each mode offers;
+//  it never touches the profanity filter.
+//
+//  Selection pipeline (story-selection/02 + /03): the SOLO length choice
+//  ("Quick tale" / "Full tale", defaulting to 'full', AC-01/AC-06) sits beside
+//  the family-safe toggle and mode picker. The pick composes ALL content-
+//  selection stages in FIXED order, safety FIRST, freshness LAST (AC-05): the
+//  selected mode's eligibleTemplates (already family-safe-gated + mode-eligible)
+//  -> selectByLengthOrFallback (story-selection/01's length stage, degrading to
+//  the mode pool if the length preference would leave nothing, AC-06) ->
+//  selectFreshOrRecycle (../content/fresh.ts, excluding templates this DEVICE has
+//  already played per ../content/playedHistory.ts's localStorage history, and
+//  recycling once the pool runs dry rather than erroring, AC-03) ->
+//  pickRandomTemplate. Both handleStart and handlePlayAgain are fresh RANDOM
+//  picks, so both route through pickTemplate and both APPEND the chosen id to
+//  device history in beginRound, AFTER the pick (AC-01). The history stores
+//  template IDS ONLY - no words, no PII (AC-06) - and SURVIVES a page refresh
+//  because it lives in localStorage, not component state.
+//
+//  AC-04 bypass seam (no pinned-replay UI exists yet): a FUTURE pinned-template
+//  "replay this exact tale" affordance would call beginRound directly with a
+//  specific template, SKIPPING both pickTemplate's freshness filter and
+//  beginRound's appendPlayedId call - see the comment on beginRound below.
+//
+//  story-selection/04 fire-and-forgets an anonymous "template served" event on
+//  each round start (beginRound), and story-selection/05 shows a quiet per-tale
+//  thumbs vote on Reveal (taleFeedback) - both anonymous, both never gate the
+//  flow (see recordSoloServe / TaleFeedback).
 // ----------------------------------------------------------------------------
 
 import { useRef, useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, FamilySafeToggle } from '../components';
-import { FAMILY_SAFE_DEFAULT, selectTemplates } from '../content/familySafe';
+import {
+  AppBar,
+  BottomActionBar,
+  BottomActionBarSpacer,
+  FamilySafeToggle,
+  StoryLengthChoice,
+} from '../components';
+import { FAMILY_SAFE_DEFAULT } from '../content/familySafe';
+import { selectFreshOrRecycle } from '../content/fresh';
+import { selectByLengthOrFallback, type LengthPreference } from '../content/length';
+import { appendPlayedId, loadPlayedIds } from '../content/playedHistory';
 import { seedLibrary } from '../content/seedLibrary';
 import {
   assembleStory,
@@ -64,11 +112,12 @@ import {
   skipBlank,
   type CollectedWords,
 } from '../engine/engine';
-import { classicBlind } from '../engine/modes/classicBlind';
 import { getBlanks, type Template } from '../engine/template';
 import { checkWord } from '../safety/checkWord';
+import { recordSoloServe } from '../telemetry/serveLog';
 import { FillBlank } from './FillBlank';
 import { Reveal } from './Reveal';
+import { DEFAULT_SOLO_MODE, SOLO_MODES, type SoloMode } from './soloModes';
 
 export interface SoloProps {
   /** Return to Home. Solo never set a room, so this is purely a view change for the caller. */
@@ -134,15 +183,106 @@ function PersonalSummary({ title, filledCount }: { title: string; filledCount: n
   );
 }
 
-/** The lightweight solo setup screen: family-safe toggle + a gold "Start" CTA. */
+/**
+ * One tappable mode card in the solo picker (single-player/02, AC-01): icon +
+ * label + blurb as a big tap target, teal-highlighted when selected (reusing
+ * the same teal tap language as WordBankAnswer's chips and FillBlank's spark
+ * row). Disabled when the mode has no eligible template for the current
+ * family-safe position, so a player can never select a mode that cannot start
+ * (AC-04).
+ *
+ * A11y: the picker is a SINGLE-CHOICE control, so each card is a `role="radio"`
+ * with `aria-checked` (not a toggle button with `aria-pressed`) inside the
+ * parent `role="radiogroup"` - screen readers then announce "one of N" rather
+ * than an independent on/off toggle.
+ */
+function ModeCard({
+  mode,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  mode: SoloMode;
+  selected: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Box
+      component="button"
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      disabled={disabled}
+      onClick={onSelect}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        width: '100%',
+        textAlign: 'left',
+        cursor: 'pointer',
+        border: `2px solid ${selected ? theme.palette.teal.main : alpha(theme.palette.teal.main, 0.24)}`,
+        borderRadius: 3,
+        px: 2.5,
+        py: 2,
+        bgcolor: selected ? alpha(theme.palette.teal.main, 0.14) : 'background.paper',
+        '&:hover': { bgcolor: alpha(theme.palette.teal.main, 0.08) },
+        '&:focus-visible': { outline: `2px solid ${theme.palette.teal.dark}`, outlineOffset: 2 },
+        '&:disabled': { cursor: 'not-allowed', opacity: 0.45 },
+      }}
+    >
+      <Box
+        sx={{
+          flexShrink: 0,
+          width: 44,
+          height: 44,
+          borderRadius: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          bgcolor: alpha(theme.palette.teal.main, 0.16),
+          color: theme.palette.teal.dark,
+        }}
+      >
+        <FontAwesomeIcon icon={mode.icon} style={{ width: 20, height: 20 }} />
+      </Box>
+      <Stack spacing={0.25} sx={{ flexGrow: 1 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15.5, color: 'text.primary' }}>
+          {mode.config.label}
+        </Typography>
+        <Typography sx={{ fontWeight: 600, fontSize: 13, color: 'text.secondary', lineHeight: 1.4 }}>
+          {mode.blurb}
+        </Typography>
+      </Stack>
+      {selected && (
+        <FontAwesomeIcon
+          icon="circle-check"
+          style={{ width: 20, height: 20, color: theme.palette.teal.main, flexShrink: 0 }}
+        />
+      )}
+    </Box>
+  );
+}
+
+/** The lightweight solo setup screen: family-safe toggle + length choice + mode picker + a gold "Start" CTA. */
 function SoloSetup({
   familySafe,
   onFamilySafeChange,
+  lengthPref,
+  onLengthPrefChange,
+  mode,
+  onModeChange,
   onStart,
   onExit,
 }: {
   familySafe: boolean;
   onFamilySafeChange: (checked: boolean) => void;
+  lengthPref: LengthPreference;
+  onLengthPrefChange: (value: LengthPreference) => void;
+  mode: SoloMode;
+  onModeChange: (mode: SoloMode) => void;
   onStart: () => void;
   onExit: () => void;
 }) {
@@ -159,6 +299,34 @@ function SoloSetup({
         </Typography>
 
         <FamilySafeToggle checked={familySafe} onChange={onFamilySafeChange} />
+        <StoryLengthChoice value={lengthPref} onChange={onLengthPrefChange} />
+
+        <Stack spacing={1.5} role="radiogroup" aria-labelledby="solo-mode-picker-label">
+          <Typography
+            id="solo-mode-picker-label"
+            sx={{
+              fontWeight: 800,
+              fontSize: 12.5,
+              color: 'text.secondary',
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+            }}
+          >
+            Pick a mode
+          </Typography>
+          {SOLO_MODES.map((soloMode) => (
+            <ModeCard
+              key={soloMode.config.id}
+              mode={soloMode}
+              selected={soloMode.config.id === mode.config.id}
+              // A mode with no eligible template at the current family-safe
+              // position (e.g. Word Bank when no family-safe template has a
+              // bank) is disabled, not a dead Start button (AC-04).
+              disabled={soloMode.eligibleTemplates(seedLibrary, familySafe).length === 0}
+              onSelect={() => onModeChange(soloMode)}
+            />
+          ))}
+        </Stack>
 
         <BottomActionBarSpacer />
       </Stack>
@@ -175,6 +343,14 @@ function SoloSetup({
 export function Solo({ onExit }: SoloProps) {
   const [phase, setPhase] = useState<SoloPhase>('setup');
   const [familySafe, setFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
+  // story-selection/02, AC-01/AC-06: defaults to 'full' so a session that never
+  // touches the length choice behaves exactly like before this story existed.
+  const [lengthPref, setLengthPref] = useState<LengthPreference>('full');
+  // The mode the player picks at setup (default Classic blind, so the existing
+  // zero-choice flow still works with one tap on Start - single-player/02
+  // AC-01/AC-06). Its config drives collectWord and its surfaces plug into
+  // FillBlank / Reveal.
+  const [mode, setMode] = useState<SoloMode>(DEFAULT_SOLO_MODE);
   const [template, setTemplate] = useState<Template | undefined>(undefined);
   const [blankIndex, setBlankIndex] = useState(0);
 
@@ -183,24 +359,69 @@ export function Solo({ onExit }: SoloProps) {
   // instead, matching engine.ts's "mutates and returns `collected`" contract.
   const collectionRef = useRef<CollectedWords>(createCollection());
 
+  const handleFamilySafeChange = (checked: boolean) => {
+    setFamilySafe(checked);
+    // If the current mode has no eligible template at the new family-safe
+    // position, fall back to Classic blind (always eligible) so the picker
+    // never sits on an unstartable mode (AC-04).
+    if (mode.eligibleTemplates(seedLibrary, checked).length === 0) {
+      setMode(DEFAULT_SOLO_MODE);
+    }
+  };
+
   const beginRound = (chosen: Template) => {
     collectionRef.current = createCollection();
     setTemplate(chosen);
     setBlankIndex(0);
     setPhase('fill');
+    // story-selection/04 (anonymous serve log, AC-02): fire-and-forget one
+    // anonymous "template served" event. This covers BOTH handleStart and
+    // handlePlayAgain (both route through beginRound). It never awaits, never
+    // retries, and never blocks the transition to 'fill' (AC-03), and carries no
+    // PII - just the template + the current family-safe toggle (AC-04).
+    recordSoloServe({ template: chosen, familySafe });
+    // story-selection/03 (freshness rotation, AC-01): record this template as
+    // played on THIS device, AFTER the pick, so the NEXT pickTemplate() call
+    // excludes it until the eligible pool runs dry. Both call sites that reach
+    // beginRound today (handleStart, handlePlayAgain) are fresh RANDOM picks
+    // that already ran through selectFreshOrRecycle, so both must append here.
+    //
+    // AC-04 bypass seam: a FUTURE pinned-template replay ("play this exact
+    // tale again") would call beginRound with a specific template WITHOUT this
+    // appendPlayedId call (and without the caller having filtered through
+    // selectFreshOrRecycle) - replaying a favorite must not make the random
+    // pick "forget" the other templates this device has not seen yet. No such
+    // path exists today; this comment marks where it would branch in.
+    appendPlayedId(chosen.id);
   };
 
+  // story-selection/02 + /03: compose the content-selection stages in FIXED
+  // order, safety FIRST, freshness LAST (AC-05) - the selected mode's
+  // eligibleTemplates (already family-safe-gated + mode-eligible) -> length
+  // stage (degrades to the mode pool if the length preference would leave
+  // nothing, AC-06) -> freshness stage (excludes templates already played on
+  // this device; recycles the whole pool once it runs dry rather than erroring,
+  // AC-03) -> pickRandomTemplate. Length + freshness only ever NARROW within the
+  // already safety+mode-filtered pool - they never widen it.
+  const pickTemplate = () =>
+    pickRandomTemplate(
+      selectFreshOrRecycle(
+        selectByLengthOrFallback(mode.eligibleTemplates(seedLibrary, familySafe), lengthPref),
+        loadPlayedIds(),
+      ),
+    );
+
   const handleStart = () => {
-    const chosen = pickRandomTemplate(selectTemplates(seedLibrary, familySafe));
-    // Guard the "no templates match the current family-safe position" case
-    // rather than asserting non-null; the seed library always has at least
-    // one family-safe template today, but this keeps the type honest.
+    // Draw from the selected mode's eligible pool, narrowed by length + freshness
+    // (see pickTemplate). Guard the "no templates" case rather than asserting
+    // non-null; a disabled mode can never be selected, so this is defensive.
+    const chosen = pickTemplate();
     if (!chosen) return;
     beginRound(chosen);
   };
 
   const handlePlayAgain = () => {
-    const chosen = pickRandomTemplate(selectTemplates(seedLibrary, familySafe));
+    const chosen = pickTemplate();
     if (!chosen) return;
     beginRound(chosen);
   };
@@ -209,7 +430,11 @@ export function Solo({ onExit }: SoloProps) {
     return (
       <SoloSetup
         familySafe={familySafe}
-        onFamilySafeChange={setFamilySafe}
+        onFamilySafeChange={handleFamilySafeChange}
+        lengthPref={lengthPref}
+        onLengthPrefChange={setLengthPref}
+        mode={mode}
+        onModeChange={setMode}
         onStart={handleStart}
         onExit={onExit}
       />
@@ -238,7 +463,7 @@ export function Solo({ onExit }: SoloProps) {
     const result = await collectWord(
       collectionRef.current,
       template,
-      classicBlind,
+      mode.config,
       currentBlank.id,
       { playerSessionId: SOLO_PLAYER_ID, word },
       checkWord,
@@ -260,6 +485,16 @@ export function Solo({ onExit }: SoloProps) {
   };
 
   if (phase === 'fill' && currentBlank) {
+    // Resolve the active mode's fill-time surfaces for THIS blank. Classic
+    // blind returns {} (no surfaces), so FillBlank renders its free-text
+    // default unchanged (AC-06); Word Bank supplies answerSurface, Progressive
+    // Story supplies seeContext built from the collection so far.
+    const fillSurfaces = mode.fillSurfaces({
+      template,
+      collectedSoFar: collectionRef.current,
+      currentBlank,
+      onSubmit: handleSubmitWord,
+    });
     return (
       <FillBlank
         // Key by blank id so each blank gets a structurally fresh FillBlank
@@ -273,6 +508,8 @@ export function Solo({ onExit }: SoloProps) {
         onSkip={handleSkip}
         onExit={onExit}
         exitLabel="Back to home"
+        seeContext={fillSurfaces.seeContext}
+        answerSurface={fillSurfaces.answerSurface}
       />
     );
   }
@@ -280,6 +517,10 @@ export function Solo({ onExit }: SoloProps) {
   // 'reveal' (or a fully-collected round that fell through the guard above).
   const assembled = assembleStory(template, collectionRef.current);
   const filledCount = countFilledWords(collectionRef.current);
+  // Classic blind / Word Bank / Progressive Story return {} here (no override),
+  // so Reveal renders its default at-end coral body; Progressive Reveal
+  // supplies revealPresentation to pace the finished story one word at a time.
+  const revealSurfaces = mode.revealSurfaces({ template, assembled });
 
   return (
     <Reveal
@@ -289,6 +530,8 @@ export function Solo({ onExit }: SoloProps) {
       onPlayAgain={handlePlayAgain}
       onHome={onExit}
       exitAction={{ label: 'Back to home', onClick: onExit }}
+      taleFeedback={{ templateId: template.id, mode: 'solo' }}
+      revealPresentation={revealSurfaces.revealPresentation}
     />
   );
 }

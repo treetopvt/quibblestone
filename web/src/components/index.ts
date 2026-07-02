@@ -59,3 +59,20 @@ export {
   toGuardianVariant,
 } from './PlayerIdentityFields';
 export type { PlayerIdentityFieldsProps } from './PlayerIdentityFields';
+
+// The session-level story-length choice (story-selection/02): a controlled
+// Quick tale / Full tale segmented pair, in the same visual family as
+// FamilySafeToggle. Pair with the pure length pipeline in
+// web/src/content/length.ts; never touches the family-safe gate or the
+// profanity filter.
+export { StoryLengthChoice } from './StoryLengthChoice';
+export type { StoryLengthChoiceProps } from './StoryLengthChoice';
+
+// The quiet, per-player thumbs up/down curation vote on a story template
+// (story-selection/05, issue #95): rendered at the end of a tale on BOTH
+// Reveal.tsx (solo) and RoundComplete.tsx (group), visually subordinate to
+// the primary "Play another round" CTA. A plain per-device REST write via
+// ../telemetry/feedbackLog.ts - NOT the reveal-delight Reaction row (no
+// SignalR, no room state, no aggregate shown to players).
+export { TaleFeedback } from './TaleFeedback';
+export type { TaleFeedbackProps } from './TaleFeedback';

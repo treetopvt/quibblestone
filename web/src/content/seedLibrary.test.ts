@@ -16,12 +16,23 @@
 import { describe, expect, it } from 'vitest';
 import { assemble, type SubmittedWord } from '../engine/assemble';
 import { getBlanks } from '../engine/template';
+import { classifyLength } from './length';
 import { seedLibrary } from './seedLibrary';
 
 describe('seedLibrary', () => {
-  it('has between 10 and 15 templates', () => {
+  it('has between 10 and 20 templates', () => {
     expect(seedLibrary.length).toBeGreaterThanOrEqual(10);
-    expect(seedLibrary.length).toBeLessThanOrEqual(15);
+    expect(seedLibrary.length).toBeLessThanOrEqual(20);
+  });
+
+  it('carries at least 4 quick templates (4-6 blanks) for story-selection', () => {
+    const quick = seedLibrary.filter((t) => classifyLength(t) === 'quick');
+    expect(quick.length).toBeGreaterThanOrEqual(4);
+    for (const template of quick) {
+      const count = getBlanks(template).length;
+      expect(count, `${template.id} quick blank count`).toBeGreaterThanOrEqual(4);
+      expect(count, `${template.id} quick blank count`).toBeLessThanOrEqual(6);
+    }
   });
 
   it('has unique template ids', () => {
@@ -76,5 +87,23 @@ describe('seedLibrary', () => {
     const withoutBank = seedLibrary.filter((t) => t.wordBank === undefined);
     expect(withBank.length).toBeGreaterThan(0);
     expect(withoutBank.length).toBeGreaterThan(0);
+  });
+
+  it('gives every word-bank template an entry for EVERY blank category (Word Bank mode never shows an empty tap list)', () => {
+    // Word Bank mode filters the bank to the current blank's category
+    // (WordBankAnswer.wordsForCategory). If a template is offered a bank but a
+    // blank's category has no entry, the player sees an empty list on that
+    // blank - which is exactly the "no word bank to choose from" bug this
+    // guard prevents (game-modes/04 AC-06, single-player/02 AC-03/AC-04).
+    for (const template of seedLibrary) {
+      if (template.wordBank === undefined) continue;
+      const bankCategories = new Set(template.wordBank.map((entry) => entry.category));
+      for (const b of getBlanks(template)) {
+        expect(
+          bankCategories.has(b.category),
+          `${template.id}/${b.id}: Word Bank needs at least one '${b.category}' bank entry`,
+        ).toBe(true);
+      }
+    }
   });
 });

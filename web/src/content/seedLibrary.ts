@@ -13,13 +13,22 @@
 //  `seedLibrary` below. See ./README.md for the full authoring guide and a
 //  copy-paste starter template.
 //
-//  Story length: every template here carries 9-10 blanks across several
+//  Story length: most templates here carry 9-10 blanks across several
 //  sentences. That is deliberate for multiplayer: blanks are dealt
 //  round-robin across the roster (../engine/distribute.ts), so a story only
 //  gives every player a turn when it has at least as many blanks as there
 //  are players - and it only gives everyone SEVERAL turns when it has 2-3x
-//  that. Short 4-blank stories left half a 6-player room with nothing to do;
-//  do not add new templates below ~8 blanks without a reason.
+//  that.
+//
+//  QUICK vs FULL (story-selection/01): the library now ALSO carries a handful
+//  of deliberately short "quick" stories (4-6 blanks - see the quick block at
+//  the end of the array). Length is DERIVED from blank count, not authored: the
+//  selection pipeline classifies a template as 'quick' (<= 6 blanks) or 'full'
+//  (>= 7) via ../content/length.ts (QUICK_MAX_BLANKS). Quick stories are for a
+//  solo player or a tiny group that wants a fast round; full stories are the
+//  ones that give a bigger room several turns each. Add a NEW quick story only
+//  with 4-6 blanks; add a NEW full story at 8+ blanks - do not drift into the
+//  gap between them without a reason (see ./README.md's "quick vs full" note).
 //
 //  Child safety (README section 6): every template here is tagged
 //  `tags.familySafe = true` / `tags.ageRating = 'all-ages'` and has been
@@ -352,16 +361,68 @@ export const seedLibrary: readonly Template[] = [
       }),
       text(' and nobody cared one bit. Best. Trip. Ever.'),
     ],
+    // Word Bank is a curated PICK-ONLY pool, deliberately BIGGER and different
+    // from each blank's 3 spark words (which are just free-text nudges), so
+    // tapping a bank word feels like browsing a pile of silly options, not the
+    // same 3 chips locked down. Covers every blank category in this template
+    // (number, plural-noun, place, name, verb, exclamation, adjective, noun) -
+    // see seedLibrary.test.ts's coverage guard.
     wordBank: [
-      { category: 'plural-noun', word: 'pretzels' },
-      { category: 'plural-noun', word: 'rubber ducks' },
-      { category: 'plural-noun', word: 'corn dogs' },
-      { category: 'verb', word: 'yodel' },
-      { category: 'verb', word: 'wiggle' },
-      { category: 'verb', word: 'cartwheel' },
-      { category: 'place', word: 'Pancake City' },
-      { category: 'noun', word: 'wet dog' },
-      { category: 'name', word: 'Sir Barksalot' },
+      { category: 'number', word: 'forty-two' },
+      { category: 'number', word: 'a gazillion' },
+      { category: 'number', word: 'seventeen' },
+      { category: 'number', word: 'zero' },
+      { category: 'number', word: 'a hundred' },
+      { category: 'number', word: 'two dozen' },
+      { category: 'number', word: 'eleventy-seven' },
+      { category: 'plural-noun', word: 'banana peels' },
+      { category: 'plural-noun', word: 'squeaky toys' },
+      { category: 'plural-noun', word: 'garden gnomes' },
+      { category: 'plural-noun', word: 'marshmallows' },
+      { category: 'plural-noun', word: 'flip-flops' },
+      { category: 'plural-noun', word: 'kazoos' },
+      { category: 'plural-noun', word: 'bowling balls' },
+      { category: 'place', word: 'the Grand Canyon' },
+      { category: 'place', word: 'a giant car wash' },
+      { category: 'place', word: 'Sock Mountain' },
+      { category: 'place', word: "Aunt Edna's farm" },
+      { category: 'place', word: 'Cheeseburger Beach' },
+      { category: 'place', word: 'the drive-thru zoo' },
+      { category: 'place', word: 'Mount Bubblegum' },
+      { category: 'name', word: 'Noodle' },
+      { category: 'name', word: 'Captain Wigglesworth' },
+      { category: 'name', word: 'Beans' },
+      { category: 'name', word: 'Professor Fluffington' },
+      { category: 'name', word: 'Tater Tot' },
+      { category: 'name', word: 'Duchess Sniffles' },
+      { category: 'verb', word: 'juggle' },
+      { category: 'verb', word: 'tap-dance' },
+      { category: 'verb', word: 'honk the horn' },
+      { category: 'verb', word: 'sing opera' },
+      { category: 'verb', word: 'do a backflip' },
+      { category: 'verb', word: 'giggle' },
+      { category: 'verb', word: 'tiptoe' },
+      { category: 'exclamation', word: 'Yikes!' },
+      { category: 'exclamation', word: 'Are we there yet?' },
+      { category: 'exclamation', word: 'Holy guacamole!' },
+      { category: 'exclamation', word: 'Great gravy!' },
+      { category: 'exclamation', word: 'Cheese and crackers!' },
+      { category: 'exclamation', word: 'Not again!' },
+      { category: 'exclamation', word: 'Look out, llamas!' },
+      { category: 'adjective', word: 'wobbly' },
+      { category: 'adjective', word: 'gigantic' },
+      { category: 'adjective', word: 'stinky' },
+      { category: 'adjective', word: 'fluffy' },
+      { category: 'adjective', word: 'electric' },
+      { category: 'adjective', word: 'polka-dotted' },
+      { category: 'adjective', word: 'gurgling' },
+      { category: 'noun', word: 'a rubber chicken' },
+      { category: 'noun', word: 'maple syrup' },
+      { category: 'noun', word: 'glitter' },
+      { category: 'noun', word: 'a tuba' },
+      { category: 'noun', word: 'confetti' },
+      { category: 'noun', word: 'a mystery sandwich' },
+      { category: 'noun', word: 'bubble wrap' },
     ],
   },
   {
@@ -662,15 +723,67 @@ export const seedLibrary: readonly Template[] = [
       }),
       text(' minutes, and to this day nobody knows what was actually in the secret sauce.'),
     ],
+    // A bigger, sillier PICK-ONLY pool, deliberately distinct from each blank's
+    // 3 spark words - Word Bank is a curated list to browse, not the same spark
+    // chips locked down. Covers every blank category in this template
+    // (adjective, plural-noun, noun, place, name, verb, exclamation, number) -
+    // see seedLibrary.test.ts's coverage guard.
     wordBank: [
-      { category: 'plural-noun', word: 'pancakes' },
-      { category: 'plural-noun', word: 'tacos' },
-      { category: 'noun', word: 'cheese' },
-      { category: 'noun', word: 'glitter' },
-      { category: 'place', word: 'the library' },
-      { category: 'adjective', word: 'gooey' },
-      { category: 'verb', word: 'twirl' },
-      { category: 'name', word: 'Frankie Fry' },
+      { category: 'adjective', word: 'wobbly' },
+      { category: 'adjective', word: 'gigantic' },
+      { category: 'adjective', word: 'stinky' },
+      { category: 'adjective', word: 'fluffy' },
+      { category: 'adjective', word: 'electric' },
+      { category: 'adjective', word: 'polka-dotted' },
+      { category: 'adjective', word: 'sparkly' },
+      { category: 'plural-noun', word: 'waffles' },
+      { category: 'plural-noun', word: 'pickles' },
+      { category: 'plural-noun', word: 'gummy bears' },
+      { category: 'plural-noun', word: 'noodles' },
+      { category: 'plural-noun', word: 'donuts' },
+      { category: 'plural-noun', word: 'jellybeans' },
+      { category: 'plural-noun', word: 'french fries' },
+      { category: 'noun', word: 'ketchup' },
+      { category: 'noun', word: 'whipped cream' },
+      { category: 'noun', word: 'a rubber chicken' },
+      { category: 'noun', word: 'sprinkles' },
+      { category: 'noun', word: 'hot sauce' },
+      { category: 'noun', word: 'a tiny umbrella' },
+      { category: 'noun', word: 'maple syrup' },
+      { category: 'place', word: 'the moon' },
+      { category: 'place', word: 'the top of a volcano' },
+      { category: 'place', word: "Grandpa's garage" },
+      { category: 'place', word: 'the bottom of the sea' },
+      { category: 'place', word: 'a treehouse' },
+      { category: 'place', word: 'the mall food court' },
+      { category: 'place', word: 'Antarctica' },
+      { category: 'name', word: 'Noodle' },
+      { category: 'name', word: 'Captain Sizzle' },
+      { category: 'name', word: 'Beans' },
+      { category: 'name', word: 'Professor Fluffington' },
+      { category: 'name', word: 'Tater Tot' },
+      { category: 'name', word: 'Pickle Pete' },
+      { category: 'verb', word: 'juggle' },
+      { category: 'verb', word: 'moonwalk' },
+      { category: 'verb', word: 'honk' },
+      { category: 'verb', word: 'do a backflip' },
+      { category: 'verb', word: 'giggle' },
+      { category: 'verb', word: 'tiptoe' },
+      { category: 'verb', word: 'wiggle' },
+      { category: 'exclamation', word: 'Yum!' },
+      { category: 'exclamation', word: 'Holy guacamole!' },
+      { category: 'exclamation', word: 'Great gravy!' },
+      { category: 'exclamation', word: 'Cheese and crackers!' },
+      { category: 'exclamation', word: 'Well, butter my biscuit!' },
+      { category: 'exclamation', word: 'Ta-da!' },
+      { category: 'exclamation', word: 'Wowza!' },
+      { category: 'number', word: 'forty-two' },
+      { category: 'number', word: 'a gazillion' },
+      { category: 'number', word: 'seventeen' },
+      { category: 'number', word: 'zero' },
+      { category: 'number', word: 'a hundred' },
+      { category: 'number', word: 'two dozen' },
+      { category: 'number', word: 'eleventy-seven' },
     ],
   },
   {
@@ -1560,6 +1673,227 @@ export const seedLibrary: readonly Template[] = [
         sparkWords: ['cookies', 'riddles', 'board games'],
       }),
       text('?"'),
+    ],
+  },
+
+  // ==========================================================================
+  //  QUICK stories (story-selection/01): deliberately short, 4-6 blanks each,
+  //  so a solo player or a tiny group can finish a round fast. Length is
+  //  DERIVED from these blank counts by ../content/length.ts (quick <= 6), not
+  //  authored - there is no length tag. Same family-safe / all-ages / exactly-3
+  //  spark-words bar as every full story above. Keep these mirrored into
+  //  api/src/Content/TemplateCatalog.cs by { Id, FamilySafe, BlankCount }.
+  // ==========================================================================
+  {
+    id: 'sneezy-dinosaur',
+    title: "The Dinosaur Who Couldn't Stop Sneezing",
+    tags: { familySafe: true, ageRating: 'all-ages', themes: ['animals', 'monsters'] },
+    body: [
+      text('A giant '),
+      blank({
+        id: 'b1',
+        category: 'adjective',
+        categoryLabel: 'ADJECTIVE',
+        prompt: 'Give me a silly describing word',
+        subHint: 'Something that describes the dinosaur.',
+        sparkWords: ['spotty', 'enormous', 'ticklish'],
+      }),
+      text(' dinosaur named '),
+      blank({
+        id: 'b2',
+        category: 'name',
+        categoryLabel: 'NAME',
+        prompt: 'Give me a funny name',
+        subHint: 'A first name for our dinosaur.',
+        sparkWords: ['Sniffles', 'Rex', 'Boomer'],
+      }),
+      text(' had the loudest sneezes in all of '),
+      blank({
+        id: 'b3',
+        category: 'place',
+        categoryLabel: 'PLACE',
+        prompt: 'Give me a place',
+        subHint: 'A location, real or made up.',
+        sparkWords: ['the jungle', 'Dino City', 'the swamp'],
+      }),
+      text('. Each sneeze was so powerful it could '),
+      blank({
+        id: 'b4',
+        category: 'verb',
+        categoryLabel: 'VERB',
+        prompt: 'Give me an action word',
+        subHint: 'Something a giant sneeze could DO to a mountain.',
+        sparkWords: ['flip', 'launch', 'tickle'],
+      }),
+      text(' a whole mountain into the clouds. In the end, the doctors cured it with one enormous '),
+      blank({
+        id: 'b5',
+        category: 'noun',
+        categoryLabel: 'NOUN',
+        prompt: 'Give me a thing',
+        subHint: 'The surprising cure for dinosaur sneezes.',
+        sparkWords: ['tissue', 'pancake', 'umbrella'],
+      }),
+      text('.'),
+    ],
+  },
+  {
+    id: 'invisible-sandwich',
+    title: 'The Case of the Invisible Sandwich',
+    tags: { familySafe: true, ageRating: 'all-ages', themes: ['food', 'mystery'] },
+    body: [
+      text('For lunch today I built a completely '),
+      blank({
+        id: 'b1',
+        category: 'adjective',
+        categoryLabel: 'ADJECTIVE',
+        prompt: 'Give me a silly describing word',
+        subHint: 'Something that describes the sandwich.',
+        sparkWords: ['invisible', 'wobbly', 'enormous'],
+      }),
+      text(' sandwich stuffed with '),
+      blank({
+        id: 'b2',
+        category: 'plural-noun',
+        categoryLabel: 'PLURAL NOUN',
+        prompt: 'Give me more than one of a thing',
+        subHint: 'The sandwich filling - anything goes!',
+        sparkWords: ['pickles', 'marshmallows', 'bolts'],
+      }),
+      text('. I set it down for one second, and my dog '),
+      blank({
+        id: 'b3',
+        category: 'name',
+        categoryLabel: 'NAME',
+        prompt: 'Give me a funny name',
+        subHint: 'A name for the sneaky dog.',
+        sparkWords: ['Waffles', 'Biscuit', 'Chomper'],
+      }),
+      text(' tried to '),
+      blank({
+        id: 'b4',
+        category: 'verb',
+        categoryLabel: 'VERB',
+        prompt: 'Give me an action word',
+        subHint: 'What the dog does to the sandwich.',
+        sparkWords: ['gulp', 'sniff', 'juggle'],
+      }),
+      text(' it right off the table. Now nobody can find it, and the whole kitchen smells like '),
+      blank({
+        id: 'b5',
+        category: 'noun',
+        categoryLabel: 'NOUN',
+        prompt: 'Give me a thing',
+        subHint: 'A smell, a snack, a mystery - anything.',
+        sparkWords: ['victory', 'cheese', 'trouble'],
+      }),
+      text('.'),
+    ],
+  },
+  {
+    id: 'grumpy-goldfish',
+    title: 'The Extremely Grumpy Goldfish',
+    tags: { familySafe: true, ageRating: 'all-ages', themes: ['animals'] },
+    body: [
+      text('My goldfish is impossibly '),
+      blank({
+        id: 'b1',
+        category: 'adjective',
+        categoryLabel: 'ADJECTIVE',
+        prompt: 'Give me a silly describing word',
+        subHint: 'Something that describes the goldfish every morning.',
+        sparkWords: ['grumpy', 'sleepy', 'dramatic'],
+      }),
+      text(' every morning until it gets its bowl of '),
+      blank({
+        id: 'b2',
+        category: 'plural-noun',
+        categoryLabel: 'PLURAL NOUN',
+        prompt: 'Give me more than one of a thing',
+        subHint: 'A goldfish breakfast.',
+        sparkWords: ['bubbles', 'cornflakes', 'sprinkles'],
+      }),
+      text('. If you ever forget, it will '),
+      blank({
+        id: 'b3',
+        category: 'verb',
+        categoryLabel: 'VERB',
+        prompt: 'Give me an action word',
+        subHint: 'What a betrayed goldfish does.',
+        sparkWords: ['sulk', 'pout', 'somersault'],
+      }),
+      text(' in slow circles and refuse to speak to you for '),
+      blank({
+        id: 'b4',
+        category: 'number',
+        categoryLabel: 'NUMBER',
+        prompt: 'Give me a number',
+        subHint: 'Any number you like.',
+        sparkWords: ['3', '100', '7'],
+      }),
+      text(' whole days.'),
+    ],
+  },
+  {
+    id: 'dancing-broom',
+    title: 'The Broom That Loved to Dance',
+    tags: { familySafe: true, ageRating: 'all-ages', themes: ['fantasy', 'monsters'] },
+    body: [
+      text('In the corner of '),
+      blank({
+        id: 'b1',
+        category: 'place',
+        categoryLabel: 'PLACE',
+        prompt: 'Give me a place',
+        subHint: 'A location, real or made up.',
+        sparkWords: ['the kitchen', 'a castle', "Grandma's attic"],
+      }),
+      text(' lived a '),
+      blank({
+        id: 'b2',
+        category: 'adjective',
+        categoryLabel: 'ADJECTIVE',
+        prompt: 'Give me a silly describing word',
+        subHint: 'Something that describes the broom.',
+        sparkWords: ['glittery', 'squeaky', 'bouncy'],
+      }),
+      text(' broom named '),
+      blank({
+        id: 'b3',
+        category: 'name',
+        categoryLabel: 'NAME',
+        prompt: 'Give me a funny name',
+        subHint: 'A first name for our broom.',
+        sparkWords: ['Sweepy', 'Bristles', 'Twirl'],
+      }),
+      text(' who wanted to do nothing but '),
+      blank({
+        id: 'b4',
+        category: 'verb',
+        categoryLabel: 'VERB',
+        prompt: 'Give me an action word',
+        subHint: 'A dance move - or any move.',
+        sparkWords: ['tango', 'breakdance', 'moonwalk'],
+      }),
+      text('. One night it grabbed a mop, spun it '),
+      blank({
+        id: 'b5',
+        category: 'number',
+        categoryLabel: 'NUMBER',
+        prompt: 'Give me a number',
+        subHint: 'Any number you like.',
+        sparkWords: ['9', '44', '2'],
+      }),
+      text(' times, and shouted "'),
+      blank({
+        id: 'b6',
+        category: 'exclamation',
+        categoryLabel: 'EXCLAMATION',
+        prompt: 'Give me something you shout',
+        subHint: 'An exclamation, like "Ta-da!" or "Wheee!"',
+        sparkWords: ['Ta-da!', 'Wheee!', 'Encore!'],
+      }),
+      text('" until the whole house woke up and joined the dance.'),
     ],
   },
 ];

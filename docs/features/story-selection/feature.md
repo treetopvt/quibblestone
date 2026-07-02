@@ -22,11 +22,11 @@ the smallest data that keeps content fresh and curatable.
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #91 | Length classes + the one selection pipeline | Not Started |
-| 02 | #92 | Quick story option (solo + group) | Not Started |
-| 03 | #93 | Freshness rotation: no repeats until the pool runs dry | Not Started |
-| 04 | #94 | Story delivery metrics (the anonymous serve log) | Not Started |
-| 05 | #95 | Like / dislike a tale (content feedback) | Not Started |
+| 01 | #91 | Length classes + the one selection pipeline | Complete |
+| 02 | #92 | Quick story option (solo + group) | Complete |
+| 03 | #93 | Freshness rotation: no repeats until the pool runs dry | Complete |
+| 04 | #94 | Story delivery metrics (the anonymous serve log) | Complete |
+| 05 | #95 | Like / dislike a tale (content feedback) | Complete |
 | 06 | TBD | Favorite a story and replay it (device-local) | Not Started |
 
 ## Dependencies

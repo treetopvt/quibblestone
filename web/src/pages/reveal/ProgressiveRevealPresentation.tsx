@@ -47,15 +47,30 @@
 // ----------------------------------------------------------------------------
 
 import { useEffect, useState } from 'react';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Typography } from '@mui/material';
 import type { AssembledStory } from '../../engine/assemble';
 import type { Template } from '../../engine/template';
 import type { ModeSurfaces } from '../modeSurfaces';
 import { buildRevealParts, type RevealPart } from '../revealParts';
 
-/** Milliseconds between each newly-revealed word (a fixed, non-interactive pace - see story's Out of Scope). */
-const STEP_INTERVAL_MS = 700;
+/**
+ * Milliseconds between each newly-revealed word (a fixed, non-interactive pace
+ * - see story's Out of Scope). Tuned slow enough that the paced reveal reads as
+ * distinctly different from Classic blind's all-at-once body: each word lands on
+ * its own beat rather than the whole story appearing at once.
+ */
+const STEP_INTERVAL_MS = 1150;
+
+// Each newly-revealed word pops in (fade + a slight rise/scale) so it visibly
+// "arrives" on its beat rather than blinking into place - that beat is what
+// makes the progressive reveal feel different from Classic blind. Keyframe
+// approach matches Reveal.tsx's twinkle/tabletGlow (no animation library).
+const wordPop = keyframes`
+  0% { opacity: 0; transform: translateY(4px) scale(0.72); }
+  60% { opacity: 1; transform: translateY(0) scale(1.08); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+`;
 
 /**
  * Pure pacing helper: given the ordered `RevealPart`s and how many pacing
@@ -141,17 +156,20 @@ export function ProgressiveRevealPresentation({ template, assembled }: Progressi
         const wordPosition = wordsSoFar;
         wordsSoFar += 1;
 
-        // Not-yet-revealed word: rendered as nothing until its step arrives
-        // (AC-03) - no placeholder, no layout-shifting blank box.
+        // Not-yet-revealed word: render nothing at all (null, not an empty
+        // span) so that when its step arrives a FRESH element mounts in its
+        // place and the pop-in animation actually fires - React reuses a
+        // same-type node in place, which would skip the animation. No
+        // placeholder, no layout-shifting blank box (AC-03).
         if (wordPosition >= revealedWordCount) {
-          return <Box key={`p-${index}`} component="span" />;
+          return null;
         }
 
         // A skipped blank arrives as an empty-word part, same as Reveal's
-        // default body - render it as plain nothing rather than a stray
-        // zero-width coral underline artifact.
+        // default body - render nothing rather than a stray zero-width coral
+        // underline artifact.
         if (part.word === '') {
-          return <Box key={`p-${index}`} component="span" />;
+          return null;
         }
 
         return (
@@ -164,6 +182,10 @@ export function ProgressiveRevealPresentation({ template, assembled }: Progressi
               color: theme.palette.coral.main,
               fontWeight: 800,
               borderBottom: `2px solid ${alpha(theme.palette.coral.main, 0.4)}`,
+              // inline-block so the pop-in transform (scale/translate) applies -
+              // transforms are ignored on plain inline elements.
+              display: 'inline-block',
+              animation: `${wordPop} 0.42s ease-out`,
             }}
           >
             {part.word}
