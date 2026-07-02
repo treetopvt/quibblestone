@@ -197,12 +197,25 @@ export const seedLibrary: readonly Template[] = [
       }),
       text('"'),
     ],
+    // Every blank category in this template (number, plural-noun, place, verb,
+    // exclamation) has bank entries, so Word Bank mode always has words to tap
+    // on every blank - see seedLibrary.test.ts's coverage guard.
     wordBank: [
+      { category: 'number', word: '12' },
+      { category: 'number', word: '300' },
+      { category: 'number', word: '7' },
       { category: 'plural-noun', word: 'pretzels' },
       { category: 'plural-noun', word: 'rubber ducks' },
+      { category: 'plural-noun', word: 'socks' },
+      { category: 'place', word: 'Pancake City' },
+      { category: 'place', word: "Grandma's house" },
+      { category: 'place', word: 'the moon' },
       { category: 'verb', word: 'yodel' },
       { category: 'verb', word: 'wiggle' },
-      { category: 'place', word: 'Pancake City' },
+      { category: 'verb', word: 'snore' },
+      { category: 'exclamation', word: 'Whoa!' },
+      { category: 'exclamation', word: 'Pull over!' },
+      { category: 'exclamation', word: 'My ears!' },
     ],
   },
   {
@@ -336,12 +349,22 @@ export const seedLibrary: readonly Template[] = [
       }),
       text(', and everyone agreed it was the best lunch ever.'),
     ],
+    // Every blank category in this template (adjective, plural-noun, noun,
+    // place) has bank entries, so Word Bank mode always has words to tap on
+    // every blank - see seedLibrary.test.ts's coverage guard.
     wordBank: [
+      { category: 'adjective', word: 'gooey' },
+      { category: 'adjective', word: 'rainbow' },
+      { category: 'adjective', word: 'crunchy' },
       { category: 'plural-noun', word: 'pancakes' },
       { category: 'plural-noun', word: 'tacos' },
+      { category: 'plural-noun', word: 'meatballs' },
       { category: 'noun', word: 'cheese' },
       { category: 'noun', word: 'glitter' },
+      { category: 'noun', word: 'confetti' },
       { category: 'place', word: 'the library' },
+      { category: 'place', word: 'outer space' },
+      { category: 'place', word: 'next door' },
     ],
   },
   {
