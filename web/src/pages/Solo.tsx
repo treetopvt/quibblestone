@@ -77,26 +77,36 @@
 //  template IDS ONLY - no words, no PII (AC-06) - and SURVIVES a page refresh
 //  because it lives in localStorage, not component state.
 //
-//  AC-04 bypass seam (no pinned-replay UI exists yet): a FUTURE pinned-template
-//  "replay this exact tale" affordance would call beginRound directly with a
-//  specific template, SKIPPING both pickTemplate's freshness filter and
-//  beginRound's appendPlayedId call - see the comment on beginRound below.
+//  AC-04 bypass seam (story-selection/06, "play a favorite"): beginRound now
+//  takes an explicit `{ record: boolean }` option. `record: true` (the RANDOM
+//  pick path - handleStart / handlePlayAgain, unchanged behavior) fires
+//  recordSoloServe AND appendPlayedId, exactly as before this story. `record:
+//  false` is the EXPLICIT-REPLAY path (a favorite picked from the Favorites
+//  screen, wired via the `initialFavorite` prop's mount effect below): it runs
+//  NEITHER side effect, because playing a favorite must not re-stamp freshness
+//  history (a favorite would otherwise make the random pick "forget" other
+//  unplayed stories, story-selection/03 AC-04) and is not a serve/thumbs
+//  telemetry signal (story-selection/06's Out of Scope - a star is a private
+//  device-local shortcut, never routed into the serve log).
 //
 //  story-selection/04 fire-and-forgets an anonymous "template served" event on
-//  each round start (beginRound), and story-selection/05 shows a quiet per-tale
-//  thumbs vote on Reveal (taleFeedback) - both anonymous, both never gate the
-//  flow (see recordSoloServe / TaleFeedback).
+//  each RANDOM round start (beginRound with record:true), and story-selection/05
+//  shows a quiet per-tale thumbs vote on Reveal (taleFeedback) - both anonymous,
+//  both never gate the flow (see recordSoloServe / TaleFeedback).
 //
 //  platform-devops/05 (anonymous product-usage) adds two more fire-and-forget,
-//  no-PII beacons on the SAME never-gate posture: a "RoundStarted" on beginRound
-//  (the mode played) and a "RoundCompleted" with the session DURATION when the
-//  round reaches the reveal (see recordSoloRoundStarted / recordSoloRoundCompleted).
-//  These ride story 04's App Insights pipeline (a DIFFERENT surface from the serve
-//  log's Table Storage) - which modes get played + how long a session lasts +
-//  approximate anonymous device reach, never a person.
+//  no-PII beacons on the SAME never-gate posture: a "RoundStarted" (the mode
+//  played) and a "RoundCompleted" with the session DURATION when the round reaches
+//  the reveal (see recordSoloRoundStarted / recordSoloRoundCompleted). Unlike the
+//  serve log + freshness history above (content curation, RANDOM-pick only),
+//  product usage counts EVERY round - a favorite replay (record:false) included -
+//  so these fire on BOTH paths, before the record gate. They ride story 04's App
+//  Insights pipeline (a DIFFERENT surface from the serve log's Table Storage):
+//  which modes get played + how long a session lasts + approximate anonymous
+//  device reach, never a person.
 // ----------------------------------------------------------------------------
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
@@ -107,7 +117,7 @@ import {
   FamilySafeToggle,
   StoryLengthChoice,
 } from '../components';
-import { FAMILY_SAFE_DEFAULT } from '../content/familySafe';
+import { FAMILY_SAFE_DEFAULT, selectTemplates } from '../content/familySafe';
 import { selectFreshOrRecycle } from '../content/fresh';
 import { selectByLengthOrFallback, type LengthPreference } from '../content/length';
 import { appendPlayedId, loadPlayedIds } from '../content/playedHistory';
@@ -131,6 +141,15 @@ import { DEFAULT_SOLO_MODE, SOLO_MODES, type SoloMode } from './soloModes';
 export interface SoloProps {
   /** Return to Home. Solo never set a room, so this is purely a view change for the caller. */
   onExit: () => void;
+  /**
+   * Optional favorite to replay (story-selection/06, AC-03/AC-04): when
+   * supplied, Solo skips setup entirely and starts THIS exact template on
+   * mount, with the freshness bypass + no history re-stamp (AC-04) - see the
+   * effect below. App sets this from the Favorites screen's `onPick` and
+   * clears it once consumed, so navigating to '/solo' again (e.g. via "Or
+   * play solo right now") never re-fires the same favorite.
+   */
+  initialFavorite?: { templateId: string };
 }
 
 /**
@@ -349,7 +368,7 @@ function SoloSetup({
   );
 }
 
-export function Solo({ onExit }: SoloProps) {
+export function Solo({ onExit, initialFavorite }: SoloProps) {
   const [phase, setPhase] = useState<SoloPhase>('setup');
   const [familySafe, setFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
   // story-selection/02, AC-01/AC-06: defaults to 'full' so a session that never
@@ -384,38 +403,46 @@ export function Solo({ onExit }: SoloProps) {
     }
   };
 
-  const beginRound = (chosen: Template) => {
+  /**
+   * Begin a round on `chosen` (story-selection/06, AC-04). `record` controls
+   * whether the RANDOM-pick side effects fire:
+   *  - `record: true` (handleStart / handlePlayAgain, the fresh-random path,
+   *    UNCHANGED behavior): fires recordSoloServe (story-selection/04's
+   *    anonymous serve telemetry) AND appendPlayedId (story-selection/03's
+   *    freshness history), exactly as before this story.
+   *  - `record: false` (the explicit favorite-replay path, see the
+   *    initialFavorite effect below): fires NEITHER - a favorite is an
+   *    EXPLICIT replay, so it must not re-stamp freshness history (which
+   *    would make the random pick "forget" other unplayed stories,
+   *    story-selection/03 AC-04) and is not a serve/thumbs telemetry signal
+   *    (story-selection/06's Out of Scope).
+   */
+  const beginRound = (chosen: Template, { record }: { record: boolean }) => {
     collectionRef.current = createCollection();
     setTemplate(chosen);
     setBlankIndex(0);
     setPhase('fill');
-    // story-selection/04 (anonymous serve log, AC-02): fire-and-forget one
-    // anonymous "template served" event. This covers BOTH handleStart and
-    // handlePlayAgain (both route through beginRound). It never awaits, never
-    // retries, and never blocks the transition to 'fill' (AC-03), and carries no
-    // PII - just the template + the current family-safe toggle (AC-04).
-    recordSoloServe({ template: chosen, familySafe });
     // platform-devops/05 (anonymous product-usage, AC-01/AC-02): mark the round
     // start time and fire-and-forget one anonymous "RoundStarted" usage event with
     // the selected MODE (solo context) so "which modes get played" is answerable.
-    // This rides story 04's App Insights pipeline via /api/usage - a DIFFERENT
-    // surface from the serve log above (Table Storage, content curation) - and
-    // never awaits, never retries, never blocks the transition to 'fill' (AC-08).
-    // Carries no PII - just the stable mode id + an anonymous device id (AC-04).
+    // This runs on EVERY round - BEFORE the record gate below - because product
+    // usage counts a favorite replay (record:false) too, unlike the serve log +
+    // freshness history (content curation, random-pick only). It rides story 04's
+    // App Insights pipeline via /api/usage (a DIFFERENT surface from the serve log,
+    // Table Storage) - never awaits, never retries, never blocks the transition to
+    // 'fill' (AC-08). Carries no PII - just the stable mode id + an anonymous
+    // device id (AC-04).
     roundStartRef.current = Date.now();
     recordSoloRoundStarted(mode.config.id);
+    if (!record) return;
+    // story-selection/04 (anonymous serve log, AC-02): fire-and-forget one
+    // anonymous "template served" event. It never awaits, never retries, and
+    // never blocks the transition to 'fill' (AC-03), and carries no PII - just
+    // the template + the current family-safe toggle (AC-04).
+    recordSoloServe({ template: chosen, familySafe });
     // story-selection/03 (freshness rotation, AC-01): record this template as
     // played on THIS device, AFTER the pick, so the NEXT pickTemplate() call
-    // excludes it until the eligible pool runs dry. Both call sites that reach
-    // beginRound today (handleStart, handlePlayAgain) are fresh RANDOM picks
-    // that already ran through selectFreshOrRecycle, so both must append here.
-    //
-    // AC-04 bypass seam: a FUTURE pinned-template replay ("play this exact
-    // tale again") would call beginRound with a specific template WITHOUT this
-    // appendPlayedId call (and without the caller having filtered through
-    // selectFreshOrRecycle) - replaying a favorite must not make the random
-    // pick "forget" the other templates this device has not seen yet. No such
-    // path exists today; this comment marks where it would branch in.
+    // excludes it until the eligible pool runs dry.
     appendPlayedId(chosen.id);
   };
 
@@ -441,14 +468,51 @@ export function Solo({ onExit }: SoloProps) {
     // non-null; a disabled mode can never be selected, so this is defensive.
     const chosen = pickTemplate();
     if (!chosen) return;
-    beginRound(chosen);
+    beginRound(chosen, { record: true });
   };
 
   const handlePlayAgain = () => {
     const chosen = pickTemplate();
     if (!chosen) return;
-    beginRound(chosen);
+    beginRound(chosen, { record: true });
   };
+
+  // story-selection/06 (AC-03/AC-04/AC-06): while a favorite is still being
+  // resolved, render NOTHING rather than flashing the setup picker (AC-03 -
+  // "no template picker" for a favorite replay). Seeded true only when
+  // `initialFavorite` was supplied at mount; flipped false by the effect
+  // below once it has either started the round or given up (a missing /
+  // ineligible favorite), so a failure still falls through to the normal
+  // setup screen instead of a permanently blank one.
+  const [resolvingFavorite, setResolvingFavorite] = useState(() => Boolean(initialFavorite));
+
+  // Consume `initialFavorite` ONCE on mount, guarded by a fired-once ref so a
+  // re-render (or React StrictMode's dev double-invoke) can never start the
+  // same favorite twice. Resolves the template from the seed library, runs it
+  // through the FAMILY-SAFE GATE FIRST (selectTemplates, AC-06 - a favorite
+  // that is not family-safe under the current toggle position is never
+  // started), and on eligibility starts it via beginRound with `record: false`
+  // (the explicit-replay bypass, AC-04 - no freshness re-stamp, no
+  // serve/thumbs telemetry). A missing or ineligible favorite (a library
+  // drift, or the family-safe toggle excluding it) falls back to the normal
+  // setup screen gracefully rather than erroring. Depends only on
+  // `initialFavorite` deliberately - `familySafe` reads its mount-time default
+  // (FAMILY_SAFE_DEFAULT) here, matching the setup screen's own initial value.
+  const consumedInitialFavorite = useRef(false);
+  useEffect(() => {
+    if (!initialFavorite || consumedInitialFavorite.current) return;
+    consumedInitialFavorite.current = true;
+    const found = seedLibrary.find((t) => t.id === initialFavorite.templateId);
+    const eligible = found ? selectTemplates([found], familySafe) : [];
+    if (found && eligible.length > 0) {
+      beginRound(found, { record: false });
+    }
+    setResolvingFavorite(false);
+  }, [initialFavorite]);
+
+  if (resolvingFavorite) {
+    return null;
+  }
 
   if (phase === 'setup' || !template) {
     return (
@@ -569,6 +633,7 @@ export function Solo({ onExit }: SoloProps) {
       onHome={onExit}
       exitAction={{ label: 'Back to home', onClick: onExit }}
       taleFeedback={{ templateId: template.id, mode: 'solo' }}
+      favorite={{ templateId: template.id, title: template.title }}
       revealPresentation={revealSurfaces.revealPresentation}
     />
   );

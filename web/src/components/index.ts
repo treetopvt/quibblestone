@@ -76,3 +76,11 @@ export type { StoryLengthChoiceProps } from './StoryLengthChoice';
 // SignalR, no room state, no aggregate shown to players).
 export { TaleFeedback } from './TaleFeedback';
 export type { TaleFeedbackProps } from './TaleFeedback';
+
+// The shared star favorite/unfavorite toggle (story-selection/06, AC-01):
+// rendered on Reveal (solo, via its optional `favorite` prop) and
+// RoundComplete (group, unconditionally - a private per-device action any
+// player may do). Pair with the pure device-local store in
+// web/src/content/favorites.ts.
+export { FavoriteStarButton } from './FavoriteStarButton';
+export type { FavoriteStarButtonProps } from './FavoriteStarButton';

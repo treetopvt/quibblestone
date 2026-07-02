@@ -586,7 +586,8 @@ public sealed class GameHub : Hub
     /// <param name="code">The room's join code (case-insensitive).</param>
     /// <param name="familySafe">The host's family-safe toggle position; the SERVER filters the catalog by it (authoritative, AC-04).</param>
     /// <param name="lengthPref">The host's story-length choice ("quick" | "full" | "any"); the SERVER filters the family-safe pool by it (authoritative, story-selection/02 AC-03). Null/empty/unrecognized falls back to "any".</param>
-    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref)
+    /// <param name="templateId">story-selection/06 (favorite a story, AC-03/AC-04): an OPTIONAL explicit template id. When the host starts a round from their device-local favorites, this names the exact tale to play. It still passes the family-safe gate first (AC-06) but SKIPS the length + freshness stages and is neither re-stamped into the room's played history nor logged to the serve log (a private replay, not a curation signal). Null/empty means the normal random pick (the pre-06 behavior, unchanged).</param>
+    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref, string? templateId = null)
     {
         // 1. Look up the room first (an unknown / expired code has nothing to start).
         var room = _rooms.TryGet(code);
@@ -636,34 +637,58 @@ public sealed class GameHub : Hub
                 "No tales are available right now - please try again.");
         }
 
-        //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
-        //    family-safe pool to the requested length class using the host's
-        //    story-length choice (story-selection/02, AC-03). A malformed/unknown
-        //    lengthPref is normalized to "any" first so a crafted client cannot
-        //    break the pick. If the requested length would leave an EMPTY pool, the
-        //    selector DEGRADES to the family-safe pool rather than failing the round
-        //    (a longer story, never an error) - the fallback lives in THIS pipeline,
-        //    not in callers.
-        var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
+        //    story-selection/06 (favorite a story, AC-03/AC-04) - the EXPLICIT
+        //    pinned-template branch, the AC-04 bypass seam Stage 3 reserved. When
+        //    the host started this round from their device-local favorites,
+        //    templateId names the chosen tale directly. It still had to clear the
+        //    family-safe gate FIRST (it must be present in familySafePool above -
+        //    AC-06: a non-family-safe favorite is not playable in a family-safe
+        //    game), but as an EXPLICIT replay it SKIPS the length + freshness stages
+        //    below and, per AC-04, is neither re-stamped into this room's played
+        //    history (Step 5a) NOR logged to the serve log (Step 8) - a star is a
+        //    private device-local shortcut, not a curation signal.
+        var explicitPick = !string.IsNullOrWhiteSpace(templateId);
+        TemplateCatalogEntry chosen;
+        if (explicitPick)
+        {
+            var favorite = familySafePool.FirstOrDefault(
+                entry => string.Equals(entry.Id, templateId, StringComparison.Ordinal));
+            if (favorite is null)
+            {
+                // Unknown id, or a favorite the family-safe gate excludes in this
+                // game (AC-06) - fail friendly rather than throw or silently fall
+                // back to a random tale the host did not ask for.
+                return new StartRoundResultDto(
+                    false,
+                    "That favorite tale isn't available in this game right now.");
+            }
 
-        //    Stage 3 - FRESHNESS FILTER + recycle (story-selection/03, AC-02/AC-03):
-        //    narrow the safety+length-filtered pool to templates this ROOM has not
-        //    yet played (Room.PlayedTemplateIds - ephemeral, in-memory, dies with the
-        //    room, AC-06 - ids only, no PII). If every template in the pool has
-        //    already been played, SelectFreshOrRecycle reopens the WHOLE pool
-        //    (least-recently-played first) rather than failing the round - a repeat
-        //    is a fine outcome once the pool runs dry, an errored round is not.
-        //
-        //    AC-04 bypass seam: this is the RANDOM-pick path. A FUTURE pinned-
-        //    template replay (replay-remix/01, "carve it again") would SKIP both this
-        //    freshness stage AND the room.MarkTemplatePlayed call below (Step 5a) for
-        //    that one round - replaying a favorite must not make the random pick
-        //    "forget" the other templates this room has not seen yet. No such path
-        //    exists today; every current call site here is a fresh random pick.
-        var freshPool = _freshness.SelectFreshOrRecycle(pool, room.PlayedTemplateIds);
+            chosen = favorite;
+        }
+        else
+        {
+            //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
+            //    family-safe pool to the requested length class using the host's
+            //    story-length choice (story-selection/02, AC-03). A malformed/unknown
+            //    lengthPref is normalized to "any" first so a crafted client cannot
+            //    break the pick. If the requested length would leave an EMPTY pool, the
+            //    selector DEGRADES to the family-safe pool rather than failing the round
+            //    (a longer story, never an error) - the fallback lives in THIS pipeline,
+            //    not in callers.
+            var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
 
-        //    Stage 4 - RANDOM PICK from the final pool (no picker UI in Slice 1).
-        var chosen = freshPool[Random.Shared.Next(freshPool.Count)];
+            //    Stage 3 - FRESHNESS FILTER + recycle (story-selection/03, AC-02/AC-03):
+            //    narrow the safety+length-filtered pool to templates this ROOM has not
+            //    yet played (Room.PlayedTemplateIds - ephemeral, in-memory, dies with the
+            //    room, AC-06 - ids only, no PII). If every template in the pool has
+            //    already been played, SelectFreshOrRecycle reopens the WHOLE pool
+            //    (least-recently-played first) rather than failing the round - a repeat
+            //    is a fine outcome once the pool runs dry, an errored round is not.
+            var freshPool = _freshness.SelectFreshOrRecycle(pool, room.PlayedTemplateIds);
+
+            //    Stage 4 - RANDOM PICK from the final pool (no picker UI in Slice 1).
+            chosen = freshPool[Random.Shared.Next(freshPool.Count)];
+        }
 
         // 5. Set the room's round state (round 1, Classic blind, "prompting") AND
         //    compute the round-robin blank assignment (group-play/02). The deal
@@ -676,9 +701,13 @@ public sealed class GameHub : Hub
         // 5a. story-selection/03 (AC-02): record the chosen id in THIS room's
         //     played-template history, AFTER the round has opened, so the NEXT
         //     StartRound's freshness stage (Stage 3 above) excludes it. This is
-        //     the RANDOM-pick path's bookkeeping - see the AC-04 bypass seam noted
-        //     at Stage 3: a future pinned-template replay would skip this call.
-        room.MarkTemplatePlayed(chosen.Id);
+        //     the RANDOM-pick path's bookkeeping - an EXPLICIT favorite replay
+        //     (story-selection/06, AC-04) SKIPS it, so replaying a favorite never
+        //     makes the random pick "forget" the other tales this room has not seen.
+        if (!explicitPick)
+        {
+            room.MarkTemplatePlayed(chosen.Id);
+        }
 
         // 6. Broadcast to the WHOLE room group (host included) so all players
         //    transition into word collection together (AC-01, AC-02). Full
@@ -711,17 +740,25 @@ public sealed class GameHub : Hub
         //    facts: the template id, mode, derived length class, player COUNT, the
         //    family-safe flag, and the room's OPAQUE instance id - never a
         //    connectionId, nickname, or the join code (AC-04).
-        var serveEvent = new ServeEvent(
-            TemplateId: chosen.Id,
-            TimestampUtc: DateTimeOffset.UtcNow,
-            Mode: round.Mode,
-            // Derive the length class from the chosen template's blank count using
-            // story-01's single threshold (mirrors the web's classifyLength).
-            LengthClass: chosen.BlankCount <= LengthContentSelector.QuickMaxBlanks ? "quick" : "full",
-            PlayerCount: room.PlayerCount,
-            FamilySafe: familySafe,
-            InstanceId: room.InstanceId);
-        FireServeEvent(serveEvent);
+        //
+        //    An EXPLICIT favorite replay (story-selection/06) is deliberately NOT
+        //    logged here: a star is a private, device-local shortcut, not a curation
+        //    signal, so it must not skew per-template serve counts (feature.md /
+        //    story 06 tech note). Only the RANDOM-pick path emits a serve event.
+        if (!explicitPick)
+        {
+            var serveEvent = new ServeEvent(
+                TemplateId: chosen.Id,
+                TimestampUtc: DateTimeOffset.UtcNow,
+                Mode: round.Mode,
+                // Derive the length class from the chosen template's blank count using
+                // story-01's single threshold (mirrors the web's classifyLength).
+                LengthClass: chosen.BlankCount <= LengthContentSelector.QuickMaxBlanks ? "quick" : "full",
+                PlayerCount: room.PlayerCount,
+                FamilySafe: familySafe,
+                InstanceId: room.InstanceId);
+            FireServeEvent(serveEvent);
+        }
 
         // 9. platform-devops/05 (anonymous product-usage, AC-01): record ONE
         //    "RoundStarted" App Insights CUSTOM EVENT with the MODE + group context

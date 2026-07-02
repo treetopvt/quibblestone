@@ -2,7 +2,12 @@
 //  fontawesome.ts - FontAwesome icon setup (imported once for side effects).
 //
 //  We register the free solid icons the app uses into the global library so any
-//  component can render them by name: <FontAwesomeIcon icon="bolt" />.
+//  component can render them by name: <FontAwesomeIcon icon="bolt" />. Story
+//  story-selection/06 (favorites, AC-01) adds the ONE free-REGULAR icon this app
+//  uses so far - the outline star - registered under FontAwesome's 'far' prefix
+//  so a caller renders it as `icon={['far', 'star']}` (vs the already-registered
+//  solid `icon="star"` for the filled state). Same registration convention:
+//  register once here, render by name everywhere else.
 //
 //  This uses the FREE FontAwesome packages (no auth token needed). If a Pro kit
 //  is adopted later, change the import sources here and add the new icons to the
@@ -81,6 +86,10 @@ import {
   faThumbsUp,
   faThumbsDown,
 } from '@fortawesome/free-solid-svg-icons';
+// FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
+// not-favorited state. The FILLED star reuses the faStar already registered
+// above (solid pack) - this is the app's first free-REGULAR-pack icon.
+import { faStar as faStarRegular } from '@fortawesome/free-regular-svg-icons';
 
 library.add(
   faBolt,
@@ -115,4 +124,5 @@ library.add(
   faBook,
   faThumbsUp,
   faThumbsDown,
+  faStarRegular,
 );
