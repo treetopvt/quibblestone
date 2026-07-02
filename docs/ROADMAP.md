@@ -35,6 +35,9 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Freshness loop** - length classes, quick-story, no-repeats rotation; plus the
   anonymous serve log (`story-selection/04`) and device-local favorite-a-story
   replay (`story-selection/06`) - the whole "Keep It Fresh" arc is closed out.
+- **Land the Laugh** - the reveal payoff polish (`reveal-delight/01-04`, PR #112):
+  the reaction row, the word-by-word carving animation, the Golden Guardian
+  funniest-word vote + next-round crown, and per-word "carved by" attribution.
 - Profanity filter + family-safe toggle; MUI theme + shared components; Vitest +
   Playwright harness gating CI.
 
@@ -70,8 +73,8 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   Word Bank, Progressive Reveal. High value (the group is the whole point), mostly
   wiring. *Progressive Story is deferred - it needs a live cross-player "story so
   far" broadcast (its own story).*
-- **Land the Laugh** (`reveal-delight/01-04`) - reactions, carving animation, word
-  attribution, Golden Guardian. Best bang-for-buck, all on the built reveal.
+- **Land the Laugh** (`reveal-delight/01-04`) - **DONE** (PR #112): reactions,
+  carving animation, word attribution, Golden Guardian. All on the built reveal.
 - **Spread the Word** (`session-engine/06` + `keepsake-gallery/01-04`) - deep-link
   join, save/share the tale, public tale page. Routing already made the deep link
   cheap.
@@ -117,9 +120,11 @@ session, not identity**.
 
 ## Recommended sequence
 
-1. **Done** - deploy, routing, solo modes, freshness loop.
-2. **Now** - Land the Laugh + Group modes. (The Keep-It-Fresh leftovers - favorite +
-   serve log - are done.) All ride things already built.
+1. **Done** - deploy, routing, solo modes, freshness loop, and Land the Laugh
+   (`reveal-delight`, the reveal payoff polish).
+2. **Now** - Group modes (`group-play/05`), the one remaining priority-1 item: host
+   picks the mode so the room can play more than Classic Blind. Mostly wiring on
+   things already built.
 3. **Then** - observability + anonymous usage (see how the alpha plays), then Spread
    the Word (let a shared tale travel).
 4. **Early AI** - the Fresh Runes AI jumble behind the cost gate (proves the whole
