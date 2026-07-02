@@ -1,6 +1,6 @@
 # Story: Save the reveal as a stone-tablet image
 
-**Feature:** Keepsake Gallery  ·  **Status:** In Progress  ·  **Issue:** #63
+**Feature:** Keepsake Gallery  ·  **Status:** Complete  ·  **Issue:** #63
 
 ## Context
 The finished tale on the Reveal screen - confetti, "Your tale is carved!"
@@ -15,21 +15,24 @@ on. See [feature.md](./feature.md) and `docs/features/the-reveal/01-text-reveal.
       action to save it as an image (e.g. a "Save as image" affordance,
       secondary weight, not competing with the existing gold "Play another
       round" CTA).
-- [~] AC-02 (PARTIAL): Given I trigger the save action, then an image is
+- [x] AC-02: Given I trigger the save action, then an image is
       rendered containing: the story title, the story body with every
       filled-in word shown in coral (matching the Reveal screen's existing
-      coral treatment), a byline in the form "carved by [names] & crew" (using
-      the same attribution the Reveal screen already shows, when present), and
+      coral treatment), a byline in the form "carved by [names]" (using
+      the same crew data the Reveal screen already shows, when present), and
       the stone-tablet visual treatment (gradient, carved rim) - the image
       reads as a recognizable snapshot of the Reveal screen, not a plain text
-      dump. Title + coral story + tablet treatment ship and match the live
-      screen; the byline MECHANISM is built and unit-tested but is UNWIRED - no
-      caller supplies `saveImageByline` yet, so no shipping image renders a
-      byline today. Solo does show an `attribution` on the live Reveal, so the
-      byline is a genuine gap (not merely "not present"). Wiring the byline for
-      the solo case is folded into keepsake-gallery/02 (which already extends
-      the same render + Reveal share path). Do not flip this AC to `[x]` /
-      the story to Complete until a caller actually renders the byline.
+      dump. Title + coral story + tablet treatment shipped with this story;
+      the byline was WIRED via keepsake-gallery/02 (PART C): App.tsx's
+      `GroupReveal` wrapper now passes a real `saveImageByline` ("carved by
+      Sam, Mia & Bo", built from the same `buildCrew` crew list Round Complete
+      already derives, see `web/src/gallery/byline.ts`), so the saved/shared
+      image renders a byline for GROUP play. Solo.tsx still deliberately omits
+      it: solo collects no nickname at all (no room, no join flow), so there
+      is no faithful byline string to give - see Solo.tsx's own comment at its
+      `<Reveal>` call. Flipped to `[x]` now that at least the group case
+      genuinely renders a byline (see keepsake-gallery/02's Implementation
+      record for the format decision).
 - [x] AC-03: Given the image is rendered, then it resolves in a reasonable
       time on a mid-range mobile device (target: under ~2 seconds) so the
       save action does not feel broken or hung; a loading state is shown
@@ -99,26 +102,35 @@ on. See [feature.md](./feature.md) and `docs/features/the-reveal/01-text-reveal.
   `renderTablet.ts` supplies the real `CanvasRenderingContext2D.measureText`
   measurer; only the actual paint calls live outside test coverage.
 - **Byline-wiring decision:** `RevealProps.saveImageByline?: string` was added
-  to `Reveal.tsx` as the minimal seam, but it is NOT wired through any caller
-  in this story. `attribution` (the existing slot) is a `ReactNode`, not a
-  string, and group play's transient reveal (`App.tsx`'s `GroupReveal`
-  wrapper) does not pass `attribution` at all today - only solo's
-  `PersonalSummary` does, and it has no "carved by ... & crew" text to give
-  (solo has no crew). Threading a real plain-text byline through Solo.tsx
-  and/or App.tsx would touch files outside this story's `Reveal.tsx` +
-  `web/src/gallery/` footprint for behavior neither caller currently has a
-  faithful string to supply. Per this story's brief, the saved image
-  presently renders the title + coral story faithfully with NO byline (a
-  valid image per AC-02's "when present" wording); wiring a real byline into
-  Solo.tsx/App.tsx is left as a small, disjoint follow-up (a natural fit for
-  story 02 or its own tiny follow-up, since it only needs a one-line prop
-  addition once a caller has plain-text byline content to give).
+  to `Reveal.tsx` as the minimal seam. It shipped UNWIRED in this story (see
+  the original note below, kept for history) and was WIRED by
+  keepsake-gallery/02 (PART C, 2026-07-02): App.tsx's `GroupReveal` wrapper now
+  passes a real `saveImageByline` built from `web/src/gallery/byline.ts`'s
+  `formatCrewByline`, reusing the SAME `buildCrew(reveal.words)` crew list the
+  Round Complete recap already derives - no second data source. The saved
+  image now renders a genuine "carved by Sam, Mia & Bo"-style byline for GROUP
+  play. Solo.tsx still deliberately omits the prop: solo collects no nickname
+  at all (no room, no join flow, see Solo.tsx's own comment at its `<Reveal>`
+  call), so there is no faithful byline string to give there - not an
+  oversight, a truthful gap.
+  - *Original note (2026-07-02, pre-story-02):* it is NOT wired through any
+    caller in this story. `attribution` (the existing slot) is a `ReactNode`,
+    not a string, and group play's transient reveal (`App.tsx`'s `GroupReveal`
+    wrapper) does not pass `attribution` at all today - only solo's
+    `PersonalSummary` does, and it has no "carved by ... & crew" text to give
+    (solo has no crew). Threading a real plain-text byline through Solo.tsx
+    and/or App.tsx would touch files outside this story's `Reveal.tsx` +
+    `web/src/gallery/` footprint for behavior neither caller currently has a
+    faithful string to supply. Wiring a real byline into Solo.tsx/App.tsx is
+    left as a small, disjoint follow-up (a natural fit for story 02 or its own
+    tiny follow-up, since it only needs a one-line prop addition once a caller
+    has plain-text byline content to give).
 
 ## Tests
 | AC | Test |
 |---|---|
 | AC-01 | manual: Reveal screen shows the save action as secondary, not competing with "Play another round" |
-| AC-02 | unit: `web/src/gallery/tabletLayout.test.ts` covers the title/body/byline wrap + coral-segment layout (the real coverage today, since the canvas paint + byline visual are not yet caller-rendered); manual: rendered image visually matches title, coral words, and tablet styling against the live screen |
+| AC-02 | unit: `web/src/gallery/tabletLayout.test.ts` covers the title/body/byline wrap + coral-segment layout; unit: `web/src/gallery/byline.test.ts` covers the "carved by [names]" formatting keepsake-gallery/02 wires into group play; manual: rendered image visually matches title, coral words, byline, and tablet styling against the live screen |
 | AC-03 | manual: timed render on a throttled mobile device profile; loading state shown if render exceeds a moment |
 | AC-04 | manual: confirm no rejected/unfiltered word ever appears (image only ever renders already-vetted `AssembledStory` content) |
 | AC-05 | manual: inspect rendered image for any PII field; confirm only nickname + Guardian variant appear |

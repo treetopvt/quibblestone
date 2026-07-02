@@ -38,6 +38,12 @@
 //  for EVERYONE so all players land back on the still-live Lobby. `showRoundComplete`
 //  resets whenever `reveal` clears, so a stale recap never persists.
 //
+//  keepsake-gallery/02 (PART C): GroupReveal turns the SAME `buildCrew` crew list
+//  into a plain-text "carved by [names]" byline (../gallery/byline.ts's
+//  formatCrewByline) passed as Reveal's `saveImageByline` prop, so the saved/shared
+//  tablet image finally carries a byline for group play (keepsake-gallery/01's
+//  previously-unwired seam) - no second data source, no hub call.
+//
 //  'solo' (single-player/01) is a self-contained local flow: Solo never touches
 //  `room`, `isHost`, or any hub call, so it lives at '/solo' with no live-state
 //  precedence over it.
@@ -87,6 +93,7 @@ import { Favorites } from './pages/Favorites';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { Reveal, type WordAttribution } from './pages/Reveal';
+import { formatCrewByline } from './gallery/byline';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
 import type { LengthPreference } from './content/length';
@@ -225,6 +232,14 @@ function GroupReveal({
   // reveal-delight/04 (AC-01/AC-06): derived purely from this reveal payload -
   // no new hub message, no second connection (see buildContributorLookup doc).
   const wordAttribution = buildContributorLookup(reveal.words);
+  // keepsake-gallery/02 (PART C wiring): the SAME crew this reveal's Round
+  // Complete recap derives (buildCrew above) - never a second data source -
+  // turned into a plain-text "carved by [names]" byline for the saved/shared
+  // tablet image (Reveal's saveImageByline prop, keepsake-gallery/01's
+  // previously-unwired seam). Undefined for a round with no resolvable crew
+  // (every blank went unfilled), so Reveal simply omits the byline (AC-02
+  // "when present").
+  const saveImageByline = formatCrewByline(buildCrew(reveal.words).crew.map((member) => member.nickname));
 
   return (
     <Reveal
@@ -235,6 +250,7 @@ function GroupReveal({
       onHome={onHome}
       exitAction={{ label: 'Back to home', onClick: onHome }}
       wordAttribution={wordAttribution}
+      saveImageByline={saveImageByline}
       // reveal-delight/01 (AC-04): counts are server-authoritative (from the hub's
       // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
       // so every player in the room sees the tally update in near-real-time.

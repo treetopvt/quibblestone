@@ -1,6 +1,6 @@
 # Story: Share the tale with watermark
 
-**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** #64
+**Feature:** Keepsake Gallery  ·  **Status:** In Progress  ·  **Issue:** #64
 
 ## Context
 Every saved tale is a chance for word-of-mouth growth (README section 2 - live
@@ -13,7 +13,7 @@ is also a soft, ad-free growth touch. See [feature.md](./feature.md) and
 `docs/features/session-engine/04-copy-share-room-code.md`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a saved tale image (story 01), when I tap "Share the tale"
+- [x] AC-01: Given a saved tale image (story 01), when I tap "Share the tale"
       (extending the Reveal screen's existing share action, or the same
       action on a saved gallery item once story 03 exists), then the
       browser's Web Share API is invoked with the image as the share payload
@@ -21,23 +21,23 @@ is also a soft, ad-free growth touch. See [feature.md](./feature.md) and
       mirroring the feature-detection approach already used in
       `session-engine/04` and `the-reveal/01` (`typeof navigator.share ===
       'function'`, not gated on `navigator.canShare()`).
-- [ ] AC-02: Given the Web Share API is unavailable on the current browser,
+- [x] AC-02: Given the Web Share API is unavailable on the current browser,
       then the share action falls back gracefully (e.g. copy the image or a
       link to clipboard) with no JavaScript error thrown, matching the
       existing fallback behavior in `session-engine/04` and `the-reveal/01`.
-- [ ] AC-03: Given the exported image, then it carries a small, legible but
+- [x] AC-03: Given the exported image, then it carries a small, legible but
       unobtrusive watermark reading "carved with QuibbleStone" (placement
       should not obscure the story text or the coral words) so every image
       that leaves the app is a passive growth touch, never an ad.
-- [ ] AC-04: Given a tale is shared, then only content that already passed
+- [x] AC-04: Given a tale is shared, then only content that already passed
       the safety filter is shareable - if the family-safe toggle is on for a
       session, the shared image reflects family-safe content only (no
       separate un-vetted share path exists).
-- [ ] AC-05: Given the shared image, then the only identity on it is the
+- [x] AC-05: Given the shared image, then the only identity on it is the
       in-session nickname(s) + Guardian variant(s), same as story 01's AC-05 -
       no PII is ever included in a shared image, regardless of which share
       target (Messages, WhatsApp, etc.) the player picks.
-- [ ] AC-06: Given the share action, then it works from the Reveal screen for
+- [x] AC-06: Given the share action, then it works from the Reveal screen for
       a just-finished tale (extending the existing "Share the tale" button
       from `the-reveal/01` to share the rendered image rather than plain
       text) without removing or breaking the existing text-share fallback
@@ -80,6 +80,42 @@ is also a soft, ad-free growth touch. See [feature.md](./feature.md) and
   a public tale URL to the same share payload (and is the link alone when a
   browser cannot share a file/image - AC-01's fallback). Keep the two share
   outputs in the one `handleShare` path rather than forking a second share flow.
+
+### Implementation record (2026-07-02)
+- Watermark (AC-03): added directly to `web/src/gallery/renderTablet.ts`'s
+  existing render pass - a fixed "carved with QuibbleStone" string, wrapped
+  with the same `wrapPlainTextIntoLines` helper the title/byline already use
+  and painted with the same `paintPlainLines` routine, in a small muted font
+  (`theme.palette.text.secondary` at 0.5 alpha). Its height is reserved in
+  `computeLayout` unconditionally, so it can never overlap the body or byline
+  above it, and it is centered below whichever block is last (byline when
+  present, otherwise the body).
+- Share (AC-01/AC-02/AC-06): `Reveal.tsx`'s `handleShare` now tries
+  `shareImage()` first - renders the SAME tablet `handleSaveImage` already
+  produces, wraps it in a `File`, and offers it ONLY when
+  `navigator.canShare({ files: [file] })` reports support (the one place this
+  screen gates on `canShare()`, deliberately, per the story's Technical
+  Notes). A user-cancelled `AbortError` is swallowed (matches the existing
+  text-share posture); any other outcome (unsupported file share, a render
+  failure, or a non-cancellation rejection) falls through unchanged to the
+  EXISTING `shareText()` path (`navigator.share({ title, text })`, then
+  `copyTale()`) - never removed, never forked. A `sharingImage` flag disables
+  the Share button and swaps its label to "Preparing to share..." while the
+  image renders/shares, mirroring the existing "Save as image" affordance.
+- Byline wiring (completes keepsake-gallery/01's AC-02 for group play): added
+  `web/src/gallery/byline.ts` (`joinNamesReadably` / `formatCrewByline`, unit
+  tested in `byline.test.ts`) and wired it into `App.tsx`'s `GroupReveal`
+  wrapper as `saveImageByline`, built from the SAME `buildCrew(reveal.words)`
+  crew list the Round Complete recap already derives - no second data source,
+  no hub call. Chosen format: a natural-language list - "carved by Sam" (one
+  name), "carved by Sam & Mia" (two), or "carved by Sam, Mia & Bo" (three or
+  more) - rather than a literal trailing "& crew" suffix, since the crew
+  members ARE named individually; this reads more naturally for a small
+  group. Solo.tsx deliberately still omits `saveImageByline`: solo collects no
+  nickname at all (no room, no join flow), so there is no faithful string to
+  give - see Solo.tsx's own comment at its `<Reveal>` call. Both saved and
+  shared images now carry a byline for group play; solo images remain
+  byline-free by design, not by omission.
 
 ## Tests
 | AC | Test |

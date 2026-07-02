@@ -1,12 +1,24 @@
 // ----------------------------------------------------------------------------
 //  renderTablet.ts - client-side canvas render of a finished tale to a
-//  shareable stone-tablet PNG image (keepsake-gallery/01, issue #63).
+//  shareable stone-tablet PNG image (keepsake-gallery/01, issue #63; watermark
+//  added by keepsake-gallery/02, issue #64).
 //
 //  This is the FOUNDATION render function the whole keepsake-gallery feature
 //  is built on: story 02 (share-with-watermark) extends this same render pass
-//  with a watermark step, and story 03 (local history) stores the Blob this
-//  function produces. Design it as a clean, reusable seam - do not fold
-//  feature-02/03-specific concerns in here.
+//  with a watermark step (see computeLayout's watermarkLines and the paint
+//  pass at the end of buildTabletCanvas below - it reuses paintPlainLines, the
+//  same routine the byline already uses, so there is one rendering code path,
+//  never a separate post-process), and story 03 (local history) stores the
+//  Blob this function produces. Design it as a clean, reusable seam - do not
+//  fold feature-03-specific concerns in here.
+//
+//  Watermark (keepsake-gallery/02, AC-03): every image this function produces
+//  now carries a small, muted "carved with QuibbleStone" footer line - the
+//  feature's entire ad-free growth touch (README section 3 "avoid ads"). It
+//  is laid out and painted exactly like the byline (same wrap helper, same
+//  paintPlainLines routine) so there is one rendering code path, and its
+//  height is reserved in computeLayout up front so it can never overlap the
+//  story body or byline above it.
 //
 //  Approach: a HAND-BUILT <canvas> render, deliberately NOT a DOM-to-image
 //  library. This is a PWA where bundle size matters (CLAUDE.md section 4), and
@@ -104,6 +116,15 @@ const BYLINE_FONT_SIZE = 24;
 const BYLINE_LINE_HEIGHT = 32;
 const BODY_TO_BYLINE_GAP = 40;
 
+// The watermark footer (keepsake-gallery/02, AC-03): small and muted so it
+// never competes with the story text or the coral words, but always legible.
+// Sits below the byline (or directly below the body when there is no
+// byline) - see the gap math in buildTabletCanvas below.
+const WATERMARK_TEXT = 'carved with QuibbleStone';
+const WATERMARK_FONT_SIZE = 15;
+const WATERMARK_LINE_HEIGHT = 20;
+const WATERMARK_TOP_GAP = 32;
+
 // The stone tablet's arched corners (mirrors Reveal.tsx's '40px 40px 28px
 // 28px' borderRadius shorthand: top-left, top-right, bottom-right, bottom-left).
 const RIM_RADII: readonly [number, number, number, number] = [40, 40, 28, 28];
@@ -121,6 +142,9 @@ function titleFont(): string {
 }
 function bylineFont(): string {
   return `700 ${BYLINE_FONT_SIZE}px "Nunito", sans-serif`;
+}
+function watermarkFont(): string {
+  return `700 ${WATERMARK_FONT_SIZE}px "Nunito", sans-serif`;
 }
 
 /** Traces a rounded-rect path with 4 independent corner radii (top-left, top-right, bottom-right, bottom-left). */
@@ -171,6 +195,7 @@ interface TabletImageLayout {
   titleLines: TabletLine[];
   bodyLines: TabletLine[];
   bylineLines: TabletLine[];
+  watermarkLines: TabletLine[];
   canvasHeight: number;
 }
 
@@ -187,20 +212,38 @@ function computeLayout(input: RenderTabletInput, measuringCtx: CanvasRenderingCo
     measuringCtx.font = bylineFont();
     return measuringCtx.measureText(word).width;
   };
+  const measureWatermark: MeasureTextWidth = (word) => {
+    measuringCtx.font = watermarkFont();
+    return measuringCtx.measureText(word).width;
+  };
 
   const parts = buildRevealParts(input.template, input.assembled);
   const titleLines = wrapPlainTextIntoLines(input.assembled.title, measureTitle, CONTENT_WIDTH);
   const bodyLines = wrapRevealPartsIntoLines(parts, measure, CONTENT_WIDTH);
   const bylineLines = input.byline ? wrapPlainTextIntoLines(input.byline, measureByline, CONTENT_WIDTH) : [];
+  // keepsake-gallery/02 (AC-03): a fixed, short string - wrapped through the
+  // same helper as the byline/title purely for consistency (it fits on one
+  // line at the tablet's CONTENT_WIDTH in practice, but wrapping defensively
+  // costs nothing and keeps every text block on one code path).
+  const watermarkLines = wrapPlainTextIntoLines(WATERMARK_TEXT, measureWatermark, CONTENT_WIDTH);
 
   const titleBlockHeight = titleLines.length * TITLE_LINE_HEIGHT;
   const bodyBlockHeight = bodyLines.length * BODY_LINE_HEIGHT;
   const bylineBlockHeight = bylineLines.length > 0 ? BODY_TO_BYLINE_GAP + bylineLines.length * BYLINE_LINE_HEIGHT : 0;
+  // Reserved unconditionally (AC-03: every rendered image carries the
+  // watermark), so it can never overlap the body/byline above it.
+  const watermarkBlockHeight = WATERMARK_TOP_GAP + watermarkLines.length * WATERMARK_LINE_HEIGHT;
 
   const canvasHeight =
-    TOP_PADDING + titleBlockHeight + TITLE_TO_BODY_GAP + bodyBlockHeight + bylineBlockHeight + BOTTOM_PADDING;
+    TOP_PADDING +
+    titleBlockHeight +
+    TITLE_TO_BODY_GAP +
+    bodyBlockHeight +
+    bylineBlockHeight +
+    watermarkBlockHeight +
+    BOTTOM_PADDING;
 
-  return { titleLines, bodyLines, bylineLines, canvasHeight };
+  return { titleLines, bodyLines, bylineLines, watermarkLines, canvasHeight };
 }
 
 /** Paints the stone-tablet background: the gradient fill (theme.palette.tablet.*) inside a rounded-rect, plus the carved rim stroke (theme.palette.stoneEdge.main). */
@@ -296,13 +339,18 @@ async function buildTabletCanvas(input: RenderTabletInput): Promise<HTMLCanvasEl
 
   let y = TOP_PADDING + TITLE_FONT_SIZE * 0.8;
   y = paintPlainLines(ctx, layout.titleLines, y, TITLE_LINE_HEIGHT, titleFont(), input.theme.palette.primary.main, 'left');
+  // Tracks the line-height of the block just painted, so the "advance to the
+  // next block" gap math below (GAP - lastLineHeight + nextFontSize * 0.8)
+  // stays correct regardless of whether the byline is present.
+  let lastLineHeight = TITLE_LINE_HEIGHT;
 
-  y += TITLE_TO_BODY_GAP - TITLE_LINE_HEIGHT + BODY_FONT_SIZE * 0.8;
+  y += TITLE_TO_BODY_GAP - lastLineHeight + BODY_FONT_SIZE * 0.8;
   y = paintBodyLines(ctx, layout.bodyLines, y, input.theme);
+  lastLineHeight = BODY_LINE_HEIGHT;
 
   if (layout.bylineLines.length > 0) {
-    y += BODY_TO_BYLINE_GAP - BODY_LINE_HEIGHT + BYLINE_FONT_SIZE * 0.8;
-    paintPlainLines(
+    y += BODY_TO_BYLINE_GAP - lastLineHeight + BYLINE_FONT_SIZE * 0.8;
+    y = paintPlainLines(
       ctx,
       layout.bylineLines,
       y,
@@ -311,7 +359,24 @@ async function buildTabletCanvas(input: RenderTabletInput): Promise<HTMLCanvasEl
       input.theme.palette.text.secondary,
       'center',
     );
+    lastLineHeight = BYLINE_LINE_HEIGHT;
   }
+
+  // Watermark footer (keepsake-gallery/02, AC-03): painted last, in the SAME
+  // pass, below whatever came before it (byline when present, otherwise the
+  // story body) - reserved space in computeLayout means it never collides
+  // with either. Muted via a reduced-alpha text.secondary (never a hardcoded
+  // hex) so it reads as a quiet footer, not a competing element.
+  y += WATERMARK_TOP_GAP - lastLineHeight + WATERMARK_FONT_SIZE * 0.8;
+  paintPlainLines(
+    ctx,
+    layout.watermarkLines,
+    y,
+    WATERMARK_LINE_HEIGHT,
+    watermarkFont(),
+    alpha(input.theme.palette.text.secondary, 0.5),
+    'center',
+  );
 
   return canvas;
 }

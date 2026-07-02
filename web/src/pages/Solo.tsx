@@ -642,6 +642,15 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   // supplies revealPresentation to pace the finished story one word at a time.
   const revealSurfaces = mode.revealSurfaces({ template, assembled });
 
+  // keepsake-gallery/02 (PART C wiring): `saveImageByline` is deliberately
+  // OMITTED here, not passed as an invented placeholder. Solo has no room, no
+  // join flow, and collects no nickname at all - SOLO_PLAYER_ID (see file
+  // header) is an internal, non-identifying constant that is never shown to
+  // the player, so there is no faithful "carved by [nickname]" string to give
+  // (unlike group play's GroupReveal, which has a real in-session nickname per
+  // player). The saved/shared solo image still renders the title + coral story
+  // faithfully with no byline, matching keepsake-gallery/01's AC-02 "when
+  // present" wording.
   return (
     <Reveal
       assembled={assembled}
