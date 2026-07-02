@@ -1,73 +1,61 @@
 // ----------------------------------------------------------------------------
-//  App - the QuibbleStone root, and the app's minimal view router.
+//  App - the QuibbleStone root and its router (design-system/04, react-router).
 //
-//  There is NO react-router in this project (CLAUDE.md - and deliberately not
-//  added): navigation is a single `view` state switched here. The views are
-//  'home', 'host-setup', 'join', 'lobby', and 'solo'; later stories extend this
-//  seam. Keep the switch small so those stories can grow it without a rewrite.
+//  Routing model: real URLs via react-router, but REAL-TIME STATE STAYS THE
+//  AUTHORITY. The routes are '/' (Home), '/host' (HostSetup), '/join' +
+//  '/join/:code' (Join, deep-link pre-filled), '/solo', '/lobby', '/round',
+//  '/reveal', '/recap'. Entry screens ('/', '/host', '/join', '/solo') are
+//  user-driven. The LIVE game screens are driven by the hub: a single effect
+//  derives the target path from hook state (reveal-recap > reveal > round >
+//  lobby - the same precedence the old `view` switch used) and navigates there,
+//  so a RoundStarted / RevealReady broadcast still routes EVERY player into the
+//  round / shared reveal with no refresh (group-play/01, /03, /04). This is a
+//  faithful refactor of the prior view-state router - the flow is unchanged; the
+//  URL now reflects it (design-system/04, AC-03).
 //
-//  App owns the ONE SignalR connection via useGameHub (never a second one). The
-//  LIVE room state lives IN the hook (so RosterChanged broadcasts update every
-//  screen); App reads `room` from there rather than holding its own copy. The
-//  Home "Create a game" CTA now opens the HostSetup screen (build/host-identity)
-//  where the host names itself + picks a Guardian BEFORE the room is minted (the
-//  host used to be created blank); HostSetup's onCreate calls createRoom with that
-//  vetted name + variant (safety-filtered server-side) and the room-effect lands
-//  the host in the lobby (session-engine/01, AC-01). "Join a game" opens the Join
-//  screen; a successful join sets the hook's room and flips App to the lobby
-//  (session-engine/02, AC-01), while a failed join stays on Join showing the
-//  friendly error. On a successful create OR join we remember the name + Guardian
-//  device-local (identity.ts) and pre-fill both screens from it next time, so a
-//  returning player does not retype (no PII off-device, no account).
+//  App owns the ONE SignalR connection via useGameHub, called ABOVE <Routes> so
+//  navigation never remounts or duplicates it (AC-02). The LIVE room state lives
+//  IN the hook (so RosterChanged broadcasts update every screen); App reads
+//  `room` from there. The Home "Create a game" CTA opens HostSetup (the host
+//  names itself + picks a Guardian BEFORE the room is minted); its onCreate calls
+//  createRoom with that vetted name + variant (safety-filtered server-side) and
+//  the room-effect routes the host into the lobby (session-engine/01, AC-01).
+//  "Join a game" opens Join; a successful join sets the hook's room and the same
+//  effect routes to the lobby (session-engine/02), while a failed join stays on
+//  Join with the friendly error. A '/join/:code' deep link pre-fills the code
+//  (session-engine/06). On a successful create OR join we remember the name +
+//  Guardian device-local (identity.ts) and pre-fill both screens next time - no
+//  PII off-device, no account.
 //
-//  group-play/01: the hook's `round` (set from the hub's RoundStarted broadcast)
-//  is the round seam. When it becomes non-null - which happens for EVERY player
-//  in the room the moment the host starts (AC-01, AC-02) - App routes into the
-//  round (GroupRound) regardless of the current view. The Lobby's host-only Start
-//  CTA is wired to startRound (host-only + family-safe-filtered server-side).
-//
-//  group-play/03: the hook's `reveal` (set from the hub's RevealReady broadcast the
-//  moment the LAST assigned blank is submitted) is the SHARED reveal seam. When it
-//  becomes non-null - for EVERY player at once (AC-05) - App routes to the shared
-//  Reveal (GroupReveal below), which resolves the template from the bundled
-//  seedLibrary and assembles the story LOCALLY via the web engine (the server ships
-//  ordered words, never an assembled story). This is checked AHEAD of the round so
-//  a finished round lands on the reveal, not back in FillBlank. `collectProgress`
-//  and `submitWord` flow into GroupRound so it can submit server-side and show the
-//  Waiting interstitial.
-//
-//  group-play/04: the replay loop closes here. GroupReveal's "Play another round"
-//  now shows the Round Complete recap FIRST (a client-local `showRoundComplete`
-//  flag, so each player can view the recap before the next round; AC-01). The crew
+//  group-play/03+04: the hook's `reveal` (RevealReady) is the SHARED reveal seam;
+//  the client-local `showRoundComplete` flag layers the Round Complete recap over
+//  it (the recap offers the actual replay / back-to-lobby actions). The crew
 //  attribution is DERIVED CLIENT-SIDE from the reveal payload (buildCrew below):
-//  the reveal already carries each blank's owner (nickname + variant), so per-player
-//  word counts are grouped/counted with no extra server round-trip, and they sum to
-//  the total blanks (every blank counts, including skips). RoundComplete takes
-//  precedence over GroupReveal for that client while the flag is set. Its host-only
-//  gold "Play another round" calls startRound again for the SAME room (no re-join,
-//  AC-04) - the server increments the round number and broadcasts RoundStarted,
-//  which clears reveal + routes EVERYONE into the new round. Its host-only "Back to
-//  lobby" calls backToLobby; the hub's bare "BackToLobby" broadcast clears
-//  round/reveal for EVERYONE so all players land back on the still-live Lobby (same
-//  code + roster, AC-05). The host's last family-safe choice on the Lobby is kept
-//  sticky in App state and reused for the replay (like Solo's toggle). `showRoundComplete`
-//  is reset whenever `reveal` clears (a new round starts, or back-to-lobby fires),
-//  so a stale recap never persists into the next round.
+//  the reveal already carries each blank's owner (nickname + variant), so
+//  per-player word counts are grouped with no extra server round-trip, summing to
+//  the total blanks (skips included). "Play another round" (host) calls startRound
+//  again for the SAME room (no re-join, AC-04); "Back to lobby" clears round/reveal
+//  for EVERYONE so all players land back on the still-live Lobby. `showRoundComplete`
+//  resets whenever `reveal` clears, so a stale recap never persists.
 //
-//  'solo' (single-player/01, ADDITIVE) is a self-contained local flow: Solo
-//  never touches `room`, `isHost`, or any hub call - it ignores the room
-//  state entirely, so it is checked ahead of the room-driven views below. The
-//  existing home/join/lobby wiring is untouched by this addition.
+//  'solo' (single-player/01) is a self-contained local flow: Solo never touches
+//  `room`, `isHost`, or any hub call, so it lives at '/solo' with no live-state
+//  precedence over it.
+//
+//  Refresh safety (AC-05): a live-game URL opened with no room (rooms are
+//  ephemeral; rejoin is the separate resilience track) redirects home rather than
+//  rendering a broken shell - the per-route guards below handle that.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useState } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useGameHub, type RevealInfo } from './signalr/useGameHub';
 import { seedLibrary } from './content/seedLibrary';
 import { assemble, type SubmittedWord } from './engine/assemble';
 import { Home } from './pages/Home';
-import { Join } from './pages/Join';
+import { Join, type JoinProps } from './pages/Join';
 import { HostSetup } from './pages/HostSetup';
 import { Lobby } from './pages/Lobby';
 import { Solo } from './pages/Solo';
@@ -78,10 +66,6 @@ import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
 import { DEFAULT_VARIANT } from './components';
 import { toGuardianVariant, type GuardianVariant } from './components';
 import { loadIdentity, saveIdentity } from './identity';
-
-// The set of screens App can show. build/host-identity adds 'host-setup': the
-// host names itself + picks a Guardian before the room is minted.
-type View = 'home' | 'host-setup' | 'join' | 'lobby' | 'solo';
 
 /**
  * Derive the per-player crew recap from the shared reveal payload (group-play/04,
@@ -126,11 +110,7 @@ function buildCrew(words: RevealInfo['words']): {
  * anonymous in-session tag - no PII), and assembles the story LOCALLY via the web
  * engine (the ONE place assembly lives - the server never assembles). It then
  * hands the assembled story + template to the shared Reveal AS-IS. A template id
- * with no local match (a catalog / library drift) renders a friendly notice.
- *
- * group-play/04: onPlayAgain now shows the Round Complete recap (App flips its
- * client-local showRoundComplete flag) rather than exiting Home - the recap is what
- * offers the actual replay / back-to-lobby actions.
+ * with no local match (a catalog / library drift) sends the player home calmly.
  */
 function GroupReveal({
   reveal,
@@ -178,6 +158,18 @@ function GroupReveal({
   );
 }
 
+/**
+ * Join route wrapper: reads the optional `:code` route param (design-system/04,
+ * session-engine/06 deep link) and hands it to Join as `initialCode` (Join
+ * normalizes it through the same rule as typed input). Serves BOTH '/join' (no
+ * param) and '/join/:code'. Kept a module-scope component (not an inline element)
+ * so it is not redefined on every App render.
+ */
+function JoinRoute(props: Omit<JoinProps, 'initialCode'>) {
+  const { code } = useParams();
+  return <Join {...props} initialCode={code ?? ''} />;
+}
+
 export default function App() {
   const {
     status,
@@ -196,7 +188,9 @@ export default function App() {
     dismissRoundNotice,
     clearRoom,
   } = useGameHub();
-  const [view, setView] = useState<View>('home');
+
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // group-play/04: whether THIS client is viewing the Round Complete recap (a
   // client-local step shown after the reveal, before the next round; AC-01). Set
@@ -212,35 +206,34 @@ export default function App() {
   const [playAgainError, setPlayAgainError] = useState<string | null>(null);
 
   // group-play/04: the host's last family-safe choice, kept sticky so a replay in
-  // the same room reuses it without re-toggling (like Solo's toggle). Seeded from
-  // the shared safe-by-default token. The Lobby's Start CTA persists the host's
-  // pick here; RoundComplete's "Play another round" reuses it.
+  // the same room reuses it without re-toggling (like Solo's toggle).
   const [lastFamilySafe, setLastFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
 
   // build/host-identity: pre-fill HostSetup + Join from the player's last-used
-  // name + Guardian (device-local convenience via identity.ts; NO PII off-device,
-  // NO account). Read ONCE on mount - a returning player sees their name already
-  // filled so they do not retype. Falls back to '' + the default variant on a
-  // fresh device / unavailable storage. On a SUCCESSFUL create or join we call
-  // saveIdentity so the next visit is pre-filled.
+  // name + Guardian (device-local via identity.ts; NO PII off-device, NO account).
+  // Read ONCE on mount. Falls back to '' + the default variant on a fresh device.
   const [identity] = useState(() => loadIdentity());
   const initialNickname = identity?.nickname ?? '';
   const initialVariant: GuardianVariant = identity?.variant ?? DEFAULT_VARIANT;
 
-  // When a room becomes available (created or joined), land in the lobby. This
-  // is the single place a set room flips the view, so both createRoom and a
-  // successful joinRoom converge here (AC-01).
+  // Real-time state is the AUTHORITY; the URL reflects it (design-system/04, AC-03).
+  // When the hub sets room/round/reveal (or the client flips the recap flag), route
+  // into the matching live screen using the SAME precedence the old view switch used
+  // (recap > reveal > round > lobby). Entry screens (no room) are user-driven, so we
+  // never force-navigate there. `replace` + the pathname guard prevent nav loops.
   useEffect(() => {
-    if (room) {
-      setView('lobby');
+    if (!room) return;
+    const target =
+      reveal && showRoundComplete ? '/recap' : reveal ? '/reveal' : round ? '/round' : '/lobby';
+    if (location.pathname !== target) {
+      navigate(target, { replace: true });
     }
-  }, [room]);
+  }, [room, round, reveal, showRoundComplete, location.pathname, navigate]);
 
   // group-play/04: drop a stale Round Complete recap the moment the reveal clears.
   // The hook clears `reveal` both when a fresh round starts (RoundStarted) and when
-  // back-to-lobby fires (BackToLobby), so resetting the flag off `reveal` covers
-  // both transitions with one guard - the recap can never bleed into the next round
-  // or the lobby.
+  // back-to-lobby fires (BackToLobby), so resetting the flag off `reveal` covers both
+  // transitions with one guard.
   useEffect(() => {
     if (!reveal) {
       setShowRoundComplete(false);
@@ -259,17 +252,12 @@ export default function App() {
   );
 
   // group-play/04: "Play another round" from the Round Complete recap (host). Reuses
-  // the SAME room + players (no re-join, AC-04) and the host's sticky family-safe
-  // pick. The server increments the round number and broadcasts RoundStarted, which
-  // clears reveal (resetting showRoundComplete via the effect above) and routes
-  // EVERYONE into the new round.
+  // the SAME room + players (no re-join, AC-04) and the host's sticky family-safe pick.
+  // The server increments the round and broadcasts RoundStarted, which clears reveal
+  // (resetting showRoundComplete) and routes EVERYONE into the new round.
   const handlePlayAnotherRound = useCallback(async () => {
     setPlayAgainError(null);
     const result = await startRound(lastFamilySafe);
-    // A rejected start (a carver left so the room is back to one player, or a
-    // transient not-connected) resolves ok=false; surface the friendly reason on the
-    // recap rather than leaving the gold CTA a silent no-op. On success the server's
-    // RoundStarted broadcast clears reveal and routes everyone into the new round.
     if (!result.ok) {
       setPlayAgainError(result.error ?? 'Could not start another round - please try again.');
     }
@@ -282,19 +270,17 @@ export default function App() {
     void backToLobby();
   }, [backToLobby]);
 
-  // "Create a game": open the HostSetup screen (build/host-identity) so the host
-  // names itself + picks a Guardian BEFORE the room is minted (the host used to be
-  // created blank). The actual create happens on HostSetup's onCreate (below); the
-  // room-effect above lands the host in the lobby once the hook's room is set.
+  // "Create a game": open HostSetup (build/host-identity) so the host names itself +
+  // picks a Guardian BEFORE the room is minted. The create happens on HostSetup's
+  // onCreate; the room-effect above routes the host into the lobby once room is set.
   const handleCreateGame = useCallback(() => {
-    setView('host-setup');
-  }, []);
+    navigate('/host');
+  }, [navigate]);
 
-  // HostSetup's onCreate (build/host-identity): mint the room with the host's
-  // chosen name + variant. The server safety-filters the name (same gate as
-  // joiners); on ok we remember the identity device-local (so a returning host is
-  // pre-filled) and the room-effect lands the host in the lobby, on !ok the
-  // envelope's friendly error is returned to HostSetup to show inline.
+  // HostSetup's onCreate: mint the room with the host's chosen name + variant (server
+  // safety-filters the name); on ok remember the identity device-local and the
+  // room-effect lands the host in the lobby, on !ok the friendly error is returned to
+  // HostSetup to show inline.
   const handleCreateRoom = useCallback(
     async (displayName: string, variant: string) => {
       const result = await createRoom(displayName, variant);
@@ -308,12 +294,11 @@ export default function App() {
 
   // "Join a game": open the Join screen (session-engine/02).
   const handleJoinGame = useCallback(() => {
-    setView('join');
-  }, []);
+    navigate('/join');
+  }, [navigate]);
 
-  // Join's onJoin (build/host-identity wraps session-engine/02's joinRoom): on a
-  // successful join, remember the identity device-local so a returning joiner is
-  // pre-filled next time. The envelope is passed straight back to Join either way.
+  // Join's onJoin (wraps session-engine/02's joinRoom): on a successful join, remember
+  // the identity device-local so a returning joiner is pre-filled next time.
   const handleJoinRoom = useCallback(
     async (code: string, displayName: string, variant: string) => {
       const result = await joinRoom(code, displayName, variant);
@@ -325,141 +310,141 @@ export default function App() {
     [joinRoom],
   );
 
-  // "Or play solo right now" (single-player/01): no hub call, no room - just
-  // a local view change.
+  // "Or play solo right now" (single-player/01): no hub call, no room - a route change.
   const handlePlaySolo = useCallback(() => {
-    setView('solo');
-  }, []);
+    navigate('/solo');
+  }, [navigate]);
 
-  // Leave the lobby / Join screen and return Home (drops the room; rooms are
-  // ephemeral and the server sweeps idle ones - AC-05). Solo never sets a
-  // room, so clearRoom() is a harmless no-op when returning from 'solo'.
+  // Leave the current flow and return Home (drops the room; rooms are ephemeral and
+  // the server sweeps idle ones). Solo never sets a room, so clearRoom() is a harmless
+  // no-op when returning from '/solo'.
   const handleGoHome = useCallback(() => {
     clearRoom();
-    setView('home');
-  }, [clearRoom]);
+    navigate('/');
+  }, [clearRoom, navigate]);
 
-  if (view === 'solo') {
-    return <Solo onExit={handleGoHome} />;
-  }
-
-  // group-play/04: once THIS client taps "Play another round" on the reveal, show
-  // the Round Complete recap (AC-01) - checked AHEAD of GroupReveal so it takes
-  // precedence for this client until the host acts. It needs both `reveal` (crew +
-  // title, derived client-side) and `round` (round.roundNumber for the badge), which
-  // are still set here (RevealReady does NOT clear `round`). The crew attribution is
-  // derived from the reveal payload with no extra server round-trip.
-  if (showRoundComplete && reveal && round && room) {
-    const template = seedLibrary.find((t) => t.id === reveal.templateId);
-    const { crew, totalWords } = buildCrew(reveal.words);
-    return (
-      <RoundComplete
-        roundNumber={round.roundNumber}
-        title={template ? template.title : 'Your tale'}
-        crew={crew}
-        totalWords={totalWords}
-        isHost={isHost}
-        canPlayAgain={room.players.length >= 2}
-        playAgainError={playAgainError}
-        onPlayAgain={() => void handlePlayAnotherRound()}
-        onBackToLobby={handleBackToLobby}
-        onLeave={handleGoHome}
-      />
+  // Recap element (group-play/04): needs `reveal` (crew + title) and `round`
+  // (round.roundNumber for the badge), both still set when the recap shows.
+  const recapElement =
+    reveal && round && room ? (
+      (() => {
+        const template = seedLibrary.find((t) => t.id === reveal.templateId);
+        const { crew, totalWords } = buildCrew(reveal.words);
+        return (
+          <RoundComplete
+            roundNumber={round.roundNumber}
+            title={template ? template.title : 'Your tale'}
+            crew={crew}
+            totalWords={totalWords}
+            isHost={isHost}
+            canPlayAgain={room.players.length >= 2}
+            playAgainError={playAgainError}
+            onPlayAgain={() => void handlePlayAnotherRound()}
+            onBackToLobby={handleBackToLobby}
+            onLeave={handleGoHome}
+          />
+        );
+      })()
+    ) : (
+      <Navigate to="/" replace />
     );
-  }
-
-  // group-play/03: the shared reveal takes precedence over the round (AC-05). When
-  // the hub's RevealReady broadcast lands, `reveal` is set for EVERY player at once
-  // - done or still on the Waiting screen - and everyone routes to the shared
-  // Reveal in near-real-time without a refresh. Checked AHEAD of the round below so
-  // a finished round lands on the payoff, not back in FillBlank. group-play/04:
-  // "Play another round" flips showRoundComplete (handled above) rather than exiting.
-  if (reveal && room) {
-    return (
-      <GroupReveal
-        reveal={reveal}
-        onPlayAgain={() => setShowRoundComplete(true)}
-        onHome={handleGoHome}
-      />
-    );
-  }
-
-  // group-play/01: once a round has started, EVERY player in the room routes into
-  // it (the hook's `round` is set from the RoundStarted broadcast for everyone,
-  // AC-01/AC-02). This takes precedence over the lobby view. group-play/03 wires
-  // GroupRound to submit words server-side (submitWord) and pass collection
-  // progress into its Waiting interstitial. Leaving the round clears the room (and
-  // the round) and returns Home.
-  if (round && room) {
-    return (
-      <GroupRound
-        // Remount per round so GroupRound's internal state (phase, blank position,
-        // this client's word list) always starts fresh on a replay - never inherits
-        // the previous round's 'submitted' phase or stale words (Copilot review).
-        key={round.roundNumber}
-        templateId={round.templateId}
-        assignedBlankIndices={assignedBlankIndices}
-        collectProgress={collectProgress}
-        submitWord={submitWord}
-        onLeave={handleGoHome}
-      />
-    );
-  }
-
-  if (view === 'lobby' && room) {
-    // The host-only Start CTA calls onStart with the host's family-safe toggle
-    // value; startRound invokes the hub (host-only + server-filtered, AC-03/
-    // AC-04). We do NOT flip the view here - the server's RoundStarted broadcast
-    // sets the hook's `round`, which routes everyone (host included) into the
-    // round above. A rejected start (non-host, too few players) resolves ok=false;
-    // the CTA is only shown to the host with a full roster, so it is a safe no-op.
-    return (
-      <Lobby
-        room={room}
-        isHost={isHost}
-        onLeave={handleGoHome}
-        onStart={handleStartRound}
-        notice={roundNotice}
-        onDismissNotice={dismissRoundNotice}
-      />
-    );
-  }
-
-  // build/host-identity: the host names itself + picks a Guardian before the room
-  // is minted. HostSetup's onCreate mints the room (name safety-filtered
-  // server-side); on ok the room-effect lands the host in the lobby, on !ok the
-  // friendly error shows inline and the host stays here. Pre-filled from the
-  // device-local last-used identity so a returning host does not retype.
-  if (view === 'host-setup') {
-    return (
-      <HostSetup
-        onCreate={handleCreateRoom}
-        onBack={handleGoHome}
-        disabled={status !== 'connected'}
-        initialNickname={initialNickname}
-        initialVariant={initialVariant}
-      />
-    );
-  }
-
-  if (view === 'join') {
-    return (
-      <Join
-        onJoin={handleJoinRoom}
-        onBack={handleGoHome}
-        disabled={status !== 'connected'}
-        initialNickname={initialNickname}
-        initialVariant={initialVariant}
-      />
-    );
-  }
 
   return (
-    <Home
-      onCreateGame={handleCreateGame}
-      onJoinGame={handleJoinGame}
-      onPlaySolo={handlePlaySolo}
-      disabled={status !== 'connected'}
-    />
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <Home
+            onCreateGame={handleCreateGame}
+            onJoinGame={handleJoinGame}
+            onPlaySolo={handlePlaySolo}
+            disabled={status !== 'connected'}
+          />
+        }
+      />
+      <Route
+        path="/host"
+        element={
+          <HostSetup
+            onCreate={handleCreateRoom}
+            onBack={handleGoHome}
+            disabled={status !== 'connected'}
+            initialNickname={initialNickname}
+            initialVariant={initialVariant}
+          />
+        }
+      />
+      {/* '/join' and '/join/:code' share JoinRoute; the deep link seeds the code. */}
+      {['/join', '/join/:code'].map((path) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            <JoinRoute
+              onJoin={handleJoinRoom}
+              onBack={handleGoHome}
+              disabled={status !== 'connected'}
+              initialNickname={initialNickname}
+              initialVariant={initialVariant}
+            />
+          }
+        />
+      ))}
+      <Route path="/solo" element={<Solo onExit={handleGoHome} />} />
+      {/* Live game screens: guarded so a refresh with no live room redirects home
+          (AC-05). The real-time effect above keeps the URL in sync while playing. */}
+      <Route
+        path="/lobby"
+        element={
+          room ? (
+            <Lobby
+              room={room}
+              isHost={isHost}
+              onLeave={handleGoHome}
+              onStart={handleStartRound}
+              notice={roundNotice}
+              onDismissNotice={dismissRoundNotice}
+            />
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
+      />
+      <Route
+        path="/round"
+        element={
+          round && room ? (
+            <GroupRound
+              // Remount per round so GroupRound's internal state always starts fresh
+              // on a replay - never inherits the previous round's phase or words.
+              key={round.roundNumber}
+              templateId={round.templateId}
+              assignedBlankIndices={assignedBlankIndices}
+              collectProgress={collectProgress}
+              submitWord={submitWord}
+              onLeave={handleGoHome}
+            />
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
+      />
+      <Route
+        path="/reveal"
+        element={
+          reveal && room ? (
+            <GroupReveal
+              reveal={reveal}
+              onPlayAgain={() => setShowRoundComplete(true)}
+              onHome={handleGoHome}
+            />
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
+      />
+      <Route path="/recap" element={recapElement} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

@@ -78,6 +78,13 @@ export interface JoinProps {
   initialNickname?: string;
   /** Pre-fill the Guardian variant (build/host-identity), defaulting to 'teal'. */
   initialVariant?: GuardianVariant;
+  /**
+   * Pre-fill the room code from a `/join/:code` deep link (design-system/04 /
+   * session-engine/06). Normalized through the same rule as typed input, so a
+   * link can only seed a code the server could have issued. Defaults to '' (the
+   * plain `/join` route or a manual "Join a game" tap).
+   */
+  initialCode?: string;
 }
 
 /** The number of carved code slots (story-01 codes are 4 chars). */
@@ -111,10 +118,15 @@ export function Join({
   disabled = false,
   initialNickname = '',
   initialVariant = DEFAULT_VARIANT,
+  initialCode = '',
 }: JoinProps) {
   const theme = useTheme();
   const { control, handleSubmit, watch, formState } = useForm<JoinForm>({
-    defaultValues: { code: '', displayName: initialNickname, selectedVariant: initialVariant },
+    defaultValues: {
+      code: normalizeCode(initialCode),
+      displayName: initialNickname,
+      selectedVariant: initialVariant,
+    },
     mode: 'onChange',
   });
 
