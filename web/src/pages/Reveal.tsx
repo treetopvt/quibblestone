@@ -513,11 +513,14 @@ export function Reveal({
                           // a pure CSS `transform: scale` keyframe, staggered by
                           // body order. Never blocks interactivity elsewhere on
                           // the screen (AC-04) - it only animates this word span.
-                          // Modern browsers apply `transform` to inline boxes
-                          // (CSS Transforms Level 1), so `display` stays
-                          // untouched - the existing coral sx block is otherwise
-                          // unchanged, per AC-06's "only add the animation
-                          // property" note.
+                          // `transform` does NOT apply to non-replaced INLINE
+                          // boxes (CSS Transforms Level 1), so the word span must
+                          // be inline-block for the scale to take effect - without
+                          // this the carve is a silent no-op (Gate-1 CR-001). The
+                          // coral color/weight/underline are unchanged and a word
+                          // is a single token, so wrapping and the final rendered
+                          // frame stay identical (AC-06).
+                          display: 'inline-block',
                           animation: `${carveIn} 0.4s ease-out ${delayMs}ms both`,
                           '@media (prefers-reduced-motion: reduce)': {
                             animation: 'none',
