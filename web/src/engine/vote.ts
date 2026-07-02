@@ -16,9 +16,15 @@
 //    - what an option REPRESENTS (a coral word, a Versus answer, anything) - an
 //      option is just an opaque string id, and
 //    - how a result RENDERS (that is the caller's screen).
-//  Golden Guardian imports it here; the parked Versus/Duel mode imports it
-//  UNMODIFIED when it is eventually scheduled. Keep it general - resist adding a
-//  Golden-Guardian-specific field here; that belongs in the caller.
+//  This module is the unit-tested REFERENCE/SPEC of the rule (vote.test.ts).
+//  Golden Guardian's group vote is real-time, so its AUTHORITATIVE tally lives
+//  server-side in Room.ResolveGoldenGuardian (the authority on the wire), kept a
+//  hand-mirror of THIS module - the SAME "TS reference / C# twin, duplicated by
+//  hand, no codegen" convention this codebase already uses for
+//  distribute.ts <-> Room.ComputeAssignments. The parked Versus/Duel mode
+//  (docs/features/game-modes/feature.md "Parked - Phase 2+/3") imports THIS
+//  module UNMODIFIED when it is eventually scheduled. Keep it general - resist
+//  adding a Golden-Guardian-specific field here; that belongs in the caller.
 //
 //  PURITY: every function returns a NEW Vote and never mutates its input (the
 //  Vote's arrays/maps are treated as immutable). This keeps it trivially
