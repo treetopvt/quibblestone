@@ -55,23 +55,28 @@ public sealed record TemplateCatalogEntry(string Id, bool FamilySafe, int BlankC
 public sealed class TemplateCatalog
 {
     // Mirrors web/src/content/seedLibrary.ts (id, tags.familySafe, blank count).
-    // Every current seed template is family-safe (blank counts vary 4-6). If a
-    // NON-family-safe template is ever added to seedLibrary, add it here with
-    // FamilySafe: false so the server gate filters it correctly (AC-04).
+    // Every current seed template is family-safe (blank counts vary 9-10 - long
+    // on purpose, so round-robin distribution gives every player in a full room
+    // multiple blanks; see the seedLibrary.ts header). If a NON-family-safe
+    // template is ever added to seedLibrary, add it here with FamilySafe: false
+    // so the server gate filters it correctly (AC-04).
     private static readonly IReadOnlyList<TemplateCatalogEntry> Catalog =
     [
-        new TemplateCatalogEntry("wobbly-wizard", FamilySafe: true, BlankCount: 6),
-        new TemplateCatalogEntry("space-llama", FamilySafe: true, BlankCount: 5),
-        new TemplateCatalogEntry("road-trip-disaster", FamilySafe: true, BlankCount: 5),
-        new TemplateCatalogEntry("school-of-noodles", FamilySafe: true, BlankCount: 4),
-        new TemplateCatalogEntry("monster-under-bed", FamilySafe: true, BlankCount: 4),
-        new TemplateCatalogEntry("food-truck-frenzy", FamilySafe: true, BlankCount: 4),
-        new TemplateCatalogEntry("backyard-safari", FamilySafe: true, BlankCount: 4),
-        new TemplateCatalogEntry("pirate-puddle", FamilySafe: true, BlankCount: 5),
-        new TemplateCatalogEntry("robot-recital", FamilySafe: true, BlankCount: 5),
-        new TemplateCatalogEntry("dragon-sock-thief", FamilySafe: true, BlankCount: 5),
-        new TemplateCatalogEntry("birthday-balloon-mayhem", FamilySafe: true, BlankCount: 5),
-        new TemplateCatalogEntry("snowman-summer-job", FamilySafe: true, BlankCount: 4),
+        new TemplateCatalogEntry("wobbly-wizard", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("space-llama", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("road-trip-disaster", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("school-of-noodles", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("monster-under-bed", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("food-truck-frenzy", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("backyard-safari", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("pirate-puddle", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("robot-recital", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("dragon-sock-thief", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("birthday-balloon-mayhem", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("snowman-summer-job", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("grandmas-secret-recipe", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("how-to-be-famous", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("the-new-neighbor", FamilySafe: true, BlankCount: 10),
     ];
 
     /// <summary>The full catalog (host first ordering is irrelevant - selection is random).</summary>
