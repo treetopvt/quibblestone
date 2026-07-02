@@ -107,8 +107,6 @@
 // ----------------------------------------------------------------------------
 
 import { useEffect, useRef, useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import {
   AppBar,
@@ -138,6 +136,7 @@ import { recordSoloServe } from '../telemetry/serveLog';
 import { recordSoloRoundCompleted, recordSoloRoundStarted } from '../telemetry/usageBeacon';
 import { FillBlank } from './FillBlank';
 import { Reveal } from './Reveal';
+import { ModePicker } from './ModePicker';
 import { DEFAULT_SOLO_MODE, SOLO_MODES, type SoloMode } from './soloModes';
 
 export interface SoloProps {
@@ -216,89 +215,6 @@ function PersonalSummary({ title, filledCount }: { title: string; filledCount: n
   );
 }
 
-/**
- * One tappable mode card in the solo picker (single-player/02, AC-01): icon +
- * label + blurb as a big tap target, teal-highlighted when selected (reusing
- * the same teal tap language as WordBankAnswer's chips and FillBlank's spark
- * row). Disabled when the mode has no eligible template for the current
- * family-safe position, so a player can never select a mode that cannot start
- * (AC-04).
- *
- * A11y: the picker is a SINGLE-CHOICE control, so each card is a `role="radio"`
- * with `aria-checked` (not a toggle button with `aria-pressed`) inside the
- * parent `role="radiogroup"` - screen readers then announce "one of N" rather
- * than an independent on/off toggle.
- */
-function ModeCard({
-  mode,
-  selected,
-  disabled,
-  onSelect,
-}: {
-  mode: SoloMode;
-  selected: boolean;
-  disabled: boolean;
-  onSelect: () => void;
-}) {
-  const theme = useTheme();
-  return (
-    <Box
-      component="button"
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      disabled={disabled}
-      onClick={onSelect}
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        width: '100%',
-        textAlign: 'left',
-        cursor: 'pointer',
-        border: `2px solid ${selected ? theme.palette.teal.main : alpha(theme.palette.teal.main, 0.24)}`,
-        borderRadius: 3,
-        px: 2.5,
-        py: 2,
-        bgcolor: selected ? alpha(theme.palette.teal.main, 0.14) : 'background.paper',
-        '&:hover': { bgcolor: alpha(theme.palette.teal.main, 0.08) },
-        '&:focus-visible': { outline: `2px solid ${theme.palette.teal.dark}`, outlineOffset: 2 },
-        '&:disabled': { cursor: 'not-allowed', opacity: 0.45 },
-      }}
-    >
-      <Box
-        sx={{
-          flexShrink: 0,
-          width: 44,
-          height: 44,
-          borderRadius: 2,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: alpha(theme.palette.teal.main, 0.16),
-          color: theme.palette.teal.dark,
-        }}
-      >
-        <FontAwesomeIcon icon={mode.icon} style={{ width: 20, height: 20 }} />
-      </Box>
-      <Stack spacing={0.25} sx={{ flexGrow: 1 }}>
-        <Typography sx={{ fontWeight: 800, fontSize: 15.5, color: 'text.primary' }}>
-          {mode.config.label}
-        </Typography>
-        <Typography sx={{ fontWeight: 600, fontSize: 13, color: 'text.secondary', lineHeight: 1.4 }}>
-          {mode.blurb}
-        </Typography>
-      </Stack>
-      {selected && (
-        <FontAwesomeIcon
-          icon="circle-check"
-          style={{ width: 20, height: 20, color: theme.palette.teal.main, flexShrink: 0 }}
-        />
-      )}
-    </Box>
-  );
-}
-
 /** The lightweight solo setup screen: family-safe toggle + length choice + mode picker + a gold "Start" CTA. */
 function SoloSetup({
   familySafe,
@@ -334,32 +250,12 @@ function SoloSetup({
         <FamilySafeToggle checked={familySafe} onChange={onFamilySafeChange} />
         <StoryLengthChoice value={lengthPref} onChange={onLengthPrefChange} />
 
-        <Stack spacing={1.5} role="radiogroup" aria-labelledby="solo-mode-picker-label">
-          <Typography
-            id="solo-mode-picker-label"
-            sx={{
-              fontWeight: 800,
-              fontSize: 12.5,
-              color: 'text.secondary',
-              textTransform: 'uppercase',
-              letterSpacing: 0.6,
-            }}
-          >
-            Pick a mode
-          </Typography>
-          {SOLO_MODES.map((soloMode) => (
-            <ModeCard
-              key={soloMode.config.id}
-              mode={soloMode}
-              selected={soloMode.config.id === mode.config.id}
-              // A mode with no eligible template at the current family-safe
-              // position (e.g. Word Bank when no family-safe template has a
-              // bank) is disabled, not a dead Start button (AC-04).
-              disabled={soloMode.eligibleTemplates(seedLibrary, familySafe).length === 0}
-              onSelect={() => onModeChange(soloMode)}
-            />
-          ))}
-        </Stack>
+        <ModePicker
+          modes={SOLO_MODES}
+          selectedId={mode.config.id}
+          onSelect={onModeChange}
+          familySafe={familySafe}
+        />
 
         <BottomActionBarSpacer />
       </Stack>

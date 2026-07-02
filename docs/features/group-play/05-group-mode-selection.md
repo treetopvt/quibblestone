@@ -1,6 +1,6 @@
 # Story: Group mode selection (the host picks the mode for the room)
 
-**Feature:** Group Play Experience  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Group Play Experience  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #113
 
 ## Context
 Solo can pick any of the four modes (`single-player/02` shipped the picker + the

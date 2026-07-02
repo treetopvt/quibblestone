@@ -24,6 +24,18 @@
 //  server round-trip (AC-04). It never holds another player's words - those are
 //  never sent before the reveal (AC-01).
 //
+//  group-play/05 (host picks the mode) makes this screen MODE-AWARE without any
+//  new mechanics: it resolves the round's `mode` (chosen by the host, broadcast on
+//  RoundStarted) through the SHARED mode registry (./modeRegistry.ts, the same list
+//  Solo uses) and passes that mode's fill-time surfaces into FillBlank's optional
+//  game-modes/03 slots - answerSurface for Word Bank (a curated tap list whose own
+//  submit calls the SAME handleSubmitWord), nothing for Classic Blind / Progressive
+//  Reveal. The collection seam is IDENTICAL for every mode (server-authoritative
+//  submitWord); only the surface differs. Progressive Reveal's paced reveal is a
+//  REVEAL-time surface, resolved on the shared Reveal screen (App's GroupReveal),
+//  not here. Progressive Story is not offered for group (AC-05), so this screen
+//  never needs a live cross-player "story so far".
+//
 //  This is COMPOSITION, not new mechanics: it wires FillBlank (reused as-is, its
 //  onSubmitWord now pointed at the hub) and Waiting. It never forks the engine and
 //  never reimplements assembly. If a template id has no match in the bundled
@@ -45,14 +57,27 @@ import { useMemo, useRef, useState } from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { AppBar, BottomActionBar } from '../components';
 import { seedLibrary } from '../content/seedLibrary';
+import { createCollection } from '../engine/engine';
 import { getBlanks, type Blank } from '../engine/template';
 import type { CollectProgress } from '../signalr/useGameHub';
 import { FillBlank } from './FillBlank';
+import { findGroupMode } from './modeRegistry';
 import { Waiting, type MyWord } from './Waiting';
 
 export interface GroupRoundProps {
   /** The round's template id (from the hub's RoundStarted broadcast); resolved to full content here. */
   templateId: string;
+  /**
+   * The round's mode id (group-play/05), from the hub's RoundStarted broadcast -
+   * the mode the HOST chose for the whole room. Resolved through the SHARED mode
+   * registry (findMode) to the mode's fill-time surfaces (answerSurface for Word
+   * Bank; none for Classic Blind / Progressive Reveal), which plug into FillBlank's
+   * game-modes/03 optional slots. The reveal-time surface (Progressive Reveal's
+   * paced body) is resolved on the shared Reveal screen, not here. An out-of-sync
+   * id falls back to Classic Blind (findMode never returns undefined), so a drift
+   * renders a safe default rather than crashing the round.
+   */
+  mode: string;
   /**
    * The blank INDICES this client owes for the round (group-play/02), from the
    * hub's per-connection "YourBlanks" message, or null until it arrives (a brief
@@ -131,12 +156,19 @@ function DealingBlanks({ onLeave }: { onLeave: () => void }) {
 
 export function GroupRound({
   templateId,
+  mode,
   assignedBlankIndices,
   collectProgress,
   submitWord,
   crownedNickname,
   onLeave,
 }: GroupRoundProps) {
+  // Resolve the round's mode (group-play/05) to its registry entry ONCE per mode.
+  // The whole room plays the mode the host chose; findGroupMode resolves against the
+  // OFFERED group set and falls back to Classic Blind for ANY non-offered id -
+  // including a known-but-deferred "progressive-story" (AC-05) - so a wire drift
+  // renders the safe default and never a Progressive Story surface (AC-03/AC-08).
+  const gameMode = useMemo(() => findGroupMode(mode), [mode]);
   // Resolve the full template from the bundled seed library BY ID (the server
   // ships only the id - content stays client-side). Memoized on the id.
   const template = useMemo(
@@ -257,6 +289,21 @@ export function GroupRound({
     })();
   };
 
+  // Resolve the mode's fill-time surfaces for THIS blank (group-play/05, AC-03).
+  // Classic blind returns {} (FillBlank renders its free-text default unchanged);
+  // Word Bank supplies answerSurface (the curated tap list), whose own submit
+  // affordance calls the SAME handleSubmitWord - never a second path into the
+  // server submit (game-modes/03 AC-06). Progressive Reveal changes only the
+  // reveal, so it too returns {} here. collectedSoFar is an empty collection:
+  // group play never offers Progressive Story (AC-05), the only mode that reads
+  // it, so the three group modes ignore it.
+  const fillSurfaces = gameMode.fillSurfaces({
+    template,
+    collectedSoFar: createCollection(),
+    currentBlank: current.blank,
+    onSubmit: handleSubmitWord,
+  });
+
   return (
     <FillBlank
       key={current.blank.id}
@@ -267,6 +314,8 @@ export function GroupRound({
       onSubmitWord={handleSubmitWord}
       onSkip={handleSkip}
       onExit={onLeave}
+      seeContext={fillSurfaces.seeContext}
+      answerSurface={fillSurfaces.answerSurface}
     />
   );
 }
