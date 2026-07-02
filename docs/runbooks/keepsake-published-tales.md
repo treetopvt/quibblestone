@@ -46,12 +46,20 @@ all output, serves `noindex, nofollow`, mints an unguessable 12-char slug, and
 expires tales after 30 days. What it does **not** yet have (security review
 W-001):
 
-- [ ] **A rate limit / quota on `POST /api/tales`.** Without one, a script can
-  mass-create tales and bloat storage. **This is a hard requirement before the
-  public URL is reachable.** Add ASP.NET Core's built-in rate limiting
-  (`builder.Services.AddRateLimiter(...)` with a per-IP fixed/sliding window)
-  scoped to the publish endpoint. Until it exists, keep the feature OFF (Part 3)
-  or keep the environment non-public.
+- [x] **A rate limit / quota on `POST /api/tales`.** DONE - a per-IP fixed window
+  (`PublishTalesRateLimit`: 8/min/IP, `429` on reject) is wired in `Program.cs` and
+  scoped to the publish action only. **One deploy hardening step remains:** behind
+  App Service the real client IP is in `X-Forwarded-For`, so add ForwardedHeaders
+  middleware so `Connection.RemoteIpAddress` reflects it - otherwise every caller
+  can share the proxy's IP bucket and the per-IP limit collapses to a global one.
+  One-liner in `Program.cs`:
+  ```csharp
+  app.UseForwardedHeaders(new ForwardedHeadersOptions {
+      ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto });
+  ```
+  (place it BEFORE `app.UseRateLimiter()`; App Service terminates TLS at a trusted
+  proxy). Consider tightening `KnownNetworks`/`KnownProxies` if you want to reject
+  spoofed forwarded headers.
 - [ ] **(Softer) A reaper / Storage lifecycle policy** for never-read expired
   rows. Expiry-on-read only deletes tales that get fetched; unread expired rows
   linger. At toy scale on cheap Table Storage this is fine, but a periodic sweep

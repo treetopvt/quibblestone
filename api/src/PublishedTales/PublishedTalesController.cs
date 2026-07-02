@@ -56,6 +56,7 @@
 using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using QuibbleStone.Api.Safety;
 
 namespace QuibbleStone.Api.PublishedTales;
@@ -123,6 +124,7 @@ public sealed class PublishedTalesController : ControllerBase
     /// slug, stamps a TTL, and stores it. FREE - no entitlement check (AC-04).
     /// </summary>
     [HttpPost]
+    [EnableRateLimiting(PublishTalesRateLimit.PolicyName)]
     public async Task<IActionResult> Publish([FromBody] PublishTaleRequest? request, CancellationToken cancellationToken)
     {
         // Disabled fallback (no storage configured): a clear "not available", never a 500.

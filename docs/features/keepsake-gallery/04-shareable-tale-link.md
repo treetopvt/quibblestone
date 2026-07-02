@@ -133,14 +133,22 @@ child-safety and privacy guardrails. See [feature.md](./feature.md).
     and the endpoint is untrusted. Genuine author template text is
     false-positive-resistant and passes. Covered by
     `PublishedTalesControllerTests.Publish_rejects_an_unsafe_LITERAL_part_a_lying_client_tags_as_not_a_word`.
-- **Open, anonymous write endpoint - PRE-DEPLOY REQUIREMENT (security-review W-001):**
-  `POST /api/tales` has no rate limit / quota. Size caps bound a single payload but
-  not volume. This is acceptable while the feature is OFF (no connection string) and
-  UNDEPLOYED, but it MUST NOT be exposed on a real public URL without at least a
-  minimal per-IP throttle / quota (same "cost gate" spirit the roadmap applies to
-  AI). Recorded as a hard item on the provisioning runbook's pre-deploy checklist.
-  A periodic reaper / Storage lifecycle policy for never-read expired rows is a
-  softer follow-up (lazy expiry-on-read only deletes rows that get fetched).
+- **Open, anonymous write endpoint - rate limited (security-review W-001, now
+  implemented):** `POST /api/tales` is throttled by a per-IP fixed window
+  (`PublishTalesRateLimit`: 8 publishes / minute / client IP, `429` on reject) via
+  ASP.NET Core's built-in rate limiting (no new dependency) - registered in
+  `Program.cs` (`AddRateLimiter` + `UseRateLimiter`), opted into by the publish
+  action alone (`[EnableRateLimiting]`), so the hub/health/moderation routes are
+  untouched. Size caps still bound a single payload; the limiter bounds volume. A
+  real family sharing a few tales never hits it. Covered by
+  `PublishTalesRateLimitTests` (per-IP partitioning; fails closed to a shared
+  bucket when no IP is available).
+  - **Deploy hardening note:** behind App Service the true client IP arrives in
+    `X-Forwarded-For`; wire ForwardedHeaders middleware so
+    `Connection.RemoteIpAddress` reflects it (else all callers may share the proxy
+    bucket) - a one-liner recorded on the provisioning runbook. A periodic reaper /
+    Storage lifecycle policy for never-read expired rows is a softer follow-up
+    (lazy expiry-on-read only deletes rows that get fetched).
 - **noindex (AC-03):** `X-Robots-Tag: noindex, nofollow` header on every `/t/{slug}`
   response plus `<meta name="robots" content="noindex, nofollow">`.
 - **Web (host-gated, opt-in):** `web/src/gallery/publishTale.ts`

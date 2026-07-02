@@ -160,6 +160,27 @@ else
             sp.GetRequiredService<ILogger<TableStoragePublishedTaleStore>>()));
 }
 
+// keepsake-gallery/04 (security review W-001): rate-limit the OPEN, anonymous
+// public publish endpoint (POST /api/tales) so it cannot be flooded to bloat
+// storage / mass-create public pages. A per-IP fixed window (see
+// PublishTalesRateLimit) - a real family sharing a few tales never hits it; a
+// script does. Only the publish action opts in (via [EnableRateLimiting]); the
+// rest of the API (hub, health, moderation) is untouched. A rejected caller gets
+// 429, not the middleware default 503. app.UseRateLimiter() activates it below.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(PublishTalesRateLimit.PolicyName, httpContext =>
+        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: PublishTalesRateLimit.PartitionKey(httpContext),
+            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = PublishTalesRateLimit.PermitLimit,
+                Window = PublishTalesRateLimit.Window,
+                QueueLimit = 0,
+            }));
+});
+
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
 // so every transient GameHub instance (SignalR builds a fresh hub per
 // invocation) shares the SAME set of active rooms. This is the toy's ONLY room
@@ -204,6 +225,11 @@ var app = builder.Build();
 // --- HTTP request pipeline ----------------------------------------------------
 
 app.UseCors(webClientCorsPolicy);
+
+// keepsake-gallery/04 (W-001): activate the rate limiter so the [EnableRateLimiting]
+// on the publish action takes effect. Endpoint-aware, so it only meters the one
+// opted-in action; every other route (hub, health, moderation) is unaffected.
+app.UseRateLimiter();
 
 // REST endpoints (e.g. GET /health from HealthController).
 app.MapControllers();
