@@ -27,6 +27,7 @@ the smallest data that keeps content fresh and curatable.
 | 03 | #93 | Freshness rotation: no repeats until the pool runs dry | Not Started |
 | 04 | #94 | Story delivery metrics (the anonymous serve log) | Not Started |
 | 05 | #95 | Like / dislike a tale (content feedback) | Not Started |
+| 06 | TBD | Favorite a story and replay it (device-local) | Not Started |
 
 ## Dependencies
 - template-model (the seed library + tags this feature selects over; the
@@ -92,9 +93,12 @@ the smallest data that keeps content fresh and curatable.
 - Weighted or personalized selection ("more space stories for this room") -
   selection stays uniform random over the filtered pool until real usage says
   otherwise.
-- A player-facing "browse and pick a specific story" picker (today the game
-  deals you a story; picking one is a different product surface, related to
-  story-packs).
+- A player-facing "browse and pick a specific story" picker over the WHOLE
+  library (today the game deals you a story; picking any one is a different
+  product surface, related to story-packs). Note: story 06 (favorite a story)
+  ships the lightweight PERSONAL cut of this - a device-local list of stories
+  you have already played and starred, revisitable and replayable - but not the
+  full catalog browser, which stays parked.
 
 ## Decisions
 - 2026-07-01: Length class is DERIVED from blank count rather than authored as
@@ -108,3 +112,13 @@ the smallest data that keeps content fresh and curatable.
   features touch the same seam.
 - 2026-07-01: Telemetry (04) lands before feedback (05) and owns the storage
   plumbing; 05 reuses 04's sink. Why: one Table Storage integration, not two.
+- 2026-07-02: Added story 06 (favorite a story) after play surfaced a kid
+  wanting to revisit a few loved tales and replay them with new words. Scoped as
+  device-local (localStorage, anonymous, account-free - the same posture as
+  story 03's solo freshness history) and FREE. It is the trigger for the
+  "replaying a favorite" case story 03 AC-04 already reserved (explicit replay
+  bypasses freshness and does not re-stamp history), and it is deliberately the
+  small personal cut of the parked full-library "browse and pick" picker - not a
+  catalog browser. Kept distinct from like/dislike (05, an anonymous creator
+  signal) and from keepsake-gallery/03 (revisit a finished RESULT, not replay
+  the TEMPLATE).

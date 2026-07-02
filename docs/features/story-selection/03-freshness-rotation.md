@@ -26,7 +26,8 @@ what an account-less game can know: this device (solo), this room (group). See
       (least-recently-played first preferred; at minimum the full pool
       reopens) and play continues without error or visible hiccup.
 - [ ] AC-04: Given an explicit replay (solo "Play again" with the same
-      template, or a pinned-template replay per replay-remix/01), then the
+      template, "Carve it again" per replay-remix/01, or replaying a favorite
+      per story-selection/06), then the
       freshness filter is bypassed AND the replay does not re-stamp the
       template's freshness history - replaying a favorite must not make the
       random pick "forget" other unplayed stories.

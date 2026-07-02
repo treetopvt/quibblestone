@@ -17,6 +17,7 @@
 | Room state | the in-memory Room record (length pref, played ids) | `api/src/Rooms/Room.cs` |
 | Styling / components | MUI theme + existing toggle/button patterns; FontAwesome icons | `web/src/theme.ts`, `web/src/components/`, `web/src/fontawesome.ts` |
 | Device-local storage posture | keepsake-gallery/03's documented localStorage stance | `docs/features/keepsake-gallery/03-tales-weve-carved-history.md` |
+| Favorites store (story 06) | a NEW device-local list mirroring `identity.ts` / story 03's freshness history posture | `web/src/content/favorites.ts` (new), `web/src/identity.ts` |
 | Config / secrets | API config + Key Vault for the storage connection; `VITE_*` for the API base URL | `api/src/appsettings*.json`, `web/.env.development` |
 | Infra | provisioned Storage account | `infra/main.bicep` |
 
@@ -33,8 +34,11 @@ telemetry service + controller + infra) and can run beside 02. 05 needs 04's sin
 | 04 | #94 | `api/src/Telemetry/*` (sink + implementations), new controller, `Program.cs` (DI), `infra/main.bicep` (app setting/table), API tests | 01 | 02 | 2 | medium |
 | 03 | #93 | `web/src/content/fresh.ts` + history module + tests, `web/src/pages/Solo.tsx`, `api/src/Hubs/GameHub.cs`, `api/src/Rooms/Room.cs` (played ids) | 02 (file overlap, not logic) | - | 3 | medium |
 | 05 | #95 | `web/src/components/TaleFeedback.tsx`, `Reveal.tsx` / `RoundComplete.tsx` wiring, feedback endpoint + table, API tests | 04, 03 (screen/file overlap) | - | 4 | medium |
+| 06 | TBD | `web/src/content/favorites.ts` (new) + test, a "Favorites" list screen, star affordance wired into `Reveal.tsx` / `RoundComplete.tsx`, "play a favorite" into the `Solo.tsx` / `GameHub.StartRound` selection seam | 01 (pipeline/call sites), 03 (freshness-bypass seam) | - | 4 | medium |
 
-**Concurrency per wave:** Wave 1 = 01 alone. Wave 2 = {02, 04} in parallel. Wave 3 = 03. Wave 4 = 05.
+**Concurrency per wave:** Wave 1 = 01 alone. Wave 2 = {02, 04} in parallel. Wave 3 = 03. Wave 4 = {05, 06} (both
+wire into `Reveal.tsx` / `RoundComplete.tsx`, so verify line-level disjointness before running concurrently, else
+serialize - 06's star is a small, separable affordance from 05's thumbs control).
 
 ## Per-story tech notes
 
@@ -70,6 +74,19 @@ One shared component on two screens + one upserting POST reusing 04's sink.
 Gotcha: this is NOT reveal-delight/01's Reaction row - no live room tallies,
 no SignalR; keep it a quiet REST write and keep the control visually
 subordinate to the replay CTAs.
+
+### 06 - Favorite a story and replay it
+A device-local favorites list plus two small surfaces. `web/src/content/favorites.ts`
+is a pure localStorage module (add / remove / list over `{ templateId, title }`),
+Vitest-covered, mirroring `identity.ts` / story 03's history posture - no server, no
+PII. A star affordance on `Reveal.tsx` / `RoundComplete.tsx` toggles a favorite; a
+"Favorites" list screen (reachable from Home) lets the player pick one, which feeds the
+chosen template id straight into the existing selection call site (`Solo.tsx` /
+`GameHub.StartRound`) as an EXPLICIT pick that bypasses freshness and does not re-stamp
+history (the same seam story 03 AC-04 reserves for "replaying a favorite"). Gotcha: the
+family-safe gate still runs first (a non-family-safe favorite is not offered/played in a
+family-safe session); FREE (no entitlement gate); do not route a favorite into 04/05's
+serve/thumbs telemetry - a star is private and device-local, not a curation signal.
 
 ## Cross-cutting concerns
 
