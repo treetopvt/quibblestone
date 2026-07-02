@@ -86,10 +86,11 @@ export interface RenderTabletInput {
   /** The live MUI theme - every color painted onto the canvas is read from here, never hardcoded. */
   theme: Theme;
   /**
-   * Optional "carved by [names] & crew" byline text (AC-02), sourced from the
-   * SAME attribution content the caller already showed on the live Reveal
-   * screen - never a second byline format invented here. Omit for no byline
-   * (still a valid image, AC-02 says "when present").
+   * Optional "carved by [names]" byline text (AC-02), sourced from the SAME
+   * crew data the caller already shows (group play builds it from `buildCrew`
+   * via ../gallery/byline.ts's `formatCrewByline`) - never a second byline
+   * format invented here. Omit for no byline (still a valid image, AC-02 says
+   * "when present" - e.g. solo, which has no crew to name).
    */
   byline?: string;
 }

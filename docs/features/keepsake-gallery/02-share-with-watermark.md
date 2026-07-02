@@ -116,6 +116,16 @@ is also a soft, ad-free growth touch. See [feature.md](./feature.md) and
   give - see Solo.tsx's own comment at its `<Reveal>` call. Both saved and
   shared images now carry a byline for group play; solo images remain
   byline-free by design, not by omission.
+- Known limitation (Gate-1 review CR-W-002, follow-up candidate): `shareImage()`
+  awaits the canvas render (fonts + `toBlob`) BEFORE calling `navigator.share`.
+  On browsers with strict transient-user-activation rules (some iOS Safari
+  versions), that intervening async work can consume the tap's activation, so
+  the file-share sheet rejects with `NotAllowedError`. This degrades GRACEFULLY
+  - the non-Abort rejection falls through to the text share / clipboard, so no
+  error is thrown (AC-02 holds) - but the image happy-path may silently not
+  fire there. If it proves common in testing, pre-render the blob before/at tap
+  time to preserve the gesture. Not fixed now: it never breaks the button and
+  the text fallback is faithful.
 
 ## Tests
 | AC | Test |
