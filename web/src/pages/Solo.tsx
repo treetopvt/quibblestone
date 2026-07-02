@@ -372,6 +372,7 @@ export function Solo({ onExit }: SoloProps) {
       onPlayAgain={handlePlayAgain}
       onHome={onExit}
       exitAction={{ label: 'Back to home', onClick: onExit }}
+      taleFeedback={{ templateId: template.id, mode: 'solo' }}
     />
   );
 }

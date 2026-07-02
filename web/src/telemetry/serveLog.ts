@@ -45,8 +45,12 @@ const SESSION_ID_STORAGE_KEY = 'quibblestone.telemetry.sessionId.v1';
  * Never throws: if storage is unavailable or crypto.randomUUID is missing, it
  * falls back to a transient id so a serve event can still be sent anonymously
  * without ever breaking the solo flow.
+ *
+ * Exported (story-selection/05) so the per-tale feedback vote
+ * (telemetry/feedbackLog.ts) reuses this SAME device-session GUID rather than
+ * minting a second, competing device id.
  */
-function getOrCreateSessionId(): string {
+export function getOrCreateSessionId(): string {
   try {
     const existing = window.localStorage.getItem(SESSION_ID_STORAGE_KEY);
     if (existing !== null && existing.length > 0) {

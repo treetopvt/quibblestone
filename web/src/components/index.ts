@@ -67,3 +67,12 @@ export type { PlayerIdentityFieldsProps } from './PlayerIdentityFields';
 // profanity filter.
 export { StoryLengthChoice } from './StoryLengthChoice';
 export type { StoryLengthChoiceProps } from './StoryLengthChoice';
+
+// The quiet, per-player thumbs up/down curation vote on a story template
+// (story-selection/05, issue #95): rendered at the end of a tale on BOTH
+// Reveal.tsx (solo) and RoundComplete.tsx (group), visually subordinate to
+// the primary "Play another round" CTA. A plain per-device REST write via
+// ../telemetry/feedbackLog.ts - NOT the reveal-delight Reaction row (no
+// SignalR, no room state, no aggregate shown to players).
+export { TaleFeedback } from './TaleFeedback';
+export type { TaleFeedbackProps } from './TaleFeedback';

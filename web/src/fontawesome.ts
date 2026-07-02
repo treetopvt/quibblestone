@@ -75,6 +75,11 @@ import {
   // "Full tale" option's glyph.
   faHourglassHalf,
   faBook,
+  // TaleFeedback icons (story-selection/05, issue #95): the quiet "Did you
+  // like this story?" thumbs up/down curation vote on the Reveal and Round
+  // Complete screens.
+  faThumbsUp,
+  faThumbsDown,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -108,4 +113,6 @@ library.add(
   faPenRuler,
   faHourglassHalf,
   faBook,
+  faThumbsUp,
+  faThumbsDown,
 );

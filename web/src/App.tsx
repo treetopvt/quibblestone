@@ -379,6 +379,7 @@ export default function App() {
         onPlayAgain={() => void handlePlayAnotherRound()}
         onBackToLobby={handleBackToLobby}
         onLeave={handleGoHome}
+        templateId={reveal.templateId}
       />
     );
   }

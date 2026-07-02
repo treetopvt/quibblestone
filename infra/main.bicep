@@ -187,6 +187,20 @@ resource storyServesTable 'Microsoft.Storage/storageAccounts/tableServices/table
   name: 'StoryServes'
 }
 
+// story-selection/05 (per-tale thumbs feedback, issue #95): the StoryFeedback
+// table the API's telemetry sink upserts one anonymous, PII-free curation vote
+// into per player per round (PartitionKey = template id, RowKey = the opaque
+// client-minted vote id, so a changed vote overwrites - see
+// TableStorageTelemetrySink.cs). Joinable against StoryServes by template id for
+// a like-rate-per-serve report (AC-06). Sits alongside StoryServes on the SAME
+// storage account's Table service; the sink also creates it on first write, so
+// this just makes the footprint explicit in IaC (unvalidated locally if the
+// az/bicep CLI is absent - see this story's build notes).
+resource storyFeedbackTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: storageTableService
+  name: 'StoryFeedback'
+}
+
 // --- 5. Key Vault - secrets (Stripe keys, AI provider keys) once they exist --
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: keyVaultName
