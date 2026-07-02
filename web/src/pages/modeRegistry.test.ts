@@ -17,6 +17,7 @@ import {
   GAME_MODES,
   GROUP_MODES,
   GROUP_MODE_IDS,
+  findGroupMode,
   findMode,
 } from './modeRegistry';
 
@@ -55,5 +56,19 @@ describe('GROUP_MODES (the modes the group host may pick)', () => {
     // safe Classic Blind default rather than undefined, so GroupRound never crashes.
     expect(findMode('progressive-story').config.id).toBe('progressive-story'); // still a known solo mode
     expect(findMode('no-such-mode').config.id).toBe('classic-blind');
+  });
+
+  it('findGroupMode resolves ONLY offered group modes, never the deferred Progressive Story (AC-05)', () => {
+    // Offered group modes resolve to themselves.
+    expect(findGroupMode('classic-blind').config.id).toBe('classic-blind');
+    expect(findGroupMode('word-bank').config.id).toBe('word-bank');
+    expect(findGroupMode('progressive-reveal').config.id).toBe('progressive-reveal');
+    // The KNOWN-but-deferred Progressive Story is NOT offered for group, so it falls
+    // back to Classic Blind here (unlike findMode, which would return the real entry)
+    // - so a group screen never renders a Progressive Story surface on a wire drift.
+    expect(findGroupMode('progressive-story').config.id).toBe('classic-blind');
+    // An unknown id also falls back to the safe default.
+    expect(findGroupMode('no-such-mode').config.id).toBe('classic-blind');
+    expect(findGroupMode('progressive-story')).toBe(DEFAULT_GROUP_MODE);
   });
 });

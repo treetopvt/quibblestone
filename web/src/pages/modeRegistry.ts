@@ -193,3 +193,18 @@ export const GROUP_MODES: readonly GameMode[] = GAME_MODES.filter((mode) =>
 
 /** The group picker's default selection (Classic blind) - one tap on Start still works. */
 export const DEFAULT_GROUP_MODE: GameMode = findMode('classic-blind');
+
+/**
+ * Resolve a mode id to an OFFERED GROUP mode, falling back to Classic Blind for
+ * ANY id that is not offered for group play - including a KNOWN-but-deferred one
+ * like "progressive-story" (group-play/05 AC-05). This differs from `findMode`,
+ * which resolves against ALL four modes (so it would return the real Progressive
+ * Story entry): group screens must NEVER render Progressive Story surfaces (its
+ * "story so far" would show only this client's own fills, not the room's), so the
+ * server rejects that mode at StartRound AND the group screens resolve through
+ * THIS function as defense-in-depth. Use it for GroupRound / GroupReveal; use
+ * `findMode` for Solo (which offers all four).
+ */
+export function findGroupMode(id: string): GameMode {
+  return GROUP_MODES.find((mode) => mode.config.id === id) ?? DEFAULT_GROUP_MODE;
+}

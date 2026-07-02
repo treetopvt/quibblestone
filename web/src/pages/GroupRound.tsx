@@ -61,7 +61,7 @@ import { createCollection } from '../engine/engine';
 import { getBlanks, type Blank } from '../engine/template';
 import type { CollectProgress } from '../signalr/useGameHub';
 import { FillBlank } from './FillBlank';
-import { findMode } from './modeRegistry';
+import { findGroupMode } from './modeRegistry';
 import { Waiting, type MyWord } from './Waiting';
 
 export interface GroupRoundProps {
@@ -164,9 +164,11 @@ export function GroupRound({
   onLeave,
 }: GroupRoundProps) {
   // Resolve the round's mode (group-play/05) to its registry entry ONCE per mode.
-  // The whole room plays the mode the host chose; findMode falls back to Classic
-  // blind for an out-of-sync id, so this never throws (AC-03/AC-08).
-  const gameMode = useMemo(() => findMode(mode), [mode]);
+  // The whole room plays the mode the host chose; findGroupMode resolves against the
+  // OFFERED group set and falls back to Classic Blind for ANY non-offered id -
+  // including a known-but-deferred "progressive-story" (AC-05) - so a wire drift
+  // renders the safe default and never a Progressive Story surface (AC-03/AC-08).
+  const gameMode = useMemo(() => findGroupMode(mode), [mode]);
   // Resolve the full template from the bundled seed library BY ID (the server
   // ships only the id - content stays client-side). Memoized on the id.
   const template = useMemo(

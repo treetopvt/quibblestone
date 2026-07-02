@@ -86,7 +86,7 @@ import { Solo } from './pages/Solo';
 import { Favorites } from './pages/Favorites';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
-import { findMode } from './pages/modeRegistry';
+import { findGroupMode } from './pages/modeRegistry';
 import { Reveal, type WordAttribution } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
@@ -230,12 +230,14 @@ function GroupReveal({
   const wordAttribution = buildContributorLookup(reveal.words);
 
   // group-play/05 (AC-03): resolve the round's mode to its REVEAL-time surface via
-  // the shared registry. Progressive Reveal supplies a paced, word-by-word body
-  // (each client paces the SAME already-broadcast assembled story locally - no new
-  // hub message); Classic Blind / Word Bank supply none, so Reveal renders its
-  // default coral body. An out-of-sync id falls back to Classic Blind (findMode
-  // never returns undefined), so a drift renders the safe default, never crashes.
-  const revealSurfaces = findMode(mode).revealSurfaces({ template, assembled });
+  // the shared registry, restricted to the OFFERED GROUP set (findGroupMode).
+  // Progressive Reveal supplies a paced, word-by-word body (each client paces the
+  // SAME already-broadcast assembled story locally - no new hub message); Classic
+  // Blind / Word Bank supply none, so Reveal renders its default coral body. ANY
+  // non-offered id - including a known-but-deferred "progressive-story" (AC-05) -
+  // falls back to Classic Blind, so a wire drift renders the safe default, never a
+  // Progressive Story reveal surface and never crashes.
+  const revealSurfaces = findGroupMode(mode).revealSurfaces({ template, assembled });
 
   return (
     <Reveal
@@ -517,8 +519,15 @@ export default function App() {
     // under Word Bank) is rejected with the friendly inline error the Lobby already
     // shows - rather than silently downgrading to Classic Blind. The lengthPref is
     // moot with an explicit templateId but travels along for wire-contract consistency.
-    (templateId: string, familySafe: boolean, modeId: string): Promise<StartRoundResult> =>
-      startRound(familySafe, lastLengthPref, modeId, templateId),
+    (templateId: string, familySafe: boolean, modeId: string): Promise<StartRoundResult> => {
+      // Restamp the sticky family-safe + mode so a later "Play another round" reuses
+      // what the host JUST played, not a stale earlier pick (AC-07). This matters now
+      // that a favorite carries the host's real chosen mode (before, favorites were
+      // always Classic Blind, so there was nothing mode-wise to remember).
+      setLastFamilySafe(familySafe);
+      setLastModeId(modeId);
+      return startRound(familySafe, lastLengthPref, modeId, templateId);
+    },
     [startRound, lastLengthPref],
   );
 
