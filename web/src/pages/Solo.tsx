@@ -152,6 +152,11 @@ function PersonalSummary({ title, filledCount }: { title: string; filledCount: n
  * row). Disabled when the mode has no eligible template for the current
  * family-safe position, so a player can never select a mode that cannot start
  * (AC-04).
+ *
+ * A11y: the picker is a SINGLE-CHOICE control, so each card is a `role="radio"`
+ * with `aria-checked` (not a toggle button with `aria-pressed`) inside the
+ * parent `role="radiogroup"` - screen readers then announce "one of N" rather
+ * than an independent on/off toggle.
  */
 function ModeCard({
   mode,
@@ -169,7 +174,8 @@ function ModeCard({
     <Box
       component="button"
       type="button"
-      aria-pressed={selected}
+      role="radio"
+      aria-checked={selected}
       disabled={disabled}
       onClick={onSelect}
       sx={{
@@ -252,8 +258,9 @@ function SoloSetup({
 
         <FamilySafeToggle checked={familySafe} onChange={onFamilySafeChange} />
 
-        <Stack spacing={1.5}>
+        <Stack spacing={1.5} role="radiogroup" aria-labelledby="solo-mode-picker-label">
           <Typography
+            id="solo-mode-picker-label"
             sx={{
               fontWeight: 800,
               fontSize: 12.5,
