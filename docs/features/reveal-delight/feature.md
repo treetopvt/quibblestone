@@ -22,10 +22,10 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #56 | Reaction row | Not Started |
-| 02 | #57 | Word-by-word "carving" reveal animation | Not Started |
-| 03 | #58 | "Golden Guardian" funniest-word award | Not Started |
-| 04 | TBD | Show who submitted each word on the reveal (group play) | Not Started |
+| 01 | #56 | Reaction row | Complete |
+| 02 | #57 | Word-by-word "carving" reveal animation | Complete |
+| 03 | #58 | "Golden Guardian" funniest-word award | Complete |
+| 04 | #105 | Show who submitted each word on the reveal (group play) | Complete |
 
 ## Dependencies
 - the-reveal (this feature builds on `Reveal.tsx` / `revealParts.ts` - it does
@@ -119,3 +119,20 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
   SCORES which word is funniest. They share the coral-word elements and must
   coordinate build order, but attribution introduces no tally, ranking, or
   leaderboard (README section 1) - do not merge the two concepts.
+- 2026-07-02: Built all four stories via `/orchestrate-feature` (Wave 1 = 01+02
+  in parallel; Wave 2 = 03; Wave 3 = 04), serialized on the shared coral word in
+  `Reveal.tsx`. All four now coexist on the one coral `<Box>`: the carve-in
+  entrance (02), the Golden Guardian vote tap + gold winner ring (03), and the
+  tap-to-reveal "carved by" chip (04) - arbitrated so exactly one gesture is live
+  at a time (nothing until the carve completes; then the vote owns the tap while
+  voting, and attribution owns it once voting resolves or is absent). Integration
+  fixes worth recording: (a) the carve animated `transform: scale` on a
+  `display:inline` span (a no-op) - fixed with `inline-block`; (b) the reaction
+  row rendered under the taller pinned action bar - fixed by pinning it inside the
+  bottom cluster above the CTAs; (c) `vote.ts` is the unit-tested reference-spec of
+  the tally rule whose authoritative twin is `Room.ResolveGoldenGuardian` (the same
+  `distribute.ts` <-> `ComputeAssignments` convention), now covered by
+  `RoomGoldenGuardianTests`; (d) attribution is gated on carve completion so it
+  never fires mid-carve. Verified live in a two-context group (shared reveal, vote
+  sync, winner + crown, "carved by" attribution) and in solo (reactions present,
+  vote + attribution absent).

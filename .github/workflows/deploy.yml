@@ -93,33 +93,43 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # --- Auto-provision on the FIRST deploy ---------------------------------
-      # If the footprint is not there yet, stand it up (idempotent Bicep) so a
-      # brand-new repo goes from "merge to main" to a running app with zero
-      # manual steps beyond the one-time OIDC bootstrap. On every later deploy
-      # the resources already exist, so this is a fast no-op. To provision
-      # explicitly (or to scale the SKU up/down) use the Provision UAT workflow.
+      # --- Provision on EVERY deploy (idempotent) -----------------------------
+      # The Bicep is incremental and idempotent, so a no-change deploy is a fast
+      # no-op - but running it every time means a Bicep change (a new resource, a
+      # new app setting) actually LANDS in UAT on the merge that ships it, instead
+      # of silently drifting until someone runs Provision UAT by hand. (Previously
+      # this ran only on the first deploy, so App Insights / new settings merged
+      # to main but never provisioned - see the fix that introduced this.)
+      #
+      # SKU is PRESERVED from the live plan so a routine deploy never downgrades a
+      # scaled-up plan (e.g. B1 -> the F1 default). First deploy (no plan yet)
+      # falls back to PROVISION_SKU; change the SKU deliberately via the Provision
+      # UAT workflow (or the APP_SERVICE_PLAN_SKU repo variable).
+      #
+      # NOTE: the Bicep sets the API's appSettings (telemetry connection strings),
+      # which replaces the settings array - so it drops the CORS origins. That is
+      # fine here because the "Set API CORS origins" step below runs AFTER this and
+      # re-applies them; keep that ordering.
       - name: Ensure UAT is provisioned
         run: |
           set -euo pipefail
           rg="$AZURE_RESOURCE_GROUP"
           az group create -n "$rg" -l "$PROVISION_LOCATION" --output none
-          existing="$(az webapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv 2>/dev/null || true)"
-          if [ -z "$existing" ]; then
-            echo "No app found in '$rg' - first deploy, provisioning the footprint (SKU $PROVISION_SKU, $PROVISION_LOCATION)..."
-            az deployment group create \
-              -g "$rg" \
-              -n "auto-provision-${{ github.run_number }}" \
-              -f infra/main.bicep \
-              -p namePrefix=quibblestone \
-                 environmentName=uat \
-                 appServicePlanSku="$PROVISION_SKU" \
-                 location="$PROVISION_LOCATION" \
-              --output none
-            echo "Provisioned."
-          else
-            echo "Resources already present ($existing) - skipping provision."
-          fi
+
+          current_sku="$(az appservice plan list -g "$rg" --query "[?contains(name, 'quibblestone')] | [0].sku.name" -o tsv 2>/dev/null || true)"
+          sku="${current_sku:-$PROVISION_SKU}"
+
+          echo "Provisioning footprint from infra/main.bicep (SKU $sku, $PROVISION_LOCATION)..."
+          az deployment group create \
+            -g "$rg" \
+            -n "provision-${{ github.run_number }}" \
+            -f infra/main.bicep \
+            -p namePrefix=quibblestone \
+               environmentName=uat \
+               appServicePlanSku="$sku" \
+               location="$PROVISION_LOCATION" \
+            --output none
+          echo "Provisioned (SKU $sku)."
 
       # --- Discover the resources in the group (names carry a unique suffix) ---
       # The UAT resource group holds exactly one App Service and one Static Web

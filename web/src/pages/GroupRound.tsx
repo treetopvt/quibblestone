@@ -97,6 +97,13 @@ export interface GroupRoundProps {
    * FillBlank's { accepted, message } contract. A skip submits an empty word.
    */
   submitWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
+  /**
+   * reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown this
+   * round (the previous round's funniest-word winner), or null. Passed straight to
+   * the Waiting screen so the crowned player's Guardian shows the crown in the
+   * progress row.
+   */
+  crownedNickname?: string | null;
   /** Leave the round and return Home. */
   onLeave: () => void;
 }
@@ -153,6 +160,7 @@ export function GroupRound({
   assignedBlankIndices,
   collectProgress,
   submitWord,
+  crownedNickname,
   onLeave,
 }: GroupRoundProps) {
   // Resolve the round's mode (group-play/05) to its registry entry ONCE per mode.
@@ -213,7 +221,12 @@ export function GroupRound({
   // `reveal` arrives (AC-05); until then this is the passive Waiting interstitial.
   if (phase === 'submitted' || assignedBlanks.length === 0) {
     return (
-      <Waiting progress={collectProgress} myWords={myWordsRef.current} onLeave={onLeave} />
+      <Waiting
+        progress={collectProgress}
+        myWords={myWordsRef.current}
+        crownedNickname={crownedNickname}
+        onLeave={onLeave}
+      />
     );
   }
 

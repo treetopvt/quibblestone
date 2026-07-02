@@ -85,6 +85,19 @@ import {
   // Complete screens.
   faThumbsUp,
   faThumbsDown,
+  // Reaction-row icons (reveal-delight/01, issue #56): the four reaction pills
+  // on the Reveal - Laugh (gold, a beaming face) and Heart (coral) are new here;
+  // Wow (teal) reuses faWandMagicSparkles (registered above for FillBlank) and
+  // Star (purple) reuses faStar (registered above for the celebration header),
+  // so only the laugh face + heart are genuinely new.
+  faFaceLaughBeam,
+  faHeart,
+  // Golden Guardian icons (reveal-delight/03, issue #58): the "tap the funniest
+  // word" vote affordance uses faHandPointer; the crowned winner reuses faCrown
+  // (already registered above for the Lobby host indicator) and the "N of M
+  // voted" tick reuses faCircleCheck (already registered above for the Waiting
+  // status). So faHandPointer is the only genuinely new glyph here.
+  faHandPointer,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -124,5 +137,8 @@ library.add(
   faBook,
   faThumbsUp,
   faThumbsDown,
+  faFaceLaughBeam,
+  faHeart,
+  faHandPointer,
   faStarRegular,
 );

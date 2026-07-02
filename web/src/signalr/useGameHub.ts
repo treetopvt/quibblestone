@@ -99,8 +99,14 @@ import {
   LogLevel,
 } from '@microsoft/signalr';
 import type { LengthPreference } from '../content/length';
+import type { ReactionCounts, ReactionType } from '../components/ReactionRow';
 
 const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
+
+// reveal-delight/01 (AC-04): a fresh all-zero reaction tally. Reaction counts are
+// EPHEMERAL per reveal (Out of Scope: no persistence), so this is both the initial
+// value and what the hook resets to whenever a new round starts / the reveal clears.
+const ZERO_REACTIONS: ReactionCounts = { laugh: 0, heart: 0, wow: 0, star: 0 };
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -179,6 +185,36 @@ export interface RoundInfo {
   templateId: string;
   mode: string;
   roundNumber: number;
+  /**
+   * reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown for
+   * THIS round (the previous round's funniest-word winner), or null when no crown
+   * applies. Server-tracked round state (mirrors RoundStartedDto.CrownedNickname);
+   * the hook lifts it into `crownedNickname` for the screens that render a
+   * Guardian, and it clears on the next round unless re-awarded.
+   */
+  crownedNickname: string | null;
+}
+
+/**
+ * reveal-delight/03: the payload of the hub's "GoldenGuardianVoteCast" broadcast
+ * (GoldenGuardianVoteCastDto) - just the live "N of M voted" figures the Reveal
+ * shows. No per-word tallies (AC-02), no identity (AC-07).
+ */
+interface GoldenGuardianVoteCast {
+  votedCount: number;
+  totalVoters: number;
+}
+
+/**
+ * reveal-delight/03: the payload of the hub's "GoldenGuardianResolved" broadcast
+ * (GoldenGuardianResolvedDto) - the winning coral word's blank token (ringed gold on
+ * the Reveal) and the winning contributor's nickname. Both null when the vote
+ * resolved with zero votes (no winner, no crown). The blank token is an already-
+ * vetted, already-shown word's position (AC-07, no PII).
+ */
+interface GoldenGuardianResolved {
+  winningBlankId: string | null;
+  playerSessionId: string | null;
 }
 
 /**
@@ -305,6 +341,72 @@ export interface UseGameHub {
    */
   reveal: RevealInfo | null;
   /**
+   * The room-wide reaction tally for the CURRENT reveal (reveal-delight/01,
+   * AC-04), fed by the hub's "ReactionCountsChanged" broadcast. Server-
+   * authoritative so no client double-counts (the instant floater gives the
+   * tapper perceived responsiveness). Starts all-zero and RESETS to all-zero
+   * whenever a new round starts or the reveal clears (counts are ephemeral per
+   * reveal - Out of Scope: no persistence). GroupReveal feeds this straight into
+   * <ReactionRow counts=...>.
+   */
+  reactionCounts: ReactionCounts;
+  /**
+   * Fire-and-forget a reaction for the current reveal (reveal-delight/01, AC-04).
+   * Invokes the hub's React with the current room code (from roomCodeRef) and the
+   * tapped type; the SERVER increments the room's tally and broadcasts
+   * "ReactionCountsChanged" to the whole room group, so every player (the tapper
+   * included) sees the count update. The payload is a TYPE ENUM only - no text, no
+   * identity (AC-06). A no-op when not connected / not in a room (solo never calls
+   * this - it bumps local state instead, AC-05).
+   */
+  react: (type: ReactionType) => void;
+  /**
+   * reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown for
+   * the CURRENT round (the previous round's funniest-word winner), or null when no
+   * crown applies. Lifted from the "RoundStarted" broadcast's CrownedNickname, so
+   * it is server-tracked round state (never a client timer): it is set for exactly
+   * the round after a vote resolves and CLEARED on the next round (unless re-awarded)
+   * / on back-to-lobby / on leave. App threads it to Lobby/Waiting/RoundComplete so
+   * the matching player's <Guardian crowned /> shows the crown.
+   */
+  crownedNickname: string | null;
+  /**
+   * reveal-delight/03 (AC-02): how many present players have voted in the current
+   * reveal's Golden Guardian funniest-word vote (the "N" in "N of M voted"), from the
+   * hub's "GoldenGuardianVoteCast" broadcast. Resets to 0 on a fresh round / leave.
+   */
+  goldenGuardianVotedCount: number;
+  /** reveal-delight/03 (AC-02): the total present voters (the "M" in "N of M voted"). Resets to 0 on a fresh round / leave. */
+  goldenGuardianTotalVoters: number;
+  /**
+   * reveal-delight/03 (AC-03): whether the current reveal's Golden Guardian vote has
+   * RESOLVED (every present player voted, or the host closed it). Distinguishes
+   * "resolved with no winner" (resolved true, winningBlankId null) from "still
+   * voting". Resets to false on a fresh round / leave.
+   */
+  goldenGuardianResolved: boolean;
+  /**
+   * reveal-delight/03 (AC-03): the winning coral word's blank token once the vote
+   * resolves (the Reveal rings it gold), or null (not resolved, or resolved with zero
+   * votes). Resets to null on a fresh round / leave.
+   */
+  goldenGuardianWinningBlankId: string | null;
+  /**
+   * reveal-delight/03 (AC-01): fire-and-forget cast/MOVE of this client's single
+   * Golden Guardian vote for the tapped coral word's blank token. Invokes the hub's
+   * CastGoldenGuardianVote with the current room code; the SERVER records it, keeps
+   * one active vote per voter, and broadcasts the live "N of M voted" (and, on
+   * resolution, the winner). The payload is an already-vetted, already-shown word's
+   * position - no new text, no PII (AC-07). A no-op when not connected / not in a room.
+   */
+  castGoldenGuardianVote: (blankId: string) => void;
+  /**
+   * reveal-delight/03 (AC-03): fire-and-forget host-only "Reveal the winner" - closes
+   * Golden Guardian voting early (the SERVER enforces the host check and resolves with
+   * whatever votes are in). A no-op when not connected / not in a room / not the host.
+   */
+  closeGoldenGuardianVoting: () => void;
+  /**
    * Submit ONE word for ONE of this client's assigned blanks (group-play/03).
    * Invokes the hub's SubmitWord with the current room code (from roomCodeRef),
    * the blank INDEX, and the word; the SERVER runs the safety filter FIRST and
@@ -399,6 +501,24 @@ export function useGameHub(): UseGameHub {
   // The shared reveal payload (group-play/03), set from "RevealReady" and cleared
   // on leave / round reset. Non-null routes every player into the shared Reveal.
   const [reveal, setReveal] = useState<RevealInfo | null>(null);
+  // The room-wide reaction tally for the current reveal (reveal-delight/01,
+  // AC-04), set from "ReactionCountsChanged" and RESET to all-zero on a fresh
+  // RoundStarted / BackToLobby / RoundAborted / leave (ephemeral per reveal).
+  const [reactionCounts, setReactionCounts] = useState<ReactionCounts>(ZERO_REACTIONS);
+  // reveal-delight/03 (AC-04): the crowned player's nickname for the CURRENT round,
+  // lifted from the "RoundStarted" broadcast's CrownedNickname. Set for exactly the
+  // round after a vote resolves; cleared on the next round (unless re-awarded) /
+  // BackToLobby / RoundAborted / leave. App threads it to the Guardian-rendering
+  // screens so the winner wears the crown.
+  const [crownedNickname, setCrownedSessionId] = useState<string | null>(null);
+  // reveal-delight/03 (AC-02/AC-03): the current reveal's Golden Guardian vote state,
+  // fed by the "GoldenGuardianVoteCast" (live "N of M") and "GoldenGuardianResolved"
+  // (winner) broadcasts. All ephemeral per reveal: RESET on a fresh RoundStarted /
+  // BackToLobby / RoundAborted / leave, exactly like the reaction tally.
+  const [goldenGuardianVotedCount, setGoldenGuardianVotedCount] = useState(0);
+  const [goldenGuardianTotalVoters, setGoldenGuardianTotalVoters] = useState(0);
+  const [goldenGuardianResolved, setGoldenGuardianResolved] = useState(false);
+  const [goldenGuardianWinningBlankId, setGoldenGuardianWinningBlankId] = useState<string | null>(null);
   // A friendly notice shown on the lobby when a round was reset because a player
   // left mid-collection (group-play recovery, "RoundAborted"). Cleared when a fresh
   // round starts, on leave, and on manual dismiss.
@@ -424,6 +544,20 @@ export function useGameHub(): UseGameHub {
     // teardown (StrictMode's dev remount, an HMR swap, or a real unmount racing
     // an in-flight reconnect/close) can never setState on a torn-down effect.
     let cancelled = false;
+
+    // reveal-delight/03: reset the ephemeral Golden Guardian VOTE state (the per-reveal
+    // "N of M" + winner). Used by the round-ending handlers (BackToLobby / RoundAborted)
+    // and clearRoom's leave. It does NOT touch `crownedNickname`: the crown is
+    // server-tracked round state that lasts the whole NEXT round (AC-04), so it must
+    // survive a back-to-lobby (the crowned player still wears it in the lobby and the
+    // round that follows). The crown is only ever (re)set by "RoundStarted" (from the
+    // round's CrownedNickname) and cleared on leave (clearRoom).
+    const resetGoldenGuardianVote = () => {
+      setGoldenGuardianVotedCount(0);
+      setGoldenGuardianTotalVoters(0);
+      setGoldenGuardianResolved(false);
+      setGoldenGuardianWinningBlankId(null);
+    };
 
     // Live roster updates (session-engine/02): the hub broadcasts the updated
     // roster to a room's group whenever someone joins. Registered ONCE here,
@@ -454,6 +588,16 @@ export function useGameHub(): UseGameHub {
       setAssignedBlankIndices(null);
       setCollectProgress(null);
       setReveal(null);
+      setReactionCounts(ZERO_REACTIONS); // reveal-delight/01: reactions are per-reveal; a new round starts them at zero.
+      // reveal-delight/03: the funniest-word vote is per-reveal too, so a fresh round
+      // starts it clean. The CROWN, however, is carried on THIS round (info.crowned
+      // Nickname) - the previous round's winner wears it now (AC-04); it is null when
+      // not re-awarded, which clears a stale crown.
+      setGoldenGuardianVotedCount(0);
+      setGoldenGuardianTotalVoters(0);
+      setGoldenGuardianResolved(false);
+      setGoldenGuardianWinningBlankId(null);
+      setCrownedSessionId(info.crownedNickname ?? null);
       setRoundNotice(null); // a fresh round clears any prior "someone left" notice.
       setRound(info);
     };
@@ -493,6 +637,44 @@ export function useGameHub(): UseGameHub {
     };
     connection.on('RevealReady', handleRevealReady);
 
+    // Reaction tally (reveal-delight/01, AC-04): the hub broadcasts
+    // "ReactionCountsChanged" to the whole room group whenever any player reacts,
+    // so every client's reaction row shows the updated count in near-real-time.
+    // The payload is the full tally ({ laugh, heart, wow, star }) - server-
+    // authoritative, so no client double-counts. Registered ONCE, guarded by
+    // inRoomRef so a broadcast racing a leave cannot revive state for a gone-Home
+    // client. Reset to all-zero on a fresh RoundStarted / BackToLobby (ephemeral).
+    const handleReactionCountsChanged = (payload: ReactionCounts) => {
+      if (cancelled || !inRoomRef.current) return;
+      setReactionCounts(payload);
+    };
+    connection.on('ReactionCountsChanged', handleReactionCountsChanged);
+
+    // Golden Guardian live vote progress (reveal-delight/03, AC-02): the hub
+    // broadcasts "GoldenGuardianVoteCast" whenever any player casts/moves a vote, so
+    // every client's Reveal shows the same "N of M voted" status. Per-word tallies are
+    // NOT shipped mid-vote (AC-02). Registered ONCE, guarded by inRoomRef.
+    const handleGoldenGuardianVoteCast = (payload: GoldenGuardianVoteCast) => {
+      if (cancelled || !inRoomRef.current) return;
+      setGoldenGuardianVotedCount(payload.votedCount);
+      setGoldenGuardianTotalVoters(payload.totalVoters);
+    };
+    connection.on('GoldenGuardianVoteCast', handleGoldenGuardianVoteCast);
+
+    // Golden Guardian resolution (reveal-delight/03, AC-03): the hub broadcasts
+    // "GoldenGuardianResolved" the moment the vote resolves (all present voted, or the
+    // host closed it), carrying the winning blank token (ringed gold on the Reveal) and
+    // the winning contributor's nickname. winningBlankId is null when nobody voted (no
+    // winner, no crown). The CROWN itself is applied on the NEXT round's RoundStarted
+    // (server-tracked), so this handler only paints the current reveal's winner - it
+    // does NOT set crownedNickname. Registered ONCE, guarded by inRoomRef.
+    const handleGoldenGuardianResolved = (payload: GoldenGuardianResolved) => {
+      if (cancelled || !inRoomRef.current) return;
+      setGoldenGuardianResolved(true);
+      setGoldenGuardianWinningBlankId(payload.winningBlankId ?? null);
+    };
+    connection.on('GoldenGuardianResolved', handleGoldenGuardianResolved);
+
     // Back to lobby (group-play/04, AC-05): the host ended the round, so the hub
     // broadcasts a BARE "BackToLobby" to the whole room group. Every player drops
     // the round/reveal/progress/assignment locally and falls back to the Lobby it
@@ -503,6 +685,8 @@ export function useGameHub(): UseGameHub {
       if (cancelled || !inRoomRef.current) return;
       setRound(null);
       setReveal(null);
+      setReactionCounts(ZERO_REACTIONS); // reveal-delight/01: drop the reveal's reaction tally on return to lobby.
+      resetGoldenGuardianVote(); // reveal-delight/03: drop the per-reveal vote state on return to lobby (the crown persists, AC-04).
       setCollectProgress(null);
       setAssignedBlankIndices(null);
       setRoundNotice(null); // clear any stale round-aborted notice on a normal return too (Copilot review).
@@ -518,6 +702,8 @@ export function useGameHub(): UseGameHub {
       if (cancelled || !inRoomRef.current) return;
       setRound(null);
       setReveal(null);
+      setReactionCounts(ZERO_REACTIONS); // reveal-delight/01: drop the reveal's reaction tally on an aborted round too.
+      resetGoldenGuardianVote(); // reveal-delight/03: drop the per-reveal vote state on an aborted round (the crown persists, AC-04).
       setCollectProgress(null);
       setAssignedBlankIndices(null);
       setRoundNotice(payload.reason);
@@ -551,6 +737,9 @@ export function useGameHub(): UseGameHub {
       connection.off('YourBlanks', handleYourBlanks);
       connection.off('CollectProgress', handleCollectProgress);
       connection.off('RevealReady', handleRevealReady);
+      connection.off('ReactionCountsChanged', handleReactionCountsChanged);
+      connection.off('GoldenGuardianVoteCast', handleGoldenGuardianVoteCast);
+      connection.off('GoldenGuardianResolved', handleGoldenGuardianResolved);
       connection.off('BackToLobby', handleBackToLobby);
       connection.off('RoundAborted', handleRoundAborted);
       void connection.stop();
@@ -727,6 +916,48 @@ export function useGameHub(): UseGameHub {
     [],
   );
 
+  const react = useCallback((type: ReactionType) => {
+    const connection = connectionRef.current;
+    const code = roomCodeRef.current;
+    // Fire-and-forget (reveal-delight/01, AC-04): the perceived-responsiveness
+    // floater already fired in ReactionRow; the authoritative count arrives via
+    // the "ReactionCountsChanged" broadcast. A no-op when not connected / not in a
+    // room (a solo player never calls this - Solo bumps local state, AC-05). The
+    // payload is a type enum only - no text, no identity (AC-06). A thrown invoke
+    // (transient disconnect) is swallowed: a dropped reaction is harmless.
+    if (!connection || connection.state !== HubConnectionState.Connected || !code) {
+      return;
+    }
+    void connection.invoke('React', code, type).catch(() => {});
+  }, []);
+
+  const castGoldenGuardianVote = useCallback((blankId: string) => {
+    const connection = connectionRef.current;
+    const code = roomCodeRef.current;
+    // Fire-and-forget (reveal-delight/03, AC-01): the SERVER records/moves the vote
+    // and broadcasts the live "N of M" (and, on resolution, the winner). A no-op when
+    // not connected / not in a room (solo never calls this - it omits the vote step,
+    // AC-06). A thrown invoke (transient disconnect) is swallowed: a dropped vote is
+    // harmless (the player can tap again). The payload is an already-vetted word's
+    // blank token - no text, no PII (AC-07).
+    if (!connection || connection.state !== HubConnectionState.Connected || !code) {
+      return;
+    }
+    void connection.invoke('CastGoldenGuardianVote', code, blankId).catch(() => {});
+  }, []);
+
+  const closeGoldenGuardianVoting = useCallback(() => {
+    const connection = connectionRef.current;
+    const code = roomCodeRef.current;
+    // Fire-and-forget host-only "Reveal the winner" (reveal-delight/03, AC-03): the
+    // SERVER enforces the host check and resolves with whatever votes are in, then
+    // broadcasts the winner to everyone. A no-op when not connected / not in a room.
+    if (!connection || connection.state !== HubConnectionState.Connected || !code) {
+      return;
+    }
+    void connection.invoke('CloseGoldenGuardianVoting', code).catch(() => {});
+  }, []);
+
   const dismissRoundNotice = useCallback(() => setRoundNotice(null), []);
 
   const clearRoom = useCallback(() => {
@@ -741,6 +972,13 @@ export function useGameHub(): UseGameHub {
     setAssignedBlankIndices(null); // group-play/02: drop this client's blanks on leave.
     setCollectProgress(null); // group-play/03: drop collection progress on leave.
     setReveal(null); // group-play/03: drop any shared reveal on leave.
+    setReactionCounts(ZERO_REACTIONS); // reveal-delight/01: drop the reveal's reaction tally on leave.
+    // reveal-delight/03: drop the funniest-word vote state + crown on leave.
+    setGoldenGuardianVotedCount(0);
+    setGoldenGuardianTotalVoters(0);
+    setGoldenGuardianResolved(false);
+    setGoldenGuardianWinningBlankId(null);
+    setCrownedSessionId(null);
     setRoundNotice(null); // group-play recovery: drop any round-aborted notice on leave.
     // Tell the server so this connection leaves the room group and drops off the
     // roster for everyone else (AC-04). Fire-and-forget: returning Home must not
@@ -758,6 +996,15 @@ export function useGameHub(): UseGameHub {
     assignedBlankIndices,
     collectProgress,
     reveal,
+    reactionCounts,
+    react,
+    crownedNickname,
+    goldenGuardianVotedCount,
+    goldenGuardianTotalVoters,
+    goldenGuardianResolved,
+    goldenGuardianWinningBlankId,
+    castGoldenGuardianVote,
+    closeGoldenGuardianVoting,
     submitWord,
     createRoom,
     joinRoom,

@@ -82,6 +82,12 @@ export interface RoundCompleteProps {
   crew: RoundCompleteCrewMember[];
   /** Total blanks in the template (the "{n} words" pill); the per-player counts sum to this. */
   totalWords: number;
+  /**
+   * reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown this
+   * round (the previous round's funniest-word winner), or null when no crown applies.
+   * The matching crew tile's Guardian shows the crown overlay.
+   */
+  crownedNickname?: string | null;
   /** Whether THIS client is the host - gates the two action buttons (Slice 1 host-driven). */
   isHost: boolean;
   /**
@@ -233,7 +239,7 @@ function StatPill({ icon, label }: { icon: 'pen-nib' | 'users'; label: string })
 }
 
 /** One crew member's recap tile: 56px Guardian + name + teal word-count caption (AC-03). */
-function CrewTile({ member }: { member: RoundCompleteCrewMember }) {
+function CrewTile({ member, crowned }: { member: RoundCompleteCrewMember; crowned: boolean }) {
   const theme = useTheme();
   // "1 word" vs "N words" - a tiny plural so the caption reads naturally (AC-03).
   const wordLabel = `${member.wordCount} ${member.wordCount === 1 ? 'word' : 'words'}`;
@@ -253,7 +259,7 @@ function CrewTile({ member }: { member: RoundCompleteCrewMember }) {
           justifyContent: 'center',
         }}
       >
-        <Guardian variant={member.variant} size={56} />
+        <Guardian variant={member.variant} size={56} crowned={crowned} />
       </Box>
       <Typography
         sx={{
@@ -290,6 +296,7 @@ export function RoundComplete({
   title,
   crew,
   totalWords,
+  crownedNickname,
   isHost,
   canPlayAgain,
   playAgainError,
@@ -403,7 +410,11 @@ export function RoundComplete({
             {crew.map((member) => (
               // ConnectionId is not on the wire (no PII), so a crew member is keyed
               // by nickname - unique within a room (enforced at join, AC-06).
-              <CrewTile key={member.nickname} member={member} />
+              <CrewTile
+                key={member.nickname}
+                member={member}
+                crowned={!!crownedNickname && member.nickname === crownedNickname}
+              />
             ))}
           </Stack>
         </Box>

@@ -87,12 +87,13 @@ import { Favorites } from './pages/Favorites';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { findMode } from './pages/modeRegistry';
-import { Reveal } from './pages/Reveal';
+import { Reveal, type WordAttribution } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
 import type { LengthPreference } from './content/length';
-import { DEFAULT_VARIANT } from './components';
+import { DEFAULT_VARIANT, ReactionRow } from './components';
 import { toGuardianVariant, type GuardianVariant } from './components';
+import type { ReactionCounts, ReactionType } from './components';
 import { loadIdentity, saveIdentity } from './identity';
 
 /**
@@ -132,6 +133,31 @@ function buildCrew(words: RevealInfo['words']): {
 }
 
 /**
+ * Build the Reveal's `wordAttribution.contributorFor` lookup (reveal-delight/04,
+ * AC-01/AC-03/AC-06) from the SAME reveal payload `buildCrew` above already reads -
+ * no extra server round-trip, no roster lookup, no second data source. Each reveal
+ * word already carries its own nickname + Guardian variant, so this just indexes
+ * them by nickname (which is exactly the `playerSessionId` GroupReveal's `assemble()`
+ * call below uses, per the SubmittedWord mapping). An unfilled blank has an empty
+ * nickname and is never indexed, so `contributorFor` naturally returns `undefined`
+ * for it (AC-03) - and for a `playerSessionId` this reveal never carried a nickname
+ * for (e.g. a contributor whose entry never resolved), matching this story's
+ * graceful "no name" fallback rather than a crash.
+ */
+export function buildContributorLookup(words: RevealInfo['words']): WordAttribution {
+  const byNickname = new Map<string, { nickname: string; variant: GuardianVariant }>();
+  for (const w of words) {
+    if (w.nickname === '') continue;
+    if (!byNickname.has(w.nickname)) {
+      byNickname.set(w.nickname, { nickname: w.nickname, variant: toGuardianVariant(w.variant) });
+    }
+  }
+  return {
+    contributorFor: (playerSessionId: string) => byNickname.get(playerSessionId),
+  };
+}
+
+/**
  * The shared group reveal (group-play/03, AC-05): resolves the template from the
  * bundled seedLibrary by the reveal's id, maps the hub's ordered reveal words
  * (blank order) into the engine's SubmittedWord[] (playerSessionId = nickname, an
@@ -143,14 +169,37 @@ function buildCrew(words: RevealInfo['words']): {
 function GroupReveal({
   reveal,
   mode,
+  reactionCounts,
+  onReact,
+  isHost,
+  goldenGuardianVotedCount,
+  goldenGuardianTotalVoters,
+  goldenGuardianResolved,
+  goldenGuardianWinningBlankId,
+  onCastGoldenGuardianVote,
+  onCloseGoldenGuardianVoting,
   onPlayAgain,
   onHome,
 }: {
   reveal: RevealInfo;
   mode: string;
+  reactionCounts: ReactionCounts;
+  onReact: (type: ReactionType) => void;
+  isHost: boolean;
+  goldenGuardianVotedCount: number;
+  goldenGuardianTotalVoters: number;
+  goldenGuardianResolved: boolean;
+  goldenGuardianWinningBlankId: string | null;
+  onCastGoldenGuardianVote: (blankId: string) => void;
+  onCloseGoldenGuardianVoting: () => void;
   onPlayAgain: () => void;
   onHome: () => void;
 }) {
+  // reveal-delight/03 (AC-01): MY current vote is client-local (I know what I tapped
+  // instantly). GroupReveal remounts per reveal (a new round clears `reveal` to null
+  // first, unmounting this), so this state starts fresh each round - no manual reset.
+  const [myVote, setMyVote] = useState<string | undefined>(undefined);
+
   const template = seedLibrary.find((t) => t.id === reveal.templateId);
 
   if (!template) {
@@ -176,6 +225,9 @@ function GroupReveal({
     word: w.word,
   }));
   const assembled = assemble(template, words);
+  // reveal-delight/04 (AC-01/AC-06): derived purely from this reveal payload -
+  // no new hub message, no second connection (see buildContributorLookup doc).
+  const wordAttribution = buildContributorLookup(reveal.words);
 
   // group-play/05 (AC-03): resolve the round's mode to its REVEAL-time surface via
   // the shared registry. Progressive Reveal supplies a paced, word-by-word body
@@ -194,6 +246,30 @@ function GroupReveal({
       onHome={onHome}
       exitAction={{ label: 'Back to home', onClick: onHome }}
       revealPresentation={revealSurfaces.revealPresentation}
+      wordAttribution={wordAttribution}
+      // reveal-delight/01 (AC-04): counts are server-authoritative (from the hub's
+      // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
+      // so every player in the room sees the tally update in near-real-time.
+      reactionRow={<ReactionRow counts={reactionCounts} onReact={onReact} />}
+      // reveal-delight/03 (AC-01/02/03): the funniest-word vote. Present ONLY in
+      // group play (solo omits it entirely, AC-06). Reveal turns each coral word into
+      // a tap target and paints the winner; the hub carries votes/resolution and the
+      // crown (which App threads onto the NEXT round's Guardians).
+      goldenGuardian={{
+        phase: goldenGuardianResolved ? 'resolved' : 'voting',
+        onVote: (blankId) => {
+          // Optimistically mark my pick (perceived responsiveness), then fire the
+          // hub invoke - the server keeps one active vote per voter and broadcasts.
+          setMyVote(blankId);
+          onCastGoldenGuardianVote(blankId);
+        },
+        myVote,
+        votedCount: goldenGuardianVotedCount,
+        totalVoters: goldenGuardianTotalVoters,
+        winningBlankId: goldenGuardianWinningBlankId ?? undefined,
+        // Host-only low-pressure "Reveal the winner" affordance (AC-03).
+        onCloseVoting: isHost ? onCloseGoldenGuardianVoting : undefined,
+      }}
     />
   );
 }
@@ -223,6 +299,15 @@ export default function App() {
     assignedBlankIndices,
     collectProgress,
     reveal,
+    reactionCounts,
+    react,
+    crownedNickname,
+    goldenGuardianVotedCount,
+    goldenGuardianTotalVoters,
+    goldenGuardianResolved,
+    goldenGuardianWinningBlankId,
+    castGoldenGuardianVote,
+    closeGoldenGuardianVoting,
     submitWord,
     createRoom,
     joinRoom,
@@ -462,6 +547,7 @@ export default function App() {
             title={template ? template.title : 'Your tale'}
             crew={crew}
             totalWords={totalWords}
+            crownedNickname={crownedNickname}
             isHost={isHost}
             canPlayAgain={room.players.length >= 2}
             playAgainError={playAgainError}
@@ -535,6 +621,7 @@ export default function App() {
             <Lobby
               room={room}
               isHost={isHost}
+              crownedNickname={crownedNickname}
               onLeave={handleGoHome}
               onStart={handleStartRound}
               onPlayFavorite={handlePlayFavorite}
@@ -559,6 +646,7 @@ export default function App() {
               assignedBlankIndices={assignedBlankIndices}
               collectProgress={collectProgress}
               submitWord={submitWord}
+              crownedNickname={crownedNickname}
               onLeave={handleGoHome}
             />
           ) : (
@@ -577,6 +665,15 @@ export default function App() {
               // Reveal can pace its body here. Fall back to Classic Blind if a race
               // ever leaves round momentarily null.
               mode={round?.mode ?? 'classic-blind'}
+              reactionCounts={reactionCounts}
+              onReact={react}
+              isHost={isHost}
+              goldenGuardianVotedCount={goldenGuardianVotedCount}
+              goldenGuardianTotalVoters={goldenGuardianTotalVoters}
+              goldenGuardianResolved={goldenGuardianResolved}
+              goldenGuardianWinningBlankId={goldenGuardianWinningBlankId}
+              onCastGoldenGuardianVote={castGoldenGuardianVote}
+              onCloseGoldenGuardianVoting={closeGoldenGuardianVoting}
               onPlayAgain={() => setShowRoundComplete(true)}
               onHome={handleGoHome}
             />

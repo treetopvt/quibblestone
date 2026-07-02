@@ -113,8 +113,10 @@ import {
   BottomActionBar,
   BottomActionBarSpacer,
   FamilySafeToggle,
+  ReactionRow,
   StoryLengthChoice,
 } from '../components';
+import type { ReactionCounts, ReactionType } from '../components';
 import { FAMILY_SAFE_DEFAULT, selectTemplates } from '../content/familySafe';
 import { selectFreshOrRecycle } from '../content/fresh';
 import { selectByLengthOrFallback, type LengthPreference } from '../content/length';
@@ -157,6 +159,9 @@ export interface SoloProps {
  * single browser tab with no server-side notion of "this player."
  */
 const SOLO_PLAYER_ID = 'solo-player';
+
+/** A fresh all-zero reaction tally for a new solo reveal (reveal-delight/01, AC-05). */
+const ZERO_REACTIONS: ReactionCounts = { laugh: 0, heart: 0, wow: 0, star: 0 };
 
 /** The three phases of the local solo state machine. */
 type SoloPhase = 'setup' | 'fill' | 'reveal';
@@ -277,6 +282,16 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   const [mode, setMode] = useState<SoloMode>(DEFAULT_SOLO_MODE);
   const [template, setTemplate] = useState<Template | undefined>(undefined);
   const [blankIndex, setBlankIndex] = useState(0);
+  // reveal-delight/01 (AC-05): solo reactions are purely LOCAL - a single tab
+  // reacting to its own tale, no room and no hub. Counts start at zero and a tap
+  // bumps this state (the ReactionRow spawns its own floater). Reset each new
+  // round in beginRound so counts are ephemeral per reveal (Out of Scope: no
+  // persistence across a replay).
+  const [reactionCounts, setReactionCounts] = useState<ReactionCounts>(ZERO_REACTIONS);
+
+  const handleReact = (type: ReactionType) => {
+    setReactionCounts((current) => ({ ...current, [type]: current[type] + 1 }));
+  };
 
   // The collection lives in a ref (not state): collectWord mutates it in
   // place and FillBlank re-renders are driven by `blankIndex`/`phase`
@@ -317,6 +332,9 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     collectionRef.current = createCollection();
     setTemplate(chosen);
     setBlankIndex(0);
+    // reveal-delight/01 (AC-05): reactions are per-reveal ephemeral, so a fresh
+    // round starts every count back at zero.
+    setReactionCounts(ZERO_REACTIONS);
     setPhase('fill');
     // platform-devops/05 (anonymous product-usage, AC-01/AC-02): mark the round
     // start time and fire-and-forget one anonymous "RoundStarted" usage event with
@@ -531,6 +549,7 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
       taleFeedback={{ templateId: template.id, mode: 'solo' }}
       favorite={{ templateId: template.id, title: template.title }}
       revealPresentation={revealSurfaces.revealPresentation}
+      reactionRow={<ReactionRow counts={reactionCounts} onReact={handleReact} />}
     />
   );
 }
