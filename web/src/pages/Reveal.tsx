@@ -53,7 +53,11 @@
 //  working exactly as before this story (AC-06). A user-cancelled AbortError
 //  is swallowed at either the image or text step, matching this screen's
 //  existing posture; any OTHER rejection falls through rather than leaving
-//  Share a silent no-op.
+//  Share a silent no-op. The image-share step's actual "share this File,
+//  gracefully" logic (feature-detect, AbortError-swallow, never-throw) is
+//  EXTRACTED into ../gallery/shareImageFile.ts (keepsake-gallery/03) -
+//  Gallery.tsx's re-share action reuses the exact same helper, so there is
+//  one canonical file-share code path, not two.
 //
 //  Save as image (keepsake-gallery/01, AC-01): a LOW-KEY link (not a full-size
 //  Button) sits below the outlined "Share the tale" button - secondary weight,
@@ -67,6 +71,13 @@
 //  `attribution` (when the caller has a plain-text form of it to give) - see
 //  its own doc comment below for why Reveal never derives a second byline
 //  format and why this prop is presently unwired from any caller.
+//
+//  Capture into the local gallery (keepsake-gallery/03, AC-01): the SAME blob
+//  `handleSaveImage` renders for the download is ALSO handed to `saveTale()`
+//  (../gallery/localGallery.ts) - one render, two outcomes (download + a new
+//  local-gallery entry), never a second render pass. `saveTale` swallows its
+//  own storage failures internally, so a gallery-write problem can never
+//  break the existing download (AC-06 posture preserved).
 //
 //  Narration bar (AC-07): rendered but INACTIVE in Slice 1 - the play button is
 //  disabled (a "coming soon" affordance) and the waveform bars are static (no
@@ -107,6 +118,8 @@ import type { GuardianVariant } from '../components';
 import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
 import { renderTabletImage } from '../gallery/renderTablet';
+import { saveTale } from '../gallery/localGallery';
+import { shareImageFile } from '../gallery/shareImageFile';
 import { buildRevealParts } from './revealParts';
 
 export interface RevealProps {
@@ -645,15 +658,18 @@ export function Reveal({
   // payload), unlike the plain text/URL share above and in session-engine/04,
   // which must NOT gate on it (see this file's header comment).
   const shareImage = async (): Promise<boolean> => {
+    // Quick feature-detect BEFORE rendering: no point paying the render cost
+    // when this browser cannot share files at all. The actual share-with-
+    // fallback logic (the real canShare-with-a-File check, the share call,
+    // the AbortError swallow) lives in the shared ../gallery/shareImageFile.ts
+    // helper (keepsake-gallery/03) - Gallery.tsx's re-share reuses the exact
+    // same function, so there is one canonical file-share code path.
     if (typeof navigator === 'undefined' || typeof navigator.canShare !== 'function') return false;
     try {
       const blob = await renderTabletImage({ assembled, template, theme, byline: saveImageByline });
       const file = new File([blob], `${slugifyTitle(assembled.title)}.png`, { type: 'image/png' });
-      if (!navigator.canShare({ files: [file] })) return false;
-      await navigator.share({ files: [file], title: assembled.title, text: assembled.storyText });
-      return true;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') return true;
+      return await shareImageFile({ file, title: assembled.title, text: assembled.storyText });
+    } catch {
       return false;
     }
   };
@@ -697,6 +713,12 @@ export function Reveal({
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      // keepsake-gallery/03 (AC-01): persist the SAME rendered blob to the
+      // local gallery so it shows up in "Tales we've carved" - fire-and-forget
+      // (saveTale swallows its own storage failures), so a gallery-write
+      // problem can never undo or block the download above, which has
+      // already completed by this point.
+      void saveTale({ title: assembled.title, image: blob, bylineNames: saveImageByline });
     } catch {
       // Rendering/download can fail (an unsupported canvas API, a blocked
       // download) - fail quietly rather than surface an error UI in Slice 1,

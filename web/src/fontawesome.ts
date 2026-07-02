@@ -101,6 +101,10 @@ import {
   // Keepsake gallery icon (keepsake-gallery/01, issue #63): the low-key "Save
   // as image" action on the Reveal screen's bottom bar.
   faImage,
+  // "Tales we've carved" gallery icons (keepsake-gallery/03, issue #65): the
+  // stacked-photos glyph for the Home nav entry, the Gallery screen's header/
+  // empty state, and each thumbnail's loading placeholder.
+  faImages,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -144,5 +148,6 @@ library.add(
   faHeart,
   faHandPointer,
   faImage,
+  faImages,
   faStarRegular,
 );

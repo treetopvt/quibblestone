@@ -3,9 +3,10 @@
 //
 //  Routing model: real URLs via react-router, but REAL-TIME STATE STAYS THE
 //  AUTHORITY. The routes are '/' (Home), '/host' (HostSetup), '/join' +
-//  '/join/:code' (Join, deep-link pre-filled), '/solo', '/favorites', '/lobby',
-//  '/round', '/reveal', '/recap'. Entry screens ('/', '/host', '/join', '/solo',
-//  '/favorites') are user-driven. The LIVE game screens are driven by the hub: a single effect
+//  '/join/:code' (Join, deep-link pre-filled), '/solo', '/favorites',
+//  '/gallery', '/lobby', '/round', '/reveal', '/recap'. Entry screens ('/',
+//  '/host', '/join', '/solo', '/favorites', '/gallery') are user-driven. The
+//  LIVE game screens are driven by the hub: a single effect
 //  derives the target path from hook state (reveal-recap > reveal > round >
 //  lobby - the same precedence the old `view` switch used) and navigates there,
 //  so a RoundStarted / RevealReady broadcast still routes EVERY player into the
@@ -43,6 +44,11 @@
 //  formatCrewByline) passed as Reveal's `saveImageByline` prop, so the saved/shared
 //  tablet image finally carries a byline for group play (keepsake-gallery/01's
 //  previously-unwired seam) - no second data source, no hub call.
+//
+//  keepsake-gallery/03 adds '/gallery' (the device-local "Tales we've carved"
+//  history screen, Gallery.tsx) as one more user-driven entry screen, wired
+//  from Home's new "Tales we've carved" tertiary nav link exactly like
+//  '/favorites' - a plain route change, no hub call, no room.
 //
 //  'solo' (single-player/01) is a self-contained local flow: Solo never touches
 //  `room`, `isHost`, or any hub call, so it lives at '/solo' with no live-state
@@ -90,6 +96,7 @@ import { HostSetup } from './pages/HostSetup';
 import { Lobby } from './pages/Lobby';
 import { Solo } from './pages/Solo';
 import { Favorites } from './pages/Favorites';
+import { Gallery } from './pages/Gallery';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { Reveal, type WordAttribution } from './pages/Reveal';
@@ -215,6 +222,7 @@ function GroupReveal({
         onJoinGame={onHome}
         onPlaySolo={onHome}
         onFavorites={onHome}
+        onGallery={onHome}
         creating={false}
         disabled={false}
       />
@@ -483,6 +491,12 @@ export default function App() {
     navigate('/favorites');
   }, [navigate]);
 
+  // "Tales we've carved" (keepsake-gallery/03, AC-01): no hub call, no room -
+  // a route change, mirroring handleOpenFavorites above.
+  const handleOpenGallery = useCallback(() => {
+    navigate('/gallery');
+  }, [navigate]);
+
   // Favorites screen's onPick (SOLO replay, AC-03/AC-04): remember the picked
   // template and route to '/solo', where Solo's own mount effect resolves it,
   // gates it through family-safe, and starts it with the freshness bypass.
@@ -560,6 +574,7 @@ export default function App() {
             onJoinGame={handleJoinGame}
             onPlaySolo={handlePlaySolo}
             onFavorites={handleOpenFavorites}
+            onGallery={handleOpenGallery}
             disabled={status !== 'connected'}
           />
         }
@@ -568,6 +583,7 @@ export default function App() {
         path="/favorites"
         element={<Favorites onBack={handleGoHome} onPick={handlePickFavorite} />}
       />
+      <Route path="/gallery" element={<Gallery onBack={handleGoHome} />} />
       <Route
         path="/host"
         element={
