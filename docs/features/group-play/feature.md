@@ -12,11 +12,11 @@ Phase 1, Group Play Experience). Slice 1: section 8 ("a 2-player group - proving
 real-time sync early de-risks the scariest part").
 
 ## Stories
-- [ ] 01 - Host starts a round
-- [ ] 02 - Distribute blanks among players
-- [ ] 03 - Collect words and ready the reveal
-- [ ] 04 - Round complete and replay loop
-- [ ] 05 - Group mode selection (the host picks the mode for the room)
+- [x] 01 - Host starts a round
+- [x] 02 - Distribute blanks among players
+- [x] 03 - Collect words and ready the reveal
+- [x] 04 - Round complete and replay loop
+- [x] 05 - Group mode selection (the host picks the mode for the room)
 
 ## Dependencies
 - session-engine (room + roster)

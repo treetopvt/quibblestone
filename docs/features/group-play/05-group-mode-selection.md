@@ -1,6 +1,6 @@
 # Story: Group mode selection (the host picks the mode for the room)
 
-**Feature:** Group Play Experience  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #113
+**Feature:** Group Play Experience  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #113
 
 ## Context
 Solo can pick any of the four modes (`single-player/02` shipped the picker + the
@@ -16,44 +16,44 @@ the solo mode registry, and even a `Mode` field on `RoundStartedDto` (today pinn
 generalizes), and `game-modes/03-mode-aware-surfaces.md` (the surface slots).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I am the host on the Lobby, when I start a round, then I choose the
+- [x] AC-01: Given I am the host on the Lobby, when I start a round, then I choose the
       mode for the room from a host-only picker (reusing the solo picker's card visuals
       + the shared mode registry) - big tap targets, single-select. Non-host players do
       not pick; they play whatever the host chose.
-- [ ] AC-02: Given the host's chosen mode, when `StartRound` runs, then it takes the
+- [x] AC-02: Given the host's chosen mode, when `StartRound` runs, then it takes the
       mode id as a parameter, validates it is a known, offered mode, picks a template
       from THAT mode's eligible set (family-safe honored via the mode's
       `eligibleTemplates`), and broadcasts `RoundStartedDto` with the REAL mode - the
       `Mode` field that already exists on the wire is finally populated for real instead
       of the `"classic-blind"` constant.
-- [ ] AC-03: Given the `RoundStarted` broadcast, then every player's `GroupRound`
+- [x] AC-03: Given the `RoundStarted` broadcast, then every player's `GroupRound`
       resolves the mode id to its `ModeConfig` + `ModeSurfaces` through the SHARED mode
       registry (the one solo uses, generalized so both consume it), renders the right
       `answerSurface` / `seeContext` in `FillBlank` and `revealPresentation` in the
       reveal, and passes the mode's config into `collectWord` - so the collection seam
       is identical for every player and every mode (e.g. Word Bank correctly skips the
       free-text filter, per `game-modes/04`).
-- [ ] AC-04 (which modes, first cut): Given the group picker, then it offers the three
+- [x] AC-04 (which modes, first cut): Given the group picker, then it offers the three
       modes that need NO new real-time surface - **Classic Blind, Word Bank, and
       Progressive Reveal** - because each rides the existing distribute -> collect ->
       broadcast-reveal loop unchanged (Word Bank swaps the answer surface; Progressive
       Reveal paces the already-broadcast reveal client-side).
-- [ ] AC-05 (Progressive Story deferred - decision, not a gap): Given Progressive Story
+- [x] AC-05 (Progressive Story deferred - decision, not a gap): Given Progressive Story
       mode, then it is NOT offered in the group picker yet, because its "story so far"
       must reflect OTHER players' in-progress fills - which needs a live partial-fill
       broadcast (a new real-time surface), out of scope here. It is deferred to its own
       story rather than shipped half-working (a player seeing only their own fills as
       "the story so far" in a group would be wrong, not merely limited).
-- [ ] AC-06 (child-safety): Given any offered mode, then family-safe still gates which
+- [x] AC-06 (child-safety): Given any offered mode, then family-safe still gates which
       templates the mode may draw (per-mode `eligibleTemplates`, at round-start/offering
       time, never a per-tap check), Word Bank picks skip the free-text filter exactly as
       solo (curated, pre-vetted), and this story introduces no new free-text surface and
       no PII (a mode id is not personal data).
-- [ ] AC-07 (replay loop): Given "Play another round" (`group-play/04`), then it reuses
+- [x] AC-07 (replay loop): Given "Play another round" (`group-play/04`), then it reuses
       the host's last chosen mode by default (sticky, mirroring the sticky family-safe
       pick), and the host can change the mode when starting the next round - the replay
       never silently resets to Classic Blind.
-- [ ] AC-08 (no engine leak): Given this story, then it changes no engine code - it is
+- [x] AC-08 (no engine leak): Given this story, then it changes no engine code - it is
       the host picker + one `StartRound` parameter + `GroupRound` wiring, reusing
       `game-modes`' `ModeConfig`/`ModeSurfaces` and the shared registry. If it forces a
       change to `engine.ts`/`assemble.ts`/`FillBlank.tsx`/`Reveal.tsx`, that is an

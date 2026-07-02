@@ -38,13 +38,13 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Land the Laugh** - the reveal payoff polish (`reveal-delight/01-04`, PR #112):
   the reaction row, the word-by-word carving animation, the Golden Guardian
   funniest-word vote + next-round crown, and per-word "carved by" attribution.
+- **Modes in Group Play** - the host picks the mode for the whole room and every
+  player plays it (`group-play/05`, PR #116): Classic Blind, Word Bank, and
+  Progressive Reveal, resolved through a shared mode registry (solo + group now
+  consume one list). Progressive Story stays deferred (it needs a live cross-player
+  "story so far" broadcast - its own story). Group play is no longer Classic-Blind-only.
 - Profanity filter + family-safe toggle; MUI theme + shared components; Vitest +
   Playwright harness gating CI.
-
-> Known gap: **group play is Classic-Blind-only.** The other three built modes are
-> not yet reachable in a group - that is `group-play/05` (below), and it is mostly
-> wiring (the engine, mode surfaces, solo registry, and a `Mode` field on the wire
-> already exist).
 
 ## Open / near-done
 
@@ -53,7 +53,6 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 | Observability (App Insights) | `platform-devops/04` | crashes, errors, latency |
 | Anonymous usage metrics | `platform-devops/05` | modes, session length; reuses 04's pipeline |
 | Fresh Runes (free half) | `game-modes/07` | deterministic reshuffle, no AI |
-| Group mode selection | `group-play/05` | host picks the mode for the room |
 | Reconnect / rejoin | `session-engine` (deferred) | survive a dropped phone |
 
 ## The paths, by horizon
@@ -69,10 +68,10 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Don't Lose the Room** - reconnect + rejoin (`session-engine`, deferred hardening).
 
 ### 2. Biggest bang, now
-- **Modes in Group Play** (`group-play/05`) - host picks the mode; Classic Blind,
-  Word Bank, Progressive Reveal. High value (the group is the whole point), mostly
-  wiring. *Progressive Story is deferred - it needs a live cross-player "story so
-  far" broadcast (its own story).*
+- **Modes in Group Play** (`group-play/05`) - **DONE** (PR #116): the host picks the
+  mode (Classic Blind, Word Bank, Progressive Reveal) so the room plays more than
+  Classic Blind, over a shared mode registry. *Progressive Story is deferred - it
+  needs a live cross-player "story so far" broadcast (its own story).*
 - **Land the Laugh** (`reveal-delight/01-04`) - **DONE** (PR #112): reactions,
   carving animation, word attribution, Golden Guardian. All on the built reveal.
 - **Spread the Word** (`session-engine/06` + `keepsake-gallery/01-04`) - deep-link
@@ -134,16 +133,16 @@ session, not identity**.
 
 ## Recommended sequence
 
-1. **Done** - deploy, routing, solo modes, freshness loop, and Land the Laugh
-   (`reveal-delight`, the reveal payoff polish).
-2. **Now** - Group modes (`group-play/05`), the one remaining priority-1 item: host
-   picks the mode so the room can play more than Classic Blind. Mostly wiring on
-   things already built.
-3. **Then** - observability + anonymous usage (see how the alpha plays), then Spread
-   the Word (let a shared tale travel).
-4. **Early AI** - the Fresh Runes AI jumble behind the cost gate (proves the whole
+1. **Done** - deploy, routing, solo modes, freshness loop, Land the Laugh
+   (`reveal-delight`, the reveal payoff polish), and Modes in Group Play
+   (`group-play/05`, the host mode picker - group play now runs all three
+   real-time-safe modes).
+2. **Now** - observability + anonymous usage (`platform-devops/04-05`, see how the
+   alpha plays), then Spread the Word (`session-engine/06` + `keepsake-gallery`, let
+   a shared tale travel).
+3. **Early AI** - the Fresh Runes AI jumble behind the cost gate (proves the whole
    pipeline on the cheapest payload).
-5. **Later** - voices, on-demand, packs, charging - all reuse the gate; let the alpha
+4. **Later** - voices, on-demand, packs, charging - all reuse the gate; let the alpha
    and the first AI slice tell you which comes first.
 
 ## Using this in an implementation session
