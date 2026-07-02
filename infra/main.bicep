@@ -119,6 +119,19 @@ resource apiApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'Telemetry__StorageConnectionString'
           value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
         }
+        // platform-devops/04 (operational observability): surface the App Insights
+        // connection string to the API. Sourced from KEY VAULT (a KV reference, not
+        // a committed literal and never a VITE_ var - AC-01/AC-05): the value is a
+        // pointer to the secret, resolved at runtime by the App Service's
+        // SystemAssigned identity (granted "Key Vault Secrets User" below). The
+        // ASP.NET Core App Insights SDK reads this exact app-setting name
+        // automatically (see api/src/Program.cs AddApplicationInsightsTelemetry).
+        // This is the FIRST real consumer of the provisioned Key Vault (CLAUDE.md
+        // section 10).
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: '@Microsoft.KeyVault(SecretUri=${appInsightsConnectionSecret.properties.secretUri})'
+        }
       ]
     }
   }
@@ -216,6 +229,71 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
+// --- 6. Operational observability (platform-devops/04) -----------------------
+// Workspace-based Application Insights: the API's OPERATIONAL telemetry pipeline
+// (unhandled exceptions, failed requests, request rate + duration, dependency
+// calls - see api/src/Program.cs). This is DISTINCT from the anonymous serve log
+// that rides the Storage table above (story-selection/04); they coexist. Kept
+// tiny (README section 9): two resources (the workspace App Insights requires +
+// the component), the connection string stashed as a Key Vault secret, and one
+// role assignment so the API can read it. No action group / alert stack is
+// provisioned - the alert seam is DOCUMENTED in infra/README.md (AC-07).
+
+// 6a. Log Analytics workspace - workspace-based App Insights sends its telemetry
+//     here (the classic per-component store is retired). PerGB2018 is the standard
+//     pay-as-you-go tier; 30-day retention keeps a dev/UAT footprint cheap.
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: '${baseName}-logs-${suffix}'
+  location: location
+  tags: commonTags
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: 30
+  }
+}
+
+// 6b. Application Insights component (workspace-based via WorkspaceResourceId).
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: '${baseName}-appi-${suffix}'
+  location: location
+  tags: commonTags
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
+  }
+}
+
+// 6c. Store the App Insights connection string as a Key Vault SECRET (AC-01): the
+//     API reads it via the KV reference in its appSettings above, so the value is
+//     never a committed literal and never a VITE_ var. This is the first real
+//     consumer of the provisioned-but-unused Key Vault (CLAUDE.md section 10).
+resource appInsightsConnectionSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'AppInsightsConnectionString'
+  properties: {
+    value: appInsights.properties.ConnectionString
+  }
+}
+
+// 6d. Grant the API App Service's SystemAssigned identity the built-in "Key Vault
+//     Secrets User" role, scoped to the vault, so its KV reference to the App
+//     Insights connection string resolves (the vault has enableRbacAuthorization,
+//     so access is via RBAC, not access policies). roleDefinitionId
+//     4633458b-17de-408a-b874-0445c86b69e6 is the fixed built-in id for that role.
+var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
+resource apiKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, apiApp.id, keyVaultSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    principalId: apiApp.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // --- Outputs -----------------------------------------------------------------
 output resourceGroupName string = resourceGroup().name
 output appServicePlanSku string = appServicePlanSku
@@ -226,3 +304,5 @@ output webDefaultHostName string = webApp.properties.defaultHostname
 output signalRServiceName string = signalR.name
 output storageAccount string = storage.name
 output keyVault string = keyVault.name
+output appInsightsName string = appInsights.name
+output logAnalyticsWorkspaceName string = logAnalytics.name

@@ -51,6 +51,7 @@
 //  shape and add joinRoom / roster-broadcast methods here.
 // ----------------------------------------------------------------------------
 
+using Microsoft.ApplicationInsights;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Rooms;
@@ -277,6 +278,7 @@ public sealed class GameHub : Hub
     private readonly LengthContentSelector _length;
     private readonly FreshnessContentSelector _freshness;
     private readonly ITelemetrySink _telemetry;
+    private readonly TelemetryClient _appInsights;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -287,6 +289,7 @@ public sealed class GameHub : Hub
         LengthContentSelector length,
         FreshnessContentSelector freshness,
         ITelemetrySink telemetry,
+        TelemetryClient appInsights,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -302,6 +305,13 @@ public sealed class GameHub : Hub
         // at the END of a group round start (never awaited on the round-start path,
         // AC-03). NoOp locally, Table Storage in a configured environment (AC-05).
         _telemetry = telemetry;
+        // platform-devops/04 (AC-03): the OPERATIONAL App Insights client, used
+        // ONLY to make abnormal disconnects observable in OnDisconnectedAsync
+        // below (hub method exceptions are tracked by HubTelemetryFilter). This is
+        // a DIFFERENT pipeline from _telemetry above (the content serve log): this
+        // one is operational health. No-ops cleanly with no connection string
+        // (AC-05); it is always registered so DI stays simple.
+        _appInsights = appInsights;
         _logger = logger;
     }
 
@@ -470,9 +480,26 @@ public sealed class GameHub : Hub
     /// SignalR auto-removes the connection from its groups on disconnect, so the
     /// broadcast below reaches exactly the remaining members. We always chain to
     /// base.OnDisconnectedAsync so the framework's own teardown still runs.
+    ///
+    /// platform-devops/04 (AC-03): an ABNORMAL close (a non-null exception - a
+    /// dropped network, a transport error, a client crash, as opposed to a clean
+    /// LeaveRoom / tab close where exception is null) is tracked in App Insights so
+    /// a disconnect STORM is diagnosable rather than invisible. The tracked event
+    /// carries NO room code, nickname, or connectionId (AC-04) - just the fact of
+    /// an abnormal close plus the transport exception's type/stack, which the PII
+    /// scrubber's allowed shape permits. No-ops cleanly with no connection string
+    /// configured (AC-05).
     /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        if (exception is not null)
+        {
+            // Abnormal close only (a clean disconnect passes null). Track the
+            // anonymous fact + the transport exception - never any room/player payload.
+            _appInsights.TrackEvent("HubAbnormalDisconnect");
+            _appInsights.TrackException(exception);
+        }
+
         var room = _rooms.RemoveConnection(Context.ConnectionId);
         await HandlePlayerLeftAsync(room);
 
