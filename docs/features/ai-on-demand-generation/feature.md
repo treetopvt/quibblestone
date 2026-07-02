@@ -1,7 +1,9 @@
 <!--
-  SKETCH (vision-level) - README Phase 4 delight tier (the XL, ships LAST). feature.md only: no story files or
-  implementation.md yet. Decomposed when its phase comes up (docs/features/README.md stub convention).
-  Use hyphens/colons/parentheses, never em dashes.
+  PARTIALLY DECOMPOSED - README Phase 4 delight tier (the XL, ships LAST) OVERALL, but stories 02 + 05 (the
+  AI word-bank jumble and its moderation) are PULLED FORWARD as the cheapest/safest AI slice that proves the
+  shared AI cost gate (ROADMAP horizon 3; ADR 0001). Those two are now buildable story files + this feature has
+  an implementation.md scoped to them. Stories 01, 03, 04 (whole-template generation, verdict, entitlement) stay
+  sketch rows until Phase 4 proper. Use hyphens/colons/parentheses, never em dashes.
 -->
 
 # Feature: On-Demand AI Generation
@@ -12,9 +14,11 @@ The magic, and the heaviest child-safety burden: a player asks for a bespoke tal
 template (typed blanks) live. Because it puts LIVE AI output in front of kids, it
 ships **last**, behind the strongest moderation, at the top of the paid tier.
 This feature also houses the optional, playful **"AI Guardian's Verdict"** - an AI
-second-opinion judge for Versus / solo play. This file is a **sketch**
-(vision-level): feature.md only - stories and implementation.md come when Phase 4
-is decomposed.
+second-opinion judge for Versus / solo play. It is **partially decomposed**: the
+lightest payload (stories 02 + 05, the AI word-bank jumble and its moderation) is
+pulled forward as buildable stories - the first AI slice that proves the shared
+`ai-cost-gate` - while the heavier stories (01 whole-template generation, 03
+verdict, 04 entitlement) stay vision-level sketch rows until Phase 4 proper.
 
 ## README reference
 README section 2 ("a bottomless, fresh, AI-generated content library ... the
@@ -24,15 +28,15 @@ strong moderation pipeline before any live AI generation is exposed to kids"),
 section 4 (Key Vault provider keys; async generation as a Functions carve-out),
 section 3 (top paid tier).
 
-## Stories (sketch - to be filed when Phase 4 is decomposed)
+## Stories
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | TBD | Generate a template live from a player prompt | Not Started |
-| 02 | TBD | Live moderation gate (prompt + output) before anyone plays | Not Started |
-| 03 | TBD | AI "Guardian's Verdict" - optional playful funniest-pick judge | Not Started |
-| 04 | TBD | Gate behind the ai.onDemand entitlement | Not Started |
-| 05 | TBD | Generate word-bank options on demand (the "jumble" backend) | Not Started |
+| 01 | TBD | Generate a template live from a player prompt (sketch - Phase 4) | Not Started |
+| 02 | #127 | [Live moderation gate](./02-live-moderation-gate.md) (buildable; jumble-scoped now) | Not Started |
+| 03 | TBD | AI "Guardian's Verdict" - optional playful funniest-pick judge (sketch - Phase 4) | Not Started |
+| 04 | TBD | Gate behind the ai.onDemand entitlement (sketch; see `ai-cost-gate/02`) | Not Started |
+| 05 | #126 | [Generate word-bank options on demand](./05-ai-word-bank-jumble.md) (buildable; the jumble backend) | Not Started |
 
 ## Dependencies
 - template-model (generated output conforms to the existing template schema -
@@ -125,3 +129,16 @@ section 3 (top paid tier).
   ground, and that the consuming UX plus a FREE deterministic reshuffle fallback
   live in `game-modes/07` - this feature owns only the moderated AI generation.
   Still a sketch (no story file / implementation.md) until Phase 4 decomposition.
+- 2026-07-02: **Pulled stories 05 and 02 forward from sketch into buildable stories**
+  (with an `implementation.md` scoped to them) as the first AI slice that proves the
+  shared `ai-cost-gate` on the cheapest/safest payload (ROADMAP horizon 3). Story 05
+  (the AI word-bank jumble) rides the gate's proxy + quota + breaker + moderation and
+  falls back to `game-modes/07`'s free reshuffle; story 02 (moderation) is scoped to
+  the generated-WORD payload now (composing the gate's moderate-before-display seam),
+  with the heavier prompt + whole-template moderation left shaped for story 01 to
+  extend later. Provider = Azure AI Foundry / gpt-4o-mini; moderation = existing filter
+  now, Content Safety later; runtime = in-app proxy; alpha = AI jumble free for all,
+  quota/breaker-gated not entitlement (see [ADR 0001](../../adr/0001-ai-provider.md)).
+  Stories 01, 03, 04 stay sketch rows until Phase 4 proper - this feature overall still
+  ships last, but its lightest payload leads so the gate is proved before the heavy
+  ones arrive.
