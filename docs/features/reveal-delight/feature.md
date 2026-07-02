@@ -25,6 +25,7 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
 | 01 | #56 | Reaction row | Not Started |
 | 02 | #57 | Word-by-word "carving" reveal animation | Not Started |
 | 03 | #58 | "Golden Guardian" funniest-word award | Not Started |
+| 04 | TBD | Show who submitted each word on the reveal (group play) | Not Started |
 
 ## Dependencies
 - the-reveal (this feature builds on `Reveal.tsx` / `revealParts.ts` - it does
@@ -69,6 +70,14 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
 - Golden Guardian's "crown for next round" reward (03) is cosmetic and
   temporary (worn for exactly the next round, then gone) - it is a costume,
   not a scoreboard entry. No cumulative tracking of who has won before.
+- Story 04 (word attribution) surfaces data the engine ALREADY tracks: every
+  `FilledBlank` from `assemble()` carries a `playerSessionId`, and
+  `buildRevealParts()` already forwards it onto each coral `RevealWordPart` - it
+  is simply never displayed. Story 04 maps that id to the roster's nickname +
+  Guardian and shows "who wrote that word" as a light, tap-to-reveal delight. It
+  is pure client-side presentation (no engine change, no new hub message), and it
+  LABELS words only - it never scores them (that separation from the Golden
+  Guardian vote is deliberate; see Decisions).
 
 ## Parked - Phase 3
 - Character-voice TTS narration wired into the already-reserved narration bar
@@ -101,3 +110,12 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
   / "hilarity, not competition" stance - kept as an explicit Decision (not just
   an Out of Scope note) so a future contributor does not "improve" it into a
   leaderboard without revisiting this call.
+- 2026-07-02: Added story 04 (word attribution) after play surfaced that the
+  "wait, YOU wrote that?!" beat was missing from the group reveal. Scoped as
+  presentation-only over the `playerSessionId` the engine already tracks (no
+  change to `assemble()`/`buildRevealParts()`, no new hub message) - the same
+  additive-over-`Reveal.tsx` discipline as 01-03. Kept deliberately DISTINCT
+  from Golden Guardian (03): attribution LABELS who wrote a word; the vote
+  SCORES which word is funniest. They share the coral-word elements and must
+  coordinate build order, but attribution introduces no tally, ranking, or
+  leaderboard (README section 1) - do not merge the two concepts.

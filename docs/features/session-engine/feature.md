@@ -17,6 +17,7 @@ Architecture: section 4 (cloud real-time, SignalR).
 - [ ] 03 - See a live player roster
 - [ ] 04 - Copy and share the room code from the Lobby
 - [ ] 05 - Guardian avatar selection at join
+- [ ] 06 - Share a join link to the room (deep-link share; depends on client routing)
 
 ## Dependencies
 - platform-devops (the real-time backbone must be deployable and reachable).
@@ -39,7 +40,12 @@ Architecture: section 4 (cloud real-time, SignalR).
   4-character code (e.g. "MOSS") in carved slots on the Join screen and
   prominently on the Lobby. See `docs/design/README.md` Screens 2 and 3.
 - The Lobby's share widget (story 04) covers the "different houses" use case
-  without requiring accounts: copy or Web Share.
+  without requiring accounts: copy or Web Share. Story 06 upgrades that widget's
+  payload from the bare code to a tappable `/join/:code` deep link once client
+  routing lands (design-system Parked #59), so a recipient taps straight onto a
+  pre-filled Join screen instead of retyping the code. Story 06 is the LIVE-room
+  share; sharing a FINISHED tale's read-only page is a different surface, owned
+  by `keepsake-gallery/04-shareable-tale-link`.
 - Reconnect tolerance (the car "dead zone" case) is a Phase-later hardening
   pass, not Slice 1. Keep the seams clean so it can be added without a rewrite.
 

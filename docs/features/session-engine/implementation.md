@@ -10,8 +10,9 @@
 > [`docs/FEATURE_ORCHESTRATION_PLAYBOOK.md`](../../FEATURE_ORCHESTRATION_PLAYBOOK.md).
 
 This feature grows the real-time backbone: the **one** `GameHub.cs` gains room methods and the **one**
-`useGameHub.ts` gains the matching invokes/handlers. Because every story here edits those two shared files (and 03/04
-share `Lobby.tsx`), the feature is a **serial chain** - concurrency 1 throughout. It reuses three foundations:
+`useGameHub.ts` gains the matching invokes/handlers. Stories 01-05 each edit those two shared files (and 03/04/06
+share `Lobby.tsx`), so that core is a **serial chain** - concurrency 1 throughout. Story 06 is a later, web-only
+add-on (no hub change) gated on client routing landing, so it sits outside the chain. It reuses three foundations:
 `design-system` (theme, AppBar, Button, Guardian), `child-safety/01` (nickname filter), and the deployable backbone
 from `platform-devops`.
 
@@ -47,6 +48,7 @@ serial (the hub signature is the contract; there is no codegen step).
 | 05 guardian-avatar-selection | #24 | edits `GameHub.cs` (player.`variant`), `useGameHub.ts`, `web/src/pages/Join.tsx` (avatar grid) | se/02, design-system/02, child-safety/01 | game-modes chain | 3 | low |
 | 03 player-roster | #22 | edits `GameHub.cs` (roster broadcast + leave detection), `useGameHub.ts`, `web/src/pages/Lobby.tsx` | se/01, se/02, se/05, design-system/02 | game-modes chain | 4 | medium |
 | 04 copy-share-room-code | #23 | `web/src/pages/Lobby.tsx` (share widget); edits `web/src/theme.ts` (filled-purple Share variant) | se/01, se/03, design-system/01 | game-modes chain | 5 | low |
+| 06 share-room-link | TBD | edits `web/src/pages/Lobby.tsx` (share/copy payload -> deep link), `web/src/pages/Join.tsx` (seed code from `/join/:code` route param) | se/02, se/04, **design-system Parked #59 (client routing)** | - (Blocked until routing lands) | post-routing | low |
 
 **Concurrency per wave:** 1 at every wave. The chain is `01 -> 02 -> 05 -> 03 -> 04`. Reason: 01/02/05/03 all edit
 `GameHub.cs` + `useGameHub.ts` (the contract grows story by story); 05 and 02 share `Join.tsx`; 03 and 04 share
@@ -109,7 +111,20 @@ variant to `teal` until 05 lands, which keeps 02 shippable on its own. The whole
   already present (a third button style per the design spec).
 - **Gotchas:** "Copied!" is local component state (`setTimeout` revert), no server round-trip. This is the one
   session-engine story that edits `theme.ts` - it must land after `design-system/01` and not overlap any other
-  `theme.ts` editor. Out of scope: link-with-code URLs, QR codes, deep links.
+  `theme.ts` editor. Out of scope: link-with-code URLs, QR codes, deep links (those are story 06, gated on routing).
+
+### 06 - Share a join link to the room (deep-link share)
+- **Approach:** **web only**, no hub change. Upgrade story 04's Web Share + Copy payload from the bare code to a full
+  `/join/:code` deep link built from the app origin (or a `VITE_PUBLIC_BASE_URL`), and seed the Join screen's code
+  field from the route param so a recipient lands pre-filled and only picks a nickname + Guardian (AC-01, AC-02, AC-04,
+  AC-06). Normalize/validate the route-supplied code exactly as a typed one (AC-03). This is the live-room sibling of
+  `keepsake-gallery/04` (which shares a finished tale's read-only page) - deliberately a different surface.
+- **Owns / exports:** the deep-link share/copy payload on the Lobby, plus "seed code from route" on Join.
+- **Gotchas:** **hard dependency on client routing** (design-system Parked #59 - react-router with `/join/:code`);
+  this story is Blocked until that lands and does NOT implement routing itself. Keep `useGameHub` mounted once ABOVE
+  the router so the one connection is never remounted. Never hardcode the link host (AC-06). The link carries only the
+  room code - no nickname, token, or PII (AC-07). Reuse story 04's `typeof navigator.share === 'function'` detection;
+  do not gate a text/URL share on `navigator.canShare()`. Out of scope: QR codes, auto-join/nickname-prefill links.
 
 ## Cross-cutting concerns
 

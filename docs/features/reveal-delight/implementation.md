@@ -53,6 +53,12 @@ serialize.
 | 01 reaction-row | #56 | edits `web/src/pages/Reveal.tsx` (new reaction-row region) or extracts `web/src/components/ReactionRow.tsx`; edits `api/src/Hubs/GameHub.cs` (react invoke + broadcast), `web/src/signalr/useGameHub.ts` | the-reveal/01, session-engine/03, design-system/01 | 02 (different region of `Reveal.tsx` - verify disjoint before running concurrently) | 1 | medium |
 | 02 carving-reveal-animation | #57 | edits `web/src/pages/Reveal.tsx` (story-scroll `parts.map` entrance animation only) | the-reveal/01, design-system/01 | 01 (different region of `Reveal.tsx` - verify disjoint before running concurrently) | 1 | medium |
 | 03 golden-guardian | #58 | edits `web/src/pages/Reveal.tsx` (tappable/highlighted coral words), new `web/src/engine/vote.ts`, edits `web/src/components/Guardian.tsx` (`crowned` prop), edits `api/src/Hubs/GameHub.cs` (vote invoke + resolve broadcast), `web/src/signalr/useGameHub.ts` | the-reveal/01, session-engine/03, design-system/02 | - (touches the same `Reveal.tsx` tap targets 02 animates; sequence after 02 or verify no race) | 2 | high |
+| 04 word-attribution | TBD | edits `web/src/pages/Reveal.tsx` (per-word "carved by" reveal, keyed to `playerSessionId`); no engine, no hub change | the-reveal/01, session-engine/03, design-system/02 | 02/03 (same coral `parts.map` elements - verify disjoint or sequence) | 2 | low |
+
+Wave 2 also holds story 04 (word attribution) alongside 03: both touch the coral-word elements in `Reveal.tsx`'s
+`parts.map`, so verify line-level disjointness before running them concurrently, else sequence (04 is small and
+purely client-side - no `vote.ts`, no hub change - so it slots in cheaply). 04 has no hard dependency on 02/03's
+mechanics; it only shares their render region.
 
 **Concurrency per wave:** Wave 1 = {01, 02} - both touch `Reveal.tsx` but in genuinely different regions (01: a new
 region above `BottomActionBar`; 02: the existing story-scroll `parts.map`) - confirm at Phase 1 that the diffs don't
@@ -99,6 +105,19 @@ Phase 2+/3") - no coordination is needed today since that mode is not currently 
 - **Gotchas:** the crown's "next round only" lifecycle is server-tracked round state, not a client timer. Sequence
   after 02 (or verify no race) since the vote targets are the same elements 02 animates in. Out of scope: any
   leaderboard/win-count (permanently rejected), tie-breaking drama, voting on anything but a single coral word.
+
+### 04 - Show who submitted each word on the reveal (group play)
+- **Approach:** presentation only - read the `playerSessionId` already carried on each `RevealWordPart`
+  (`buildRevealParts()`) / `FilledBlank` (`assemble()`), map it to the roster's `{ nickname, variant }`, and reveal
+  "carved by [name]" (+ Guardian) on a tap/press of each coral word, and/or a Guardian-keyed color legend (AC-01,
+  AC-02). Unattributed blanks (`playerSessionId === undefined`) show no contributor and never "carved by undefined"
+  (AC-03). Absent entirely in solo (AC-04). No new hub message, no second connection - it reads only state every
+  client already holds (AC-06).
+- **Owns / exports:** the per-word attribution rendering inside `Reveal.tsx`'s existing `parts.map`.
+- **Gotchas:** shares the coral-word elements with 02 (carving) and 03 (vote) - verify disjoint or sequence. `transform:
+  scale` only for any chip pop (the feature footgun). Only roster nickname + Guardian shown (no PII, no new free text -
+  AC-05); a contributor who left the room falls back to "no name" rather than crashing. Out of scope: any score/tally
+  (that is 03), attribution on saved images / the public tale page (keepsake-gallery), showing attribution pre-reveal.
 
 ## Cross-cutting concerns
 

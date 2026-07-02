@@ -32,6 +32,7 @@ section 3 (top paid tier).
 | 02 | TBD | Live moderation gate (prompt + output) before anyone plays | Not Started |
 | 03 | TBD | AI "Guardian's Verdict" - optional playful funniest-pick judge | Not Started |
 | 04 | TBD | Gate behind the ai.onDemand entitlement | Not Started |
+| 05 | TBD | Generate word-bank options on demand (the "jumble" backend) | Not Started |
 
 ## Dependencies
 - template-model (generated output conforms to the existing template schema -
@@ -83,6 +84,17 @@ section 3 (top paid tier).
 - **Entitlement at session-creation** via the billing-entitlements seam
   (`ai.onDemand`), top tier. Free and base tiers play the curated library +
   packs; on-demand is the premium magic. Kid-safe, no ads.
+- **Word-bank options on demand (story 05) - the lightest live-generation use,
+  and the backend for `game-modes/07`'s "jumble".** Instead of a whole template,
+  this generates a small set of fresh, on-theme/on-brand WORDS for one blank's
+  category, so a Word Bank player who dislikes the options can jumble for new
+  ones. It is the same "generate then moderate before any child sees it" pipeline
+  as story 01/02 (never a fork), just a tiny payload - which makes it a good
+  early, lower-risk proving ground for the live pipeline. The consuming UX,
+  and a FREE deterministic (non-AI) reshuffle fallback from the curated pool,
+  live in `game-modes/07` (see its cross-reference); this feature owns only the
+  AI generation + moderation of the words. Cross-reference
+  [`docs/features/game-modes/07-word-bank-jumble.md`](../game-modes/07-word-bank-jumble.md).
 
 ## Parked - beyond Phase 4
 - Fully-custom "make me a whole themed pack" (on-demand text + illustration +
@@ -105,3 +117,11 @@ section 3 (top paid tier).
   stays canonical for group Versus (the parked game-modes Versus/Duel mode),
   with async "share it to an outsider to judge" parked (it adds latency, a
   public surface, and moderation load the room vote avoids).
+- 2026-07-02: Added sketch story 05 (generate word-bank options on demand) as the
+  AI backend for `game-modes/07`'s "jumble", surfaced from play (a Word Bank
+  player wanting fresh options). Recorded that it reuses the SAME generate +
+  moderate pipeline (never a fork), is the lightest-payload live-generation use
+  (a handful of category words, not a whole template) and so a good early proving
+  ground, and that the consuming UX plus a FREE deterministic reshuffle fallback
+  live in `game-modes/07` - this feature owns only the moderated AI generation.
+  Still a sketch (no story file / implementation.md) until Phase 4 decomposition.
