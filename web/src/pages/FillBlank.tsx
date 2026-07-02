@@ -118,7 +118,9 @@ export interface FillBlankProps {
    * subject label, above the progress row) - e.g. a "story so far" view for a
    * progressive-story mode (game-modes/05, `ModeSurfaces.seeContext`). Purely
    * additive: never replaces `subject`. Omitted entirely by default, which
-   * keeps today's Classic-blind layout pixel-identical (AC-01).
+   * keeps today's Classic-blind layout pixel-identical (AC-01). When supplied,
+   * the blind-mode reassurance panel is suppressed - a visible story-so-far
+   * contradicts the "no peeking at the story" copy (see the render site below).
    */
   seeContext?: ReactNode;
   /**
@@ -547,7 +549,14 @@ export function FillBlank({
           answerSurface
         )}
 
-        <BlindReassurance />
+        {/* The blind-mode reassurance ("no peeking at the story") is suppressed
+            when a mode supplies `seeContext` - e.g. Progressive Story
+            (game-modes/05) renders the story-so-far right above the prompt card,
+            so a "no peeking at the story" panel below it would contradict the UI.
+            Modes that keep the player blind while filling and supply no
+            seeContext (Classic blind, Word Bank, Progressive Reveal) still show
+            it. Keyed off the existing slot, so no new prop is needed. */}
+        {seeContext === undefined && <BlindReassurance />}
         <BottomActionBarSpacer />
       </Stack>
 

@@ -88,4 +88,22 @@ describe('seedLibrary', () => {
     expect(withBank.length).toBeGreaterThan(0);
     expect(withoutBank.length).toBeGreaterThan(0);
   });
+
+  it('gives every word-bank template an entry for EVERY blank category (Word Bank mode never shows an empty tap list)', () => {
+    // Word Bank mode filters the bank to the current blank's category
+    // (WordBankAnswer.wordsForCategory). If a template is offered a bank but a
+    // blank's category has no entry, the player sees an empty list on that
+    // blank - which is exactly the "no word bank to choose from" bug this
+    // guard prevents (game-modes/04 AC-06, single-player/02 AC-03/AC-04).
+    for (const template of seedLibrary) {
+      if (template.wordBank === undefined) continue;
+      const bankCategories = new Set(template.wordBank.map((entry) => entry.category));
+      for (const b of getBlanks(template)) {
+        expect(
+          bankCategories.has(b.category),
+          `${template.id}/${b.id}: Word Bank needs at least one '${b.category}' bank entry`,
+        ).toBe(true);
+      }
+    }
+  });
 });
