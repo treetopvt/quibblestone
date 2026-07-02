@@ -84,7 +84,7 @@ this story owns the moderated AI GENERATION of the words. See
 - **Prompt shape (ADR 0001 sizing):** short system instruction (family-safe rules +
   stone-carving brand voice + "JSON array of single words only"), user = the category +
   a short avoid-list. Keep `maxOutputTokens` small (the payload is ~8-10 short words).
-  This is the ~$0.0001/call payload the gate is proved on.
+  This is the ~$0.0001-0.00015/call payload the gate is proved on.
 - **Parsing defensively:** the model may wrap output or add stray text; parse leniently,
   and on any parse failure treat as "unavailable" -> fallback (AC-02, AC-06). Never throw
   into gameplay.

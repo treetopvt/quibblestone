@@ -64,7 +64,7 @@ coordination.
 | 04 word-bank | #53 | `web/src/engine/modes/wordBank.ts`, `web/src/pages/fillblank/WordBankAnswer.tsx`, `web/src/content/wordBankOffering.ts`, tests | gm/03, template-model/01, child-safety/02 | 05, 06 | 2 | medium |
 | 05 progressive-story | TBD | `web/src/engine/modes/progressiveStory.ts`, `web/src/pages/fillblank/StorySoFarContext.tsx`, tests | gm/03, the-reveal/01 | 04, 06 | 2 | medium |
 | 06 progressive-reveal | #52 | `web/src/engine/modes/progressiveReveal.ts`, `web/src/pages/reveal/ProgressiveRevealPresentation.tsx`, tests | gm/03, the-reveal/01 | 04, 05 | 2 | medium |
-| 07 word-bank-jumble (FREE layer) | #128 | `web/src/pages/fillblank/WordBankAnswer.tsx` (add jumble control + swappable source), `web/src/content/wordBankJumble.ts` (new, pure reshuffle) + test | gm/04, template-model/01, child-safety/01+02 | - | 3 (ships first, no AI) | medium |
+| 07 word-bank-jumble (FREE layer) | #128 | `web/src/pages/fillblank/WordBankAnswer.tsx` (add jumble control + swappable source), `web/src/content/wordBankJumble.ts` (new, pure reshuffle) + test | gm/04, template-model/01, child-safety/02 (family-safe; the reshuffle skips the profanity filter) | - | 3 (ships first, no AI) | medium |
 | 07 word-bank-jumble (AI layer) | #128 | the client wiring that prefers the AI source and falls back to the reshuffle (same `WordBankAnswer.tsx` + the jumble result DTO) | 07-free, the whole **ai-cost-gate** (01-05), **ai-on-demand-generation/05** | - | after the gate + ai-on-demand/05 (see ai-cost-gate cross-feature DAG) | medium |
 
 **Concurrency per wave:** Wave 0 (01, 02) is already Complete. **Wave 1 = 03 alone, serial** - it is the only story

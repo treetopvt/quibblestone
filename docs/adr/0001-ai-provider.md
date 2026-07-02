@@ -142,10 +142,12 @@ authority, and the two are reconciled periodically.
 
 ### 7. Go / no-go
 
-**GO on Azure AI Foundry + gpt-4.1-nano.** Rationale: stays in the Azure ecosystem the infra is
-already built for (Key Vault + Storage + managed identity), the .NET SDK path is validated and stable,
-and the per-call cost is negligible. Alternatives noted and not chosen now: **gpt-4o-mini** (the
-in-ecosystem fallback if nano quality disappoints), **Phi-4-mini** (cheapest, but more prompt work),
+**GO on Azure AI Foundry** (the owner chose **gpt-4o-mini** over the spike's cheaper nano default - see
+Decision; the deployed rates are 0.15 / 0.60 per 1M, and the nano figures elsewhere in these Findings
+are the cheaper-fallback reference). Rationale: stays in the Azure ecosystem the infra is already built
+for (Key Vault + Storage + managed identity), the .NET SDK path is validated and stable, and the
+per-call cost is negligible either way. Alternatives noted: **gpt-4.1-nano** (the cheaper swap-to target
+if 4o-mini proves overkill), **Phi-4-mini** (cheapest, but more prompt work),
 and **a direct non-Azure provider** (e.g. an Anthropic Haiku-class model via the `claude-api` skill) -
 rejected for this slice only to keep the first AI call inside the existing Azure security/identity
 footprint, not on quality grounds; it stays available if we ever leave Azure.

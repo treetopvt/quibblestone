@@ -50,7 +50,7 @@ Build the small prompt (brand-voice system + category + avoid-list), call `IAiCo
 (`ai-cost-gate/01`) inside the gate pipeline (quota -> breaker -> call -> estimate/emit), parse the reply
 defensively (JSON array of words; any failure = unavailable -> fallback), return the moderated set +
 remaining-quota count on the jumble DTO. Reuses the gate end to end; no direct Foundry call, no own
-filter. Gotcha: keep `maxOutputTokens` tiny (this is the ~$0.0001/call payload the gate is proved on);
+filter. Gotcha: keep `maxOutputTokens` tiny (this is the ~$0.0001-0.00015/call payload the gate is proved on);
 never throw into gameplay.
 
 ### 02 - Live moderation gate (policy)

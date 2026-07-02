@@ -147,7 +147,7 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
 ## Dependencies
 - game-modes/04-word-bank (the answer surface + word source this enhances)
 - template-model/01-template-schema (`WordBankEntry` / `Template.wordBank` - the growing curated pool)
-- child-safety/01-profanity-filter (the safety filter AI-sourced words must pass)
+- child-safety/01-profanity-filter (AI-LAYER only - the safety filter AI-sourced words must pass; the free reshuffle skips it, using pre-vetted words per AC-04)
 - child-safety/02-family-safe-toggle (the family-safe gate on the offered words)
 - ai-on-demand-generation/05 (the live generate + moderate pipeline the AI jumble delegates to - now a buildable story)
 - ai-cost-gate (the shared proxy + quota + breaker + moderation the AI jumble rides - `01`-`05`; the free reshuffle is the fallback its breaker degrades to)
