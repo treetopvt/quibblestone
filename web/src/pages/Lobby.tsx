@@ -71,6 +71,7 @@ import type { FavoriteEntry } from '../content/favorites';
 import type { LengthPreference } from '../content/length';
 import type { Player, RoomState, StartRoundResult } from '../signalr/useGameHub';
 import { FavoritesList } from './Favorites';
+import { buildJoinLink } from './joinLink';
 
 // Room capacity for Slice 1: the roster tops out at six carvers (AC-01). The
 // grid fills the remaining seats with dashed "waiting..." slots up to this.
@@ -362,9 +363,29 @@ function EmptySlot() {
  * the room code in big purple type plus Copy + Share actions. The code is
  * already local client state (useGameHub's `room.code`) so both actions are
  * pure client-side - no server round-trip.
+ *
+ * session-engine/06: both actions now carry a tappable `/join/:code` deep
+ * link (built by ./joinLink.ts) instead of the bare code, so a recipient on
+ * another device lands straight on the Join screen with the code pre-filled
+ * (AC-01, AC-04). The on-screen carved-stone code display below is unchanged -
+ * only the Copy/Share payloads change.
  */
 function ShareWidget({ code }: { code: string }) {
   const theme = useTheme();
+
+  // The link's base (AC-06): prefer an explicit VITE_PUBLIC_BASE_URL override
+  // when set and non-empty, otherwise the running app's own origin. Guarded
+  // for SSR / a non-browser environment (no `window`) - falls back to an empty
+  // origin rather than throwing, which still yields a coherent (if relative)
+  // `/join/<code>` path.
+  const configuredBase = import.meta.env.VITE_PUBLIC_BASE_URL;
+  const origin =
+    configuredBase && configuredBase.length > 0
+      ? configuredBase
+      : typeof window !== 'undefined'
+        ? window.location.origin
+        : '';
+  const joinLink = buildJoinLink(code, origin);
 
   // "Copied!" confirmation (AC-02): local state only, reverts after
   // COPIED_CONFIRMATION_MS. The timer is cleared on unmount so we never call
@@ -383,7 +404,10 @@ function ShareWidget({ code }: { code: string }) {
     // older browser) - never throw, just skip the confirmation.
     if (typeof navigator === 'undefined' || !navigator.clipboard) return;
     try {
-      await navigator.clipboard.writeText(code);
+      // session-engine/06 AC-04/AC-05: copy the tappable deep link, not the
+      // bare code - this path is independent of Web Share availability, so it
+      // still yields the full link with no error when Share is hidden below.
+      await navigator.clipboard.writeText(joinLink);
       setCopied(true);
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       copiedTimer.current = setTimeout(() => setCopied(false), COPIED_CONFIRMATION_MS);
@@ -402,9 +426,14 @@ function ShareWidget({ code }: { code: string }) {
   const handleShare = async () => {
     if (!canShare) return;
     try {
+      // session-engine/06 AC-01: the tappable deep link travels in `url`
+      // alongside the human-readable `text` (still naming the bare code, so
+      // a channel that drops `url` - e.g. some SMS clients - still shows a
+      // readable message), so the recipient can just tap through.
       await navigator.share({
         title: 'QuibbleStone',
         text: `Join my QuibbleStone game! Room code: ${code}`,
+        url: joinLink,
       });
     } catch {
       // A user-cancelled share (AbortError) or any other rejection should
