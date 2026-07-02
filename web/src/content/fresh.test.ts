@@ -5,8 +5,9 @@
 //  Builds a small in-test pool of templates (deliberately NOT importing
 //  seedLibrary, so exhaustion/recycle scenarios are pinned by construction)
 //  and asserts the pure behavior: selectFresh excludes played ids without
-//  mutating its inputs; selectFreshOrRecycle recycles the WHOLE pool
-//  (least-recently-played first) on exhaustion without ever throwing or
+//  mutating its inputs; selectFreshOrRecycle recycles on exhaustion by reopening
+//  the pool minus the single most-recently-played story (so the wrap never
+//  immediately repeats the tale just served, W-001) without ever throwing or
 //  returning empty for a non-empty pool; and a composition-order test proving
 //  freshness runs on the ALREADY safety+length-filtered pool (AC-05), never
 //  re-widening past what those earlier stages allowed.
@@ -89,17 +90,43 @@ describe('selectFreshOrRecycle (AC-03)', () => {
     expect(result.map((t) => t.id)).toEqual(['b', 'c']);
   });
 
-  it('recycles the FULL pool when every template has been played', () => {
+  it('recycles the pool minus the most-recently-played story on exhaustion (W-001)', () => {
+    // Every template played, 'c' most recently. Recycle reopens the pool but
+    // EXCLUDES 'c' so the just-served story cannot repeat at the wrap.
     const result = selectFreshOrRecycle(pool, ['a', 'b', 'c']);
-    expect(result).toHaveLength(pool.length);
-    expect(new Set(result.map((t) => t.id))).toEqual(new Set(['a', 'b', 'c']));
+    expect(result).toHaveLength(pool.length - 1);
+    expect(result.map((t) => t.id)).not.toContain('c');
+    expect(new Set(result.map((t) => t.id))).toEqual(new Set(['a', 'b']));
   });
 
-  it('orders a recycled pool least-recently-played first', () => {
-    // 'a' played first (oldest, most eligible), 'c' played last (newest,
-    // least eligible) - the recycled order should reflect that.
+  it('orders the recycled pool least-recently-played first (before the exclusion)', () => {
+    // 'a' oldest, 'c' newest; recycle drops the newest ('c') and returns the
+    // remainder least-recently-played first.
     const result = selectFreshOrRecycle(pool, ['a', 'b', 'c']);
-    expect(result.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+    expect(result.map((t) => t.id)).toEqual(['a', 'b']);
+  });
+
+  it('never immediately repeats the just-played story across a full wrap (W-001)', () => {
+    // Drive many rounds picking the first eligible each time; the id chosen last
+    // round must never be offered as the ONLY-or-first pick again this round.
+    let playedIds: string[] = [];
+    let previous: string | null = null;
+    for (let round = 0; round < 20; round += 1) {
+      const eligible = selectFreshOrRecycle(pool, playedIds);
+      expect(eligible.length).toBeGreaterThan(0);
+      if (previous !== null) {
+        expect(eligible.map((t) => t.id)).not.toContain(previous);
+      }
+      const [chosen] = eligible;
+      previous = chosen.id;
+      // Simulate the append-to-history contract: dedupe, move to the end.
+      playedIds = [...playedIds.filter((id) => id !== chosen.id), chosen.id];
+    }
+  });
+
+  it('returns the lone template on a size-1 pool (a repeat is unavoidable)', () => {
+    const solo: readonly Template[] = [a];
+    expect(selectFreshOrRecycle(solo, ['a']).map((t) => t.id)).toEqual(['a']);
   });
 
   it('treats an id missing from playedIds as most eligible when recycling', () => {
@@ -162,8 +189,13 @@ describe('composition order (AC-05): freshness runs on the ALREADY safety+length
 
     const familySafePool = selectTemplates(library, true);
     // Exhaust the safe pool, then recycle - the unsafe template must never
-    // surface even though it was never "played".
+    // surface even though it was never "played" (AC-05). Recycling may drop the
+    // most-recently-played safe entry (W-001), so assert containment/exclusion
+    // rather than a fixed size: every result is a safe id, unsafe never appears,
+    // and the recycled pool is non-empty.
     const recycled = selectFreshOrRecycle(familySafePool, ['safe-a', 'safe-b']);
-    expect(recycled.map((t) => t.id).sort()).toEqual(['safe-a', 'safe-b']);
+    expect(recycled.length).toBeGreaterThan(0);
+    expect(recycled.some((t) => t.id === 'unsafe')).toBe(false);
+    recycled.forEach((t) => expect(['safe-a', 'safe-b']).toContain(t.id));
   });
 });

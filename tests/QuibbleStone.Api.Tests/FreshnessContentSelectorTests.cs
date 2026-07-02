@@ -7,9 +7,10 @@
 //  pipeline depends on:
 //
 //    1. SelectFresh excludes played ids without mutating either input.
-//    2. SelectFreshOrRecycle recycles the WHOLE pool (least-recently-played
-//       first) once every entry has been played, never returning empty for a
-//       non-empty pool and never throwing.
+//    2. SelectFreshOrRecycle recycles once every entry has been played by
+//       reopening the pool minus the single most-recently-played story (so the
+//       wrap never immediately repeats the tale just served, W-001), never
+//       returning empty for a non-empty pool and never throwing.
 // ----------------------------------------------------------------------------
 
 using QuibbleStone.Api.Content;
@@ -83,22 +84,58 @@ public class FreshnessContentSelectorTests
     }
 
     [Fact]
-    public void SelectFreshOrRecycle_recycles_the_full_pool_when_exhausted()
+    public void SelectFreshOrRecycle_recycles_minus_the_most_recently_played_when_exhausted()
     {
+        // Every entry played, 'c' most recently. Recycle reopens the pool but
+        // EXCLUDES 'c' so the just-served story cannot repeat at the wrap (W-001).
         var result = _selector.SelectFreshOrRecycle(Pool, ["a", "b", "c"]);
 
-        Assert.Equal(3, result.Count);
-        Assert.Equal(new HashSet<string> { "a", "b", "c" }, result.Select(e => e.Id).ToHashSet());
+        Assert.Equal(2, result.Count);
+        Assert.DoesNotContain("c", result.Select(e => e.Id));
+        Assert.Equal(new HashSet<string> { "a", "b" }, result.Select(e => e.Id).ToHashSet());
     }
 
     [Fact]
-    public void SelectFreshOrRecycle_orders_a_recycled_pool_least_recently_played_first()
+    public void SelectFreshOrRecycle_orders_the_recycled_pool_least_recently_played_first()
     {
-        // 'a' played first (oldest, most eligible), 'c' played last (newest,
-        // least eligible) - the recycled order should reflect that.
+        // 'a' oldest, 'c' newest; recycle drops the newest ('c') and returns the
+        // remainder least-recently-played first.
         var result = _selector.SelectFreshOrRecycle(Pool, ["a", "b", "c"]);
 
-        Assert.Equal(new[] { "a", "b", "c" }, result.Select(e => e.Id));
+        Assert.Equal(new[] { "a", "b" }, result.Select(e => e.Id));
+    }
+
+    [Fact]
+    public void SelectFreshOrRecycle_never_immediately_repeats_the_just_played_story_across_a_wrap()
+    {
+        // Drive many rounds picking the first eligible each time; the id chosen
+        // last round must never be offered again the very next round (W-001).
+        var playedIds = new List<string>();
+        string? previous = null;
+        for (var round = 0; round < 20; round++)
+        {
+            var eligible = _selector.SelectFreshOrRecycle(Pool, playedIds);
+            Assert.NotEmpty(eligible);
+            if (previous is not null)
+            {
+                Assert.DoesNotContain(previous, eligible.Select(e => e.Id));
+            }
+
+            var chosen = eligible[0];
+            previous = chosen.Id;
+            playedIds.Remove(chosen.Id);
+            playedIds.Add(chosen.Id);
+        }
+    }
+
+    [Fact]
+    public void SelectFreshOrRecycle_returns_the_lone_entry_on_a_size_one_pool()
+    {
+        IReadOnlyList<TemplateCatalogEntry> solo = [new TemplateCatalogEntry("a", FamilySafe: true, BlankCount: 5)];
+
+        var result = _selector.SelectFreshOrRecycle(solo, ["a"]);
+
+        Assert.Equal(new[] { "a" }, result.Select(e => e.Id));
     }
 
     [Fact]

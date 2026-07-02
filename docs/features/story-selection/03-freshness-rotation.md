@@ -91,11 +91,11 @@ what an account-less game can know: this device (solo), this room (group). See
   freshness -> random) and the web/C# mirror verified behavior-identical;
   ids-only history both sides; AC-04 bypass seam documented at every call site;
   wire contract + engine untouched.
-- OPEN DECISION (W-001, recycle boundary): the recycle path reopens the FULL
-  pool and the pick is uniform, so the "least-recently-played first" sort is
-  inert and the just-played template can repeat immediately at the exhaustion
-  boundary (1/N: 50% for a 2-template pool, 25% for the 4 quick templates).
-  Within AC-03's "at minimum the full pool reopens" floor, but it undercuts the
-  feature's intent. Pending sign-off: tighten recycle to exclude the single
-  most-recently-played id when pool >= 2 (kills the immediate wrap-repeat), or
-  accept as-is and drop the inert sort.
+- W-001 (recycle boundary) - RESOLVED (user sign-off 2026-07-02): tightened the
+  recycle to EXCLUDE the single most-recently-played story when the pool holds
+  >=2, so the wrap can never immediately repeat the tale just served (a 1-story
+  pool still returns it - a repeat is then unavoidable). Applied identically on
+  both sides (fresh.ts `recycleExcludingMostRecent` / FreshnessContentSelector
+  `RecycleExcludingMostRecent`) with new "never immediately repeats across a
+  wrap" + size-1 tests both in web and C#. This delivers AC-03's
+  "least-recently-played first" intent functionally rather than as an inert sort.

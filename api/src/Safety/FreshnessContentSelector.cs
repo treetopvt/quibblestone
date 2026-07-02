@@ -92,10 +92,11 @@ public sealed class FreshnessContentSelector
     /// <summary>
     /// Applies <see cref="SelectFresh"/> with the recycle-on-exhaustion behavior
     /// (AC-03): if every entry in <paramref name="pool"/> has already been
-    /// played, RECYCLES by reopening the WHOLE <paramref name="pool"/> - ordered
-    /// least-recently-played first (an entry absent from
-    /// <paramref name="playedIds"/> sorts first defensively, then oldest-played
-    /// to newest-played last) - rather than returning nothing.
+    /// played, RECYCLES by reopening the pool least-recently-played first and
+    /// EXCLUDING the single most-recently-played story when the pool holds >=2
+    /// (see <see cref="RecycleExcludingMostRecent"/>), so the tale just served
+    /// can never be picked again immediately at the wrap (story-selection/03
+    /// W-001) - rather than returning nothing.
     ///
     /// <paramref name="pool"/> MUST already be the output of the family-safe +
     /// length stages (AC-05) - recycling only ever reopens templates within that
@@ -105,7 +106,7 @@ public sealed class FreshnessContentSelector
     /// </summary>
     /// <param name="pool">The already safety+length-filtered pool.</param>
     /// <param name="playedIds">The ids already played in this room, oldest-first by convention.</param>
-    /// <returns>The fresh subset, or (on exhaustion) the full pool reopened and reordered.</returns>
+    /// <returns>The fresh subset, or (on exhaustion) the pool reopened minus the most-recently-played story.</returns>
     public IReadOnlyList<TemplateCatalogEntry> SelectFreshOrRecycle(
         IReadOnlyList<TemplateCatalogEntry> pool,
         IReadOnlyList<string> playedIds)
@@ -116,19 +117,20 @@ public sealed class FreshnessContentSelector
         }
 
         var fresh = SelectFresh(pool, playedIds);
-        return fresh.Count > 0 ? fresh : RecycleLeastRecentlyPlayedFirst(pool, playedIds);
+        return fresh.Count > 0 ? fresh : RecycleExcludingMostRecent(pool, playedIds);
     }
 
     /// <summary>
-    /// Reopens the FULL <paramref name="pool"/> for recycling, ordered so an
-    /// entry never seen in <paramref name="playedIds"/> sorts first (defensive -
-    /// should not occur once the pool is confirmed exhausted), then the
-    /// OLDEST-played entry, down to the most-recently-played entry last.
-    /// Recycling never narrows the pool - it only reorders it - so this always
-    /// returns exactly <paramref name="pool"/>.Count entries. Never mutates
-    /// either input.
+    /// Reopens <paramref name="pool"/> for recycling, ordered so an entry never
+    /// seen in <paramref name="playedIds"/> sorts first (defensive - should not
+    /// occur once the pool is confirmed exhausted), then oldest-played to
+    /// most-recently-played last, THEN drops the most-recently-played entry (the
+    /// last after the sort) when the pool holds >=2 so the just-served story
+    /// cannot repeat immediately at the wrap (W-001). A 1-entry pool returns that
+    /// lone entry (a repeat is unavoidable). Never empty for a non-empty pool,
+    /// never throws, never mutates either input.
     /// </summary>
-    private static IReadOnlyList<TemplateCatalogEntry> RecycleLeastRecentlyPlayedFirst(
+    private static IReadOnlyList<TemplateCatalogEntry> RecycleExcludingMostRecent(
         IReadOnlyList<TemplateCatalogEntry> pool,
         IReadOnlyList<string> playedIds)
     {
@@ -140,8 +142,14 @@ public sealed class FreshnessContentSelector
             playedOrder[playedIds[i]] = i;
         }
 
-        return pool
+        var leastRecentFirst = pool
             .OrderBy(entry => playedOrder.TryGetValue(entry.Id, out var order) ? order : -1)
             .ToArray();
+
+        // Drop the most-recently-played (last after the sort) when doing so still
+        // leaves at least one choice - that is the just-served story we must not repeat.
+        return leastRecentFirst.Length >= 2
+            ? leastRecentFirst[..^1]
+            : leastRecentFirst;
     }
 }

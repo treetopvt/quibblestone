@@ -17,16 +17,19 @@
 //  unsafe or wrong-length template (AC-05).
 //
 //  Recycling (AC-03): once every template in the pool has been played (the
-//  pool "runs dry"), selectFreshOrRecycle reopens the WHOLE pool rather than
-//  returning nothing - an exhausted pool degrades to "everything is eligible
-//  again," never to an error or a stuck round. The reopened pool is ORDERED
-//  least-recently-played first (templates never seen in playedIds sort
-//  first, then oldest-played to newest-played) so a future weighted/ordered
-//  pick can prefer the stalest template first; today's uniform random pick
-//  (pickRandomTemplate) does not care about array order, so this ordering is
-//  a "prefer" not a "require" - the important, testable guarantee is that
-//  recycling NEVER narrows below the full pool and NEVER returns empty for a
-//  non-empty pool.
+//  pool "runs dry"), selectFreshOrRecycle reopens the pool rather than
+//  returning nothing - an exhausted pool degrades to "eligible again," never
+//  to an error or a stuck round. Because the pick that follows is UNIFORM
+//  (pickRandomTemplate ignores array order), "least-recently-played first"
+//  cannot be delivered by ordering alone, so recycling instead EXCLUDES the
+//  single most-recently-played template when the pool holds >=2 stories: the
+//  story just served is the one thing that cannot come back at the wrap, so a
+//  player never hears the same tale twice in a row even across the boundary
+//  (story-selection/03 W-001 decision). With a 1-template pool a repeat is
+//  unavoidable, so the lone template is returned. The reopened list is still
+//  ordered least-recently-played first (cosmetic under a uniform pick, but it
+//  keeps the "stalest first" intent legible). Guarantee: recycling NEVER
+//  returns empty for a non-empty pool and NEVER throws.
 //
 //  Explicit-replay bypass seam (AC-04): there is no pinned-template replay UI
 //  in this story - both solo's "Play another round" and group's host
@@ -49,8 +52,9 @@
 //
 //  ======================== KEEP THE SERVER MIRROR IN SYNC ====================
 //  api/src/Safety/FreshnessContentSelector.cs is the C# MIRROR of this module:
-//  the SAME "exclude played ids" filter and the SAME least-recently-played-
-//  first / full-pool-reopen recycle behavior. There is no shared source and no
+//  the SAME "exclude played ids" filter and the SAME recycle behavior (reopen
+//  least-recently-played first, excluding the most-recently-played story when
+//  the pool has >=2). There is no shared source and no
 //  codegen - the web stage and the C# stage are kept in behavioral lockstep BY
 //  HAND. Change the filter or the recycle behavior here and you MUST change
 //  FreshnessContentSelector.cs to match, or solo and group play will recycle
@@ -81,15 +85,16 @@ export function selectFresh(
 }
 
 /**
- * Reopens `pool` for recycling (AC-03) once selectFresh has come up empty,
- * ordered least-recently-played first: a template never seen in `playedIds`
- * sorts first (defensive - should not occur when the pool is truly exhausted,
- * but never penalize an unknown id), then the OLDEST-played template, down to
- * the most-recently-played template last. The set returned is the FULL
- * `pool` - recycling never narrows it - so this never returns empty for a
- * non-empty `pool` and never throws. Never mutates `pool` or `playedIds`.
+ * Reopens `pool` for recycling (AC-03) once selectFresh has come up empty.
+ * Orders the pool least-recently-played first (a template never seen in
+ * `playedIds` sorts first - defensive - then oldest-played to newest-played),
+ * then EXCLUDES the single most-recently-played template (the last entry after
+ * the sort) when the pool holds >=2 stories, so the story just served can never
+ * be picked again immediately at the wrap (story-selection/03 W-001). A
+ * 1-template pool returns that lone template (a repeat is unavoidable). Never
+ * returns empty for a non-empty `pool` and never throws; never mutates inputs.
  */
-function recycleLeastRecentlyPlayedFirst(
+function recycleExcludingMostRecent(
   pool: readonly Template[],
   playedIds: readonly string[],
 ): Template[] {
@@ -97,18 +102,22 @@ function recycleLeastRecentlyPlayedFirst(
   // An id absent from playedIds (defensive; should not happen once the pool
   // is confirmed exhausted) sorts as "most eligible" via -1.
   const playedOrder = new Map(playedIds.map((id, index) => [id, index]));
-  return [...pool].sort((a, b) => {
+  const leastRecentFirst = [...pool].sort((a, b) => {
     const orderA = playedOrder.get(a.id) ?? -1;
     const orderB = playedOrder.get(b.id) ?? -1;
     return orderA - orderB;
   });
+  // Drop the most-recently-played (last after the sort) when doing so still
+  // leaves at least one choice - that is the just-served story we must not repeat.
+  return leastRecentFirst.length >= 2 ? leastRecentFirst.slice(0, -1) : leastRecentFirst;
 }
 
 /**
  * The compose helper that adds the recycle-on-exhaustion behavior (AC-03):
  * applies selectFresh to `pool`, and if every template in `pool` has already
- * been played, RECYCLES by reopening the whole `pool` (least-recently-played
- * first - see recycleLeastRecentlyPlayedFirst) rather than returning nothing.
+ * been played, RECYCLES by reopening the pool while excluding the single
+ * most-recently-played story (see recycleExcludingMostRecent) so the wrap never
+ * immediately repeats the tale just served - rather than returning nothing.
  *
  * `pool` MUST already be the output of the family-safe + length stages (AC-05)
  * - recycling reopens templates within that already-vetted pool, it never
@@ -124,5 +133,5 @@ export function selectFreshOrRecycle(
     return [];
   }
   const fresh = selectFresh(pool, playedIds);
-  return fresh.length > 0 ? fresh : recycleLeastRecentlyPlayedFirst(pool, playedIds);
+  return fresh.length > 0 ? fresh : recycleExcludingMostRecent(pool, playedIds);
 }
