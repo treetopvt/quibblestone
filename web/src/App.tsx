@@ -100,7 +100,9 @@ import { Gallery } from './pages/Gallery';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { Reveal, type WordAttribution } from './pages/Reveal';
-import { formatCrewByline } from './gallery/byline';
+import { formatCrewByline, joinNamesReadably } from './gallery/byline';
+import { buildRevealParts } from './pages/revealParts';
+import { publishTale, revokeTale, slugFromTaleUrl, type PublishTalePart } from './gallery/publishTale';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
 import type { LengthPreference } from './content/length';
@@ -247,7 +249,38 @@ function GroupReveal({
   // previously-unwired seam). Undefined for a round with no resolvable crew
   // (every blank went unfilled), so Reveal simply omits the byline (AC-02
   // "when present").
-  const saveImageByline = formatCrewByline(buildCrew(reveal.words).crew.map((member) => member.nickname));
+  const crewNames = buildCrew(reveal.words).crew.map((member) => member.nickname);
+  const saveImageByline = formatCrewByline(crewNames);
+
+  // keepsake-gallery/04 (AC-01/AC-03): the host-only public-link share. Built from
+  // the SAME already-assembled, already-filtered data the reveal renders - the
+  // interleaved parts (buildRevealParts) and the crew nicknames (buildCrew) - never
+  // a second data source and never raw submissions or PII. `publish` POSTs to the
+  // server (which re-vets the coral words + byline and mints the unguessable slug);
+  // `revoke` deletes the tale so its link stops resolving (AC-07). Passed to Reveal
+  // ONLY for the host (opt-in, never automatic, AC-03); non-hosts and solo omit it.
+  const publicShare = isHost
+    ? {
+        publish: async (): Promise<string | null> => {
+          const parts: PublishTalePart[] = buildRevealParts(template, assembled)
+            .filter((part) => part.kind === 'text' || part.word !== '')
+            .map((part) =>
+              part.kind === 'text'
+                ? { isWord: false, text: part.text }
+                : { isWord: true, text: part.word },
+            );
+          const link = await publishTale({
+            title: assembled.title,
+            parts,
+            bylineNames: joinNamesReadably(crewNames),
+          });
+          return link?.url ?? null;
+        },
+        revoke: async (url: string): Promise<void> => {
+          await revokeTale(slugFromTaleUrl(url));
+        },
+      }
+    : undefined;
 
   return (
     <Reveal
@@ -259,6 +292,7 @@ function GroupReveal({
       exitAction={{ label: 'Back to home', onClick: onHome }}
       wordAttribution={wordAttribution}
       saveImageByline={saveImageByline}
+      publicShare={publicShare}
       // reveal-delight/01 (AC-04): counts are server-authoritative (from the hub's
       // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
       // so every player in the room sees the tally update in near-real-time.

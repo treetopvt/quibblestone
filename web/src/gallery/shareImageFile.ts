@@ -41,10 +41,19 @@ export interface ShareImageFileInput {
   file: File;
   title: string;
   text: string;
+  /**
+   * Optional public tale link (keepsake-gallery/04, AC-01): when supplied it
+   * rides the SAME share payload as the image, in the Web Share `url` slot, so a
+   * recipient gets both the watermarked keepsake AND a real back-link into the
+   * app. Omitted for the plain image share (keepsake-gallery/02), which is
+   * byte-for-byte unchanged.
+   */
+  url?: string;
 }
 
 /**
- * Shares `input.file` via the Web Share API's file-share support. Resolves
+ * Shares `input.file` via the Web Share API's file-share support (optionally
+ * carrying a public tale `url` alongside it, keepsake-gallery/04). Resolves
  * `true` when the share succeeded OR the player cancelled the share sheet
  * (AbortError - not a failure), `false` when file sharing is unsupported or
  * the share failed for any other reason - never throws.
@@ -55,7 +64,9 @@ export async function shareImageFile(input: ShareImageFileInput): Promise<boolea
   }
   try {
     if (!navigator.canShare({ files: [input.file] })) return false;
-    await navigator.share({ files: [input.file], title: input.title, text: input.text });
+    const payload: ShareData = { files: [input.file], title: input.title, text: input.text };
+    if (input.url !== undefined && input.url.length > 0) payload.url = input.url;
+    await navigator.share(payload);
     return true;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') return true;

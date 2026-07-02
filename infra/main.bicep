@@ -119,6 +119,26 @@ resource apiApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'Telemetry__StorageConnectionString'
           value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
         }
+        // keepsake-gallery/04 (shareable tale link): carry the SAME Storage account's
+        // connection so the API's published-tale store writes each host-published,
+        // already-filtered public tale to the PublishedTales table (see
+        // api/src/Program.cs, which reads PublishedTales:StorageConnectionString and
+        // falls back to a DISABLED store - the feature simply OFF - when it is
+        // absent). Composed at DEPLOY time from the storage account's own key, NEVER
+        // a committed literal secret (the same posture as Telemetry above). Without
+        // this setting the app still runs; the public-link feature is just switched off.
+        {
+          name: 'PublishedTales__StorageConnectionString'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+        }
+        // keepsake-gallery/04 (AC-02/AC-06): the web app base the public tale page's
+        // "Play QuibbleStone" / "Start your own tale" CTAs link into (the create/join
+        // flow). Composed from the Static Web App's OWN default host name - never a
+        // hardcoded literal - so a received link converts straight into a new session.
+        {
+          name: 'PublishedTales__WebAppBaseUrl'
+          value: 'https://${webApp.properties.defaultHostname}'
+        }
         // platform-devops/04 (operational observability): surface the App Insights
         // connection string to the API. Sourced from KEY VAULT (a KV reference, not
         // a committed literal and never a VITE_ var - AC-01/AC-05): the value is a
@@ -212,6 +232,23 @@ resource storyServesTable 'Microsoft.Storage/storageAccounts/tableServices/table
 resource storyFeedbackTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
   parent: storageTableService
   name: 'StoryFeedback'
+}
+
+// keepsake-gallery/04 (shareable tale link, issue #66): the PublishedTales table
+// the API's PublishedTalesController stores each host-published, already-filtered
+// public tale into (PartitionKey = RowKey = an unguessable slug, so the public
+// page read is a single-lookup point read - see TableStoragePublishedTaleStore).
+// Only the assembled, family-safe story + in-session nicknames + a TTL live here -
+// NEVER raw submissions or PII (AC-03/AC-05). It rides the SAME storage account's
+// Table service as the two telemetry tables above (README section 9 - no new
+// resource); the store also creates it on first write, so this just makes the
+// footprint explicit in IaC (unvalidated locally if the az/bicep CLI is absent -
+// see this story's build notes). With NO connection string wired to the API the
+// feature is simply OFF (the disabled store), so this table is only ever touched
+// in a deployed environment.
+resource publishedTalesTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: storageTableService
+  name: 'PublishedTales'
 }
 
 // --- 5. Key Vault - secrets (Stripe keys, AI provider keys) once they exist --

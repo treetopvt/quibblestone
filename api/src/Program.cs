@@ -27,6 +27,7 @@
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
+using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
 using QuibbleStone.Api.Telemetry;
@@ -131,6 +132,32 @@ else
         new TableStorageTelemetrySink(
             telemetryConnectionString,
             sp.GetRequiredService<ILogger<TableStorageTelemetrySink>>()));
+}
+
+// keepsake-gallery/04 (shareable tale link): the published-tale store, chosen at
+// STARTUP by whether a storage connection string is configured - EXACTLY the
+// NoOp-when-absent posture of the telemetry sink above. This is the feature's ONE
+// server surface (a public read-only tale page + a stored tale), kept isolated in
+// its own thin controller (PublishedTalesController) - it never touches GameHub or
+// the round lifecycle. WITH a connection string (supplied per-environment from the
+// SAME storage account, NEVER a committed literal), it writes each host-published,
+// already-filtered tale to the "PublishedTales" table under an unguessable slug
+// with a TTL (AC-03/AC-05). WITHOUT one (local dev, CI, a fresh clone), it degrades
+// to the disabled store so the app runs with the feature simply OFF and ZERO Azure
+// setup: publish returns a clear "not available" and the public GET 404s (AC-05).
+// A singleton: stateless after construction (a TableClient or nothing). The share
+// link is FREE - no entitlement check anywhere on this path (AC-04).
+var talesConnectionString = builder.Configuration["PublishedTales:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(talesConnectionString))
+{
+    builder.Services.AddSingleton<IPublishedTaleStore, DisabledPublishedTaleStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IPublishedTaleStore>(sp =>
+        new TableStoragePublishedTaleStore(
+            talesConnectionString,
+            sp.GetRequiredService<ILogger<TableStoragePublishedTaleStore>>()));
 }
 
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
