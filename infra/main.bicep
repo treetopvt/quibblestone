@@ -185,11 +185,11 @@ resource apiApp 'Microsoft.Web/sites@2024-04-01' = {
         // deployContentSafety is true; story 05 no-ops when this config is absent.
         {
           name: 'ContentSafety__Endpoint'
-          value: contentSafety.properties.endpoint
+          value: contentSafety!.properties.endpoint
         }
         {
           name: 'ContentSafety__Key'
-          value: '@Microsoft.KeyVault(SecretUri=${contentSafetyKeySecret.properties.secretUri})'
+          value: '@Microsoft.KeyVault(SecretUri=${contentSafetyKeySecret!.properties.secretUri})'
         }
       ] : [])
     }
@@ -453,7 +453,7 @@ resource contentSafetyKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' =
   parent: keyVault
   name: 'ContentSafetyKey'
   properties: {
-    value: deployContentSafety ? contentSafety.listKeys().key1 : ''
+    value: contentSafety!.listKeys().key1
   }
 }
 
