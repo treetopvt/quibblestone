@@ -1,6 +1,6 @@
 # Story: Solo mode picker (choose a mode, play it)
 
-**Feature:** Single-Player Experience  ·  **Status:** In Progress
+**Feature:** Single-Player Experience  ·  **Status:** Complete
 
 ## Context
 game-modes/03-06 shipped three new modes (Word Bank, Progressive Story,
@@ -16,39 +16,39 @@ selection (host picks at round start, broadcast to the room) stays a separate,
 heavier story. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the solo setup screen, then I see a mode picker listing the
+- [x] AC-01: Given the solo setup screen, then I see a mode picker listing the
       four modes (Classic blind, Word Bank, Progressive Story, Progressive
       Reveal), each with a short blurb and a big tap target; Classic blind is
       selected by default so the existing zero-choice flow still works with one
       tap on Start.
-- [ ] AC-02: Given I pick a mode and start, then the round plays THAT mode: its
+- [x] AC-02: Given I pick a mode and start, then the round plays THAT mode: its
       `ModeConfig` is passed to `collectWord`, and its `ModeSurfaces`
       (`answerSurface` / `seeContext` / `revealPresentation`) are resolved and
       passed into the shared `FillBlank` / `Reveal` screens - Solo does not edit
       those two screens (it uses their game-modes/03 optional slots).
-- [ ] AC-03: Given Word Bank, then the fill screen replaces the free-text input
+- [x] AC-03: Given Word Bank, then the fill screen replaces the free-text input
       with the template's curated, category-filtered word list, and the tapped
       word is recorded via the SAME `collectWord` path (skipping the free-text
       filter, per `mode.answer === 'word-bank'`); given Progressive Story, then
       the story-so-far renders above the prompt card and updates each blank;
       given Progressive Reveal, then filling is blind (subject-only) and the
       Reveal paces the finished story one word at a time.
-- [ ] AC-04: Given Word Bank is selected, then only templates that actually have
+- [x] AC-04: Given Word Bank is selected, then only templates that actually have
       a usable word bank are drawn (via `offerWordBankTemplates`), so the mode
       never renders an empty list or crashes; if the family-safe toggle leaves a
       mode with no eligible template, that mode's card is disabled (not a dead
       Start button), and if the currently-selected mode becomes ineligible the
       selection falls back to Classic blind.
-- [ ] AC-05: Given any mode, then child safety is unchanged: free-text modes
+- [x] AC-05: Given any mode, then child safety is unchanged: free-text modes
       (Classic, Progressive Story, Progressive Reveal) still route every
       submission through `collectWord`'s safety check; Word Bank legitimately
       skips the free-text filter (pre-vetted curated content) and is family-safe
       gated at offering time; no mode renders an unfiltered word, and no PII is
       collected.
-- [ ] AC-06: Given Classic blind is selected (the default), then the fill and
+- [x] AC-06: Given Classic blind is selected (the default), then the fill and
       reveal screens render byte-for-byte as before this story (no surfaces
       supplied) - a pure additive change, proven by the picker defaulting to it.
-- [ ] AC-07: The picker + wiring is expressed as a small registry
+- [x] AC-07: The picker + wiring is expressed as a small registry
       (`web/src/pages/soloModes.ts`) pairing each existing `ModeConfig` with its
       blurb, eligible-template source, and surface factories - no new engine
       code, no fork of `FillBlank`/`Reveal`, no new `ModeConfig`.
