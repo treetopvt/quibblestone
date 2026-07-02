@@ -38,6 +38,9 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
+using System.Diagnostics.CodeAnalysis;
+using System.Text.RegularExpressions;
+
 namespace QuibbleStone.Api.Telemetry;
 
 /// <summary>
@@ -96,6 +99,22 @@ public static class UsageTelemetry
         "classic-blind", "word-bank", "progressive-story", "progressive-reveal",
     };
 
+    // The ONLY two shapes the web ever mints for the anonymous device id
+    // (web/src/telemetry/deviceId.ts -> safeUuid): a standard crypto.randomUUID
+    // GUID, or the non-secure-context fallback "id-<base36>-<base36>". The usage
+    // endpoint is UNAUTHENTICATED and deviceId is deliberately allowed past the
+    // scrubber (it is a device-count key, AC-03), so we validate its FORMAT here -
+    // a crafted client cannot then ride arbitrary free text (a nickname, a word)
+    // into the deviceId dimension. Anything that is not one of these shapes is
+    // dropped (the event is still recorded, just without a device id).
+    private static readonly Regex GuidDeviceIdPattern = new(
+        "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        RegexOptions.Compiled);
+
+    private static readonly Regex FallbackDeviceIdPattern = new(
+        "^id-[0-9a-z]{1,16}-[0-9a-z]{1,16}$",
+        RegexOptions.Compiled);
+
     /// <summary>
     /// Builds the anonymous property bag for a usage custom event (AC-04). The
     /// result carries ONLY the allowed anonymous fields: mode + context always, a
@@ -125,12 +144,31 @@ public static class UsageTelemetry
             properties[PlayerCountProperty] = count.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        if (!string.IsNullOrWhiteSpace(deviceId))
+        // Only a WELL-FORMED anonymous device id is recorded (AC-03/AC-04): the
+        // endpoint is unauthenticated, so an arbitrary string here could otherwise
+        // ride content into the deviceId dimension. A malformed/injected value is
+        // simply omitted (the event still counts, just without a device id).
+        if (IsWellFormedDeviceId(deviceId))
         {
             properties[DeviceIdProperty] = deviceId;
         }
 
         return properties;
+    }
+
+    /// <summary>
+    /// True when <paramref name="deviceId"/> is one of the two shapes the web
+    /// actually mints (AC-03): a crypto.randomUUID GUID, or the "id-&lt;base36&gt;-
+    /// &lt;base36&gt;" non-secure-context fallback (web/src/telemetry/deviceId.ts).
+    /// Anything else - null, empty, over-long, or arbitrary free text from a crafted
+    /// client - is rejected so no content can leak through the (allowed) deviceId
+    /// dimension. Bounded length first so the regex never runs on a huge input.
+    /// </summary>
+    public static bool IsWellFormedDeviceId([NotNullWhen(true)] string? deviceId)
+    {
+        return !string.IsNullOrWhiteSpace(deviceId)
+            && deviceId.Length <= 64
+            && (GuidDeviceIdPattern.IsMatch(deviceId) || FallbackDeviceIdPattern.IsMatch(deviceId));
     }
 
     /// <summary>

@@ -12,13 +12,19 @@
 //  flows through the SAME PiiScrubbingTelemetryInitializer choke point as all other
 //  telemetry (AC-04), and the AI connection string stays entirely server-side.
 //
-//  ANONYMOUS + NO AUTH (there are no accounts, README section 3): the request
-//  carries ONLY a message, a stack, and location.pathname (NO query string, NO
-//  nickname, NO room code, NO PII - the beacon strips all of that client-side and
-//  this controller records only these three anonymous fields). Like the other
-//  telemetry seams here (TelemetryController, ModerationController) it always
-//  accepts (202) and never lets a track failure fault the response, so a beacon
-//  can never wedge or slow the web client.
+//  ANONYMOUS + NO AUTH + NO-CONTENT BY CONSTRUCTION (there are no accounts, README
+//  section 3, and the audience is minors, section 6): the endpoint is
+//  unauthenticated, so the message and stack the browser sends are UNTRUSTED free
+//  text that could carry an interpolated nickname / word / story (e.g.
+//  `throw new Error("bad word: " + word)`) or be forged outright. The PII scrubber
+//  drops sensitive property KEYS, not free-text trace VALUES, so this controller is
+//  the trust boundary: it records ONLY a sanitized, allowlisted JS error TYPE
+//  (TypeError / ReferenceError / ...) plus the normalized top-level route - it NEVER
+//  persists the raw message or the raw stack to telemetry. That keeps the beacon
+//  useful (which error type, on which route) while carrying no content by
+//  construction. Like the other telemetry seams here (TelemetryController,
+//  ModerationController) it always accepts (202) and never lets a track failure
+//  fault the response, so a beacon can never wedge or slow the web client.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -30,16 +36,16 @@ using Microsoft.AspNetCore.Mvc;
 namespace QuibbleStone.Api.Controllers;
 
 /// <summary>
-/// Request body for POST /api/client-errors (AC-06). Carries ONLY anonymous
-/// operational facts about an unhandled client-side error - a message, a stack,
-/// and the pathname the error happened on. There is intentionally NO field that
-/// could carry PII (no nickname, no room/join code, no query string, no session
-/// id) - the beacon sends only these three, and the server records only these
-/// three (AC-04).
+/// Request body for POST /api/client-errors (AC-06). The browser sends a message,
+/// an optional stack, and the route path. Message and Stack are UNTRUSTED free text
+/// (unauthenticated endpoint) - the server reduces Message to an allowlisted error
+/// TYPE and does NOT persist Stack or the raw message to telemetry (AC-04); Path is
+/// re-normalized server-side to its top-level route. So no field here can leak a
+/// nickname, join code, session id, submitted word, or story text into telemetry.
 /// </summary>
-/// <param name="Message">The error message (e.g. "TypeError: x is undefined").</param>
-/// <param name="Stack">The error stack, when available; may be null.</param>
-/// <param name="Path">location.pathname only - the route the error occurred on, never a query string.</param>
+/// <param name="Message">The error message (e.g. "TypeError: x is undefined"); reduced server-side to an allowlisted error type, never persisted raw.</param>
+/// <param name="Stack">The error stack, when available; accepted but NEVER recorded to telemetry (untrusted free text).</param>
+/// <param name="Path">location.pathname; re-normalized server-side to the top-level route, never a query string.</param>
 public sealed record ClientErrorRequest(
     string? Message,
     string? Stack,
@@ -49,13 +55,26 @@ public sealed record ClientErrorRequest(
 [Route("api/client-errors")]
 public sealed class ClientErrorController : ControllerBase
 {
-    // Custom-property keys for the anonymous client-error trace. All three are
-    // anonymous operational data (no PII); the scrubber is the backstop, but by
-    // construction there is nothing sensitive to scrub here.
-    private const string StackPropertyKey = "clientStack";
+    // Custom-property keys for the anonymous client-error trace. Only the
+    // normalized route + a source marker are recorded - both anonymous operational
+    // data (no PII). The raw stack is NEVER recorded (untrusted free text).
     private const string PathPropertyKey = "clientPath";
     private const string SourcePropertyKey = "source";
     private const string SourceValue = "web-error-beacon";
+
+    // The generic label recorded when the client message is not a recognized JS
+    // error type - so no free-text message ever reaches telemetry.
+    private const string GenericErrorType = "ClientError";
+
+    // The ONLY error-type tokens we record (the built-in JS/DOM error names). Any
+    // message whose leading token is not one of these collapses to
+    // GenericErrorType, so an interpolated word / nickname / story can never ride
+    // the trace message into telemetry (AC-04). Ordinal: these are exact identifiers.
+    private static readonly HashSet<string> KnownErrorTypes = new(StringComparer.Ordinal)
+    {
+        "Error", "EvalError", "RangeError", "ReferenceError", "SyntaxError",
+        "TypeError", "URIError", "AggregateError", "InternalError", "DOMException",
+    };
 
     private readonly TelemetryClient _telemetryClient;
 
@@ -86,16 +105,14 @@ public sealed class ClientErrorController : ControllerBase
 
         try
         {
-            // Track as a trace carrying ONLY the three anonymous fields. The
-            // scrubber zeroes the IP and drops any sensitive property; by
-            // construction we attach none here.
-            var trace = new TraceTelemetry(message, SeverityLevel.Error);
+            // Reduce the untrusted client message to an allowlisted error TYPE, so
+            // the trace carries no free text (AC-04). The raw message and stack are
+            // NEVER recorded. Only the sanitized type, the normalized route, and a
+            // source marker leave the process - all anonymous operational data.
+            var errorType = SanitizeErrorType(message);
+            var trace = new TraceTelemetry(errorType, SeverityLevel.Error);
             trace.Properties[SourcePropertyKey] = SourceValue;
-            if (!string.IsNullOrWhiteSpace(request!.Stack))
-            {
-                trace.Properties[StackPropertyKey] = request.Stack;
-            }
-            if (!string.IsNullOrWhiteSpace(request.Path))
+            if (!string.IsNullOrWhiteSpace(request!.Path))
             {
                 // Defense-in-depth (AC-04): never trust the client path. Reduce it
                 // to its top-level route segment server-side too, so even a
@@ -129,5 +146,27 @@ public sealed class ClientErrorController : ControllerBase
             .FirstOrDefault();
 
         return firstSegment is null ? "/" : $"/{firstSegment}";
+    }
+
+    /// <summary>
+    /// Reduces an untrusted client error message to an allowlisted JS error TYPE
+    /// (AC-04). A browser Error stringifies as "TypeError: ...", so we take the
+    /// leading token (up to the first ':' or space) and record it ONLY if it is a
+    /// known built-in error type; anything else (a custom name, or an interpolated
+    /// free-text message with no recognizable type) collapses to "ClientError". So
+    /// no free text - which could carry a nickname, submitted word, or story - can
+    /// ever ride the trace message into telemetry.
+    /// </summary>
+    private static string SanitizeErrorType(string message)
+    {
+        var token = message.AsSpan().Trim();
+        var cut = token.IndexOfAny(':', ' ');
+        if (cut >= 0)
+        {
+            token = token[..cut];
+        }
+
+        var candidate = token.ToString();
+        return KnownErrorTypes.Contains(candidate) ? candidate : GenericErrorType;
     }
 }

@@ -75,13 +75,25 @@ public sealed class HubTelemetryFilter : IHubFilter
         {
             // Track ONLY the anonymous method name (AC-04) - never the arguments,
             // which carry nicknames / words / codes. The exception type + stack are
-            // anonymous operational data (AC-04's allowed shape).
-            var telemetry = new ExceptionTelemetry(ex);
-            telemetry.Properties[HubMethodPropertyKey] = invocationContext.HubMethodName;
-            _telemetryClient.TrackException(telemetry);
+            // anonymous operational data (AC-04's allowed shape). The track call is
+            // wrapped in its OWN try/catch so this filter stays strictly
+            // OBSERVATIONAL: if TelemetryClient ever threw, it must not replace or
+            // mask the ORIGINAL hub exception (which the framework and any result
+            // envelope depend on). Telemetry never changes behaviour.
+            try
+            {
+                var telemetry = new ExceptionTelemetry(ex);
+                telemetry.Properties[HubMethodPropertyKey] = invocationContext.HubMethodName;
+                _telemetryClient.TrackException(telemetry);
+            }
+            catch
+            {
+                // Swallowed: observing a failure must never itself become one.
+            }
 
-            // Re-throw: this filter OBSERVES failures, it does not swallow them -
-            // the hub's own error path (and any result envelope) is unchanged.
+            // Re-throw the ORIGINAL exception: this filter observes failures, it does
+            // not swallow them - the hub's own error path (and any result envelope)
+            // is unchanged.
             throw;
         }
     }

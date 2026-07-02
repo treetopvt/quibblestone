@@ -496,8 +496,18 @@ public sealed class GameHub : Hub
         {
             // Abnormal close only (a clean disconnect passes null). Track the
             // anonymous fact + the transport exception - never any room/player payload.
-            _appInsights.TrackEvent("HubAbnormalDisconnect");
-            _appInsights.TrackException(exception);
+            // Wrapped so an unexpected telemetry failure can NEVER interfere with the
+            // disconnect cleanup / room removal below (AC-08 posture, matching
+            // TrackUsageRoundStarted/Completed and FireServeEvent).
+            try
+            {
+                _appInsights.TrackEvent("HubAbnormalDisconnect");
+                _appInsights.TrackException(exception);
+            }
+            catch
+            {
+                // Swallowed: telemetry must never break hub teardown.
+            }
         }
 
         var room = _rooms.RemoveConnection(Context.ConnectionId);

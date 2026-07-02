@@ -47,11 +47,13 @@ public class UsageTelemetryTests
     [Fact]
     public void Solo_round_properties_carry_only_mode_context_and_the_anonymous_device_id()
     {
-        var props = UsageTelemetry.BuildProperties("word-bank", UsageTelemetry.SoloContext, deviceId: "device-abc");
+        // A well-formed device id (a crypto.randomUUID GUID here) is recorded.
+        const string deviceId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+        var props = UsageTelemetry.BuildProperties("word-bank", UsageTelemetry.SoloContext, deviceId: deviceId);
 
         Assert.Equal("word-bank", props[UsageTelemetry.ModeProperty]);
         Assert.Equal("solo", props[UsageTelemetry.ContextProperty]);
-        Assert.Equal("device-abc", props[UsageTelemetry.DeviceIdProperty]);
+        Assert.Equal(deviceId, props[UsageTelemetry.DeviceIdProperty]);
         Assert.False(props.ContainsKey(UsageTelemetry.PlayerCountProperty));
         Assert.All(props.Keys, key => Assert.Contains(key, AllowedKeys));
     }
@@ -62,7 +64,7 @@ public class UsageTelemetryTests
         // Try both shapes with values that could tempt a leak; assert the forbidden
         // keys never appear regardless of inputs.
         var group = UsageTelemetry.BuildProperties("classic-blind", UsageTelemetry.GroupContext, playerCount: 5);
-        var solo = UsageTelemetry.BuildProperties("progressive-story", UsageTelemetry.SoloContext, deviceId: "d1");
+        var solo = UsageTelemetry.BuildProperties("progressive-story", UsageTelemetry.SoloContext, deviceId: "id-abc123-def456");
 
         foreach (var props in new[] { group, solo })
         {
@@ -78,6 +80,44 @@ public class UsageTelemetryTests
     {
         var props = UsageTelemetry.BuildProperties("classic-blind", UsageTelemetry.SoloContext, deviceId: "   ");
         Assert.False(props.ContainsKey(UsageTelemetry.DeviceIdProperty));
+    }
+
+    [Theory]
+    [InlineData("3f2504e0-4f89-41d3-9a0c-0305e82c3301")] // crypto.randomUUID GUID
+    [InlineData("id-abc123-def456")]                     // safeUuid non-secure fallback
+    public void A_well_formed_device_id_is_accepted(string deviceId)
+    {
+        Assert.True(UsageTelemetry.IsWellFormedDeviceId(deviceId));
+
+        var props = UsageTelemetry.BuildProperties("classic-blind", UsageTelemetry.SoloContext, deviceId: deviceId);
+        Assert.Equal(deviceId, props[UsageTelemetry.DeviceIdProperty]);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("sam the kid")]                     // free text - a crafted injection
+    [InlineData("nickname: sam")]                   // content masquerading as an id
+    [InlineData("<script>alert(1)</script>")]       // markup
+    [InlineData("device-abc")]                      // a plausible-but-unminted shape
+    [InlineData("id-abc")]                          // fallback shape missing a segment
+    public void A_malformed_or_injected_device_id_is_rejected_and_omitted(string? deviceId)
+    {
+        // The unauthenticated /api/usage endpoint could otherwise ride content into
+        // the (scrubber-allowed) deviceId dimension - only the two minted shapes pass.
+        Assert.False(UsageTelemetry.IsWellFormedDeviceId(deviceId));
+
+        var props = UsageTelemetry.BuildProperties("classic-blind", UsageTelemetry.SoloContext, deviceId: deviceId);
+        Assert.False(props.ContainsKey(UsageTelemetry.DeviceIdProperty));
+    }
+
+    [Fact]
+    public void An_over_long_device_id_is_rejected()
+    {
+        // Bounded before the regex ever runs (no pathological input).
+        var tooLong = "id-" + new string('a', 100) + "-" + new string('b', 100);
+        Assert.False(UsageTelemetry.IsWellFormedDeviceId(tooLong));
     }
 
     [Theory]

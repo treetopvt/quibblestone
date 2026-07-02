@@ -99,11 +99,14 @@ public sealed class UsageController : ControllerBase
 
             if (isComplete)
             {
-                // A completion carries the anonymous session duration as a metric.
-                _telemetryClient.TrackEvent(
-                    UsageTelemetry.RoundCompletedEvent,
-                    properties,
-                    UsageTelemetry.BuildDurationMetric(request.DurationMs ?? 0));
+                // A completion carries the anonymous session duration as a metric -
+                // but ONLY when the client actually supplied one. A missing duration
+                // is OMITTED (not recorded as 0ms), so absent-duration completions
+                // never skew a median-session-length query with artificial zeroes.
+                var metrics = request.DurationMs is double durationMs
+                    ? UsageTelemetry.BuildDurationMetric(durationMs)
+                    : null;
+                _telemetryClient.TrackEvent(UsageTelemetry.RoundCompletedEvent, properties, metrics);
             }
             else
             {

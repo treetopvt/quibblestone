@@ -95,6 +95,18 @@ public sealed class PiiScrubbingTelemetryInitializer : ITelemetryInitializer
         // 1. Zero the client IP on EVERY item (AC-04) - never an IP-derived identity.
         telemetry.Context.Location.Ip = AnonymizedIp;
 
+        // 1a. Clear the App Insights context IDENTITY identifiers (AC-04). The
+        //     ASP.NET Core SDK can populate stable anonymous User.Id / Session.Id
+        //     (from correlation / a cookie) - benign in most apps, but our players
+        //     are anonymous minors and telemetry must never carry a per-user or
+        //     per-session identifier. Product-usage REACH (story 05) is answered by
+        //     our OWN explicit, anonymous "deviceId" property, never by these, so
+        //     clearing them costs nothing and closes the identity channel for good.
+        telemetry.Context.User.Id = null;
+        telemetry.Context.User.AuthenticatedUserId = null;
+        telemetry.Context.User.AccountId = null;
+        telemetry.Context.Session.Id = null;
+
         // 2. For a request, keep ONLY the route/path and drop the query string,
         //    which is the likeliest accidental carrier of a nickname / code / word.
         if (telemetry is RequestTelemetry request)
