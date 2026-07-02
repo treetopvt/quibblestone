@@ -150,6 +150,23 @@ const confettiFall = keyframes`
   100% { transform: translateY(14px) rotate(220deg); }
 `;
 
+// Word-by-word "carving" entrance (reveal-delight/02, AC-01/AC-02): each
+// coral filled word pops from a smaller scale up to its natural size. This is
+// TRANSFORM ONLY, deliberately - never an `opacity` keyframe step, per this
+// feature's documented footgun (an opacity keyframe with fill-mode:both can
+// leave a re-rendered list item stuck invisible, which here would make the
+// WHOLE story look half-missing). The literal template text and empty-word
+// gaps are untouched by this keyframe (AC-01).
+const carveIn = keyframes`
+  from { transform: scale(.4); }
+  to { transform: scale(1); }
+`;
+
+// Stagger between each filled word's carve-in entrance, in body order
+// (AC-01). Computed per filled-word index, not the raw `parts` index (which
+// also counts literal text gaps).
+const CARVE_STAGGER_MS = 140;
+
 /** One CSS-only confetti piece: color, shape, position, and animation timing. */
 interface ConfettiPiece {
   top: number;
@@ -456,40 +473,62 @@ export function Reveal({
                   color: 'text.primary',
                 }}
               >
-                {parts.map((part, index) => {
-                  if (part.kind === 'text') {
+                {(() => {
+                  // Running counter over FILLED (non-empty) words only, in body
+                  // order, so the carve-in stagger (reveal-delight/02, AC-01)
+                  // follows the story's reading order rather than the raw
+                  // `parts` index, which also counts literal text gaps.
+                  let filledWordIndex = 0;
+                  return parts.map((part, index) => {
+                    if (part.kind === 'text') {
+                      return (
+                        <Box key={`p-${index}`} component="span">
+                          {part.text}
+                        </Box>
+                      );
+                    }
+                    // A skipped blank arrives as an empty-word part. Render it as
+                    // plain nothing (no coral treatment) so it reads as a natural
+                    // gap rather than a stray zero-width coral underline artifact
+                    // (Gate-2 CR-W-001). Only NON-empty, player-supplied words get
+                    // the coral pop.
+                    if (part.word === '') {
+                      return <Box key={`p-${index}`} component="span" />;
+                    }
+                    const delayMs = filledWordIndex * CARVE_STAGGER_MS;
+                    filledWordIndex += 1;
                     return (
-                      <Box key={`p-${index}`} component="span">
-                        {part.text}
+                      <Box
+                        key={`p-${index}`}
+                        component="span"
+                        sx={{
+                          // AC-02: coral COLOR comes from the theme token (never a
+                          // hardcoded hex); the weight/underline emphasis is
+                          // content-level styling applied via sx, per the coral
+                          // reconciliation note.
+                          color: theme.palette.coral.main,
+                          fontWeight: 800,
+                          borderBottom: `2px solid ${alpha(theme.palette.coral.main, 0.4)}`,
+                          // Carving entrance (reveal-delight/02, AC-01/AC-02):
+                          // a pure CSS `transform: scale` keyframe, staggered by
+                          // body order. Never blocks interactivity elsewhere on
+                          // the screen (AC-04) - it only animates this word span.
+                          // Modern browsers apply `transform` to inline boxes
+                          // (CSS Transforms Level 1), so `display` stays
+                          // untouched - the existing coral sx block is otherwise
+                          // unchanged, per AC-06's "only add the animation
+                          // property" note.
+                          animation: `${carveIn} 0.4s ease-out ${delayMs}ms both`,
+                          '@media (prefers-reduced-motion: reduce)': {
+                            animation: 'none',
+                          },
+                        }}
+                      >
+                        {part.word}
                       </Box>
                     );
-                  }
-                  // A skipped blank arrives as an empty-word part. Render it as
-                  // plain nothing (no coral treatment) so it reads as a natural
-                  // gap rather than a stray zero-width coral underline artifact
-                  // (Gate-2 CR-W-001). Only NON-empty, player-supplied words get
-                  // the coral pop.
-                  if (part.word === '') {
-                    return <Box key={`p-${index}`} component="span" />;
-                  }
-                  return (
-                    <Box
-                      key={`p-${index}`}
-                      component="span"
-                      sx={{
-                        // AC-02: coral COLOR comes from the theme token (never a
-                        // hardcoded hex); the weight/underline emphasis is
-                        // content-level styling applied via sx, per the coral
-                        // reconciliation note.
-                        color: theme.palette.coral.main,
-                        fontWeight: 800,
-                        borderBottom: `2px solid ${alpha(theme.palette.coral.main, 0.4)}`,
-                      }}
-                    >
-                      {part.word}
-                    </Box>
-                  );
-                })}
+                  });
+                })()}
               </Typography>
             ) : (
               revealPresentation
