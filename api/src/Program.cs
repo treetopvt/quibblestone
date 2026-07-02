@@ -24,6 +24,7 @@
 //  Azure setup.
 // ----------------------------------------------------------------------------
 
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
@@ -167,6 +168,22 @@ else
 // script does. Only the publish action opts in (via [EnableRateLimiting]); the
 // rest of the API (hub, health, moderation) is untouched. A rejected caller gets
 // 429, not the middleware default 503. app.UseRateLimiter() activates it below.
+// keepsake-gallery/04 (W-001, deployment hardening): make the per-IP publish
+// limiter actually per-IP behind App Service. The platform terminates TLS at its
+// front end, so Connection.RemoteIpAddress is the load balancer unless we honor
+// the forwarded header - without this the limiter (PublishTalesRateLimit.PartitionKey
+// reads RemoteIpAddress) would collapse every caller into ONE bucket. Trust only
+// X-Forwarded-For; the App Service edge is the one hop (default ForwardLimit = 1
+// takes the client IP it appends), and KnownNetworks/Proxies are cleared because
+// that edge IP is not fixed. The PII scrubber still zeroes the IP before any
+// telemetry leaves the process (README section 6), so this stays no-PII.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -223,6 +240,11 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // --- HTTP request pipeline ----------------------------------------------------
+
+// FIRST: honor X-Forwarded-For so Connection.RemoteIpAddress is the real client IP
+// before anything reads it (the publish rate limiter partitions on it). No-op with
+// no proxy (local dev), so it is safe everywhere.
+app.UseForwardedHeaders();
 
 app.UseCors(webClientCorsPolicy);
 
