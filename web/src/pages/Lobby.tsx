@@ -35,6 +35,16 @@
 //      parameter on the SAME onStart/startRound seam, not a new hub method) -
 //      App wires that to the hub's host-only startRound, which the SERVER
 //      enforces + filters by both (AC-03/AC-04, story-selection/02 AC-03).
+//    - ALSO host-only (story-selection/06, AC-03): a "Play a favorite" toggle
+//      that reveals an INLINE favorites picker (the shared <FavoritesList>
+//      from ./Favorites.tsx, reused as-is - no second list implementation) so
+//      the host can start a round on one of THEIR favorited templates without
+//      leaving the lobby or losing room state. Picking one calls onPlayFavorite
+//      with that templateId; App wires it to the SAME startRound seam with the
+//      templateId as its 4th argument (the server plays that exact template,
+//      still family-safe-gated first, AC-06) - a rejected pick (e.g. the
+//      favorite is no longer family-safe under the current toggle) shows a
+//      friendly inline message, mirroring RoundComplete's playAgainError.
 //
 //  Child safety (AC-06): names arrive already vetted by the join-time safety
 //  filter (session-engine/02); this screen renders them verbatim and never takes
@@ -54,11 +64,13 @@ import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, FamilySafeToggle, Guardian, StoryLengthChoice } from '../components';
+import { AppBar, BottomActionBar, BottomActionBarSpacer, FamilySafeToggle, Guardian, StoryLengthChoice } from '../components';
 import { toGuardianVariant } from '../components';
 import { FAMILY_SAFE_DEFAULT } from '../content/familySafe';
+import type { FavoriteEntry } from '../content/favorites';
 import type { LengthPreference } from '../content/length';
-import type { Player, RoomState } from '../signalr/useGameHub';
+import type { Player, RoomState, StartRoundResult } from '../signalr/useGameHub';
+import { FavoritesList } from './Favorites';
 
 // Room capacity for Slice 1: the roster tops out at six carvers (AC-01). The
 // grid fills the remaining seats with dashed "waiting..." slots up to this.
@@ -89,6 +101,17 @@ export interface LobbyProps {
    * host-only Start CTA below.
    */
   onStart: (familySafe: boolean, lengthPref: LengthPreference) => void;
+  /**
+   * Host-only: start a round on an EXACT favorited template (story-selection/06,
+   * AC-03). App wires this to the hub's startRound with the picked template id
+   * as its 4th argument - the SERVER plays that exact template (bypassing
+   * length + freshness, still family-safe-gated first, AC-04/AC-06). Resolves
+   * with the same StartRoundResult envelope as a normal start; on a rejection
+   * the inline picker shows the friendly error rather than silently doing
+   * nothing (mirroring RoundComplete's playAgainError pattern). On success the
+   * server's RoundStarted broadcast routes everyone into the round as usual.
+   */
+  onPlayFavorite: (templateId: string) => Promise<StartRoundResult>;
   /**
    * Optional notice shown at the top of the lobby - e.g. "a carver left, so the
    * round was reset" when the hub aborts a round mid-collection (group-play
@@ -489,7 +512,15 @@ function ShareWidget({ code }: { code: string }) {
   );
 }
 
-export function Lobby({ room, isHost, onLeave, onStart, notice, onDismissNotice }: LobbyProps) {
+export function Lobby({
+  room,
+  isHost,
+  onLeave,
+  onStart,
+  onPlayFavorite,
+  notice,
+  onDismissNotice,
+}: LobbyProps) {
   const theme = useTheme();
   const players = room.players;
   const emptyCount = Math.max(0, MAX_PLAYERS - players.length);
@@ -507,6 +538,25 @@ export function Lobby({ room, isHost, onLeave, onStart, notice, onDismissNotice 
   // this story existed. Its value travels out through onStart alongside
   // familySafe, as one more parameter on the existing startRound seam.
   const [lengthPref, setLengthPref] = useState<LengthPreference>('full');
+
+  // Host-only "Play a favorite" inline picker (story-selection/06, AC-03):
+  // whether the picker is currently expanded, plus a friendly error message
+  // when a pick is rejected server-side. Local to the lobby - it never
+  // navigates away or touches room/roster state.
+  const [showFavoritePicker, setShowFavoritePicker] = useState(false);
+  const [favoriteError, setFavoriteError] = useState<string | null>(null);
+
+  const handlePickFavoriteForRound = async (entry: FavoriteEntry) => {
+    setFavoriteError(null);
+    const result = await onPlayFavorite(entry.templateId);
+    // On success the server's RoundStarted broadcast routes everyone into the
+    // round (App's real-time effect navigates away from the lobby), so there
+    // is nothing further to do here. On a rejection, surface the friendly
+    // reason inline rather than leaving the tap a silent no-op.
+    if (!result.ok) {
+      setFavoriteError(result.error ?? 'Could not start that tale - please try again.');
+    }
+  };
 
   // Join toast (AC-02): a short-lived message shown when a NEW name appears in
   // the roster. We diff the previous player-name set against the current one in
@@ -659,6 +709,45 @@ export function Lobby({ room, isHost, onLeave, onStart, notice, onDismissNotice 
             <EmptySlot key={`empty-${index}`} />
           ))}
         </Box>
+
+        {/* Host-only "Play a favorite" inline picker (story-selection/06,
+            AC-03): reveals the SAME <FavoritesList> the standalone Favorites
+            screen uses (no second list implementation), so the host can start
+            a round on one of their own favorited templates without leaving
+            the lobby. Non-hosts never see this panel. */}
+        {isHost && (
+          <Box sx={{ mt: 4 }}>
+            <Button
+              variant="outlined"
+              fullWidth
+              onClick={() => setShowFavoritePicker((expanded) => !expanded)}
+              startIcon={<FontAwesomeIcon icon="star" style={{ width: 18, height: 18 }} />}
+            >
+              {showFavoritePicker ? 'Hide favorites' : 'Play a favorite'}
+            </Button>
+            {showFavoritePicker && (
+              <Box sx={{ mt: 2.5 }}>
+                {favoriteError && (
+                  <Typography
+                    sx={{
+                      fontFamily: '"Nunito", sans-serif',
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      color: 'coral.main',
+                      textAlign: 'center',
+                      mb: 1.5,
+                    }}
+                  >
+                    {favoriteError}
+                  </Typography>
+                )}
+                <FavoritesList onPick={(entry) => void handlePickFavoriteForRound(entry)} />
+              </Box>
+            )}
+          </Box>
+        )}
+
+        {isHost && <BottomActionBarSpacer />}
       </Stack>
 
       {/* Join toast (AC-02): transient, removed after TOAST_DURATION_MS. */}

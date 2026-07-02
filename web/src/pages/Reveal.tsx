@@ -71,7 +71,7 @@ import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Link, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, TaleFeedback } from '../components';
+import { AppBar, BottomActionBar, BottomActionBarSpacer, FavoriteStarButton, TaleFeedback } from '../components';
 import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
 import { buildRevealParts } from './revealParts';
@@ -127,6 +127,15 @@ export interface RevealProps {
    * RoundComplete.tsx instead, so a single round is never asked about twice.
    */
   taleFeedback?: { templateId: string; mode: string };
+  /**
+   * Optional favorite/star slot (story-selection/06, AC-01): when supplied,
+   * renders the shared <FavoriteStarButton> below the celebratory header -
+   * exactly the same solo-only gating pattern as `taleFeedback` above. Solo
+   * passes this (template id + title); group play's transient reveal OMITS
+   * it - the group's star lives on RoundComplete.tsx instead, mirroring
+   * `taleFeedback`'s "never ask about a round twice" rule.
+   */
+  favorite?: { templateId: string; title: string };
 }
 
 // The stone tablet's pulsing glow (docs/design/Reveal.dc.html qsTabletGlow):
@@ -323,6 +332,7 @@ export function Reveal({
   exitAction,
   revealPresentation,
   taleFeedback,
+  favorite,
 }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
@@ -392,6 +402,15 @@ export function Reveal({
       </Box>
 
       <CelebrationHeader />
+
+      {/* Favorite/star toggle (story-selection/06, AC-01): solo-only slot,
+          mirroring `taleFeedback`'s gating pattern - omitted entirely when
+          the caller does not opt in (group play's transient reveal). */}
+      {favorite && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', pb: 0.5 }}>
+          <FavoriteStarButton templateId={favorite.templateId} title={favorite.title} />
+        </Box>
+      )}
 
       {attribution && (
         <Box sx={{ px: 5.5, pb: 1.5, textAlign: 'center' }}>{attribution}</Box>
