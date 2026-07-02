@@ -1,6 +1,6 @@
 # Story: Reaction row
 
-**Feature:** Reveal Delight  ·  **Status:** Not Started  ·  **Issue:** #56
+**Feature:** Reveal Delight  ·  **Status:** Complete  ·  **Issue:** #56
 
 ## Context
 The design pack's Reveal screen spec (`docs/design/README.md` Screens screen 6)

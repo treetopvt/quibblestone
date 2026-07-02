@@ -89,6 +89,12 @@ export interface LobbyProps {
   room: RoomState;
   /** Whether THIS client is the host - gates the Start CTA + host note (AC-05). */
   isHost: boolean;
+  /**
+   * reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown this
+   * round (the previous round's funniest-word winner), or null when no crown applies.
+   * The matching roster tile's Guardian shows the crown overlay.
+   */
+  crownedNickname?: string | null;
   /** Leave the lobby and return Home (the app-bar close action). */
   onLeave: () => void;
   /**
@@ -162,7 +168,7 @@ const toastIn = keyframes`
 `;
 
 /** One present player's tile: Guardian in a carved stone circle, name, role chip. */
-function PlayerTile({ player }: { player: Player }) {
+function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
   const theme = useTheme();
   // The variant is a free string on the wire; the server normalizes it to one of
   // the six known values, so treat it as a GuardianVariant for the avatar.
@@ -191,7 +197,7 @@ function PlayerTile({ player }: { player: Player }) {
           justifyContent: 'center',
         }}
       >
-        <Guardian variant={variant} size={52} />
+        <Guardian variant={variant} size={52} crowned={crowned} />
 
         {player.isHost && (
           <>
@@ -515,6 +521,7 @@ function ShareWidget({ code }: { code: string }) {
 export function Lobby({
   room,
   isHost,
+  crownedNickname,
   onLeave,
   onStart,
   onPlayFavorite,
@@ -707,7 +714,11 @@ export function Lobby({
           {players.map((player) => (
             // ConnectionId is not on the wire (no PII), so a present player is
             // keyed by nickname - unique within a room (enforced at join, AC-06).
-            <PlayerTile key={player.nickname} player={player} />
+            <PlayerTile
+              key={player.nickname}
+              player={player}
+              crowned={!!crownedNickname && player.nickname === crownedNickname}
+            />
           ))}
           {Array.from({ length: emptyCount }, (_, index) => (
             <EmptySlot key={`empty-${index}`} />

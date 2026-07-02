@@ -1,6 +1,6 @@
 # Story: Word-by-word "carving" reveal animation
 
-**Feature:** Reveal Delight  ·  **Status:** Not Started  ·  **Issue:** #57
+**Feature:** Reveal Delight  ·  **Status:** Complete  ·  **Issue:** #57
 
 ## Context
 `the-reveal/feature.md` parked this explicitly for Phase 3: "each word fades/

@@ -70,6 +70,12 @@ export interface WaitingProps {
    * blanks this client skipped.
    */
   myWords: MyWord[];
+  /**
+   * reveal-delight/03 (AC-04): the nickname wearing the Golden Guardian crown this
+   * round (the previous round's funniest-word winner), or null when no crown applies.
+   * The matching player's Guardian in the progress row shows the crown overlay.
+   */
+  crownedNickname?: string | null;
   /** Leave the round and return Home. */
   onLeave: () => void;
 }
@@ -167,14 +173,14 @@ function StatusCard({ doneCount, playerCount }: { doneCount: number; playerCount
 }
 
 /** One player's tile in the progress row: done (full opacity + teal check badge) or writing (dimmed + pulsing sandstone badge). */
-function PlayerTile({ nickname, variant, done }: { nickname: string; variant: string; done: boolean }) {
+function PlayerTile({ nickname, variant, done, crowned }: { nickname: string; variant: string; done: boolean; crowned: boolean }) {
   const theme = useTheme();
   const guardianVariant = toGuardianVariant(variant);
 
   return (
     <Stack alignItems="center" spacing={0.75} sx={{ width: 64 }}>
       <Box sx={{ position: 'relative', opacity: done ? 1 : 0.55 }}>
-        <Guardian variant={guardianVariant} size={54} />
+        <Guardian variant={guardianVariant} size={54} crowned={crowned} />
         {done ? (
           // Done: a solid teal check badge overlay at the tile's corner.
           <Box
@@ -305,7 +311,7 @@ function ReviewMyWords({ myWords, onBack, onLeave }: { myWords: MyWord[]; onBack
   );
 }
 
-export function Waiting({ progress, myWords, onLeave }: WaitingProps) {
+export function Waiting({ progress, myWords, crownedNickname, onLeave }: WaitingProps) {
   // Local, client-side toggle for the read-only "Review my words" view (AC-04) -
   // no server round-trip, no routing change; this screen owns it.
   const [reviewing, setReviewing] = useState(false);
@@ -354,6 +360,7 @@ export function Waiting({ progress, myWords, onLeave }: WaitingProps) {
                 nickname={player.nickname}
                 variant={player.variant}
                 done={player.done}
+                crowned={!!crownedNickname && player.nickname === crownedNickname}
               />
             ))}
           </Stack>
