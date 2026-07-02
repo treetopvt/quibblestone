@@ -62,4 +62,23 @@
     <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.23.0" />
   </ItemGroup>
 
+  <!--
+    ai-cost-gate/01 (server-side AI proxy): the Azure AI Foundry (Azure OpenAI)
+    SDK + the Azure identity library. These are the ONLY two deps this feature
+    adds and both are Azure-native (NOT on CLAUDE.md's deliberately-excluded list;
+    NO Azure Functions). Azure.AI.OpenAI is the transport for the ONE server-side
+    AI seam (api/src/Ai/IAiCompletionClient) - the browser never holds a provider
+    key or calls the model (AC-01). Azure.Identity provides DefaultAzureCredential
+    so the App Service managed identity is the preferred auth path (a Key Vault-
+    backed key is the optional fallback, AC-03). Spike-validated on net10.0 (ADR
+    0001); both restore with NO auth token. With no `Ai:Endpoint` configured the
+    app never constructs the real client - it registers the no-op (see Program.cs,
+    AC-04) - so these refs add a dependency but no runtime coupling until AI is
+    configured.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.9.0-beta.1" />
+    <PackageReference Include="Azure.Identity" Version="1.13.2" />
+  </ItemGroup>
+
 </Project>
