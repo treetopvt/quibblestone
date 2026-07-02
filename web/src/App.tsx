@@ -423,16 +423,17 @@ export default function App() {
   // but travels along on the same call for wire-contract consistency). No new
   // hub method; the existing RoundStarted broadcast routes everyone in on success.
   const handlePlayFavorite = useCallback(
-    // The Lobby passes its CURRENT family-safe toggle (not the sticky value) so a
-    // favorite is gated on exactly what the host sees on that screen (AC-06). The
-    // server re-enforces the gate authoritatively regardless. A favorite is a
-    // "play this EXACT tale" shortcut, so it always plays in Classic Blind
-    // (group-play/05): it is independent of the mode picker (the base experience,
-    // exactly as favorites behaved before modes were selectable), which also avoids
-    // ever picking a bank-less favorite under Word Bank. The lengthPref is moot with
-    // an explicit templateId but travels along for wire-contract consistency.
-    (templateId: string, familySafe: boolean): Promise<StartRoundResult> =>
-      startRound(familySafe, lastLengthPref, 'classic-blind', templateId),
+    // The Lobby passes its CURRENT family-safe toggle + selected mode (not the
+    // sticky values) so a favorite is gated on exactly what the host sees on that
+    // screen (AC-06). A favorite plays in the host's CHOSEN mode (group-play/05):
+    // the server enforces per-mode eligibility for explicit picks too, so a favorite
+    // eligible for the mode (e.g. a word-bank tale under Word Bank, any tale under
+    // Progressive Reveal) plays in it, and one that is not (e.g. a bank-less tale
+    // under Word Bank) is rejected with the friendly inline error the Lobby already
+    // shows - rather than silently downgrading to Classic Blind. The lengthPref is
+    // moot with an explicit templateId but travels along for wire-contract consistency.
+    (templateId: string, familySafe: boolean, modeId: string): Promise<StartRoundResult> =>
+      startRound(familySafe, lastLengthPref, modeId, templateId),
     [startRound, lastLengthPref],
   );
 

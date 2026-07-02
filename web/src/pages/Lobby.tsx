@@ -114,15 +114,17 @@ export interface LobbyProps {
   onStart: (familySafe: boolean, lengthPref: LengthPreference, modeId: string) => void;
   /**
    * Host-only: start a round on an EXACT favorited template (story-selection/06,
-   * AC-03). App wires this to the hub's startRound with the picked template id
-   * as its 4th argument - the SERVER plays that exact template (bypassing
-   * length + freshness, still family-safe-gated first, AC-04/AC-06). Resolves
-   * with the same StartRoundResult envelope as a normal start; on a rejection
-   * the inline picker shows the friendly error rather than silently doing
-   * nothing (mirroring RoundComplete's playAgainError pattern). On success the
-   * server's RoundStarted broadcast routes everyone into the round as usual.
+   * AC-03). App wires this to the hub's startRound with the picked template id -
+   * the SERVER plays that exact template (bypassing length + freshness, still
+   * family-safe-gated first, AC-04/AC-06) in the host's CURRENTLY selected mode
+   * (group-play/05): the server enforces per-mode eligibility for explicit picks,
+   * so a favorite that is not eligible for the mode (e.g. a bank-less tale under
+   * Word Bank) is rejected with the friendly error the inline picker shows, rather
+   * than silently downgrading to Classic Blind. Resolves with the same
+   * StartRoundResult envelope as a normal start; on success the server's
+   * RoundStarted broadcast routes everyone into the round as usual.
    */
-  onPlayFavorite: (templateId: string, familySafe: boolean) => Promise<StartRoundResult>;
+  onPlayFavorite: (templateId: string, familySafe: boolean, modeId: string) => Promise<StartRoundResult>;
   /**
    * Optional notice shown at the top of the lobby - e.g. "a carver left, so the
    * round was reset" when the hub aborts a round mid-collection (group-play
@@ -539,8 +541,9 @@ export function Lobby({
   // Host-only family-safe toggle (group-play/01). Safe by default (AC-04): seeded
   // from FAMILY_SAFE_DEFAULT rather than a hardcoded true, so the safe-by-default
   // posture is one shared token. Its value is passed to onStart -> the hub's
-  // startRound, where the SERVER filters the template catalog by it. Non-hosts
-  // never render or hold this (the toggle + CTA are inside the isHost block).
+  // startRound, where the SERVER filters the template catalog by it. The hook
+  // runs for every client, but non-hosts never render or use this value (the
+  // toggle + CTA are inside the isHost block), so it stays inert for them.
   const [familySafe, setFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
 
   // Host-only mode choice (group-play/05, AC-01): the host picks the mode for the
@@ -577,11 +580,12 @@ export function Lobby({
 
   const handlePickFavoriteForRound = async (entry: FavoriteEntry) => {
     setFavoriteError(null);
-    // Gate the favorite on the host's CURRENT toggle (the one rendered below),
-    // NOT any sticky value: a non-family-safe favorite must never be playable in
-    // a session the host has visibly set to family-safe (AC-06). The server
-    // re-enforces this authoritatively; we send the boolean the host can see.
-    const result = await onPlayFavorite(entry.templateId, familySafe);
+    // Gate the favorite on the host's CURRENT toggle + selected mode (the ones
+    // rendered on this screen), NOT any sticky value: a non-family-safe favorite
+    // must never be playable in a session visibly set to family-safe (AC-06), and
+    // the favorite plays in the mode the host picked (group-play/05). The server
+    // re-enforces both authoritatively; we send what the host can see.
+    const result = await onPlayFavorite(entry.templateId, familySafe, mode.config.id);
     // On success the server's RoundStarted broadcast routes everyone into the
     // round (App's real-time effect navigates away from the lobby), so there
     // is nothing further to do here. On a rejection, surface the friendly

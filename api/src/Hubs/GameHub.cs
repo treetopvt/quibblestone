@@ -694,10 +694,12 @@ public sealed class GameHub : Hub
                 // Unknown id, or a favorite the family-safe gate OR the chosen mode's
                 // eligibility excludes in this game (group-play/05, AC-06 - e.g. a
                 // bank-less favorite under Word Bank) - fail friendly rather than throw
-                // or silently fall back to a random tale the host did not ask for.
+                // or silently fall back to a random tale the host did not ask for. The
+                // message hints at the mode, since a favorite now plays in the host's
+                // chosen mode and the likeliest miss is a mode-ineligible tale.
                 return new StartRoundResultDto(
                     false,
-                    "That favorite tale isn't available in this game right now.");
+                    "That favorite tale isn't available in this mode right now - try another mode or tale.");
             }
 
             chosen = favorite;

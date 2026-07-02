@@ -392,6 +392,26 @@ public class GameHubStartRoundTests
         Assert.Null(room.CurrentRound);
     }
 
+    [Fact]
+    public async Task StartRound_favorite_eligible_for_the_mode_plays_in_that_mode()
+    {
+        // group-play/05: a favorite (explicit templateId) plays in the host's CHOSEN
+        // mode, not a forced Classic Blind - as long as it is eligible for that mode.
+        // A word-bank tale under Word Bank starts that exact tale in Word Bank.
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var bankTale = Catalog.Entries.First(e => e.HasWordBank).Id;
+
+        var result = await hub.StartRound(
+            room.Code, familySafe: true, lengthPref: "any", mode: "word-bank", templateId: bankTale);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(bankTale, room.CurrentRound!.TemplateId);
+        Assert.Equal("word-bank", room.CurrentRound!.Mode);
+    }
+
     // --- Minimal SignalR fakes (copied from GameHubJoinTests.cs / GameHubSubmitWordTests.cs) ---
 
     private sealed class RecordingClients : IHubCallerClients
