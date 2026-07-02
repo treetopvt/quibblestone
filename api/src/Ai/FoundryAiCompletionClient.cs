@@ -93,11 +93,6 @@ public sealed class FoundryAiCompletionClient : IAiCompletionClient
     /// <inheritdoc />
     public async Task<AiCompletionResult> CompleteAsync(AiCompletionRequest request, CancellationToken cancellationToken = default)
     {
-        // Per-call timeout (AC-06) linked to the caller's token (AC-05): whichever
-        // fires first cancels the provider call, and the whole thing fails soft.
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.TimeoutSeconds)));
-
         var messages = new ChatMessage[]
         {
             new SystemChatMessage(request.SystemInstruction),
@@ -121,6 +116,14 @@ public sealed class FoundryAiCompletionClient : IAiCompletionClient
                 _logger.LogDebug("AI completion cancelled by caller before attempt {Attempt}; returning Unavailable.", attempt);
                 return AiCompletionResult.Unavailable;
             }
+
+            // Per-ATTEMPT timeout (AC-06) linked to the caller's token (AC-05): each
+            // attempt gets its OWN fresh budget, so the one bounded retry after a
+            // timeout is a real second try, not an instant no-op on an already-elapsed
+            // timer (Gate-1 review S-1). Whichever token fires first cancels the call
+            // and the whole thing fails soft.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.TimeoutSeconds)));
 
             try
             {

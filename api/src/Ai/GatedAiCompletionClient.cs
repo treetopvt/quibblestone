@@ -93,51 +93,91 @@ public sealed class GatedAiCompletionClient
         CancellationToken cancellationToken = default)
     {
         // Stage 2: quota (story 03). Per-anonymous-session fairness + fail-safe deny.
-        var quota = _quota.TryConsume(instanceId);
+        // A leaf stage is contractually required to FAIL SAFE by RETURNING a deny,
+        // never by throwing (story 03 AC-07 / story 04 AC-09 / story 05 fail-safe).
+        // We defend that invariant here regardless: a stage that throws must still
+        // degrade to the fallback, never leak an unhandled exception into gameplay
+        // ("degrade, never break" - Gate-1 review S-3). Cancellation is cooperative
+        // (a dropped client / shed round) and is allowed to propagate.
+        AiQuotaDecision quota;
+        try
+        {
+            quota = _quota.TryConsume(instanceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI gate: quota stage threw for feature {Feature}; failing safe to fallback.", feature);
+            return AiGateResult.FellBackWith(0);
+        }
         if (!quota.Allowed)
         {
             _logger.LogDebug("AI gate: quota exhausted for feature {Feature}; falling back.", feature);
             return AiGateResult.FellBackWith(quota.Remaining);
         }
 
-        // Stage 3: spend ceiling (story 04). Breaker open => fall back. Fail-safe:
-        // the guard treats an unreadable total as at-ceiling and returns false.
-        if (!await _spendGuard.IsUnderCeilingAsync(cancellationToken).ConfigureAwait(false))
+        try
         {
-            _logger.LogDebug("AI gate: spend ceiling reached for feature {Feature}; falling back.", feature);
+            // Stage 3: spend ceiling (story 04). Breaker open => fall back. Fail-safe:
+            // the guard treats an unreadable total as at-ceiling and returns false.
+            if (!await _spendGuard.IsUnderCeilingAsync(cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogDebug("AI gate: spend ceiling reached for feature {Feature}; falling back.", feature);
+                return AiGateResult.FellBackWith(quota.Remaining);
+            }
+
+            // Stage 4: transport (story 01). Fails soft to Unavailable, never throws.
+            var completion = await _transport.CompleteAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!completion.IsAvailable)
+            {
+                _logger.LogDebug("AI gate: transport unavailable for feature {Feature}; falling back.", feature);
+                return AiGateResult.FellBackWith(quota.Remaining);
+            }
+
+            // Stage 5: spend record + attribution (story 04). Best-effort - a recording
+            // failure NEVER discards the already-successful call and never blocks the
+            // response (metering does not gate gameplay). Guarded in its OWN try so a
+            // record throw cannot fall back a result we already have in hand.
+            try
+            {
+                await _spendGuard.RecordAsync(completion, feature, instanceId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI gate: spend-record stage failed for feature {Feature} (swallowed - metering never gates gameplay).", feature);
+            }
+
+            // Stage 6: moderate output (story 05). Split the completion into items and
+            // vet every one BEFORE returning; too few safe survivors => fall back. The
+            // splitting here is a generic newline split - a real consumer (ai-on-demand-
+            // generation/05) parses its own payload shape, then re-moderates through the
+            // same seam; this keeps the orchestrator generic while proving the ordering.
+            var items = SplitItems(completion.Text);
+            var moderation = await _moderator.ModerateAsync(items, familySafe, cancellationToken).ConfigureAwait(false);
+            if (!moderation.Sufficient)
+            {
+                _logger.LogDebug("AI gate: insufficient safe output for feature {Feature}; falling back.", feature);
+                return AiGateResult.FellBackWith(quota.Remaining);
+            }
+
+            return new AiGateResult(
+                IsAvailable: true,
+                RemainingQuota: quota.Remaining,
+                FellBack: false,
+                Output: moderation.Safe);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cooperative cancellation (dropped client / shed round) - propagate it
+            // rather than masking it as a fallback (AC-05); the caller is already gone.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // A spend-guard, transport, or moderator stage threw despite the fail-safe
+            // contract. Degrade to the graceful fallback rather than break the round.
+            _logger.LogWarning(ex, "AI gate: a gate stage threw for feature {Feature}; failing safe to fallback.", feature);
             return AiGateResult.FellBackWith(quota.Remaining);
         }
-
-        // Stage 4: transport (story 01). Fails soft to Unavailable, never throws.
-        var completion = await _transport.CompleteAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!completion.IsAvailable)
-        {
-            _logger.LogDebug("AI gate: transport unavailable for feature {Feature}; falling back.", feature);
-            return AiGateResult.FellBackWith(quota.Remaining);
-        }
-
-        // Stage 5: spend record + attribution (story 04). Best-effort - a recording
-        // failure never blocks the response (metering does not gate gameplay).
-        await _spendGuard.RecordAsync(completion, feature, instanceId, cancellationToken).ConfigureAwait(false);
-
-        // Stage 6: moderate output (story 05). Split the completion into items and
-        // vet every one BEFORE returning; too few safe survivors => fall back. The
-        // splitting here is a generic newline split - a real consumer (ai-on-demand-
-        // generation/05) parses its own payload shape, then re-moderates through the
-        // same seam; this keeps the orchestrator generic while proving the ordering.
-        var items = SplitItems(completion.Text);
-        var moderation = await _moderator.ModerateAsync(items, familySafe, cancellationToken).ConfigureAwait(false);
-        if (!moderation.Sufficient)
-        {
-            _logger.LogDebug("AI gate: insufficient safe output for feature {Feature}; falling back.", feature);
-            return AiGateResult.FellBackWith(quota.Remaining);
-        }
-
-        return new AiGateResult(
-            IsAvailable: true,
-            RemainingQuota: quota.Remaining,
-            FellBack: false,
-            Output: moderation.Safe);
     }
 
     /// <summary>
