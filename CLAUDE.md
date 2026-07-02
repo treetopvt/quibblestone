@@ -16,6 +16,34 @@ toward the thin vertical slice over breadth.
 
 ---
 
+## 0. Current status and roadmap (read first)
+
+The thin vertical slice is **live and playable**. The running roadmap - what is
+shipped, what is open, and the priority order - lives in
+**[`docs/ROADMAP.md`](docs/ROADMAP.md)** (dated; update it as work lands). Start an
+implementation session by picking an item there, opening its story under
+`docs/features/`, and building it on its own branch.
+
+Snapshot (2026-07-02 - see the roadmap for detail):
+
+- **Shipped:** rooms/roster/avatars, solo + group play, the coral reveal + recap,
+  4 modes **in solo** (mode picker, PR #97), client routing + deep-link seam
+  (PR #102), the freshness loop (length/quick/no-repeats), profanity + family-safe,
+  deployed to dev + auto-UAT.
+- **Notable gap:** group play is **Classic-Blind-only** - `group-play/05` wires the
+  other built modes in (mostly plumbing).
+- **Priority order:** (1) Land the Laugh (`reveal-delight`) + Group modes
+  (`group-play/05`) + the Keep-It-Fresh leftovers (`story-selection/04`, `/06`);
+  (2) observability (`platform-devops/04`, `/05`) then Spread the Word
+  (`session-engine/06`, `keepsake-gallery`); (3) the **AI thin slice** (Fresh Runes
+  jumble) behind the **AI cost gate**; (4) voices / on-demand / packs / charging.
+- **Load-bearing rule for AI:** the moment any AI call ships, it goes behind the
+  cost gate (server-side proxy + entitlement-at-session-start + rate-limit/quota +
+  spend circuit-breaker + moderation). The gate meters compute per session, not
+  identity, so players stay anonymous. See `docs/ROADMAP.md` "The AI cost gate."
+
+---
+
 ## 1. Repository layout
 
 ```
