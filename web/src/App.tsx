@@ -175,7 +175,11 @@ function GroupReveal({
  */
 function JoinRoute(props: Omit<JoinProps, 'initialCode'>) {
   const { code } = useParams();
-  return <Join {...props} initialCode={code ?? ''} />;
+  // `key` on the route param forces Join to remount when the `:code` changes, so
+  // navigating between share links (e.g. /join/AAAA -> /join/BBBB) within the SPA
+  // re-seeds the form. Join uses react-hook-form `defaultValues`, which only apply
+  // on mount, so without this the pre-filled code would go stale (Copilot review).
+  return <Join {...props} initialCode={code ?? ''} key={code ?? 'join'} />;
 }
 
 export default function App() {
@@ -344,9 +348,12 @@ export default function App() {
 
   // Recap element (group-play/04): needs `reveal` (crew + title) and `round`
   // (round.roundNumber for the badge), both still set when the recap shows.
-  // templateId is passed for story-selection/05's quiet thumbs feedback.
+  // templateId is passed for story-selection/05's quiet thumbs feedback. Guarded
+  // on `showRoundComplete` too so a manual hit on /recap during a reveal renders
+  // nothing (the state-authoritative effect then routes correctly), avoiding a
+  // recap flash before the redirect (Copilot review).
   const recapElement =
-    reveal && round && room ? (
+    showRoundComplete && reveal && round && room ? (
       (() => {
         const template = seedLibrary.find((t) => t.id === reveal.templateId);
         const { crew, totalWords } = buildCrew(reveal.words);

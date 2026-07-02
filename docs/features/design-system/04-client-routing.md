@@ -1,6 +1,6 @@
 # Story: Client routing (react-router) - real URLs + deep-link join
 
-**Feature:** Design System & UI Foundation  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #59
+**Feature:** Design System & UI Foundation  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #59
 
 ## Context
 Navigation today is a single `view` state switched in `web/src/App.tsx`, with the
