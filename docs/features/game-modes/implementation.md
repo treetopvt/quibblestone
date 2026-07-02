@@ -153,7 +153,7 @@ extends `FillBlank.tsx` with new OPTIONAL props (regression parity is an explici
   filter-skip). No engine/axis change and no edit to `FillBlank.tsx`/`Reveal.tsx` (jumbled picks submit via the same
   `collectWord` path) - if jumble forces an engine change, that is an abstraction leak, flag it. Deterministic
   reshuffle is free; only the AI path is gated (entitlement at session-creation) and metered (quota, a separate seam
-  from the gate). On-brand label ("Re-carve" / "Fresh runes" / ...), not "shuffle" - a theme/copy decision. Out of
+  from the gate). On-brand label "Fresh runes" (the chosen name), not "shuffle" - a copy/theme token. Out of
   scope: the AI generator itself, a cosmetic reorder of the same words (gm/04's parked shuffle), owner-curated banks,
   and per-player personalization.
 

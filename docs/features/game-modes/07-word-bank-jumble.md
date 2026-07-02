@@ -63,11 +63,11 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
       word is submitted through the same `collectWord` path as any word-bank pick, per
       `game-modes/04` AC-03). If jumble ever forces an engine change, that is an
       abstraction leak - flag it (feature.md Design notes).
-- [ ] AC-07 (on-brand naming): Given the jumble action, then it reads in QuibbleStone's
-      stone/carving voice, not a generic "shuffle" - the exact word is a theme/copy
-      decision (candidates: "Re-carve", "Fresh runes", "New chisels", "Reshuffle the
-      stones"). Whatever is chosen, the label lives with the copy/theme, not hardcoded
-      per instance, and stays kid-legible with a big tap target.
+- [ ] AC-07 (on-brand naming): Given the jumble action, then it is labelled "Fresh
+      runes" (the chosen on-brand name, in QuibbleStone's stone/carving voice - not a
+      generic "shuffle"). The label lives with the copy/theme, not hardcoded per
+      instance, and stays kid-legible with a big tap target (a suitable FontAwesome
+      glyph, e.g. dice/wand/sparkles, registered in `web/src/fontawesome.ts`).
 - [ ] AC-08 (AI cost/abuse seam): Given the AI jumble path, then it notes a rate-limit /
       quota METERING seam (how many AI jumbles remain) as distinct from the entitlement
       gate - so a player cannot spam unbounded AI calls - consistent with
@@ -123,7 +123,7 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
 | AC-04 | integration + code review: curated words skip the filter (as game-modes/04); every AI-sourced word passes the safety filter + family-safe gate before it is shown |
 | AC-05 | code review: deterministic reshuffle has no entitlement gate; the AI jumble is gated once at session-creation, no per-tap check |
 | AC-06 | code review: no new `ModeConfig` axis; no edit to `FillBlank.tsx`/`Reveal.tsx`/`engine.ts`; jumbled picks submit via `collectWord` |
-| AC-07 | manual: the action label reads on-brand (not "shuffle"), kid-legible, big tap target |
+| AC-07 | manual: the action reads "Fresh runes" (on-brand, not "shuffle"), kid-legible, big tap target |
 | AC-08 | code review: an AI-jumble rate-limit/quota metering seam exists, separate from the entitlement gate |
 
 ## Dependencies
