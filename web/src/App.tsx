@@ -71,8 +71,9 @@ import { Reveal } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
 import type { LengthPreference } from './content/length';
-import { DEFAULT_VARIANT } from './components';
+import { DEFAULT_VARIANT, ReactionRow } from './components';
 import { toGuardianVariant, type GuardianVariant } from './components';
+import type { ReactionCounts, ReactionType } from './components';
 import { loadIdentity, saveIdentity } from './identity';
 
 /**
@@ -122,10 +123,14 @@ function buildCrew(words: RevealInfo['words']): {
  */
 function GroupReveal({
   reveal,
+  reactionCounts,
+  onReact,
   onPlayAgain,
   onHome,
 }: {
   reveal: RevealInfo;
+  reactionCounts: ReactionCounts;
+  onReact: (type: ReactionType) => void;
   onPlayAgain: () => void;
   onHome: () => void;
 }) {
@@ -162,6 +167,10 @@ function GroupReveal({
       playAgainLabel="See the round recap"
       onHome={onHome}
       exitAction={{ label: 'Back to home', onClick: onHome }}
+      // reveal-delight/01 (AC-04): counts are server-authoritative (from the hub's
+      // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
+      // so every player in the room sees the tally update in near-real-time.
+      reactionRow={<ReactionRow counts={reactionCounts} onReact={onReact} />}
     />
   );
 }
@@ -191,6 +200,8 @@ export default function App() {
     assignedBlankIndices,
     collectProgress,
     reveal,
+    reactionCounts,
+    react,
     submitWord,
     createRoom,
     joinRoom,
@@ -463,6 +474,8 @@ export default function App() {
           reveal && room ? (
             <GroupReveal
               reveal={reveal}
+              reactionCounts={reactionCounts}
+              onReact={react}
               onPlayAgain={() => setShowRoundComplete(true)}
               onHome={handleGoHome}
             />

@@ -220,6 +220,27 @@ public sealed class Room
     // (mirrors the web module's MAX_HISTORY_SIZE rationale).
     private const int MaxPlayedTemplateHistory = 200;
 
+    // reveal-delight/01 (AC-04): the room-wide reaction tally for the CURRENT
+    // reveal - one counter per allowed reaction type (laugh/heart/wow/star). This
+    // is ephemeral, per-reveal state (Out of Scope: no persistence): it is RESET
+    // to all-zero every time a new round starts (see StartRound). A reaction is a
+    // TYPE ENUM only - no text, no player identity is ever stored here (AC-06, no
+    // PII). Guarded by _gate; mutated only via IncrementReaction / the StartRound
+    // reset. The hub validates the type against the allowed set BEFORE calling
+    // IncrementReaction, so every key here is always one of the four.
+    private readonly Dictionary<string, int> _reactionCounts = NewReactionTally();
+
+    // A fresh all-zero tally over exactly the four allowed reaction types. The
+    // ordinal comparer keeps the (already-lowercased-by-the-hub) keys exact.
+    private static Dictionary<string, int> NewReactionTally() =>
+        new(StringComparer.Ordinal)
+        {
+            ["laugh"] = 0,
+            ["heart"] = 0,
+            ["wow"] = 0,
+            ["star"] = 0,
+        };
+
     private Room(string code)
     {
         Code = code;
@@ -471,6 +492,15 @@ public sealed class Room
                 // group-play/03: a fresh, empty submission store for the new round.
                 Submissions = new Dictionary<int, Submission>(),
             };
+
+            // reveal-delight/01 (AC-04): reactions are ephemeral per reveal, so a
+            // fresh round starts every reaction count back at zero (the web hook
+            // resets its mirror on the matching RoundStarted broadcast).
+            foreach (var type in _reactionCounts.Keys.ToArray())
+            {
+                _reactionCounts[type] = 0;
+            }
+
             LastActiveUtc = DateTimeOffset.UtcNow;
 
             // Hand back a detached copy so callers reading it outside the lock
@@ -562,6 +592,30 @@ public sealed class Room
             {
                 _playedTemplateIds.RemoveAt(0);
             }
+        }
+    }
+
+    /// <summary>
+    /// Increments the room-wide count for one reaction type (reveal-delight/01,
+    /// AC-04) and returns a detached snapshot of the whole tally for the hub to
+    /// broadcast. The caller (the hub's React) MUST have already validated
+    /// <paramref name="reactionType"/> against the four allowed types (and
+    /// lowercased it), so the key is always present - this method never widens the
+    /// tally with an arbitrary client-supplied string. A reaction is a TYPE ENUM
+    /// only: no text and no player identity are recorded (AC-06, no PII). The
+    /// counts are ephemeral per reveal and are reset in <see cref="StartRound"/>.
+    /// Mutated only under the room lock so a concurrent reaction cannot corrupt
+    /// the tally, and the returned copy never aliases the live dictionary.
+    /// </summary>
+    /// <param name="reactionType">The already-validated, lowercased reaction type (one of laugh/heart/wow/star).</param>
+    /// <returns>A detached copy of the updated per-type tally.</returns>
+    public IReadOnlyDictionary<string, int> IncrementReaction(string reactionType)
+    {
+        lock (_gate)
+        {
+            _reactionCounts[reactionType] += 1;
+            LastActiveUtc = DateTimeOffset.UtcNow;
+            return new Dictionary<string, int>(_reactionCounts, StringComparer.Ordinal);
         }
     }
 

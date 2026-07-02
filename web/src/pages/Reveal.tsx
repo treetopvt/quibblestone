@@ -127,6 +127,16 @@ export interface RevealProps {
    * RoundComplete.tsx instead, so a single round is never asked about twice.
    */
   taleFeedback?: { templateId: string; mode: string };
+  /**
+   * Optional reaction-row slot (reveal-delight/01, AC-01): rendered in the bottom
+   * region, ABOVE the pinned <BottomActionBar> and inside the same
+   * BottomActionBarSpacer reservation so it is never hidden behind the bar. Like
+   * `attribution` / `taleFeedback` this keeps Reveal ROOM-AGNOSTIC - it renders
+   * whatever node the caller passes and knows nothing about counts, the hub, or
+   * solo-vs-group. Solo passes <ReactionRow> backed by local state (AC-05); group
+   * play passes one backed by the hub's ReactionCountsChanged broadcast (AC-04).
+   */
+  reactionRow?: ReactNode;
 }
 
 // The stone tablet's pulsing glow (docs/design/Reveal.dc.html qsTabletGlow):
@@ -340,6 +350,7 @@ export function Reveal({
   exitAction,
   revealPresentation,
   taleFeedback,
+  reactionRow,
 }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
@@ -546,6 +557,12 @@ export function Reveal({
         {taleFeedback && (
           <TaleFeedback templateId={taleFeedback.templateId} mode={taleFeedback.mode} />
         )}
+
+        {/* Reaction row (reveal-delight/01, AC-01): sits in the bottom region,
+            ABOVE the pinned action bar, inside the SAME BottomActionBarSpacer
+            reservation below so it is never obscured by the pinned bar. Reveal
+            stays room-agnostic - it renders whatever node the caller passed. */}
+        {reactionRow}
 
         <BottomActionBarSpacer />
       </Stack>
