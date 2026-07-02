@@ -105,8 +105,15 @@ describe('slugFromTaleUrl', () => {
     expect(slugFromTaleUrl('https://app.test/t/SLUG12345678#frag')).toBe('SLUG12345678');
   });
 
-  it('returns an empty string when there is no usable segment', () => {
+  it('accepts a trailing slash on the tale url', () => {
+    expect(slugFromTaleUrl('https://app.test/t/SLUG12345678/')).toBe('SLUG12345678');
+  });
+
+  it('returns an empty string for a url that is not a /t/<slug> link', () => {
     expect(slugFromTaleUrl('')).toBe('');
-    expect(slugFromTaleUrl('https://app.test/')).toBe('app.test');
+    // A bare origin has no /t/<slug> - must NOT return the host (would revoke the
+    // wrong slug). Copilot review PR #130.
+    expect(slugFromTaleUrl('https://app.test/')).toBe('');
+    expect(slugFromTaleUrl('https://app.test/join/MOSS')).toBe('');
   });
 });

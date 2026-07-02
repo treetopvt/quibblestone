@@ -106,12 +106,13 @@ export async function revokeTale(slug: string): Promise<boolean> {
 }
 
 /**
- * Extracts the slug (last path segment) from a `/t/<slug>` tale URL so
- * {@link revokeTale} can target it. Returns an empty string when the URL has no
- * usable trailing segment (the caller then simply has nothing to revoke).
+ * Extracts the slug from a `/t/<slug>` tale URL so {@link revokeTale} can target
+ * it. Matches ONLY the `/t/<slug>` shape (optionally with a trailing slash /
+ * query / hash) - anything else (a bare origin, some other path) returns an empty
+ * string, so a malformed/non-tale URL never makes revoke delete the wrong slug.
  */
 export function slugFromTaleUrl(url: string): string {
-  const withoutQuery = url.split(/[?#]/, 1)[0];
-  const segments = withoutQuery.split('/').filter((segment) => segment.length > 0);
-  return segments.length > 0 ? segments[segments.length - 1] : '';
+  const path = url.split(/[?#]/, 1)[0];
+  const match = path.match(/\/t\/([^/]+)\/?$/);
+  return match ? match[1] : '';
 }

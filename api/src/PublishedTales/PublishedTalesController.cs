@@ -42,8 +42,10 @@
 //  controller consumes no billing key.
 //
 //  ANTI-ABUSE (open write endpoint): sane length caps (title, per-part, part
-//  count, byline) reject oversized input. A per-IP rate limit / quota is a noted
-//  follow-up (no rate-limit infra exists yet) - see the story's open questions.
+//  count, byline) reject oversized input, and the publish action is rate limited
+//  per client IP ([EnableRateLimiting], PublishTalesRateLimit - registered in
+//  Program.cs) so it cannot be flooded to bloat storage. Behind App Service, wire
+//  ForwardedHeaders so the limit sees the real client IP (provisioning runbook).
 //
 //  DISABLED FALLBACK: with NO storage connection string (local dev, CI, a fresh
 //  clone) the injected store is DisabledPublishedTaleStore - publish returns a

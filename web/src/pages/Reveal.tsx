@@ -783,7 +783,11 @@ export function Reveal({
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      // Revoke on the next tick, not synchronously: some browsers (notably
+      // Safari variants) abort the download if the object URL is revoked in the
+      // same turn as the click. The delay still frees the URL, just after the
+      // download has latched onto it (Copilot review, PR #130).
+      setTimeout(() => URL.revokeObjectURL(url), 0);
       // keepsake-gallery/03 (AC-01): persist the SAME rendered blob to the
       // local gallery so it shows up in "Tales we've carved" - fire-and-forget
       // (saveTale swallows its own storage failures), so a gallery-write

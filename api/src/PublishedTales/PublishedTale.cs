@@ -33,10 +33,12 @@ namespace QuibbleStone.Api.PublishedTales;
 /// <summary>
 /// One ordered element of a published tale's body: either a literal run of the
 /// author-authored template text (<see cref="IsWord"/> false) or a single
-/// player-supplied coral word (<see cref="IsWord"/> true). The coral words are
-/// the only free text on the page and the only parts the publish path re-vets
-/// through the safety filter (AC-03); the literal template text is author
-/// content and is safe by construction.
+/// player-supplied coral word (<see cref="IsWord"/> true); <see cref="IsWord"/>
+/// drives only the coral highlight on the page. On publish the endpoint re-vets
+/// EVERY non-empty part - words AND "literal" parts - through the safety filter,
+/// since the endpoint is public and the client's word/literal classification is
+/// not trusted (AC-03, security review CR-001). Author template text is
+/// false-positive-resistant and passes harmlessly.
 /// </summary>
 /// <param name="IsWord">True for a player-supplied coral word, false for literal template text.</param>
 /// <param name="Text">The part's text (a template run, or one already-vetted player word).</param>
