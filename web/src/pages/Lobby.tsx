@@ -25,14 +25,21 @@
 //      whose border pulses purple (AC-03).
 //    - A transient dark bottom-center toast "[Name] pulled up a stone" when a new
 //      player appears (not on the initial roster, not for yourself) (AC-02).
-//    - ONLY when this client is the host: the host-only family-safe toggle
-//      (group-play/01), the host-only story-length choice (story-selection/02,
-//      placed the SAME way - host-only, right beside the family-safe toggle),
-//      the pinned gold "Start game" CTA, and the crown note "You're the host -
-//      start whenever your crew's ready" (AC-05). Non-hosts see none of these.
+//    - ONLY when this client is the host: a grouped round-setup block in the
+//      SCROLLABLE area - the host-only family-safe toggle (group-play/01), the
+//      host-only story-length choice (story-selection/02), and the host-only mode
+//      picker (group-play/05, the shared ModePicker over GROUP_MODES). These moved
+//      OUT of the pinned bar (which reserves only one button's height via its fixed
+//      spacer, so three stacked controls hid behind it) into the scroll flow the
+//      SAME way Solo groups them, so the mode picker's three chunky cards are
+//      actually visible. Only the pinned gold "Start game" CTA (whose tap carries
+//      the chosen mode id) stays in the bar; the crown note "You're the host -
+//      start whenever your crew's ready" (AC-05) sits just above it in the scroll
+//      flow. Non-hosts see none of these.
 //      Tapping "Start game" calls onStart with the host's family-safe toggle
-//      value AND the host's length choice (story-selection/02 AC-02, ONE more
-//      parameter on the SAME onStart/startRound seam, not a new hub method) -
+//      value, length choice, AND chosen mode id (story-selection/02 AC-02 +
+//      group-play/05, more parameters on the SAME onStart/startRound seam, not new
+//      hub methods) -
 //      App wires that to the hub's host-only startRound, which the SERVER
 //      enforces + filters by both (AC-03/AC-04, story-selection/02 AC-03).
 //    - ALSO host-only (story-selection/06, AC-03): a "Play a favorite" toggle
@@ -69,8 +76,11 @@ import { toGuardianVariant } from '../components';
 import { FAMILY_SAFE_DEFAULT } from '../content/familySafe';
 import type { FavoriteEntry } from '../content/favorites';
 import type { LengthPreference } from '../content/length';
+import { seedLibrary } from '../content/seedLibrary';
 import type { Player, RoomState, StartRoundResult } from '../signalr/useGameHub';
 import { FavoritesList } from './Favorites';
+import { ModePicker } from './ModePicker';
+import { DEFAULT_GROUP_MODE, GROUP_MODES, type GameMode } from './modeRegistry';
 
 // Room capacity for Slice 1: the roster tops out at six carvers (AC-01). The
 // grid fills the remaining seats with dashed "waiting..." slots up to this.
@@ -93,14 +103,15 @@ export interface LobbyProps {
   onLeave: () => void;
   /**
    * Start the game (host only, group-play/01). Called with the host's current
-   * family-safe toggle position AND the host's story-length choice
-   * (story-selection/02 AC-02 - one more parameter on the SAME seam, not a new
-   * hub method); App wires this to the hub's host-only startRound (the SERVER
-   * enforces the host check and filters templates by both, authoritative -
-   * AC-03/AC-04, story-selection/02 AC-03). Only ever invoked from the
-   * host-only Start CTA below.
+   * family-safe toggle position, the host's story-length choice
+   * (story-selection/02 AC-02), AND the host's chosen mode id (group-play/05
+   * AC-01/AC-02) - all on the SAME seam, not new hub methods; App wires this to
+   * the hub's host-only startRound (the SERVER enforces the host check, validates
+   * the mode against the offered set, and filters templates by family-safe then
+   * the mode's eligibility, authoritative - AC-03/AC-04/AC-06, story-selection/02
+   * AC-03, group-play/05 AC-02). Only ever invoked from the host-only Start CTA below.
    */
-  onStart: (familySafe: boolean, lengthPref: LengthPreference) => void;
+  onStart: (familySafe: boolean, lengthPref: LengthPreference, modeId: string) => void;
   /**
    * Host-only: start a round on an EXACT favorited template (story-selection/06,
    * AC-03). App wires this to the hub's startRound with the picked template id
@@ -532,6 +543,24 @@ export function Lobby({
   // never render or hold this (the toggle + CTA are inside the isHost block).
   const [familySafe, setFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
 
+  // Host-only mode choice (group-play/05, AC-01): the host picks the mode for the
+  // WHOLE room from the shared GROUP_MODES (Classic Blind, Word Bank, Progressive
+  // Reveal - Progressive Story deferred, AC-04/AC-05). Defaults to Classic Blind so
+  // a lobby that never touches the picker starts a round exactly as before this
+  // story. Its id travels out through onStart alongside familySafe + lengthPref.
+  const [mode, setMode] = useState<GameMode>(DEFAULT_GROUP_MODE);
+
+  // Keep the picker on a startable mode when the family-safe toggle flips: if the
+  // current mode has no eligible template under the new position (e.g. Word Bank
+  // when no family-safe template carries a bank), fall back to Classic Blind
+  // (always eligible), mirroring Solo's handleFamilySafeChange (AC-04).
+  const handleFamilySafeChange = (checked: boolean) => {
+    setFamilySafe(checked);
+    if (mode.eligibleTemplates(seedLibrary, checked).length === 0) {
+      setMode(DEFAULT_GROUP_MODE);
+    }
+  };
+
   // Host-only story-length choice (story-selection/02, AC-02/AC-06): placed the
   // SAME way as the family-safe toggle - host-only, defaulting to 'full' so a
   // lobby that never touches this control starts a round identically to before
@@ -714,6 +743,32 @@ export function Lobby({
           ))}
         </Box>
 
+        {/* Host-only round setup (group-play/01 family-safe, story-selection/02
+            length, group-play/05 mode - all host-only, non-hosts see none of it).
+            These live in the SCROLLABLE area (not the pinned bar) the SAME way Solo
+            groups them: the mode picker needs room for three chunky cards, and the
+            bottom bar's fixed-height spacer only reserves the Start button - so
+            stuffing all three controls into the bar hid them behind it. Grouped
+            here, everything is visible by scrolling and the Start CTA stays pinned. */}
+        {isHost && (
+          <Stack spacing={4} sx={{ mt: 4 }}>
+            {/* Safe by default (AC-04); its value + the length + mode travel out
+                through onStart -> the hub's startRound (server-authoritative). */}
+            <FamilySafeToggle checked={familySafe} onChange={handleFamilySafeChange} />
+            <StoryLengthChoice value={lengthPref} onChange={setLengthPref} />
+            {/* The host chooses the mode for the WHOLE room from the SHARED registry
+                (the same cards Solo uses). Disabled cards + the family-safe fallback
+                keep it on a startable mode (AC-04). */}
+            <ModePicker
+              modes={GROUP_MODES}
+              selectedId={mode.config.id}
+              onSelect={setMode}
+              familySafe={familySafe}
+              label="Choose a mode"
+            />
+          </Stack>
+        )}
+
         {/* Host-only "Play a favorite" inline picker (story-selection/06,
             AC-03): reveals the SAME <FavoritesList> the standalone Favorites
             screen uses (no second list implementation), so the host can start
@@ -755,6 +810,26 @@ export function Lobby({
           </Box>
         )}
 
+        {/* Host reassurance, right above the pinned Start CTA (moved here from the
+            bar along with the setup controls). */}
+        {isHost && (
+          <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.75} sx={{ mt: 4 }}>
+            <Box sx={{ color: 'gold.main', fontSize: 14, display: 'flex' }}>
+              <FontAwesomeIcon icon="crown" />
+            </Box>
+            <Typography
+              sx={{
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 12.5,
+                color: 'text.secondary',
+              }}
+            >
+              You're the host - start whenever your crew's ready
+            </Typography>
+          </Stack>
+        )}
+
         {isHost && <BottomActionBarSpacer />}
       </Stack>
 
@@ -766,7 +841,9 @@ export function Lobby({
             position: 'fixed',
             left: 0,
             right: 0,
-            bottom: isHost ? 168 : 40,
+            // Sit just above the pinned Start CTA for the host (now a short,
+            // single-button bar); a joiner has no bar, so it hugs the bottom.
+            bottom: isHost ? 112 : 40,
             display: 'flex',
             justifyContent: 'center',
             pointerEvents: 'none',
@@ -810,34 +887,18 @@ export function Lobby({
         </Box>
       )}
 
-      {/* Host-only family-safe toggle + story-length choice + Start CTA + crown
-          note (AC-05, AC-04, story-selection/02 AC-02). Non-hosts see none of
-          these. Both controls sit directly above the CTA so the host sets the
-          family-safe + length posture right where they start; their values are
-          handed to onStart -> the hub's startRound (server-authoritative). */}
+      {/* Pinned gold Start CTA (group-play/01, AC-05): host-only, always visible.
+          The round-setup controls (family-safe, length, mode) now live in the
+          scrollable area above (grouped with the crown note) so the bar holds only
+          the action it is designed for - the fixed spacer reserves exactly this
+          button's height. onStart carries the host's family-safe + length + mode
+          to the hub's startRound (server-authoritative). */}
       {isHost && (
         <BottomActionBar>
-          <FamilySafeToggle checked={familySafe} onChange={setFamilySafe} />
-          <StoryLengthChoice value={lengthPref} onChange={setLengthPref} />
-          <Button variant="contained" fullWidth onClick={() => onStart(familySafe, lengthPref)}>
+          <Button variant="contained" fullWidth onClick={() => onStart(familySafe, lengthPref, mode.config.id)}>
             <FontAwesomeIcon icon="play" style={{ width: 22, height: 22 }} />
             Start game
           </Button>
-          <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.75}>
-            <Box sx={{ color: 'gold.main', fontSize: 14, display: 'flex' }}>
-              <FontAwesomeIcon icon="crown" />
-            </Box>
-            <Typography
-              sx={{
-                fontFamily: '"Nunito", sans-serif',
-                fontWeight: 700,
-                fontSize: 12.5,
-                color: 'text.secondary',
-              }}
-            >
-              You're the host - start whenever your crew's ready
-            </Typography>
-          </Stack>
         </BottomActionBar>
       )}
     </Box>

@@ -86,6 +86,7 @@ import { Solo } from './pages/Solo';
 import { Favorites } from './pages/Favorites';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
+import { findMode } from './pages/modeRegistry';
 import { Reveal } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
@@ -141,10 +142,12 @@ function buildCrew(words: RevealInfo['words']): {
  */
 function GroupReveal({
   reveal,
+  mode,
   onPlayAgain,
   onHome,
 }: {
   reveal: RevealInfo;
+  mode: string;
   onPlayAgain: () => void;
   onHome: () => void;
 }) {
@@ -174,6 +177,14 @@ function GroupReveal({
   }));
   const assembled = assemble(template, words);
 
+  // group-play/05 (AC-03): resolve the round's mode to its REVEAL-time surface via
+  // the shared registry. Progressive Reveal supplies a paced, word-by-word body
+  // (each client paces the SAME already-broadcast assembled story locally - no new
+  // hub message); Classic Blind / Word Bank supply none, so Reveal renders its
+  // default coral body. An out-of-sync id falls back to Classic Blind (findMode
+  // never returns undefined), so a drift renders the safe default, never crashes.
+  const revealSurfaces = findMode(mode).revealSurfaces({ template, assembled });
+
   return (
     <Reveal
       assembled={assembled}
@@ -182,6 +193,7 @@ function GroupReveal({
       playAgainLabel="See the round recap"
       onHome={onHome}
       exitAction={{ label: 'Back to home', onClick: onHome }}
+      revealPresentation={revealSurfaces.revealPresentation}
     />
   );
 }
@@ -246,6 +258,12 @@ export default function App() {
   // the same room reuses it without re-picking. Defaults to 'full' (AC-06).
   const [lastLengthPref, setLastLengthPref] = useState<LengthPreference>('full');
 
+  // group-play/05 (AC-07): the host's last chosen MODE, kept sticky the SAME way
+  // as lastFamilySafe / lastLengthPref so "Play another round" reuses it rather
+  // than silently resetting to Classic Blind. Defaults to 'classic-blind' so a
+  // lobby that never touches the mode picker replays exactly as before this story.
+  const [lastModeId, setLastModeId] = useState<string>('classic-blind');
+
   // story-selection/06 (AC-03): a favorite picked on the Favorites screen for
   // the SOLO replay seam - set right before navigating to '/solo', passed
   // through as Solo's `initialFavorite` prop, then cleared once Solo has
@@ -301,10 +319,11 @@ export default function App() {
   // remembering both as sticky for the replay loop (group-play/04,
   // story-selection/02). Used by the Lobby's Start CTA.
   const handleStartRound = useCallback(
-    (familySafe: boolean, lengthPref: LengthPreference) => {
+    (familySafe: boolean, lengthPref: LengthPreference, modeId: string) => {
       setLastFamilySafe(familySafe);
       setLastLengthPref(lengthPref);
-      void startRound(familySafe, lengthPref);
+      setLastModeId(modeId); // group-play/05 (AC-07): remember the mode for the replay loop.
+      void startRound(familySafe, lengthPref, modeId);
     },
     [startRound],
   );
@@ -315,7 +334,10 @@ export default function App() {
   // (resetting showRoundComplete) and routes EVERYONE into the new round.
   const handlePlayAnotherRound = useCallback(async () => {
     setPlayAgainError(null);
-    const result = await startRound(lastFamilySafe, lastLengthPref);
+    // group-play/05 (AC-07): reuse the host's sticky mode so the replay never
+    // silently resets to Classic Blind (the host can still change it next round
+    // via the lobby picker after "Back to lobby").
+    const result = await startRound(lastFamilySafe, lastLengthPref, lastModeId);
     // A rejected start (a carver left so the room is back to one player, or a
     // transient not-connected) resolves ok=false; surface the friendly reason on the
     // recap rather than leaving the gold CTA a silent no-op. On success the server's
@@ -323,7 +345,7 @@ export default function App() {
     if (!result.ok) {
       setPlayAgainError(result.error ?? 'Could not start another round - please try again.');
     }
-  }, [startRound, lastFamilySafe, lastLengthPref]);
+  }, [startRound, lastFamilySafe, lastLengthPref, lastModeId]);
 
   // group-play/04: "Back to lobby" from the Round Complete recap (host). The hub's
   // bare "BackToLobby" broadcast clears round/reveal for EVERYONE so all players land
@@ -403,9 +425,14 @@ export default function App() {
   const handlePlayFavorite = useCallback(
     // The Lobby passes its CURRENT family-safe toggle (not the sticky value) so a
     // favorite is gated on exactly what the host sees on that screen (AC-06). The
-    // server re-enforces the gate authoritatively regardless.
+    // server re-enforces the gate authoritatively regardless. A favorite is a
+    // "play this EXACT tale" shortcut, so it always plays in Classic Blind
+    // (group-play/05): it is independent of the mode picker (the base experience,
+    // exactly as favorites behaved before modes were selectable), which also avoids
+    // ever picking a bank-less favorite under Word Bank. The lengthPref is moot with
+    // an explicit templateId but travels along for wire-contract consistency.
     (templateId: string, familySafe: boolean): Promise<StartRoundResult> =>
-      startRound(familySafe, lastLengthPref, templateId),
+      startRound(familySafe, lastLengthPref, 'classic-blind', templateId),
     [startRound, lastLengthPref],
   );
 
@@ -527,6 +554,7 @@ export default function App() {
               // on a replay - never inherits the previous round's phase or words.
               key={round.roundNumber}
               templateId={round.templateId}
+              mode={round.mode}
               assignedBlankIndices={assignedBlankIndices}
               collectProgress={collectProgress}
               submitWord={submitWord}
@@ -543,6 +571,11 @@ export default function App() {
           reveal && room ? (
             <GroupReveal
               reveal={reveal}
+              // group-play/05: the mode is carried on `round`, which the hook keeps
+              // set THROUGH the reveal (RevealReady does not clear it), so Progressive
+              // Reveal can pace its body here. Fall back to Classic Blind if a race
+              // ever leaves round momentarily null.
+              mode={round?.mode ?? 'classic-blind'}
               onPlayAgain={() => setShowRoundComplete(true)}
               onHome={handleGoHome}
             />

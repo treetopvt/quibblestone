@@ -298,6 +298,100 @@ public class GameHubStartRoundTests
             propertyNames);
     }
 
+    // --- group-play/05: host-chosen mode selection ---
+
+    [Fact]
+    public async Task StartRound_broadcasts_the_hosts_chosen_mode_for_real()
+    {
+        // AC-02: the mode the host sends is the mode the round runs in and is
+        // broadcast on RoundStartedDto.Mode - no longer pinned to "classic-blind".
+        var (hub, registry, clients, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any", mode: "progressive-reveal");
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal("progressive-reveal", room.CurrentRound!.Mode);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task StartRound_defaults_a_null_or_empty_mode_to_classic_blind(string? mode)
+    {
+        // AC-02 (defensive): a null/empty mode (a legacy 3-arg caller or a malformed
+        // client) falls back to Classic Blind - the pre-05 behavior - never fails.
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any", mode: mode);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal("classic-blind", room.CurrentRound!.Mode);
+    }
+
+    [Fact]
+    public async Task StartRound_word_bank_mode_only_ever_picks_a_word_bank_template()
+    {
+        // AC-06: Word Bank draws ONLY templates that carry a curated word bank, so it
+        // can never land on a bank-less tale and render an empty tap list. Repeated
+        // many times so a single lucky draw cannot mask a broken per-mode filter.
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var bankIds = Catalog.Entries.Where(e => e.HasWordBank).Select(e => e.Id).ToHashSet();
+        Assert.True(bankIds.Count > 0); // sanity: the seed catalog has word-bank tales
+
+        for (var i = 0; i < 25; i++)
+        {
+            var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any", mode: "word-bank");
+
+            Assert.True(result.Ok, result.Error);
+            Assert.Equal("word-bank", room.CurrentRound!.Mode);
+            Assert.Contains(room.CurrentRound!.TemplateId, bankIds);
+        }
+    }
+
+    [Theory]
+    [InlineData("progressive-story")]
+    [InlineData("not-a-real-mode")]
+    public async Task StartRound_rejects_an_unoffered_or_unknown_mode_without_starting(string mode)
+    {
+        // AC-05: Progressive Story is deferred (not offered for group), and any unknown
+        // mode is rejected - server-authoritative, so a crafted client cannot start one.
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any", mode: mode);
+
+        Assert.False(result.Ok);
+        Assert.NotNull(result.Error);
+        Assert.Null(room.CurrentRound); // no round began
+    }
+
+    [Fact]
+    public async Task StartRound_word_bank_favorite_that_lacks_a_bank_is_rejected()
+    {
+        // AC-06: an explicit favorite must still be eligible for the chosen mode. A
+        // bank-less tale picked under Word Bank is rejected rather than started into
+        // an empty tap list (the server is authoritative even for the favorite seam).
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var bankless = Catalog.Entries.First(e => !e.HasWordBank).Id;
+
+        var result = await hub.StartRound(
+            room.Code, familySafe: true, lengthPref: "any", mode: "word-bank", templateId: bankless);
+
+        Assert.False(result.Ok);
+        Assert.Null(room.CurrentRound);
+    }
+
     // --- Minimal SignalR fakes (copied from GameHubJoinTests.cs / GameHubSubmitWordTests.cs) ---
 
     private sealed class RecordingClients : IHubCallerClients

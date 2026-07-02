@@ -169,9 +169,11 @@ export interface StartRoundResult {
  * The current round as broadcast by the hub's RoundStarted event
  * (RoundStartedDto). Carries ONLY the selected template's id (the client
  * resolves the full prose/body from its bundled seedLibrary BY ID - the server
- * never ships template content), the mode ("classic-blind" in Slice 1), and the
- * 1-based round number. group-play/02 adds a separate per-connection message for
- * each player's own blank assignments.
+ * never ships template content), the mode the HOST chose (group-play/05: one of
+ * the offered ids, resolved through the shared mode registry to render the right
+ * surfaces - it was pinned to "classic-blind" through Slice 1), and the 1-based
+ * round number. group-play/02 adds a separate per-connection message for each
+ * player's own blank assignments.
  */
 export interface RoundInfo {
   templateId: string;
@@ -316,12 +318,14 @@ export interface UseGameHub {
   submitWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   /**
    * Start a round as the host (group-play/01; story-selection/02 adds the
-   * length parameter; story-selection/06 adds the optional explicit-template
-   * parameter). Invokes the hub's host-only StartRound with the current room
-   * code (from roomCodeRef), the host's family-safe toggle value, the host's
-   * story-length choice, and an OPTIONAL explicit templateId; the SERVER
-   * enforces the host check and filters the template catalog by family-safe
-   * FIRST (authoritative, AC-03/AC-04, story-selection/02 AC-03/AC-05). When
+   * length parameter; group-play/05 adds the host's chosen MODE; story-selection/06
+   * adds the optional explicit-template parameter). Invokes the hub's host-only
+   * StartRound with the current room code (from roomCodeRef), the host's
+   * family-safe toggle value, the host's story-length choice, the host's chosen
+   * mode id, and an OPTIONAL explicit templateId; the SERVER enforces the host
+   * check, validates the mode against the offered set (group-play/05, AC-02/AC-05),
+   * and filters the template catalog by family-safe FIRST then by the mode's
+   * eligibility (authoritative, AC-03/AC-04/AC-06, story-selection/02 AC-03/AC-05). When
    * `templateId` is supplied (the group "play a favorite" seam, story-selection/06
    * AC-03), the server plays that EXACT template instead of a random pick,
    * skipping length + freshness and never re-stamping freshness history
@@ -333,6 +337,7 @@ export interface UseGameHub {
   startRound: (
     familySafe: boolean,
     lengthPref: LengthPreference,
+    mode: string,
     templateId?: string,
   ) => Promise<StartRoundResult>;
   /**
@@ -615,6 +620,7 @@ export function useGameHub(): UseGameHub {
     async (
       familySafe: boolean,
       lengthPref: LengthPreference,
+      mode: string,
       templateId?: string,
     ): Promise<StartRoundResult> => {
       const connection = connectionRef.current;
@@ -651,6 +657,7 @@ export function useGameHub(): UseGameHub {
           code,
           familySafe,
           lengthPref,
+          mode,
           explicitTemplateId,
         );
       } catch {

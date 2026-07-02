@@ -135,7 +135,7 @@ public sealed record StartRoundResultDto(bool Ok, string? Error);
 /// so each client learns only its own prompts.
 /// </summary>
 /// <param name="TemplateId">The selected template's id; the client resolves full content from seedLibrary.</param>
-/// <param name="Mode">The play mode ("classic-blind" for Slice 1).</param>
+/// <param name="Mode">The play mode the HOST chose (group-play/05): one of the offered ids ("classic-blind", "word-bank", "progressive-reveal"). The client resolves it through the shared mode registry to render the right surfaces. Populated for real now - it was pinned to "classic-blind" through Slice 1.</param>
 /// <param name="RoundNumber">1-based round number; group-play/04 increments it on replay (2, 3, ...), and it drives the Round Complete "ROUND N CARVED" badge.</param>
 public sealed record RoundStartedDto(string TemplateId, string Mode, int RoundNumber);
 
@@ -250,10 +250,12 @@ public sealed class GameHub : Hub
         "purple", "gold", "coral", "teal", "sand", "plum",
     };
 
-    // group-play/01: the only mode in Slice 1 (README section 7 - Classic blind
-    // only). The wire value the round carries and the client resolves against its
-    // Classic-blind mode config. A mode PICKER is out of scope here.
-    private const string ClassicBlindMode = "classic-blind";
+    // group-play/05: the mode a group round runs in is now the HOST's choice,
+    // resolved + validated server-side against GameModeCatalog.Offered (Classic
+    // Blind, Word Bank, Progressive Reveal) and broadcast on RoundStartedDto.Mode.
+    // It was pinned to "classic-blind" through Slice 1 (group-play/01) - see
+    // StartRound step 3b. The offered-mode list lives in GameModeCatalog, not here,
+    // so an unoffered mode (e.g. progressive-story) can never leak in.
 
     // story-selection/02: the DEFENSIVE fallback for a malformed lengthPref -
     // null, empty, or any value the client sends that is not one of the three
@@ -570,8 +572,8 @@ public sealed class GameHub : Hub
     ///      instead degrades to the family-safe pool (AC-06 - see Stage 2 below), and
     ///      an exhausted FRESHNESS pool recycles rather than failing (Stage 3 below).
     ///
-    /// On success it sets the room's round state (round 1, the chosen template,
-    /// Classic blind, "prompting") and broadcasts "RoundStarted" to the whole room
+    /// On success it sets the room's round state (round 1, the chosen template, the
+    /// host's chosen mode, "prompting") and broadcasts "RoundStarted" to the whole room
     /// group so EVERY player (host included) transitions into word collection
     /// together in near-real-time (AC-01, AC-02), then returns Ok=true.
     ///
@@ -586,8 +588,9 @@ public sealed class GameHub : Hub
     /// <param name="code">The room's join code (case-insensitive).</param>
     /// <param name="familySafe">The host's family-safe toggle position; the SERVER filters the catalog by it (authoritative, AC-04).</param>
     /// <param name="lengthPref">The host's story-length choice ("quick" | "full" | "any"); the SERVER filters the family-safe pool by it (authoritative, story-selection/02 AC-03). Null/empty/unrecognized falls back to "any".</param>
-    /// <param name="templateId">story-selection/06 (favorite a story, AC-03/AC-04): an OPTIONAL explicit template id. When the host starts a round from their device-local favorites, this names the exact tale to play. It still passes the family-safe gate first (AC-06) but SKIPS the length + freshness stages and is neither re-stamped into the room's played history nor logged to the serve log (a private replay, not a curation signal). Null/empty means the normal random pick (the pre-06 behavior, unchanged).</param>
-    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref, string? templateId = null)
+    /// <param name="mode">group-play/05 (host picks the mode, AC-02): the mode id the host chose. The SERVER validates it against the OFFERED set (<see cref="GameModeCatalog"/>) and rejects an unknown or deferred mode (e.g. progressive-story, AC-05); it then draws the template from THAT mode's eligible pool (Word Bank needs a word bank, AC-06). Null/empty/legacy 3-arg callers default to Classic Blind. The chosen mode is broadcast on <see cref="RoundStartedDto.Mode"/> for real (it was pinned before this story).</param>
+    /// <param name="templateId">story-selection/06 (favorite a story, AC-03/AC-04): an OPTIONAL explicit template id. When the host starts a round from their device-local favorites, this names the exact tale to play. It still passes the family-safe gate first (AC-06) but SKIPS the length + freshness stages and is neither re-stamped into the room's played history nor logged to the serve log (a private replay, not a curation signal). Null/empty means the normal random pick (the pre-06 behavior, unchanged). It must still be eligible for the chosen mode (group-play/05, AC-06).</param>
+    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref, string? mode = null, string? templateId = null)
     {
         // 1. Look up the room first (an unknown / expired code has nothing to start).
         var room = _rooms.TryGet(code);
@@ -616,6 +619,20 @@ public sealed class GameHub : Hub
                 "You need at least one more carver before you can start.");
         }
 
+        // 3b. group-play/05 (AC-02): resolve the host's chosen mode against the
+        //     OFFERED set, server-authoritatively. An unknown or DEFERRED mode
+        //     (progressive-story is known but not offered for group, AC-05) resolves
+        //     to null and is rejected here, so it can never begin a round no matter
+        //     what the client sends. A null/empty/legacy value defaults to Classic
+        //     Blind (the pre-05 behavior), mirroring the length/variant normalizers.
+        var resolvedMode = GameModeCatalog.ResolveOffered(mode);
+        if (resolvedMode is null)
+        {
+            return new StartRoundResultDto(
+                false,
+                "That game mode isn't ready for group play yet - pick another one.");
+        }
+
         // 4. Select a template through the ONE explicit selection pipeline
         //    (story-selection/01 AC-03). The stages run in a FIXED order and the
         //    family-safe gate is ALWAYS FIRST - no path around it:
@@ -637,6 +654,25 @@ public sealed class GameHub : Hub
                 "No tales are available right now - please try again.");
         }
 
+        //    Stage 1b - PER-MODE ELIGIBILITY (group-play/05, AC-06): narrow the
+        //    family-safe pool to the templates the CHOSEN mode may draw. Word Bank
+        //    keeps only templates that carry a curated word bank (so it never picks
+        //    a bank-less tale and renders an empty tap list); every other offered
+        //    mode is bank-agnostic and this is a no-op. The gate lives in
+        //    GameModeCatalog (mirroring the web's offerWordBankTemplates), never
+        //    inlined here. If no template survives (e.g. Word Bank under a family-safe
+        //    round with no safe word-bank tale), fail friendly rather than throw -
+        //    the web disables an unstartable mode, so this is defensive.
+        var modePool = familySafePool
+            .Where(entry => GameModeCatalog.IsEligible(entry, resolvedMode))
+            .ToList();
+        if (modePool.Count == 0)
+        {
+            return new StartRoundResultDto(
+                false,
+                "No tales are available for that mode right now - try another mode.");
+        }
+
         //    story-selection/06 (favorite a story, AC-03/AC-04) - the EXPLICIT
         //    pinned-template branch, the AC-04 bypass seam Stage 3 reserved. When
         //    the host started this round from their device-local favorites,
@@ -651,13 +687,14 @@ public sealed class GameHub : Hub
         TemplateCatalogEntry chosen;
         if (explicitPick)
         {
-            var favorite = familySafePool.FirstOrDefault(
+            var favorite = modePool.FirstOrDefault(
                 entry => string.Equals(entry.Id, templateId, StringComparison.Ordinal));
             if (favorite is null)
             {
-                // Unknown id, or a favorite the family-safe gate excludes in this
-                // game (AC-06) - fail friendly rather than throw or silently fall
-                // back to a random tale the host did not ask for.
+                // Unknown id, or a favorite the family-safe gate OR the chosen mode's
+                // eligibility excludes in this game (group-play/05, AC-06 - e.g. a
+                // bank-less favorite under Word Bank) - fail friendly rather than throw
+                // or silently fall back to a random tale the host did not ask for.
                 return new StartRoundResultDto(
                     false,
                     "That favorite tale isn't available in this game right now.");
@@ -668,14 +705,14 @@ public sealed class GameHub : Hub
         else
         {
             //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
-            //    family-safe pool to the requested length class using the host's
+            //    safety+mode pool to the requested length class using the host's
             //    story-length choice (story-selection/02, AC-03). A malformed/unknown
             //    lengthPref is normalized to "any" first so a crafted client cannot
             //    break the pick. If the requested length would leave an EMPTY pool, the
-            //    selector DEGRADES to the family-safe pool rather than failing the round
+            //    selector DEGRADES to the mode pool rather than failing the round
             //    (a longer story, never an error) - the fallback lives in THIS pipeline,
             //    not in callers.
-            var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
+            var pool = _length.SelectByLengthOrFallback(modePool, NormalizeLengthPreference(lengthPref));
 
             //    Stage 3 - FRESHNESS FILTER + recycle (story-selection/03, AC-02/AC-03):
             //    narrow the safety+length-filtered pool to templates this ROOM has not
@@ -690,13 +727,13 @@ public sealed class GameHub : Hub
             chosen = freshPool[Random.Shared.Next(freshPool.Count)];
         }
 
-        // 5. Set the room's round state (round 1, Classic blind, "prompting") AND
+        // 5. Set the room's round state (round 1, the host's chosen mode, "prompting") AND
         //    compute the round-robin blank assignment (group-play/02). The deal
         //    happens under the room lock inside StartRound, using the template's
         //    BlankCount from the catalog, so it is atomic with the roster snapshot
         //    it deals to (a join/leave racing this lands fully before or after the
         //    deal, never mid-deal). The C# deal MIRRORS web/src/engine/distribute.ts.
-        var round = room.StartRound(chosen.Id, ClassicBlindMode, chosen.BlankCount);
+        var round = room.StartRound(chosen.Id, resolvedMode, chosen.BlankCount);
 
         // 5a. story-selection/03 (AC-02): record the chosen id in THIS room's
         //     played-template history, AFTER the round has opened, so the NEXT
