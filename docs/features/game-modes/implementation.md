@@ -32,7 +32,7 @@ never touches `GameHub.cs`.
 | Word-highlight rendering (reused read-only by 05/06) | `buildRevealParts()` + the coral highlight approach (**the-reveal/01**) | `web/src/pages/revealParts.ts`, `web/src/pages/Reveal.tsx` |
 | Word-bank source data | `Template.wordBank` / `WordBankEntry` (**template-model/01**, already defined, optional field) | `web/src/engine/template.ts` |
 | Word-bank jumble reshuffle (story 07) | a NEW pure helper mirroring `wordBankOffering.ts`; category filter reuses `wordsForCategory` (**gm/04**) | `web/src/content/wordBankJumble.ts` (new) |
-| AI-generated jumble words (story 07, premium) | the live generate + moderate pipeline (**ai-on-demand-generation**) - delegated, NOT re-implemented | `docs/features/ai-on-demand-generation/` |
+| AI-generated jumble words (story 07, AI layer) | the live generate + moderate pipeline (**ai-on-demand-generation/05**) riding the shared **ai-cost-gate** (proxy + quota + breaker + moderation) - delegated, NOT re-implemented; alpha-free (quota/breaker-gated, not entitlement, per ADR 0001) | `docs/features/ai-on-demand-generation/`, `docs/features/ai-cost-gate/` |
 | Family-safe content gating (reused for word-bank offering, 04) | the family-safe rule (**child-safety/02**) | `web/src/content/familySafe.ts` |
 | Styling / theme tokens | the MUI theme (**design-system/01**) | `web/src/theme.ts` |
 | Shared UI contracts | gold-CTA Button, teal spark/category Chips, `BottomActionBar` (**design-system/01**) | `web/src/components/` |
@@ -64,7 +64,8 @@ coordination.
 | 04 word-bank | #53 | `web/src/engine/modes/wordBank.ts`, `web/src/pages/fillblank/WordBankAnswer.tsx`, `web/src/content/wordBankOffering.ts`, tests | gm/03, template-model/01, child-safety/02 | 05, 06 | 2 | medium |
 | 05 progressive-story | TBD | `web/src/engine/modes/progressiveStory.ts`, `web/src/pages/fillblank/StorySoFarContext.tsx`, tests | gm/03, the-reveal/01 | 04, 06 | 2 | medium |
 | 06 progressive-reveal | #52 | `web/src/engine/modes/progressiveReveal.ts`, `web/src/pages/reveal/ProgressiveRevealPresentation.tsx`, tests | gm/03, the-reveal/01 | 04, 05 | 2 | medium |
-| 07 word-bank-jumble | TBD | `web/src/pages/fillblank/WordBankAnswer.tsx` (add jumble control + swappable source), `web/src/content/wordBankJumble.ts` (new, pure reshuffle) + test; AI path delegates to ai-on-demand-generation | gm/04, template-model/01, child-safety/01+02; (AI path) ai-on-demand-generation, billing-entitlements | - | 3 (post-slice) | medium |
+| 07 word-bank-jumble (FREE layer) | #128 | `web/src/pages/fillblank/WordBankAnswer.tsx` (add jumble control + swappable source), `web/src/content/wordBankJumble.ts` (new, pure reshuffle) + test | gm/04, template-model/01, child-safety/01+02 | - | 3 (ships first, no AI) | medium |
+| 07 word-bank-jumble (AI layer) | #128 | the client wiring that prefers the AI source and falls back to the reshuffle (same `WordBankAnswer.tsx` + the jumble result DTO) | 07-free, the whole **ai-cost-gate** (01-05), **ai-on-demand-generation/05** | - | after the gate + ai-on-demand/05 (see ai-cost-gate cross-feature DAG) | medium |
 
 **Concurrency per wave:** Wave 0 (01, 02) is already Complete. **Wave 1 = 03 alone, serial** - it is the only story
 permitted to edit `FillBlank.tsx`/`Reveal.tsx`, and 04/05/06 all depend on the slots it adds (`ModeSurfaces`,

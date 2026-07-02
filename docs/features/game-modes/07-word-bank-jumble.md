@@ -1,6 +1,6 @@
 # Story: Jumble the word bank (fresh options on demand)
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Game Modes Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #128
 
 ## Context
 Word Bank mode (`game-modes/04`) is fun, and the curated word pool is growing
@@ -13,10 +13,15 @@ delight on top" posture:
 
 1. A FREE, deterministic reshuffle that re-samples a different subset from the growing
    curated (already-vetted) pool for that blank's category - instant, offline, always
-   safe.
-2. A PREMIUM AI jumble that generates fresh, on-theme/on-brand words via an AI call -
-   delegated to `ai-on-demand-generation` (the live-generate + moderate pipeline),
-   gated and moderated, because AI output is NOT pre-vetted.
+   safe. **This layer ships FIRST and is fully self-contained** (no AI, no gate) - it
+   is also the fallback the AI cost gate's circuit-breaker degrades to.
+2. An AI jumble that generates fresh, on-theme/on-brand words via an AI call - delegated
+   to `ai-on-demand-generation/05` (the live-generate + moderate pipeline), which rides
+   the shared **AI cost gate** (`ai-cost-gate`), because AI output is NOT pre-vetted and
+   every AI call must be metered/moderated. Per [ADR 0001](../../adr/0001-ai-provider.md)
+   decision C, in ALPHA this AI jumble is free for everyone, gated only by the cost
+   gate's rate-limit/quota + spend circuit-breaker (not by entitlement); the `ai.*`
+   entitlement key is still reserved so real charging attaches later.
 
 This is an enhancement to the Word Bank ANSWER SURFACE, not a new mode/axis - it
 changes the SOURCE of the option list fed to `WordBankAnswer`, and touches neither
@@ -36,12 +41,14 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
       words not just shown; if the pool is exhausted it cycles gracefully (never an
       empty list, and the action soft-disables or wraps rather than erroring). This
       layer needs NO AI, works offline, and is FREE.
-- [ ] AC-03 (premium layer): Given a session entitled to AI generation, then jumble can
-      instead pull a fresh set of AI-generated, on-theme/on-brand words for the category
-      - and this generation is delegated to `ai-on-demand-generation` (it does NOT
-      introduce a second, parallel generate/moderate path here). This is the "bottomless
-      options" delight; the free deterministic reshuffle remains the fallback when AI is
-      unavailable or unentitled.
+- [ ] AC-03 (AI layer): Given a session where AI is available (in alpha: every session,
+      subject to the cost gate's quota/breaker), then jumble can instead pull a fresh set
+      of AI-generated, on-theme/on-brand words for the category - and this generation is
+      delegated to `ai-on-demand-generation/05` riding the `ai-cost-gate` proxy (it does
+      NOT introduce a second, parallel generate/moderate path here). This is the
+      "bottomless options" delight; the free deterministic reshuffle (AC-02) remains the
+      fallback whenever AI is unavailable, quota-exhausted, breaker-open, or (later)
+      unentitled.
 - [ ] AC-04 (child-safety, non-negotiable): Given the source of the words, then:
       curated reshuffle words stay pre-vetted and skip the free-text filter exactly as
       `game-modes/04` AC-04 already documents (they come from vetted lists); BUT
@@ -50,12 +57,15 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
       tappable. This is the ONE place Word Bank's filter-skip does not apply - no
       unfiltered AI word reaches a player, and a family-safe session only ever jumbles up
       family-safe words (README section 6).
-- [ ] AC-05 (entitlement): Given the two layers, then the deterministic reshuffle (AC-02)
-      is FREE (a base delight, no gate); the AI jumble (AC-03) is gated by an entitlement
-      key checked ONCE at session-creation (the `ai.onDemand` seam, or a reserved
-      `ai.wordBank` key - billing-entitlements), never a per-tap or per-jumble check.
-      A free/base session still gets the deterministic reshuffle; only AI generation is
-      gated (README section 3 - the free tier is generous).
+- [ ] AC-05 (entitlement seam, alpha-open): Given the two layers, then the deterministic
+      reshuffle (AC-02) is FREE (a base delight, no gate). The AI jumble (AC-03) rides the
+      `ai-cost-gate`: its entitlement key (`ai.onDemand` / reserved `ai.wordBank`) is
+      evaluated ONCE at session-creation (never per-tap), but per ADR 0001 decision C it is
+      default-UNLOCKED in alpha, so the AI jumble is reachable by every session and its real
+      alpha gate is the cost gate's rate-limit/quota + spend circuit-breaker, not the
+      entitlement. The reserved key means turning on real gating later is a config flip, not
+      a refactor (README section 3 - the free tier is generous; the seam is ready for
+      charging without one now).
 - [ ] AC-06 (no engine/axis leak): Given this story, then it is expressed purely as an
       enhancement to the Word Bank answer surface plus a swappable option SOURCE - it
       adds NO new `ModeConfig` axis value and does NOT edit `FillBlank.tsx`,
@@ -102,15 +112,23 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
   deterministic given its inputs and unit-tested like the other content helpers. Reuse
   the existing category filter (`wordsForCategory`) and the family-safe rule
   (`familySafe.ts` / `offerWordBankTemplates`) rather than inventing a second gate.
-- **AI path is async + delegated.** The AI jumble calls into `ai-on-demand-generation`'s
-  generate + moderate pipeline (provider key in Key Vault, never a `VITE_*` var);
-  AI-returned words route through the server-side `IContentSafetyFilter`
-  (`child-safety/01`) and the family-safe gate BEFORE display (AC-04). Show a brief
-  "carving fresh words..." state; never block the round. (Check the `claude-api` skill
-  before wiring any Anthropic call.)
+- **AI path is async + delegated + gated.** The AI jumble calls into
+  `ai-on-demand-generation/05`, which rides the shared `ai-cost-gate`: the server-side
+  proxy (`ai-cost-gate/01`, provider key in Key Vault, never a `VITE_*` var) makes the
+  Foundry call; the words route through the gate's quota/breaker (`/03`, `/04`) and its
+  moderate-before-display seam (`/05`, composing the existing `IContentSafetyFilter` +
+  family-safe) BEFORE display (AC-04). This story does NOT call Foundry directly and does
+  NOT build its own filter. Show a brief "carving fresh words..." state; never block the
+  round. (The provider/model decision is [ADR 0001](../../adr/0001-ai-provider.md):
+  Azure AI Foundry, gpt-4o-mini.)
+- **Free layer ships first, independently.** AC-01/02/06/07 (the button + deterministic
+  reshuffle) need only the existing Word Bank surface and are a self-contained PR that
+  ships before any AI. AC-03/04/05/08 (the AI layer) are wired once `ai-cost-gate` and
+  `ai-on-demand-generation/05` land (see this feature's `implementation.md` and
+  `ai-cost-gate/implementation.md`'s cross-feature DAG).
 - **Entitlement + metering are decided up front** (AC-05, AC-08): the `ai.*` gate at
-  session-creation (billing-entitlements), metering as a separate quota concern - not
-  per-tap checks.
+  session-creation (reserved, alpha-unlocked - `ai-cost-gate/02`), metering as a separate
+  quota concern (`ai-cost-gate/03`) - not per-tap checks.
 - Every color/spacing token from `web/src/theme.ts`; FontAwesome only
   (`web/src/fontawesome.ts`); TS strict, no `any`.
 
@@ -131,5 +149,6 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
 - template-model/01-template-schema (`WordBankEntry` / `Template.wordBank` - the growing curated pool)
 - child-safety/01-profanity-filter (the safety filter AI-sourced words must pass)
 - child-safety/02-family-safe-toggle (the family-safe gate on the offered words)
-- ai-on-demand-generation (the live generate + moderate pipeline the AI jumble delegates to - see its new "word-bank options" sketch story)
-- billing-entitlements (the `ai.*` capability key gating the AI jumble at session-creation)
+- ai-on-demand-generation/05 (the live generate + moderate pipeline the AI jumble delegates to - now a buildable story)
+- ai-cost-gate (the shared proxy + quota + breaker + moderation the AI jumble rides - `01`-`05`; the free reshuffle is the fallback its breaker degrades to)
+- billing-entitlements/01 (#70) (the `ai.*` capability key reserved at session-creation - alpha-unlocked per ADR 0001)
