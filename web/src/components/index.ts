@@ -76,3 +76,12 @@ export type { StoryLengthChoiceProps } from './StoryLengthChoice';
 // SignalR, no room state, no aggregate shown to players).
 export { TaleFeedback } from './TaleFeedback';
 export type { TaleFeedbackProps } from './TaleFeedback';
+
+// The four-pill reaction row on the Reveal (reveal-delight/01, issue #56): Laugh
+// / Heart / Wow / Star pills with live counts + a floating-icon pop. Room-
+// agnostic - the caller feeds `counts` (solo state or the hub's
+// ReactionCountsChanged broadcast) and handles `onReact` (local bump, or the
+// hub's fire-and-forget React invoke in group play). Unlike TaleFeedback this IS
+// the real-time reaction surface (SignalR-backed room aggregate in group play).
+export { ReactionRow } from './ReactionRow';
+export type { ReactionRowProps, ReactionType, ReactionCounts } from './ReactionRow';
