@@ -85,3 +85,11 @@ export type { TaleFeedbackProps } from './TaleFeedback';
 // the real-time reaction surface (SignalR-backed room aggregate in group play).
 export { ReactionRow } from './ReactionRow';
 export type { ReactionRowProps, ReactionType, ReactionCounts } from './ReactionRow';
+
+// The shared star favorite/unfavorite toggle (story-selection/06, AC-01):
+// rendered on Reveal (solo, via its optional `favorite` prop) and
+// RoundComplete (group, unconditionally - a private per-device action any
+// player may do). Pair with the pure device-local store in
+// web/src/content/favorites.ts.
+export { FavoriteStarButton } from './FavoriteStarButton';
+export type { FavoriteStarButtonProps } from './FavoriteStarButton';

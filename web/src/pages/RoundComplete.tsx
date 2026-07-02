@@ -13,8 +13,10 @@
 //      colors, mirroring Reveal.tsx's pattern - no canvas), and a "Round complete!"
 //      header.
 //    - A stone-tablet keepsake panel (reusing theme.palette.tablet.gradient like
-//      Reveal / Lobby) with the story title, a "{n} words" pill, and a "{n} carvers"
-//      pill.
+//      Reveal / Lobby) with the story title, a favorite/star toggle
+//      (story-selection/06, AC-01 - a PRIVATE per-device action any player may
+//      do, deliberately NOT host-gated, unlike the two CTAs below which move
+//      the whole group), a "{n} words" pill, and a "{n} carvers" pill.
 //    - A "Carved by your crew" row: one 56px Guardian per crew member, with the
 //      player's display name and a teal per-player word-count caption ("2 words" /
 //      "1 word"). The per-player counts SUM to the total blanks in the template
@@ -49,7 +51,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, Guardian, TaleFeedback } from '../components';
+import { AppBar, BottomActionBar, BottomActionBarSpacer, FavoriteStarButton, Guardian, TaleFeedback } from '../components';
 import type { GuardianVariant } from '../components';
 
 /** One crew member's recap tile data (already safety-filtered at join; no PII). */
@@ -371,7 +373,13 @@ export function RoundComplete({
           >
             {title}
           </Typography>
-          <Stack direction="row" justifyContent="center" spacing={1.25} sx={{ mt: 2.5 }}>
+          {/* Favorite/star toggle (story-selection/06, AC-01): a private,
+              per-device action any player may do - NOT host-gated, unlike the
+              Play/Back-to-lobby CTAs below (those move the whole group). */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+            <FavoriteStarButton templateId={templateId} title={title} />
+          </Box>
+          <Stack direction="row" justifyContent="center" spacing={1.25} sx={{ mt: 1.5 }}>
             <StatPill icon="pen-nib" label={wordsLabel} />
             <StatPill icon="users" label={carversLabel} />
           </Stack>

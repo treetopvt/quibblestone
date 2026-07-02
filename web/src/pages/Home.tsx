@@ -34,6 +34,12 @@
 //  so it works even before (or without) the real-time connection coming up.
 //  The Create/Join CTAs above it are untouched by this addition.
 //
+//  Favorites entry (story-selection/06, ADDITIVE): a second clearly-secondary
+//  text link, "My favorites" (a star glyph + label), in the SAME tertiary
+//  treatment as "Or play solo right now" - it calls onFavorites. Also NOT
+//  gated by `disabled`: the Favorites list is device-local (../content/
+//  favorites.ts) and needs no hub connection to read or show.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -52,13 +58,25 @@ export interface HomeProps {
    * `disabled` at the call site below - Solo needs no SignalR connection.
    */
   onPlaySolo: () => void;
+  /**
+   * Open the device-local Favorites list (story-selection/06, AC-02).
+   * Deliberately NOT gated by `disabled` - favorites need no hub connection.
+   */
+  onFavorites: () => void;
   /** True while a create-room request is in flight - disables the CTA to avoid double-taps. */
   creating?: boolean;
   /** True until the real-time connection is ready - the CTAs need the hub to act. */
   disabled?: boolean;
 }
 
-export function Home({ onCreateGame, onJoinGame, onPlaySolo, creating = false, disabled = false }: HomeProps) {
+export function Home({
+  onCreateGame,
+  onJoinGame,
+  onPlaySolo,
+  onFavorites,
+  creating = false,
+  disabled = false,
+}: HomeProps) {
   const theme = useTheme();
 
   return (
@@ -297,6 +315,31 @@ export function Home({ onCreateGame, onJoinGame, onPlaySolo, creating = false, d
             sx={{ fontSize: 13.5, fontWeight: 700, color: 'primary.main' }}
           >
             Or play solo right now
+          </Link>
+        </Box>
+
+        {/* Favorites entry point (story-selection/06, AC-02): the SAME
+            tertiary text-link treatment as "Or play solo right now" above -
+            a star glyph + label, not a Button, so it reads as a clearly
+            secondary affordance beside the primary CTAs. Not gated by
+            `disabled` - favorites need no hub connection. */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={onFavorites}
+            underline="none"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              fontSize: 13.5,
+              fontWeight: 700,
+              color: 'primary.main',
+            }}
+          >
+            <FontAwesomeIcon icon="star" style={{ width: 13, height: 13 }} />
+            My favorites
           </Link>
         </Box>
       </Stack>

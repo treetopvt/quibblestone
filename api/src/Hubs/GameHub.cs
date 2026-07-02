@@ -51,6 +51,7 @@
 //  shape and add joinRoom / roster-broadcast methods here.
 // ----------------------------------------------------------------------------
 
+using Microsoft.ApplicationInsights;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Rooms;
@@ -329,6 +330,7 @@ public sealed class GameHub : Hub
     private readonly LengthContentSelector _length;
     private readonly FreshnessContentSelector _freshness;
     private readonly ITelemetrySink _telemetry;
+    private readonly TelemetryClient _appInsights;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -339,6 +341,7 @@ public sealed class GameHub : Hub
         LengthContentSelector length,
         FreshnessContentSelector freshness,
         ITelemetrySink telemetry,
+        TelemetryClient appInsights,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -354,6 +357,13 @@ public sealed class GameHub : Hub
         // at the END of a group round start (never awaited on the round-start path,
         // AC-03). NoOp locally, Table Storage in a configured environment (AC-05).
         _telemetry = telemetry;
+        // platform-devops/04 (AC-03): the OPERATIONAL App Insights client, used
+        // ONLY to make abnormal disconnects observable in OnDisconnectedAsync
+        // below (hub method exceptions are tracked by HubTelemetryFilter). This is
+        // a DIFFERENT pipeline from _telemetry above (the content serve log): this
+        // one is operational health. No-ops cleanly with no connection string
+        // (AC-05); it is always registered so DI stays simple.
+        _appInsights = appInsights;
         _logger = logger;
     }
 
@@ -522,9 +532,36 @@ public sealed class GameHub : Hub
     /// SignalR auto-removes the connection from its groups on disconnect, so the
     /// broadcast below reaches exactly the remaining members. We always chain to
     /// base.OnDisconnectedAsync so the framework's own teardown still runs.
+    ///
+    /// platform-devops/04 (AC-03): an ABNORMAL close (a non-null exception - a
+    /// dropped network, a transport error, a client crash, as opposed to a clean
+    /// LeaveRoom / tab close where exception is null) is tracked in App Insights so
+    /// a disconnect STORM is diagnosable rather than invisible. The tracked event
+    /// carries NO room code, nickname, or connectionId (AC-04) - just the fact of
+    /// an abnormal close plus the transport exception's type/stack, which the PII
+    /// scrubber's allowed shape permits. No-ops cleanly with no connection string
+    /// configured (AC-05).
     /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        if (exception is not null)
+        {
+            // Abnormal close only (a clean disconnect passes null). Track the
+            // anonymous fact + the transport exception - never any room/player payload.
+            // Wrapped so an unexpected telemetry failure can NEVER interfere with the
+            // disconnect cleanup / room removal below (AC-08 posture, matching
+            // TrackUsageRoundStarted/Completed and FireServeEvent).
+            try
+            {
+                _appInsights.TrackEvent("HubAbnormalDisconnect");
+                _appInsights.TrackException(exception);
+            }
+            catch
+            {
+                // Swallowed: telemetry must never break hub teardown.
+            }
+        }
+
         var room = _rooms.RemoveConnection(Context.ConnectionId);
         await HandlePlayerLeftAsync(room);
 
@@ -601,7 +638,8 @@ public sealed class GameHub : Hub
     /// <param name="code">The room's join code (case-insensitive).</param>
     /// <param name="familySafe">The host's family-safe toggle position; the SERVER filters the catalog by it (authoritative, AC-04).</param>
     /// <param name="lengthPref">The host's story-length choice ("quick" | "full" | "any"); the SERVER filters the family-safe pool by it (authoritative, story-selection/02 AC-03). Null/empty/unrecognized falls back to "any".</param>
-    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref)
+    /// <param name="templateId">story-selection/06 (favorite a story, AC-03/AC-04): an OPTIONAL explicit template id. When the host starts a round from their device-local favorites, this names the exact tale to play. It still passes the family-safe gate first (AC-06) but SKIPS the length + freshness stages and is neither re-stamped into the room's played history nor logged to the serve log (a private replay, not a curation signal). Null/empty means the normal random pick (the pre-06 behavior, unchanged).</param>
+    public async Task<StartRoundResultDto> StartRound(string code, bool familySafe, string lengthPref, string? templateId = null)
     {
         // 1. Look up the room first (an unknown / expired code has nothing to start).
         var room = _rooms.TryGet(code);
@@ -651,34 +689,58 @@ public sealed class GameHub : Hub
                 "No tales are available right now - please try again.");
         }
 
-        //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
-        //    family-safe pool to the requested length class using the host's
-        //    story-length choice (story-selection/02, AC-03). A malformed/unknown
-        //    lengthPref is normalized to "any" first so a crafted client cannot
-        //    break the pick. If the requested length would leave an EMPTY pool, the
-        //    selector DEGRADES to the family-safe pool rather than failing the round
-        //    (a longer story, never an error) - the fallback lives in THIS pipeline,
-        //    not in callers.
-        var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
+        //    story-selection/06 (favorite a story, AC-03/AC-04) - the EXPLICIT
+        //    pinned-template branch, the AC-04 bypass seam Stage 3 reserved. When
+        //    the host started this round from their device-local favorites,
+        //    templateId names the chosen tale directly. It still had to clear the
+        //    family-safe gate FIRST (it must be present in familySafePool above -
+        //    AC-06: a non-family-safe favorite is not playable in a family-safe
+        //    game), but as an EXPLICIT replay it SKIPS the length + freshness stages
+        //    below and, per AC-04, is neither re-stamped into this room's played
+        //    history (Step 5a) NOR logged to the serve log (Step 8) - a star is a
+        //    private device-local shortcut, not a curation signal.
+        var explicitPick = !string.IsNullOrWhiteSpace(templateId);
+        TemplateCatalogEntry chosen;
+        if (explicitPick)
+        {
+            var favorite = familySafePool.FirstOrDefault(
+                entry => string.Equals(entry.Id, templateId, StringComparison.Ordinal));
+            if (favorite is null)
+            {
+                // Unknown id, or a favorite the family-safe gate excludes in this
+                // game (AC-06) - fail friendly rather than throw or silently fall
+                // back to a random tale the host did not ask for.
+                return new StartRoundResultDto(
+                    false,
+                    "That favorite tale isn't available in this game right now.");
+            }
 
-        //    Stage 3 - FRESHNESS FILTER + recycle (story-selection/03, AC-02/AC-03):
-        //    narrow the safety+length-filtered pool to templates this ROOM has not
-        //    yet played (Room.PlayedTemplateIds - ephemeral, in-memory, dies with the
-        //    room, AC-06 - ids only, no PII). If every template in the pool has
-        //    already been played, SelectFreshOrRecycle reopens the WHOLE pool
-        //    (least-recently-played first) rather than failing the round - a repeat
-        //    is a fine outcome once the pool runs dry, an errored round is not.
-        //
-        //    AC-04 bypass seam: this is the RANDOM-pick path. A FUTURE pinned-
-        //    template replay (replay-remix/01, "carve it again") would SKIP both this
-        //    freshness stage AND the room.MarkTemplatePlayed call below (Step 5a) for
-        //    that one round - replaying a favorite must not make the random pick
-        //    "forget" the other templates this room has not seen yet. No such path
-        //    exists today; every current call site here is a fresh random pick.
-        var freshPool = _freshness.SelectFreshOrRecycle(pool, room.PlayedTemplateIds);
+            chosen = favorite;
+        }
+        else
+        {
+            //    Stage 2 - LENGTH FILTER + empty-pool fallback (AC-06): narrow the
+            //    family-safe pool to the requested length class using the host's
+            //    story-length choice (story-selection/02, AC-03). A malformed/unknown
+            //    lengthPref is normalized to "any" first so a crafted client cannot
+            //    break the pick. If the requested length would leave an EMPTY pool, the
+            //    selector DEGRADES to the family-safe pool rather than failing the round
+            //    (a longer story, never an error) - the fallback lives in THIS pipeline,
+            //    not in callers.
+            var pool = _length.SelectByLengthOrFallback(familySafePool, NormalizeLengthPreference(lengthPref));
 
-        //    Stage 4 - RANDOM PICK from the final pool (no picker UI in Slice 1).
-        var chosen = freshPool[Random.Shared.Next(freshPool.Count)];
+            //    Stage 3 - FRESHNESS FILTER + recycle (story-selection/03, AC-02/AC-03):
+            //    narrow the safety+length-filtered pool to templates this ROOM has not
+            //    yet played (Room.PlayedTemplateIds - ephemeral, in-memory, dies with the
+            //    room, AC-06 - ids only, no PII). If every template in the pool has
+            //    already been played, SelectFreshOrRecycle reopens the WHOLE pool
+            //    (least-recently-played first) rather than failing the round - a repeat
+            //    is a fine outcome once the pool runs dry, an errored round is not.
+            var freshPool = _freshness.SelectFreshOrRecycle(pool, room.PlayedTemplateIds);
+
+            //    Stage 4 - RANDOM PICK from the final pool (no picker UI in Slice 1).
+            chosen = freshPool[Random.Shared.Next(freshPool.Count)];
+        }
 
         // 5. Set the room's round state (round 1, Classic blind, "prompting") AND
         //    compute the round-robin blank assignment (group-play/02). The deal
@@ -691,9 +753,13 @@ public sealed class GameHub : Hub
         // 5a. story-selection/03 (AC-02): record the chosen id in THIS room's
         //     played-template history, AFTER the round has opened, so the NEXT
         //     StartRound's freshness stage (Stage 3 above) excludes it. This is
-        //     the RANDOM-pick path's bookkeeping - see the AC-04 bypass seam noted
-        //     at Stage 3: a future pinned-template replay would skip this call.
-        room.MarkTemplatePlayed(chosen.Id);
+        //     the RANDOM-pick path's bookkeeping - an EXPLICIT favorite replay
+        //     (story-selection/06, AC-04) SKIPS it, so replaying a favorite never
+        //     makes the random pick "forget" the other tales this room has not seen.
+        if (!explicitPick)
+        {
+            room.MarkTemplatePlayed(chosen.Id);
+        }
 
         // 6. Broadcast to the WHOLE room group (host included) so all players
         //    transition into word collection together (AC-01, AC-02). Full
@@ -726,19 +792,85 @@ public sealed class GameHub : Hub
         //    facts: the template id, mode, derived length class, player COUNT, the
         //    family-safe flag, and the room's OPAQUE instance id - never a
         //    connectionId, nickname, or the join code (AC-04).
-        var serveEvent = new ServeEvent(
-            TemplateId: chosen.Id,
-            TimestampUtc: DateTimeOffset.UtcNow,
-            Mode: round.Mode,
-            // Derive the length class from the chosen template's blank count using
-            // story-01's single threshold (mirrors the web's classifyLength).
-            LengthClass: chosen.BlankCount <= LengthContentSelector.QuickMaxBlanks ? "quick" : "full",
-            PlayerCount: room.PlayerCount,
-            FamilySafe: familySafe,
-            InstanceId: room.InstanceId);
-        FireServeEvent(serveEvent);
+        //
+        //    An EXPLICIT favorite replay (story-selection/06) is deliberately NOT
+        //    logged here: a star is a private, device-local shortcut, not a curation
+        //    signal, so it must not skew per-template serve counts (feature.md /
+        //    story 06 tech note). Only the RANDOM-pick path emits a serve event.
+        if (!explicitPick)
+        {
+            var serveEvent = new ServeEvent(
+                TemplateId: chosen.Id,
+                TimestampUtc: DateTimeOffset.UtcNow,
+                Mode: round.Mode,
+                // Derive the length class from the chosen template's blank count using
+                // story-01's single threshold (mirrors the web's classifyLength).
+                LengthClass: chosen.BlankCount <= LengthContentSelector.QuickMaxBlanks ? "quick" : "full",
+                PlayerCount: room.PlayerCount,
+                FamilySafe: familySafe,
+                InstanceId: room.InstanceId);
+            FireServeEvent(serveEvent);
+        }
+
+        // 9. platform-devops/05 (anonymous product-usage, AC-01): record ONE
+        //    "RoundStarted" App Insights CUSTOM EVENT with the MODE + group context
+        //    (and an anonymous player COUNT), so "which modes get played, solo vs
+        //    group" is answerable. This rides story 04's App Insights pipeline (the
+        //    injected TelemetryClient + the single PII scrubber) - it is a DIFFERENT
+        //    surface from the serve log above (story-selection/04 -> Table Storage,
+        //    content curation) and from 04's operational health (exceptions /
+        //    disconnects); coordinated, never a third stack (AC-06). Fire-and-forget
+        //    and non-throwing - it NEVER gates the round (AC-08). Anonymous by
+        //    construction: no code / nickname / connectionId (AC-04).
+        TrackUsageRoundStarted(round, room.PlayerCount);
 
         return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// platform-devops/05 (AC-01): fire the anonymous "RoundStarted" product-usage
+    /// custom event on story 04's App Insights pipeline. Fire-and-forget and
+    /// non-throwing exactly like <see cref="FireServeEvent"/>: TrackEvent only
+    /// enqueues (no network on this path) and no-ops cleanly with no connection
+    /// string (AC-08/AC-05), but we still swallow any fault so telemetry can NEVER
+    /// delay or error a round. Carries ONLY the anonymous mode + group context + a
+    /// player count, all routed through the single PII scrubber (AC-04).
+    /// </summary>
+    private void TrackUsageRoundStarted(RoundState round, int playerCount)
+    {
+        try
+        {
+            _appInsights.TrackEvent(
+                UsageTelemetry.RoundStartedEvent,
+                UsageTelemetry.BuildProperties(round.Mode, UsageTelemetry.GroupContext, playerCount: playerCount));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Usage RoundStarted event failed (swallowed - telemetry never gates gameplay).");
+        }
+    }
+
+    /// <summary>
+    /// platform-devops/05 (AC-02): fire the anonymous "RoundCompleted" product-usage
+    /// custom event carrying the round DURATION (ms) as a metric, plus the mode +
+    /// group context. Same fire-and-forget, non-throwing posture as
+    /// <see cref="TrackUsageRoundStarted"/> - it never blocks or faults the reveal
+    /// (AC-08). No per-person identity is attached (AC-04): a duration + a mode +
+    /// the group context only.
+    /// </summary>
+    private void TrackUsageRoundCompleted(RoundState round, double durationMs)
+    {
+        try
+        {
+            _appInsights.TrackEvent(
+                UsageTelemetry.RoundCompletedEvent,
+                UsageTelemetry.BuildProperties(round.Mode, UsageTelemetry.GroupContext),
+                UsageTelemetry.BuildDurationMetric(durationMs));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Usage RoundCompleted event failed (swallowed - telemetry never gates gameplay).");
+        }
     }
 
     /// <summary>
@@ -1090,6 +1222,14 @@ public sealed class GameHub : Hub
             await Clients.Group(room.Code).SendAsync(
                 "RevealReady",
                 new RevealReadyDto(round.TemplateId, words));
+
+            // platform-devops/05 (AC-02): the reveal just fired, so the round is
+            // complete - record the anonymous "RoundCompleted" usage event with the
+            // round DURATION (now minus the round's StartedUtc, captured under the
+            // lock in StartRound). Fire-and-forget on 04's App Insights pipeline;
+            // never blocks or faults the reveal (AC-08), no per-person identity (AC-04).
+            var durationMs = (DateTimeOffset.UtcNow - round.StartedUtc).TotalMilliseconds;
+            TrackUsageRoundCompleted(round, durationMs);
         }
 
         return new SubmitWordResultDto(true, null);

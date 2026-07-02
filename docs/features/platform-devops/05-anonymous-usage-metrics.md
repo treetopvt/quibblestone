@@ -1,6 +1,6 @@
 # Story: Anonymous product-usage metrics (game types, session length, approximate reach)
 
-**Feature:** Platform & DevOps  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Platform & DevOps  ·  **Status:** In Review  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #107
 
 ## Context
 Beyond "is it broken" (`platform-devops/04`), the product question is "how is the toy

@@ -77,6 +77,18 @@
 //  lengthPref). The server enforces it authoritatively (same posture as the
 //  family-safe gate) - keep this WIRE CONTRACT in sync BY HAND with
 //  api/src/Hubs/GameHub.cs's StartRound signature.
+//
+//  story-selection/06 adds ONE MORE OPTIONAL PARAMETER to the SAME startRound
+//  invoke (still never a new hub method): an explicit `templateId` for the
+//  "play a favorite" seam (AC-03/AC-04). When supplied and non-empty, the
+//  server plays that EXACT template, bypassing the length + freshness stages
+//  entirely (a favorite is an explicit replay, not a random pick, and never
+//  re-stamps freshness history) while STILL running the family-safe gate FIRST
+//  (AC-06) - so a favorite that is not family-safe is still rejected in a
+//  family-safe session. The wire contract is now StartRound(code, familySafe,
+//  lengthPref, templateId). Omitting it (or passing undefined, which this hook
+//  maps to `null` on the wire) reproduces today's random-pick behavior exactly
+//  - every existing 3-argument caller keeps working unchanged.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -406,16 +418,25 @@ export interface UseGameHub {
   submitWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   /**
    * Start a round as the host (group-play/01; story-selection/02 adds the
-   * length parameter). Invokes the hub's host-only StartRound with the current
-   * room code (from roomCodeRef), the host's family-safe toggle value, and the
-   * host's story-length choice; the SERVER enforces the host check and filters
-   * the template catalog by both - family-safe FIRST, then length (authoritative,
-   * AC-03/AC-04, story-selection/02 AC-03/AC-05). Resolves with the
+   * length parameter; story-selection/06 adds the optional explicit-template
+   * parameter). Invokes the hub's host-only StartRound with the current room
+   * code (from roomCodeRef), the host's family-safe toggle value, the host's
+   * story-length choice, and an OPTIONAL explicit templateId; the SERVER
+   * enforces the host check and filters the template catalog by family-safe
+   * FIRST (authoritative, AC-03/AC-04, story-selection/02 AC-03/AC-05). When
+   * `templateId` is supplied (the group "play a favorite" seam, story-selection/06
+   * AC-03), the server plays that EXACT template instead of a random pick,
+   * skipping length + freshness and never re-stamping freshness history
+   * (AC-04) - family-safe still gates it first (AC-06). Resolves with the
    * StartRoundResult envelope (ok + friendly error). Returns a not-connected
    * error envelope if the hub is not ready. Does NOT set `round` itself - the
    * server's RoundStarted broadcast drives that for everyone, including the host.
    */
-  startRound: (familySafe: boolean, lengthPref: LengthPreference) => Promise<StartRoundResult>;
+  startRound: (
+    familySafe: boolean,
+    lengthPref: LengthPreference,
+    templateId?: string,
+  ) => Promise<StartRoundResult>;
   /**
    * Return the whole group to the lobby as the host (group-play/04, AC-05).
    * Invokes the hub's host-only BackToLobby with the current room code (from
@@ -780,7 +801,11 @@ export function useGameHub(): UseGameHub {
   );
 
   const startRound = useCallback(
-    async (familySafe: boolean, lengthPref: LengthPreference): Promise<StartRoundResult> => {
+    async (
+      familySafe: boolean,
+      lengthPref: LengthPreference,
+      templateId?: string,
+    ): Promise<StartRoundResult> => {
       const connection = connectionRef.current;
       const code = roomCodeRef.current;
       if (
@@ -795,11 +820,28 @@ export function useGameHub(): UseGameHub {
       }
       // The server enforces the host check and filters the catalog by familySafe
       // (family-safe FIRST) then lengthPref (story-selection/02 AC-03/AC-05,
-      // AC-04). We do NOT set `round` here on success: the hub's RoundStarted
-      // broadcast drives the transition for EVERYONE (host included) so all
-      // players move together (AC-01, AC-02).
+      // AC-04) - UNLESS an explicit templateId is supplied (story-selection/06,
+      // AC-03/AC-04), in which case the server plays that exact template,
+      // bypassing length + freshness, still gating on familySafe first (AC-06).
+      // `templateId ?? null` maps an omitted 4th argument to the wire's `null`
+      // (the hub's optional string parameter), so every existing 3-argument
+      // caller reproduces today's random-pick behavior unchanged. We do NOT set
+      // `round` here on success: the hub's RoundStarted broadcast drives the
+      // transition for EVERYONE (host included) so all players move together
+      // (AC-01, AC-02).
       try {
-        return await connection.invoke<StartRoundResult>('StartRound', code, familySafe, lengthPref);
+        // Normalize the explicit-pick id client-side: an empty or whitespace-only
+        // string is NOT an explicit pick, so send null rather than passing it over
+        // the wire (the server treats blank as "no pick" too, but normalizing here
+        // avoids ever sending an ambiguous value from a corrupted favorite id).
+        const explicitTemplateId = templateId && templateId.trim().length > 0 ? templateId : null;
+        return await connection.invoke<StartRoundResult>(
+          'StartRound',
+          code,
+          familySafe,
+          lengthPref,
+          explicitTemplateId,
+        );
       } catch {
         // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
         return { ok: false, error: "Something went off - give it a moment and try again." };
