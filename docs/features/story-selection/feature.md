@@ -26,7 +26,7 @@ the smallest data that keeps content fresh and curatable.
 | 02 | #92 | Quick story option (solo + group) | In Progress |
 | 03 | #93 | Freshness rotation: no repeats until the pool runs dry | In Progress |
 | 04 | #94 | Story delivery metrics (the anonymous serve log) | In Progress |
-| 05 | #95 | Like / dislike a tale (content feedback) | Not Started |
+| 05 | #95 | Like / dislike a tale (content feedback) | In Progress |
 
 ## Dependencies
 - template-model (the seed library + tags this feature selects over; the
