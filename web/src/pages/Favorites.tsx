@@ -88,15 +88,13 @@ function EmptyFavorites() {
  * no longer in the library still shows its cached title with no hint rather
  * than crashing (a library drift is handled gracefully, not fatally).
  */
-function FavoriteRow({
-  entry,
-  onPick,
-  onRemove,
-}: {
+interface FavoriteRowProps {
   entry: FavoriteEntry;
   onPick: () => void;
   onRemove: () => void;
-}) {
+}
+
+function FavoriteRow({ entry, onPick, onRemove }: FavoriteRowProps) {
   const theme = useTheme();
   const template = seedLibrary.find((t) => t.id === entry.templateId);
   const lengthHint = template ? (classifyLength(template) === 'quick' ? 'Quick tale' : 'Full tale') : null;

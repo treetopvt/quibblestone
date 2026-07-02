@@ -111,7 +111,7 @@ export interface LobbyProps {
    * nothing (mirroring RoundComplete's playAgainError pattern). On success the
    * server's RoundStarted broadcast routes everyone into the round as usual.
    */
-  onPlayFavorite: (templateId: string) => Promise<StartRoundResult>;
+  onPlayFavorite: (templateId: string, familySafe: boolean) => Promise<StartRoundResult>;
   /**
    * Optional notice shown at the top of the lobby - e.g. "a carver left, so the
    * round was reset" when the hub aborts a round mid-collection (group-play
@@ -548,7 +548,11 @@ export function Lobby({
 
   const handlePickFavoriteForRound = async (entry: FavoriteEntry) => {
     setFavoriteError(null);
-    const result = await onPlayFavorite(entry.templateId);
+    // Gate the favorite on the host's CURRENT toggle (the one rendered below),
+    // NOT any sticky value: a non-family-safe favorite must never be playable in
+    // a session the host has visibly set to family-safe (AC-06). The server
+    // re-enforces this authoritatively; we send the boolean the host can see.
+    const result = await onPlayFavorite(entry.templateId, familySafe);
     // On success the server's RoundStarted broadcast routes everyone into the
     // round (App's real-time effect navigates away from the lobby), so there
     // is nothing further to do here. On a rejection, surface the friendly
@@ -720,7 +724,11 @@ export function Lobby({
             <Button
               variant="outlined"
               fullWidth
-              onClick={() => setShowFavoritePicker((expanded) => !expanded)}
+              onClick={() => {
+                // Clear any stale rejection so it does not linger on reopen (S-001).
+                setFavoriteError(null);
+                setShowFavoritePicker((expanded) => !expanded);
+              }}
               startIcon={<FontAwesomeIcon icon="star" style={{ width: 18, height: 18 }} />}
             >
               {showFavoritePicker ? 'Hide favorites' : 'Play a favorite'}

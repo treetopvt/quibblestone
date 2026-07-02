@@ -65,7 +65,7 @@
 //      favorite (Solo only ever consumes `initialFavorite` once per mount).
 //    - GROUP: the host picks from an INLINE favorites picker on Lobby.tsx
 //      (no navigation, room state stays put); `handlePlayFavorite` invokes the
-//      hub's startRound with the sticky `lastFamilySafe` / `lastLengthPref`
+//      hub's startRound with the Lobby's CURRENT family-safe toggle (AC-06)
 //      plus the picked `templateId` - the server plays that EXACT template,
 //      still family-safe-gated first (AC-06), and the existing RoundStarted
 //      broadcast routes everyone into the round exactly like any other start.
@@ -401,8 +401,12 @@ export default function App() {
   // but travels along on the same call for wire-contract consistency). No new
   // hub method; the existing RoundStarted broadcast routes everyone in on success.
   const handlePlayFavorite = useCallback(
-    (templateId: string): Promise<StartRoundResult> => startRound(lastFamilySafe, lastLengthPref, templateId),
-    [startRound, lastFamilySafe, lastLengthPref],
+    // The Lobby passes its CURRENT family-safe toggle (not the sticky value) so a
+    // favorite is gated on exactly what the host sees on that screen (AC-06). The
+    // server re-enforces the gate authoritatively regardless.
+    (templateId: string, familySafe: boolean): Promise<StartRoundResult> =>
+      startRound(familySafe, lastLengthPref, templateId),
+    [startRound, lastLengthPref],
   );
 
   // Leave the current flow and return Home (drops the room; rooms are ephemeral and
