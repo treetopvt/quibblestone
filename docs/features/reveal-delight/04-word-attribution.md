@@ -1,6 +1,6 @@
 # Story: Show who submitted each word on the reveal (group play)
 
-**Feature:** Reveal Delight  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Reveal Delight  ·  **Status:** Not Started  ·  **Issue:** #105
 
 ## Context
 Half the laugh in group play is finding out WHO wrote the word that broke the room.
