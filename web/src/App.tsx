@@ -67,7 +67,7 @@ import { HostSetup } from './pages/HostSetup';
 import { Lobby } from './pages/Lobby';
 import { Solo } from './pages/Solo';
 import { GroupRound } from './pages/GroupRound';
-import { Reveal } from './pages/Reveal';
+import { Reveal, type WordAttribution } from './pages/Reveal';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
 import type { LengthPreference } from './content/length';
@@ -110,6 +110,31 @@ function buildCrew(words: RevealInfo['words']): {
     }
   }
   return { crew: [...byNickname.values()], totalWords };
+}
+
+/**
+ * Build the Reveal's `wordAttribution.contributorFor` lookup (reveal-delight/04,
+ * AC-01/AC-03/AC-06) from the SAME reveal payload `buildCrew` above already reads -
+ * no extra server round-trip, no roster lookup, no second data source. Each reveal
+ * word already carries its own nickname + Guardian variant, so this just indexes
+ * them by nickname (which is exactly the `playerSessionId` GroupReveal's `assemble()`
+ * call below uses, per the SubmittedWord mapping). An unfilled blank has an empty
+ * nickname and is never indexed, so `contributorFor` naturally returns `undefined`
+ * for it (AC-03) - and for a `playerSessionId` this reveal never carried a nickname
+ * for (e.g. a contributor whose entry never resolved), matching this story's
+ * graceful "no name" fallback rather than a crash.
+ */
+export function buildContributorLookup(words: RevealInfo['words']): WordAttribution {
+  const byNickname = new Map<string, { nickname: string; variant: GuardianVariant }>();
+  for (const w of words) {
+    if (w.nickname === '') continue;
+    if (!byNickname.has(w.nickname)) {
+      byNickname.set(w.nickname, { nickname: w.nickname, variant: toGuardianVariant(w.variant) });
+    }
+  }
+  return {
+    contributorFor: (playerSessionId: string) => byNickname.get(playerSessionId),
+  };
 }
 
 /**
@@ -177,6 +202,9 @@ function GroupReveal({
     word: w.word,
   }));
   const assembled = assemble(template, words);
+  // reveal-delight/04 (AC-01/AC-06): derived purely from this reveal payload -
+  // no new hub message, no second connection (see buildContributorLookup doc).
+  const wordAttribution = buildContributorLookup(reveal.words);
 
   return (
     <Reveal
@@ -186,6 +214,7 @@ function GroupReveal({
       playAgainLabel="See the round recap"
       onHome={onHome}
       exitAction={{ label: 'Back to home', onClick: onHome }}
+      wordAttribution={wordAttribution}
       // reveal-delight/01 (AC-04): counts are server-authoritative (from the hub's
       // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
       // so every player in the room sees the tally update in near-real-time.
