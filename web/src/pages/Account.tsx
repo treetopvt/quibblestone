@@ -69,20 +69,17 @@ interface AccountForm {
 /** A basic, forgiving email shape check (client-side friendliness only - the server is authoritative). */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** A soft, tablet-style info panel used for the confirmation / outcome states. */
-function OutcomePanel({
-  icon,
-  tint,
-  title,
-  body,
-  children,
-}: {
+/** Props for {@link OutcomePanel}. */
+interface OutcomePanelProps {
   icon: 'envelope' | 'circle-check' | 'shield-heart';
   tint: string;
   title: string;
   body: string;
   children?: React.ReactNode;
-}) {
+}
+
+/** A soft, tablet-style info panel used for the confirmation / outcome states. */
+function OutcomePanel({ icon, tint, title, body, children }: OutcomePanelProps) {
   const theme = useTheme();
   return (
     <Stack

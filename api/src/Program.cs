@@ -423,13 +423,23 @@ builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
 // Data Protection, used by AccountsController to mint the SHORT-LIVED, purchaser-
 // scoped sign-in credential (a time-limited protector under a dedicated purpose
 // string - see AccountsController.PurchaserSessionPurpose). This is built INTO
-// the framework, so it adds NO NuGet dependency and NO hand-rolled crypto; the
-// protection key is framework-managed (Key Vault-backed when deployed, NEVER a
-// committed literal or a VITE_* var, AC-06). Registered here beside the account /
-// token domain services it serves. CRITICAL boundary (AC-03/AC-04): this
-// credential is consumed ONLY by the purchaser sign-in / restore surface - it is
-// never required by, nor checked in, GameHub or any player-facing endpoint, so
-// free play stays 100% login-free.
+// the framework, so it adds NO NuGet dependency and NO hand-rolled crypto, and no
+// key material is ever a committed literal or a VITE_* var (AC-06).
+//
+// KEY RING SCOPE (deliberately the framework DEFAULT for now): this bare
+// registration uses the default key ring (local key store), which is NOT shared
+// across App Service scale-out and does NOT survive an app restart. That is fine
+// for this thin slice - the credential TTL is short (12h) and re-signing-in is a
+// cheap magic link, and the consumer (billing-entitlements/05) is still future.
+// A durable, shared key ring (`.PersistKeysToAzureBlobStorage(...)` +
+// `.ProtectKeysWithAzureKeyVault(...)`) is a FOLLOW-UP for the billing-entitlements
+// deployment, alongside its Stripe / Key Vault wiring - NOT pulled in now so this
+// slice takes on no unvalidatable Azure config.
+//
+// Registered here beside the account / token domain services it serves. CRITICAL
+// boundary (AC-03/AC-04): this credential is consumed ONLY by the purchaser
+// sign-in / restore surface - it is never required by, nor checked in, GameHub or
+// any player-facing endpoint, so free play stays 100% login-free.
 builder.Services.AddDataProtection();
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):

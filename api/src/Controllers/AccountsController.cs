@@ -46,9 +46,12 @@
 //  received the emailed link, so controls that inbox); a valid-token-but-no-
 //  account holder is guided to purchase (AC-05 "guided, not left ambiguous").
 //
-//  SECRETS (AC-06): the token signing key and this credential's protection key
-//  are framework-managed / Key Vault-backed - NEVER a committed literal, NEVER a
-//  VITE_* var. The token and the credential are NEVER logged.
+//  SECRETS (AC-06): the token signing key comes from config / Key Vault
+//  (accounts-identity/02), and this credential's protection key is framework-
+//  managed by Data Protection - NEVER a committed literal, NEVER a VITE_* var. The
+//  token and the credential are NEVER logged. (The Data Protection key ring today
+//  is the framework default; a durable, Key Vault-backed shared key ring is a
+//  billing-entitlements deployment follow-up - see the Program.cs registration.)
 //
 //  DAY ONE (AC-06): with zero accounts anywhere, every verify simply resolves to
 //  the friendly "no account - purchase to get started" outcome without erroring;
@@ -254,9 +257,11 @@ public sealed class AccountsController : ControllerBase
     /// Protects the purchaser-session payload (email + issued-at) with a time-
     /// limited data protector scoped to <see cref="PurchaserSessionPurpose"/>,
     /// expiring after <see cref="CredentialLifetime"/>. The signing/encryption key
-    /// is framework-managed (Key Vault-backed when deployed) - never a committed
-    /// literal (AC-06). Callers (billing-entitlements/05) unprotect with a
-    /// protector created for the SAME purpose to recover the purchaser email.
+    /// is framework-managed by Data Protection - never a committed literal (AC-06).
+    /// (Today the key ring is the framework default; a durable, Key Vault-backed
+    /// shared key ring is a billing-entitlements deployment follow-up.) Callers
+    /// (billing-entitlements/05) unprotect with a protector created for the SAME
+    /// purpose to recover the purchaser email.
     /// </summary>
     private string ProtectCredential(string purchaserEmail)
     {
