@@ -183,6 +183,36 @@ public class SignInTests
         Assert.Equal("buyer@example.com", email);
     }
 
+    // ---- input-length guards (Copilot review) -----------------------------------
+
+    [Fact]
+    public void RequestLink_OverLengthEmail_ReturnsNeutralShapeAndIssuesNoToken()
+    {
+        // Dev env so a token WOULD normally be echoed - proving the over-length
+        // path bails BEFORE issuing one (no oversized token, no oversized echo).
+        var harness = NewHarness(development: true);
+        var tooLong = new string('a', AccountsController.MaxEmailLength) + "@example.com";
+
+        var result = RequestLink(harness, tooLong);
+
+        // Same neutral message as any other submit (no enumeration tell), and no
+        // token was minted for the over-length input.
+        Assert.Null(result.DevToken);
+        Assert.Contains("sign-in link", result.Message);
+    }
+
+    [Fact]
+    public async Task Verify_OverLengthToken_ReturnsLinkInvalidWithoutTouchingAnAccount()
+    {
+        var harness = NewHarness();
+        var oversized = new string('x', AccountsController.MaxTokenLength + 1);
+
+        var result = await Verify(harness, oversized);
+
+        Assert.Equal("link-invalid", result.Outcome);
+        Assert.Null(result.Credential);
+    }
+
     // ---- helpers ----------------------------------------------------------------
 
     private static SignInRequestResult RequestLink(Harness harness, string email)

@@ -116,6 +116,24 @@ public sealed class AccountsController : ControllerBase
     /// <summary>The HttpOnly cookie name mirroring the credential for a same-site production deployment.</summary>
     public const string CredentialCookieName = "qs_purchaser";
 
+    /// <summary>
+    /// Max accepted email length on the OPEN request endpoint (Copilot review). The
+    /// RFC 5321 ceiling is 254; anything longer is not a real address and would only
+    /// bloat the signed token (and, in dev, the echoed response). An over-length
+    /// email returns the SAME neutral shape (no enumeration tell) with no token
+    /// issued, failing fast before any HMAC work.
+    /// </summary>
+    public const int MaxEmailLength = 254;
+
+    /// <summary>
+    /// Max accepted magic-link token length on the OPEN verify endpoint (Copilot
+    /// review). A legitimate token is well under this (v1 payload over a &lt;=254
+    /// char email + signature); the generous cap simply lets an oversized payload
+    /// fail fast to the neutral "link-invalid" outcome rather than doing avoidable
+    /// HMAC CPU/allocation on attacker-controlled bulk input.
+    /// </summary>
+    public const int MaxTokenLength = 1024;
+
     private readonly IMagicLinkTokenService _tokens;
     private readonly IAccountStore _accounts;
     private readonly IDataProtectionProvider _dataProtection;
@@ -155,11 +173,13 @@ public sealed class AccountsController : ControllerBase
             "If that email has a QuibbleStone purchase, a sign-in link is on its way. Check your inbox.";
 
         var email = (request?.Email ?? string.Empty).Trim();
-        if (email.Length == 0)
+        if (email.Length == 0 || email.Length > MaxEmailLength)
         {
-            // No email to sign a token for - return the SAME neutral shape rather
-            // than an error, so an empty submit is indistinguishable from any
-            // other (no oracle, and a friendly UX). No token is issued.
+            // Nothing to sign (empty), OR an over-length input that is not a real
+            // address (Copilot review) - either way return the SAME neutral shape
+            // rather than an error, so it is indistinguishable from any other
+            // submit (no oracle, and a friendly UX) and no oversized token is ever
+            // minted. No token is issued on this path.
             return Ok(new SignInRequestResult(neutralMessage, DevToken: null, DevVerifyPath: null));
         }
 
@@ -196,10 +216,19 @@ public sealed class AccountsController : ControllerBase
     [HttpPost("signin/verify")]
     public async Task<IActionResult> Verify([FromBody] SignInVerifyBody? request, CancellationToken cancellationToken)
     {
-        // An invalid, tampered, expired, or already-used token verifies false
+        var submittedToken = request?.Token ?? string.Empty;
+
+        // Fail fast on an over-length token (Copilot review): a legitimate token is
+        // well under MaxTokenLength, so anything larger is junk / attacker bulk
+        // input - reject it to the SAME neutral "link-invalid" outcome before doing
+        // any HMAC CPU/allocation work. TryVerify would reject it anyway; this just
+        // avoids the avoidable work on an open, un-rate-limited endpoint.
+        // An invalid, tampered, expired, or already-used token also verifies false
         // (the service never throws). The holder is told the link did not work
         // and to request a fresh one - no account is touched.
-        if (!_tokens.TryVerify(request?.Token ?? string.Empty, out var email) || email.Length == 0)
+        if (submittedToken.Length > MaxTokenLength
+            || !_tokens.TryVerify(submittedToken, out var email)
+            || email.Length == 0)
         {
             return Ok(new SignInVerifyResult(
                 Outcome: "link-invalid",

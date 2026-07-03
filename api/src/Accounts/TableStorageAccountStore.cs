@@ -108,7 +108,18 @@ public sealed class TableStorageAccountStore : IAccountStore
             // AC-06): a benign, expected race, not an error.
             _logger.LogDebug(ex, "Concurrent account create lost the Add race (409); re-reading the existing account.");
             var winner = await ReadAsync(key, ct);
-            return winner ?? new Account(normalizedEmail, createdUtc);
+            if (winner is not null)
+            {
+                return winner;
+            }
+
+            // The 409 proves the row EXISTS, so a null re-read here is not a normal
+            // miss - it is a transient read failure. Fabricating an Account would
+            // claim a persistence that this call did not make and return a
+            // created-at that never landed (a "phantom" that later point-reads
+            // would not match), silently breaking idempotency. Rethrow the original
+            // failure so the caller sees a real error instead of a false success.
+            throw;
         }
     }
 
