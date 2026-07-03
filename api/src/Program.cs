@@ -172,7 +172,33 @@ else
 // lands before ai-on-demand-generation/05 goes live. Every future AI feature is a
 // CONSUMER of GatedAiCompletionClient, never a new gate.
 builder.Services.AddSingleton<IAiQuota, UnlimitedAiQuota>();
-builder.Services.AddSingleton<IAiSpendGuard, NoOpAiSpendGuard>();
+// ai-cost-gate/04 (spend circuit-breaker + attribution): swap the story-01
+// NoOpAiSpendGuard for the REAL breaker when a storage connection string is present
+// (MIRRORS the ITelemetrySink config-presence idiom above and REUSES the same
+// Telemetry:StorageConnectionString account - NO new resource). WITH storage, the
+// AiSpendBreaker persists the running UTC-month total in Table Storage (survives a
+// recycle), opens at 100% of AiOptions.MonthlyCeilingUsd, and emits one anonymous
+// attribution event per call through the injected TelemetryClient + the single PII
+// scrubber. WITHOUT storage (local dev, CI, a fresh clone - where AI is a no-op
+// anyway), it keeps the in-memory NoOp guard so the app builds + runs with ZERO
+// Azure config (story 01 AC-04). Reuses the telemetryConnectionString read above.
+if (string.IsNullOrWhiteSpace(telemetryConnectionString))
+{
+    builder.Services.AddSingleton<IAiSpendGuard, NoOpAiSpendGuard>();
+}
+else
+{
+    builder.Services.AddSingleton<IMonthlySpendStore>(sp =>
+        new TableStorageMonthlySpendStore(
+            telemetryConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageMonthlySpendStore>>()));
+    builder.Services.AddSingleton<IAiSpendGuard>(sp =>
+        new AiSpendBreaker(
+            sp.GetRequiredService<IMonthlySpendStore>(),
+            aiOptions,
+            sp.GetRequiredService<Microsoft.ApplicationInsights.TelemetryClient>(),
+            sp.GetRequiredService<ILogger<AiSpendBreaker>>()));
+}
 builder.Services.AddSingleton<IAiOutputModerator, PassthroughAiOutputModerator>();
 builder.Services.AddSingleton<GatedAiCompletionClient>();
 
