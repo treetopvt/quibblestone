@@ -14,6 +14,15 @@
 //  no storage connection string is configured (local dev / CI), the Table Storage
 //  ledger when one is (reusing the SAME storage account as the grant store).
 //
+//  NOT ATOMIC across concurrent deliveries (review SUG-001): the handler checks
+//  (HasProcessedAsync) then, after applying, marks (MarkProcessedAsync) - no lock
+//  between them. Two near-simultaneous redeliveries of the same event id can both
+//  pass the check and both apply. Every apply is an idempotent upsert (same input
+//  -> same lease), so the outcome is identical - EXCEPT the past_due grace, which
+//  ratchets the lease out by the (tiny) redelivery gap (StripeWebhookHandler's
+//  WARN-001 note). Bounded and harmless for a toy; do NOT treat this as a hard
+//  exactly-once guarantee.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 

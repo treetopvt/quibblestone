@@ -110,6 +110,16 @@ public sealed class StripeWebhookHandler
             case BillingEventKind.SubscriptionPastDue:
                 // Extend the lease by the grace window rather than expire it (AC-08 /
                 // Decision D). Never SHORTEN an already-longer lease.
+                //
+                // Bounded-ratchet tradeoff (review WARN-001), consciously accepted for a
+                // toy (CLAUDE.md section 10): the grace anchor is wall-clock `now`, so if
+                // this exact event were reprocessed (a crash between the grant write below
+                // and MarkProcessedAsync, or a concurrent redelivery) the lease would push
+                // out by the redelivery gap - an over-grant of hours, never a shorten,
+                // never a corruption, never a double-charge. Anchoring to `now` (not to the
+                // grant's stored end) is deliberate: it guarantees a failed card always buys
+                // a full grace window from the moment it failed, which matters more here
+                // than making reprocessing a perfect fixed point.
                 var graceEnd = now.AddDays(_options.PastDueGraceDays);
                 var existing = await _grants.GetGrantsAsync(account.Email, ct);
                 var byCapability = existing.ToDictionary(g => g.CapabilityKey, StringComparer.Ordinal);

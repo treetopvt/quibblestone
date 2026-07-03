@@ -128,11 +128,16 @@ public static class StripeEventMapper
     // handler treats as a grace-window lease rather than permanent).
     private static DateTimeOffset? PeriodEndOf(Invoice invoice)
     {
-        var end = invoice.Lines?.Data?
-            .Select(line => line.Period?.End)
-            .Where(e => e is not null)
-            .DefaultIfEmpty(null)
-            .Max();
-        return end is { } value ? new DateTimeOffset(value, TimeSpan.Zero) : null;
+        DateTime? latest = null;
+        foreach (var line in invoice.Lines?.Data ?? [])
+        {
+            var end = line.Period?.End;
+            if (end is { } e && (latest is null || e > latest))
+            {
+                latest = e;
+            }
+        }
+        // Stripe line-period ends are UTC; carry that explicitly into the offset.
+        return latest is { } value ? new DateTimeOffset(value, TimeSpan.Zero) : null;
     }
 }
