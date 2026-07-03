@@ -24,13 +24,3 @@ param appServicePlanSku = 'F1' // Free ($0). Bump to 'B1' for Always On + WebSoc
 // location defaults to the resource group's location (resourceGroup().location).
 // Override only if the resources must live in a different region than the group:
 //   param location = 'eastus'
-
-// --- AI cost gate deploy inputs (ai-cost-gate/06) ----------------------------
-// Non-secret knobs may live here; the alert EMAIL must NOT (AC-07). Supply the
-// email at deploy time to arm the Cost Management backstop:
-//   az deployment group create ... -p alertEmail='you@example.com'
-// Without it the budget + action group are not provisioned (the app still runs; the
-// story-04 app breaker is the real-time enforcer regardless).
-//   param monthlyBudgetUsd = 20          // the $20/month backstop ceiling (default)
-//   param deployContentSafety = false    // flip true to add the optional 2nd moderation layer
-//   param budgetStartDate = '2026-07-01' // first of the month you provision in
