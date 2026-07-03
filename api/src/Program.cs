@@ -181,7 +181,48 @@ else
 // transient GameHub invocation shares the one counter (mirrors RoomRegistry). The
 // per-IP abuse guard (AC-03) is the SEPARATE named rate-limiter registered below.
 builder.Services.AddSingleton<IAiQuota, AiQuota>();
-builder.Services.AddSingleton<IAiSpendGuard, NoOpAiSpendGuard>();
+
+// ai-cost-gate/04 (spend circuit-breaker + attribution): swap the story-01
+// NoOpAiSpendGuard for the REAL breaker when a storage connection string is present
+// (MIRRORS the ITelemetrySink config-presence idiom above and REUSES the same
+// Telemetry:StorageConnectionString account - NO new resource). WITH storage, the
+// AiSpendBreaker persists the running UTC-month total in Table Storage (survives a
+// recycle), opens at 100% of AiOptions.MonthlyCeilingUsd, and emits one anonymous
+// attribution event per call through the injected TelemetryClient + the single PII
+// scrubber. Reuses the telemetryConnectionString read above.
+//
+// WITHOUT storage there are two cases (Gate-1 review WARN-001, closing the fail-OPEN
+// money hole): if a REAL AI endpoint is ALSO configured, billable calls would ship,
+// so we must NOT leave them behind the always-open NoOp guard - we register the
+// always-CLOSED guard so the gate degrades to the deterministic fallback rather than
+// call AI with no ceiling (the charter's load-bearing rule: no ungated AI, ever). If
+// no AI endpoint is configured either (local dev, CI, a fresh clone), AI is a no-op
+// anyway, so the harmless NoOp guard keeps the app building + running with ZERO Azure
+// config (story 01 AC-04).
+if (string.IsNullOrWhiteSpace(telemetryConnectionString))
+{
+    if (string.IsNullOrWhiteSpace(aiOptions.Endpoint))
+    {
+        builder.Services.AddSingleton<IAiSpendGuard, NoOpAiSpendGuard>();
+    }
+    else
+    {
+        builder.Services.AddSingleton<IAiSpendGuard, ClosedAiSpendGuard>();
+    }
+}
+else
+{
+    builder.Services.AddSingleton<IMonthlySpendStore>(sp =>
+        new TableStorageMonthlySpendStore(
+            telemetryConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageMonthlySpendStore>>()));
+    builder.Services.AddSingleton<IAiSpendGuard>(sp =>
+        new AiSpendBreaker(
+            sp.GetRequiredService<IMonthlySpendStore>(),
+            aiOptions,
+            sp.GetRequiredService<Microsoft.ApplicationInsights.TelemetryClient>(),
+            sp.GetRequiredService<ILogger<AiSpendBreaker>>()));
+}
 builder.Services.AddSingleton<IAiOutputModerator, PassthroughAiOutputModerator>();
 builder.Services.AddSingleton<GatedAiCompletionClient>();
 

@@ -97,4 +97,29 @@ public sealed class AiOptions
     /// fail-safe side, never "unlimited".
     /// </summary>
     public int QuotaPerSession { get; set; } = 20;
+
+    /// <summary>
+    /// The monthly AI spend CEILING in USD - the abuse backstop the real-time spend
+    /// circuit-breaker enforces (story 04, ADR 0001: $20). The SINGLE place this value
+    /// lives (AC-03: "the ceiling is configuration, not a literal in many places"):
+    /// <see cref="AiSpendBreaker"/> reads it once and opens the breaker (degrade to the
+    /// deterministic fallback for the rest of the UTC month) as soon as the persisted
+    /// running monthly total reaches 100% of it. Distinct from - and reconciled
+    /// periodically against - the authoritative Azure Cost Management budget alert
+    /// (story 06). A model swap changes the rates above; this stays the spend cap.
+    /// </summary>
+    public decimal MonthlyCeilingUsd { get; set; } = 20m;
+
+    /// <summary>
+    /// The per-anonymous-session cumulative-spend threshold in USD above which the
+    /// attribution event is flagged <c>hot</c> (story 04 AC-08): a lightweight,
+    /// in-process concentration/abuse signal so a disproportionately-spending
+    /// anonymous session/room surfaces in a plain App Insights query. Measured over
+    /// the anonymous <c>InstanceId</c> ONLY, NEVER identity (README section 6). This
+    /// is a soft visibility signal that complements the per-session quota (story 03)
+    /// and the month-wide breaker above; it is not itself an enforcement gate. Kept
+    /// well under <see cref="MonthlyCeilingUsd"/> so one runaway session stands out
+    /// long before it alone could exhaust the monthly ceiling.
+    /// </summary>
+    public decimal HotSessionThresholdUsd { get; set; } = 1m;
 }
