@@ -4,7 +4,7 @@
 
 # Story: Moderate AI output before display
 
-**Feature:** AI Cost Gate  ·  **Status:** Not Started  ·  **Issue:** #124
+**Feature:** AI Cost Gate  ·  **Status:** Complete  ·  **Issue:** #124
 
 ## Context
 The gate's fifth piece and a non-negotiable (feature.md; ROADMAP "The AI cost gate"
@@ -19,36 +19,36 @@ payloads (whole templates in `ai-on-demand-generation/01-02`) later. See
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01 (hard gate on every AI word): Given AI-generated output, then each item
+- [x] AC-01 (hard gate on every AI word): Given AI-generated output, then each item
       passes the existing server-side `IContentSafetyFilter.CheckAsync` BEFORE it is
       returned to any client or made displayable/tappable - an item that fails is
       dropped, never shown. No unfiltered AI text reaches a player (README section 6).
-- [ ] AC-02 (family-safe honored): Given a family-safe session, then AI output is
+- [x] AC-02 (family-safe honored): Given a family-safe session, then AI output is
       additionally gated by the family-safe rule (`FamilySafeContentSelector` /
       `isFamilySafe`), so a family-safe session only ever sees family-safe AI output -
       the same toggle the curated content already honors.
-- [ ] AC-03 (reusable, not jumble-specific): Given this seam, then it is a general
+- [x] AC-03 (reusable, not jumble-specific): Given this seam, then it is a general
       "moderate this AI output before display" service reusable by every AI feature
       (jumble now; verdict, on-demand tales, packs later) - it does NOT bake in
       word-bank specifics. The jumble (`ai-on-demand-generation/05`) CONSUMES it; it
       does not fork its own filter (game-modes/07 AC-04).
-- [ ] AC-04 (drop-and-continue, enough-left): Given a batch of AI items (e.g. the
+- [x] AC-04 (drop-and-continue, enough-left): Given a batch of AI items (e.g. the
       jumble's ~8-10 words) where some fail moderation, then the safe items are kept
       and the unsafe dropped; if too few survive to be useful, the caller degrades to
       the deterministic fallback rather than showing a thin or empty set (never an
       empty list, never a broken surface).
-- [ ] AC-05 (Content Safety optional second layer, config-gated): Given Azure AI
+- [x] AC-05 (Content Safety optional second layer, config-gated): Given Azure AI
       Content Safety configuration is present, then AI output ALSO passes a Content
       Safety check as a second layer; given it is absent (the default now), the seam
       runs the existing filter + family-safe only and behaves identically to today -
       the same config-presence/no-op pattern the API already uses (AC mirrors story
       01 AC-04). Turning Content Safety on is a config flip, not a code change.
-- [ ] AC-06 (no evasion teaching): Given output is rejected, then the player-facing
+- [x] AC-06 (no evasion teaching): Given output is rejected, then the player-facing
       result is a friendly "no fresh runes right now" style fallback - it never
       explains WHICH item failed or WHY in a way that teaches evasion
       (`ai-on-demand-generation` feature.md moderation posture). Rejections may be
       counted/sampled anonymously for audit (no content, no PII).
-- [ ] AC-07 (moderation is not skippable): Given the gate, then there is no code path
+- [x] AC-07 (moderation is not skippable): Given the gate, then there is no code path
       where AI output reaches a client without passing AC-01 (+ AC-02 for family-safe)
       - the moderation call sits in the server proxy path, not in an optional caller
       step a future feature could forget. (Curated, pre-vetted content still skips the
@@ -91,7 +91,7 @@ payloads (whole templates in `ai-on-demand-generation/01-02`) later. See
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Ai/AiModerationTests.cs`: an AI item failing the filter is dropped and never returned |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Ai/AiOutputModerationTests.cs`: an AI item failing the filter is dropped and never returned |
 | AC-02 | `api/tests`: a family-safe session drops non-family-safe AI output; a non-family-safe session keeps more |
 | AC-03 | code review: the seam is generic (moderate output), consumed by the jumble, not forked |
 | AC-04 | `api/tests`: a partially-unsafe batch keeps survivors; too-few-left triggers the caller's deterministic fallback |

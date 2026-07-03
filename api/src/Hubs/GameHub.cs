@@ -54,6 +54,7 @@
 using Microsoft.ApplicationInsights;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
+using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
 using QuibbleStone.Api.Telemetry;
@@ -333,6 +334,7 @@ public sealed class GameHub : Hub
     private readonly FreshnessContentSelector _freshness;
     private readonly ITelemetrySink _telemetry;
     private readonly TelemetryClient _appInsights;
+    private readonly IEntitlementService _entitlements;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -344,6 +346,7 @@ public sealed class GameHub : Hub
         FreshnessContentSelector freshness,
         ITelemetrySink telemetry,
         TelemetryClient appInsights,
+        IEntitlementService entitlements,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -366,6 +369,11 @@ public sealed class GameHub : Hub
         // one is operational health. No-ops cleanly with no connection string
         // (AC-05); it is always registered so DI stays simple.
         _appInsights = appInsights;
+        // ai-cost-gate/02 (#121): the thin, #70-shaped, DEFAULT-UNLOCKED entitlement
+        // seam. CreateRoom evaluates it EXACTLY ONCE per session and captures the
+        // result on the Room; nothing re-evaluates it per AI call (AC-01). In alpha
+        // every ai.* capability is unlocked, so this changes zero behavior (AC-03).
+        _entitlements = entitlements;
         _logger = logger;
     }
 
@@ -427,6 +435,23 @@ public sealed class GameHub : Hub
 
         // 4. Mint the room with the host carrying the vetted name + variant.
         var room = _rooms.CreateRoom(Context.ConnectionId, name, chosenVariant);
+
+        // 5. ai-cost-gate/02 (AC-01, AC-03, AC-05, AC-06): evaluate the session's AI
+        //    entitlement EXACTLY ONCE - here, at session-creation, the SINGLE server
+        //    call site - and capture it on the room for its lifetime. Anonymous: alpha
+        //    has no accounts, so there is no purchaser identity (pass null); the
+        //    default-unlocked service returns the reserved ai.* capability UNLOCKED
+        //    (ADR 0001 decision C), so shipping this changes ZERO behavior and the AI
+        //    jumble stays reachable by every session. This is NON-BLOCKING - the real
+        //    runtime gate is quota (story 03) + the spend breaker (story 04), never
+        //    this check (AC-04). Later AI code READS room.Entitlements; it is NEVER
+        //    re-evaluated per tap/round/AI call. (Solo play has no server session
+        //    today - it is client-driven with only anonymous telemetry beacons - so a
+        //    later solo AI feature evaluates the same contract at the point the solo
+        //    AI call is made; see IEntitlementService's header.)
+        var sessionEntitlements = await _entitlements.EvaluateForSession(
+            purchaserIdentity: null, Context.ConnectionAborted);
+        room.CaptureEntitlements(sessionEntitlements);
 
         // Subscribe the host's connection to the room group so later stories'
         // roster/round broadcasts (Clients.Group(room.Code)) reach them.

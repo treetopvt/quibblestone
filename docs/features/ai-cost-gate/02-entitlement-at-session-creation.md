@@ -4,7 +4,7 @@
 
 # Story: Entitlement check at session-creation (reserve `ai.*`, default-unlocked)
 
-**Feature:** AI Cost Gate  ·  **Status:** Not Started  ·  **Issue:** #121
+**Feature:** AI Cost Gate  ·  **Status:** Complete  ·  **Issue:** #121
 
 ## Context
 The gate's second piece (feature.md; ROADMAP "The AI cost gate" piece 2): one
@@ -19,36 +19,36 @@ retrofitting an entitlement dimension onto an anonymous, per-session AI flow lat
 is painful (CLAUDE.md section 6). See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a room/solo session is created, when the session-creation code
+- [x] AC-01: Given a room/solo session is created, when the session-creation code
       runs, then the AI entitlement for that session is evaluated EXACTLY ONCE, at
       that moment, via the `billing-entitlements/01` seam
       (`IEntitlementService.EvaluateForSession`), and the result is captured on the
       session for its lifetime - never re-evaluated per-tap, per-round, or per-AI-call
       (that would be the smell `billing-entitlements` forbids).
-- [ ] AC-02: Given the capability catalog, then it reserves the AI word-bank key the
+- [x] AC-02: Given the capability catalog, then it reserves the AI word-bank key the
       jumble uses (`ai.onDemand`, or a dedicated `ai.wordBank`, matching the catalog
       `billing-entitlements/01` AC-01 already defines) - this story does not create a
       new catalog, it consumes/extends the existing one.
-- [ ] AC-03 (default-unlocked): Given no purchaser and no grant (every session in
+- [x] AC-03 (default-unlocked): Given no purchaser and no grant (every session in
       alpha), when the check runs, then the AI capability returns UNLOCKED - shipping
       this changes zero observed behavior, exactly as `billing-entitlements/01` AC-02
       promises. The jumble is reachable by all sessions.
-- [ ] AC-04 (alpha gating is quota + breaker, not entitlement): Given the alpha
+- [x] AC-04 (alpha gating is quota + breaker, not entitlement): Given the alpha
       decision (ADR 0001 C), then the jumble's actual gating is the rate-limit/quota
       (story 03) and the spend circuit-breaker (story 04), NOT this entitlement
       check - which is present, wired, and unlocked. The seam exists so that turning
       on real gating later is a stored-value flip (a grant becomes required), not new
       gating code.
-- [ ] AC-05 (anonymous, per session): Given the check, then it keys off the session
+- [x] AC-05 (anonymous, per session): Given the check, then it keys off the session
       (the anonymous room/solo session), never a player identity or PII - consistent
       with "meter compute per session, not identity" (README section 6). If there is
       no purchaser (the norm), the check simply returns the default-unlocked set.
-- [ ] AC-06 (single call site): Given the gate, then the ONLY call sites are
+- [x] AC-06 (single call site): Given the gate, then the ONLY call sites are
       session-creation: the room-create hub method (`GameHub.CreateRoom`,
       session-engine) and the solo entry point. No AI-entitlement check appears in
       any per-call, per-tap, per-round, or reveal code path (AC-01 restated as a
       code-location guard).
-- [ ] AC-07 (no regression): Given day-one flows (solo, 2-player group), when a
+- [x] AC-07 (no regression): Given day-one flows (solo, 2-player group), when a
       session is created, then it succeeds exactly as today with the check present
       but unlocked - re-run existing session-engine/game-modes/group-play coverage
       with zero regressions.
@@ -86,7 +86,7 @@ is painful (CLAUDE.md section 6). See [feature.md](./feature.md).
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Ai/...` + code read: the AI entitlement is evaluated once at session-creation and captured; grep confirms no per-call re-eval |
+| AC-01 | `tests/QuibbleStone.Api.Tests/GameHubEntitlementTests.cs` + code read: the AI entitlement is evaluated once at session-creation and captured; grep confirms no per-call re-eval |
 | AC-02 | code review: the `ai.*` key the jumble uses exists in the catalog (reserved, not newly invented) |
 | AC-03 | `api/tests`: `EvaluateForSession` with no purchaser returns the AI key Unlocked |
 | AC-04 | code review: the jumble's runtime gate is story 03/04, not this check; the check is unlocked and non-blocking |
