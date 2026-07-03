@@ -29,6 +29,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Ai;
+using QuibbleStone.Api.Billing;
 using QuibbleStone.Api.Ai.Jumble;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
@@ -437,6 +438,47 @@ else
             entitlementsConnectionString,
             sp.GetRequiredService<ILogger<TableStorageEntitlementGrantStore>>()));
 }
+
+// billing-entitlements/03 (#72): the Stripe billing seam. StripeOptions binds the
+// "Stripe" config section (SecretKey + WebhookSigningSecret are Key Vault-backed
+// SECRETS, never committed / never VITE_*, AC-01). Registered as a singleton so the
+// checkout service and webhook handler share one bound instance.
+var stripeOptions = builder.Configuration.GetSection(StripeOptions.SectionName).Get<StripeOptions>() ?? new StripeOptions();
+builder.Services.AddSingleton(stripeOptions);
+
+// The checkout service, chosen at STARTUP by whether Stripe is configured (the same
+// config-presence idiom as the AI client / stores above). WITH a secret key, the real
+// StripeCheckoutService (both payment + subscription modes through one method, AC-02);
+// WITHOUT one (local dev, CI, a fresh clone), the DISABLED no-op so the app runs with
+// ZERO Stripe setup and the tip jar / paywall show a clean "not available" state.
+if (stripeOptions.IsConfigured)
+{
+    builder.Services.AddSingleton<IStripeCheckoutService>(sp =>
+        new StripeCheckoutService(stripeOptions, sp.GetRequiredService<ILogger<StripeCheckoutService>>()));
+}
+else
+{
+    builder.Services.AddSingleton<IStripeCheckoutService, DisabledStripeCheckoutService>();
+}
+
+// The webhook idempotency ledger (AC-05), config-gated on the SAME storage account as
+// the grant store: a working in-memory ledger locally, Table Storage when configured.
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IProcessedEventStore, InMemoryProcessedEventStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IProcessedEventStore>(sp =>
+        new TableStorageProcessedEventStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageProcessedEventStore>>()));
+}
+
+// The webhook DOMAIN handler (SDK-free, AC-04): applies a normalized BillingEvent to
+// the grant store, idempotently (AC-05), keyed to the purchaser account (AC-06), with
+// the subscription lifecycle lease math (AC-08). A singleton over the stores + options.
+builder.Services.AddSingleton<StripeWebhookHandler>();
 
 // accounts-identity/02 (lightweight purchaser account, #68): the purchaser-account
 // store, chosen at STARTUP by whether a storage connection string is configured -
