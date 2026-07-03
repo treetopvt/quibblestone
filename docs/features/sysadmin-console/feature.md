@@ -4,11 +4,11 @@
   2026-07-03: the standing finding still holds - this is NOT a monolithic "admin site," most of what
   the phrase evokes is already owned by other features or Azure - but Decision B greenlit standing up
   a SEPARATE, auth-gated back office now, with three thin first stories (magic-link operator login,
-  grant/revoke, report/takedown). Still feature.md only: implementation.md + full story files come
-  when this is decomposed. Use hyphens/colons/parentheses, never em dashes.
+  grant/revoke, report/takedown). Decomposed the same day: implementation.md + full story files now
+  exist alongside this feature.md. Use hyphens/colons/parentheses, never em dashes.
 -->
 
-# Feature: Sys-Admin Console (exploration)
+# Feature: Sys-Admin Console
 
 ## Summary
 A separate, auth-gated back office for QuibbleStone: the surface a solo operator (later, a human
@@ -17,12 +17,15 @@ review of public content. The headline finding of the exploration (ADR 0002) sti
 not one big "admin site."** Most of what the phrase evokes is already served by another feature or by
 an Azure surface; only two responsibilities are genuinely new and admin-only. What changed on
 2026-07-03: the owner (ADR 0002 Decision B) elected to stand the back office up **now** rather than
-mint it on first need, so those two responsibilities become its first stories.
+mint it on first need, so those two responsibilities became its first stories - and this file was
+decomposed the same day into three full story files plus an implementation.md.
 
-> **Decisions resolved, not yet decomposed.** ADR 0002 Open Decisions A-F are all resolved (see its
-> Decision section). This file stays feature.md-only: the `implementation.md` + full story files are
-> the next step, once this is scheduled. The Candidate stories table below is the shape those stories
-> will take (Issue TBD until decomposition).
+> **Decomposed.** ADR 0002 Open Decisions A-F are all resolved (see its Decision section), and this
+> feature is fully specified: three story files (`01-03`) plus `implementation.md` (reuse map + Wave
+> Plan) exist alongside this feature.md. Two of its dependency seams
+> (`billing-entitlements/01`'s `IEntitlementService`, `accounts-identity/02`'s magic-link plumbing)
+> are themselves currently unbuilt - see each story's "dependency reality" note. Issue numbers are
+> TBD (no GitHub issues created yet for this look-ahead feature).
 
 ## README reference
 README section 3 (Monetization - the tiered identity model and "only the purchaser gets a
@@ -32,22 +35,27 @@ Phase 2 monetization). CLAUDE.md section 5 (child safety non-negotiable) and sec
 monetization seam). Full rationale + the load-bearing invariant:
 [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md).
 
-## Candidate stories (the shape decomposition will take - Issue TBD)
+## Stories
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
-| # | Title | Timing | Genuinely admin-only? | Status |
+| Story | Issue | Title | Timing | Status |
 |---|---|---|---|---|
-| 01 | Magic-link operator login + admin auth boundary (separate surface) | foundation - build first | yes (foundation) | Not Started |
-| 02 | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | yes | Not Started |
-| 03 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | yes | Not Started |
-| - | AI content vetting queue | already owned by `ai-content-factory/02` (#79) | no - not this feature | n/a |
-| - | Library / pack management | already owned by `ai-content-factory/03` + `story-packs` | no - not this feature | n/a |
-| - | Cost / abuse oversight dashboard | already served by `platform-devops/04` App Insights + Cost Management + the `ai-cost-gate` breaker | no - do not rebuild | n/a |
+| [01](./01-operator-login-and-admin-boundary.md) | TBD | Operator login and admin boundary (separate surface) | foundation - build first | Not Started |
+| [02](./02-operator-grant-revoke-entitlement.md) | TBD | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | Not Started |
+| [03](./03-report-and-takedown-public-tale.md) | TBD | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | Not Started |
 
-The bottom three rows are recorded on purpose: this feature's job is as much to say **what is NOT
-this feature** as what is. Rebuilding cost dashboards or a second vetting queue here would be the
-smell. Build order: story 01 (auth boundary) is the foundation; story 03 (takedown) can follow
-immediately since public tales already exist; story 02 (grant/revoke) lands alongside real charging,
-when a stuck paying customer is actually possible.
+Recorded on purpose, and deliberately NOT stories in this feature (feature.md's job is as much to say
+what is NOT this feature as what is):
+
+| Admin need | Already served by | Genuinely admin-only? |
+|---|---|---|
+| AI content vetting queue | `ai-content-factory/02` (#79) | no - not this feature |
+| Library / pack management | `ai-content-factory/03` + `story-packs` | no - not this feature |
+| Cost / abuse oversight dashboard | `platform-devops/04` App Insights + Cost Management + the `ai-cost-gate` breaker | no - do not rebuild |
+
+Rebuilding cost dashboards or a second vetting queue here would be the smell. Build order: story 01
+(auth boundary) is the foundation; story 03 (takedown) can follow immediately since public tales
+already exist; story 02 (grant/revoke) lands alongside real charging, when a stuck paying customer is
+actually possible. See `implementation.md` for the DAG-ready Wave Plan.
 
 ## Dependencies
 - `billing-entitlements/01` (#70) - the `IEntitlementService` seam + capability catalog that story
@@ -116,5 +124,13 @@ open item is a story-level detail, not a blocker:
   same day: Decision B greenlit a separate, auth-gated back office built now (not a deferred
   umbrella), Decision A set operator login on the reused magic-link plumbing (separate allowlist),
   and Decision E set public-tale moderation as report -> auto-hide-after-N -> operator review. The
-  three candidate stories above are the result. Next step is decomposition (implementation.md + full
-  story files); this feature.md stays the shape-of-record until then.
+  three candidate stories above were the result.
+- 2026-07-03: Decomposed the same day into three full story files (`01-operator-login-and-admin-
+  boundary.md`, `02-operator-grant-revoke-entitlement.md`, `03-report-and-takedown-public-tale.md`)
+  plus `implementation.md` (reuse map + Wave Plan). Story 01 is the foundation wave; 02 and 03 land
+  in the same wave since neither blocks the other technically - each depends only on its own
+  external seam (`billing-entitlements/01` for 02, nothing new beyond the already-shipped
+  `keepsake-gallery/04` for 03). Both `billing-entitlements/01` (#70) and `accounts-identity/02`
+  (#68) remain unbuilt as of this decomposition; stories 01 and 02 each name a thin, contract-
+  compatible fallback so this feature is not hard-blocked on either landing first (mirroring
+  `ai-cost-gate/02`'s handling of the same seam).
