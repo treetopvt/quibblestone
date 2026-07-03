@@ -31,6 +31,19 @@ public class EntitlementServiceTests
         Assert.Contains(EntitlementCatalog.AiOnDemand, EntitlementCatalog.AiCapabilities);
     }
 
+    // billing-entitlements/01 AC-01: the catalog is extended beyond the ai.* reservation
+    // to the full product key set - still one string-keyed catalog, with an open-ended
+    // pack.<id> family built from a stable id.
+    [Fact]
+    public void Catalog_contains_the_full_capability_key_set()
+    {
+        Assert.Equal("library.full", EntitlementCatalog.LibraryFull);
+        Assert.Equal("play.remote", EntitlementCatalog.PlayRemote);
+        Assert.Equal("play.largeGroup", EntitlementCatalog.PlayLargeGroup);
+        Assert.Equal("pack.", EntitlementCatalog.PackPrefix);
+        Assert.Equal("pack.spooky", EntitlementCatalog.Pack("spooky"));
+    }
+
     // AC-03 / AC-05: no purchaser (every alpha session) -> the ai.* capability is
     // UNLOCKED. Default-unlocked, non-blocking, anonymous.
     [Fact]

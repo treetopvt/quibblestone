@@ -404,7 +404,39 @@ builder.Services.AddSingleton<RoomRegistry>();
 // and the AI jumble stays reachable by every session. The real charging /
 // entitlement chain (billing-entitlements/01, #70) later SUBSUMES this SAME
 // contract without any consumer refactor. Singleton: the impl is stateless.
-builder.Services.AddSingleton<IEntitlementService, DefaultUnlockedEntitlementService>();
+//
+// billing-entitlements/01 (#70): the DI swap that lands the REAL stored-value
+// evaluation behind the SAME IEntitlementService contract (AC-02) - GameHub.CreateRoom,
+// SessionEntitlements, and Room.cs are untouched. DefaultUnlockedEntitlementService is
+// now registered as a CONCRETE singleton (the composed default-unlocked BASELINE,
+// AC-03), and StoredValueEntitlementService is the IEntitlementService: baseline +
+// any capabilities a resolved purchaser holds an active grant for. Anonymous sessions
+// (null purchaser - every alpha session) get exactly the baseline, so behavior is
+// unchanged today.
+builder.Services.AddSingleton<DefaultUnlockedEntitlementService>();
+builder.Services.AddSingleton<IEntitlementService, StoredValueEntitlementService>();
+
+// billing-entitlements/01 (#70): the purchaser entitlement-grant store, chosen at
+// STARTUP by whether a storage connection string is configured - EXACTLY the
+// config-presence idiom of the account store below and the telemetry / published-tale
+// stores above. WITH a connection string (supplied per-environment, NEVER a committed
+// literal), grants persist to Azure Table Storage partitioned by a SHA-256 hash of the
+// purchaser identity for a single-partition session-creation read (AC-05). WITHOUT one
+// (local dev, CI, a fresh clone), it degrades to a WORKING in-memory store - NOT a
+// no-op - so the gate and stories 03-05 are exercisable with ZERO Azure setup. A
+// singleton either way. It reuses the SAME storage account infra already provisions.
+var entitlementsConnectionString = builder.Configuration["Entitlements:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IEntitlementGrantStore, InMemoryEntitlementGrantStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IEntitlementGrantStore>(sp =>
+        new TableStorageEntitlementGrantStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageEntitlementGrantStore>>()));
+}
 
 // accounts-identity/02 (lightweight purchaser account, #68): the purchaser-account
 // store, chosen at STARTUP by whether a storage connection string is configured -
