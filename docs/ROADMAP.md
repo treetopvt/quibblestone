@@ -124,7 +124,8 @@ session, not identity**.
 > AI), and the AI jumble [`ai-on-demand-generation/05`](./features/ai-on-demand-generation/05-ai-word-bank-jumble.md)
 > + its moderation [`/02`](./features/ai-on-demand-generation/02-live-moderation-gate.md).
 > Provider/model + cost decisions: [ADR 0001](./adr/0001-ai-provider.md) (Azure AI
-> Foundry, gpt-4o-mini, in-app proxy, existing filter now + Content Safety later,
+> Foundry, gpt-5-mini - the ADR picked gpt-4o-mini, but it was deprecated by deploy
+> time, so gpt-5-mini is the deployed model per PR #131 - in-app proxy, existing filter now + Content Safety later,
 > AI jumble free-for-all in alpha behind quota + breaker). The cross-feature build
 > order (gate foundation -> free jumble -> AI jumble) is in
 > [`ai-cost-gate/implementation.md`](./features/ai-cost-gate/implementation.md).
