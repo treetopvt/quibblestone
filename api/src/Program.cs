@@ -319,6 +319,22 @@ builder.Services.AddRateLimiter(options =>
                 Window = PublishTalesRateLimit.Window,
                 QueueLimit = 0,
             }));
+
+    // accounts-identity/03 (review W-001): the OPEN, unauthenticated magic-link
+    // request endpoint's per-IP guard, in this SAME registration alongside the two
+    // policies above. Only POST /api/accounts/signin/request opts in (via
+    // [EnableRateLimiting(SignInRateLimit.PolicyName)]); verify is bounded by the
+    // single-use nonce + short expiry, and the game path is untouched. Stops an
+    // email-bomb / token-mint flood before an email provider ships. 429 on reject.
+    options.AddPolicy(SignInRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: SignInRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = SignInRateLimit.PermitLimit,
+                Window = SignInRateLimit.Window,
+                QueueLimit = 0,
+            }));
 });
 
 // keepsake-gallery/04 (shareable tale link): the published-tale store, chosen at

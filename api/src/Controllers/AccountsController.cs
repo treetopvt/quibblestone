@@ -62,6 +62,7 @@
 
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using QuibbleStone.Api.Accounts;
 
 namespace QuibbleStone.Api.Controllers;
@@ -145,6 +146,7 @@ public sealed class AccountsController : ControllerBase
     /// account. The token is issued for any well-formed email regardless.
     /// </summary>
     [HttpPost("signin/request")]
+    [EnableRateLimiting(SignInRateLimit.PolicyName)]
     public IActionResult RequestLink([FromBody] SignInRequestBody? request)
     {
         // The one neutral acknowledgement, identical for a known and an unknown
