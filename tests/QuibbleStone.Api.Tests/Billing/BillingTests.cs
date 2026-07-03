@@ -101,6 +101,9 @@ public class BillingTests
             new[] { EntitlementCatalog.LibraryFull, EntitlementCatalog.PlayRemote, EntitlementCatalog.PlayLargeGroup },
             checkout.LastRequest.CapabilityKeys);
         Assert.Equal("buyer@example.com", checkout.LastRequest.PurchaserEmail);
+        // Return URLs must target the paywall route that reads ?purchase (GetMore).
+        Assert.EndsWith("/get-more?purchase=success", checkout.LastRequest.SuccessUrl);
+        Assert.EndsWith("/get-more?purchase=cancel", checkout.LastRequest.CancelUrl);
     }
 
     [Fact]
@@ -138,6 +141,10 @@ public class BillingTests
         Assert.NotNull(checkout.LastRequest);
         Assert.Empty(checkout.LastRequest!.CapabilityKeys); // grants nothing (story 02 AC-02)
         Assert.Equal(CheckoutMode.Payment, checkout.LastRequest.Mode);
+        // Return URLs must target /support (where Support reads ?tip), NOT Home - so the
+        // gold-Guardian thank-you / cancel state actually shows (Copilot review fix).
+        Assert.EndsWith("/support?tip=success", checkout.LastRequest.SuccessUrl);
+        Assert.EndsWith("/support?tip=cancel", checkout.LastRequest.CancelUrl);
     }
 
     [Fact]

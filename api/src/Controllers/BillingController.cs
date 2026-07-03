@@ -64,13 +64,16 @@ public sealed record CheckoutStartResult(bool Enabled, string? Url, string? Mess
 [Route("api/billing")]
 public sealed class BillingController : ControllerBase
 {
-    // Where Stripe returns the browser after checkout. The web app reads these routes
-    // to show its thank-you / cancel states; the client base comes from config so this
-    // is not hardcoded to one origin.
+    // Where Stripe returns the browser after checkout. Each path must be the ROUTE
+    // whose page reads the corresponding query param: /get-more (GetMore reads
+    // ?purchase) and /support (Support reads ?tip). The client base comes from config
+    // so this is not hardcoded to one origin. (Copilot review: the tip paths formerly
+    // pointed at "/" (Home), where nothing reads ?tip - so the thank-you / cancel state
+    // in Support never showed. They must target /support.)
     private const string SuccessPath = "/get-more?purchase=success";
     private const string CancelPath = "/get-more?purchase=cancel";
-    private const string TipSuccessPath = "/?tip=success";
-    private const string TipCancelPath = "/?tip=cancel";
+    private const string TipSuccessPath = "/support?tip=success";
+    private const string TipCancelPath = "/support?tip=cancel";
 
     private readonly IStripeCheckoutService _checkout;
     private readonly IProductCatalog _catalog;
