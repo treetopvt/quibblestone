@@ -59,7 +59,15 @@ public interface IEntitlementGrantStore
     /// the write seam stories 03-04 (and the future operator grant/revoke) call; story
     /// 01 does not itself grant anything.
     /// </summary>
-    /// <param name="purchaserIdentity">The purchaser's email identity (normalized + hashed internally for the partition key).</param>
+    /// <param name="purchaserIdentity">
+    /// The purchaser's email identity (normalized + hashed internally for the
+    /// partition key). CONTRACT: pass the SAME identity the read side resolves - i.e.
+    /// the purchaser's canonical <c>Account.Email</c> (resolve/create the account
+    /// first, then key the grant off <c>account.Email</c>). Both paths funnel through
+    /// <c>AccountIdentity.KeyFor</c>, so a write and the session-creation read always
+    /// land in the same partition; keying a grant off a different identity field would
+    /// silently make it unreadable at session-creation.
+    /// </param>
     /// <param name="grant">The lease to persist (capability key, validThrough, source).</param>
     /// <param name="ct">Cancellation for the (storage-bound) write.</param>
     Task PutGrantAsync(string purchaserIdentity, EntitlementGrant grant, CancellationToken ct = default);

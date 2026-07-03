@@ -122,11 +122,24 @@ public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
     // so a partially-written / legacy row degrades to sane values rather than throwing:
     // a missing/unparseable source falls back to OneTime (the most conservative -
     // permanent-shaped - source is never assumed; the lease still governs activeness).
-    private static EntitlementGrant FromEntity(TableEntity entity)
+    private EntitlementGrant FromEntity(TableEntity entity)
     {
-        var source = Enum.TryParse<GrantSource>(entity.GetString(SourceColumn), ignoreCase: true, out var parsed)
-            ? parsed
-            : GrantSource.OneTime;
+        GrantSource source;
+        if (Enum.TryParse(entity.GetString(SourceColumn), ignoreCase: true, out source))
+        {
+            // parsed cleanly
+        }
+        else
+        {
+            // A missing / unparseable source is a schema-drift or legacy-row signal.
+            // Degrade to OneTime (the lease still governs activeness, so this can never
+            // wrongly UNLOCK anything) but warn so real drift is visible rather than
+            // silently mislabeling the source story 05's restore view would display.
+            source = GrantSource.OneTime;
+            _logger.LogWarning(
+                "Entitlement grant row {RowKey} has a missing/unparseable Source; defaulting to OneTime for display.",
+                entity.RowKey);
+        }
         return new EntitlementGrant(
             CapabilityKey: entity.RowKey,
             ValidThrough: entity.GetDateTimeOffset(ValidThroughColumn),

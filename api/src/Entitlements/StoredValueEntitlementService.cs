@@ -89,9 +89,15 @@ public sealed class StoredValueEntitlementService : IEntitlementService
             return new SessionEntitlements(unlocked);
         }
 
-        // 4. Add every capability whose lease is active right now (AC-04). Key the
-        // grant read off the account's normalized identity so it aligns with the
-        // account the store resolved. An expired lease is simply not added (locked).
+        // 4. Add every capability whose lease is active right now (AC-04). Read grants
+        // keyed off the account's CANONICAL normalized identity (account.Email), NOT
+        // the raw caller string. LOAD-BEARING CONTRACT for the write side (stories
+        // 03-04, and the operator grant/revoke #136): a grant MUST be written keyed
+        // off the same value - i.e. resolve the purchaser to an Account first and key
+        // the grant off account.Email. Both paths then funnel through the identical
+        // AccountIdentity.KeyFor partition, so a write and this read always align; a
+        // grant written off some other identity field would silently read back empty
+        // and leave a paid capability locked. An expired lease is simply not added.
         var now = DateTimeOffset.UtcNow;
         var grants = await _grants.GetGrantsAsync(account.Email, cancellationToken);
         foreach (var grant in grants)
