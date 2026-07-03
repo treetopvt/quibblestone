@@ -24,6 +24,16 @@
 #   secrets.AZURE_SUBSCRIPTION_ID  - the target subscription id
 #   vars.AZURE_RESOURCE_GROUP      - optional; defaults to quibblestone-uat-rg
 #
+# Optional AI cost gate (ai-cost-gate/06) - provisioned only when configured, so a
+# repo without the AI gate deploys unchanged. The AI provider lives in a SEPARATE
+# subscription (the app's sub cannot host Azure OpenAI); the same OIDC identity
+# reaches it because both subs are in one tenant and it was granted rights on the
+# AI resource group:
+#   vars.AI_SUBSCRIPTION_ID        - the PAYG sub that hosts Azure OpenAI (enables the AI step)
+#   vars.AI_RESOURCE_GROUP         - optional; defaults to quibblestone-ai-rg (must pre-exist)
+#   vars.AI_LOCATION               - optional; defaults to eastus2
+#   secrets.AI_ALERT_EMAIL         - budget alert recipient (omit -> budget/action group skipped)
+#
 # Nothing secret is committed, and no secret goes into a VITE_* var: Vite bakes
 # VITE_-prefixed vars into the public bundle, so only the (public) deployed API
 # URL is passed there, and it is discovered here rather than hardcoded (AC-04).
@@ -57,6 +67,11 @@ jobs:
       # touching this file.
       PROVISION_SKU: ${{ vars.APP_SERVICE_PLAN_SKU || 'F1' }}
       PROVISION_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
+      # AI cost gate (separate subscription). The AI step is skipped entirely
+      # unless AI_SUBSCRIPTION_ID is set (see the header notes).
+      AI_SUBSCRIPTION_ID: ${{ vars.AI_SUBSCRIPTION_ID }}
+      AI_RESOURCE_GROUP: ${{ vars.AI_RESOURCE_GROUP || 'quibblestone-ai-rg' }}
+      AI_LOCATION: ${{ vars.AI_LOCATION || 'eastus2' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -160,6 +175,66 @@ jobs:
             echo "web_url=https://$web_host"
           } >> "$GITHUB_OUTPUT"
           echo "API -> https://$api_host  |  Web -> https://$web_host"
+
+      # --- Provision the AI cost gate footprint (SEPARATE subscription) --------
+      # The Azure OpenAI account cannot live in the app's subscription (it is an
+      # "Azure for Students" sub that cannot host Cognitive Services OpenAI). It
+      # lives in its own resource group on a Pay-As-You-Go sub in the SAME tenant;
+      # the app's managed identity reaches it cross-subscription, KEYLESS, via a
+      # role assignment in infra/ai.bicep. The OIDC identity was granted rights on
+      # the AI resource group (scoped, least-privilege), so no extra credential is
+      # needed. This step is SKIPPED unless AI_SUBSCRIPTION_ID is configured, so a
+      # repo without the AI gate deploys exactly as before.
+      #
+      # alertEmail is a SECRET (never committed); omit it and the budget + action
+      # group are simply not provisioned (the app still runs; story-04's app
+      # breaker is the real-time enforcer regardless).
+      #
+      # main.bicep (the "Ensure UAT is provisioned" step) REPLACED the API
+      # appSettings array, which drops Ai__Endpoint/Ai__Deployment just like it
+      # drops CORS - so we re-set them here from ai.bicep's outputs. appsettings
+      # set is additive, so it does not disturb the CORS origins applied below. The
+      # AI resource group must pre-exist (provisioned once out of band, since the
+      # OIDC identity is scoped to that RG rather than the whole AI subscription).
+      - name: Provision AI cost gate (separate subscription)
+        if: ${{ vars.AI_SUBSCRIPTION_ID != '' }}
+        env:
+          AI_ALERT_EMAIL: ${{ secrets.AI_ALERT_EMAIL }}
+        run: |
+          set -euo pipefail
+          app_sub="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          api="${{ steps.discover.outputs.api_name }}"
+
+          az account set -s "$AI_SUBSCRIPTION_ID"
+
+          email_arg=()
+          if [ -n "${AI_ALERT_EMAIL:-}" ]; then
+            email_arg=(-p "alertEmail=${AI_ALERT_EMAIL}")
+          else
+            echo "::warning::AI_ALERT_EMAIL not set - the \$20 budget + action group will be skipped."
+          fi
+
+          echo "Provisioning AI footprint from infra/ai.bicep into $AI_RESOURCE_GROUP ($AI_SUBSCRIPTION_ID)..."
+          outputs="$(az deployment group create \
+            -g "$AI_RESOURCE_GROUP" \
+            -n "ai-provision-${{ github.run_number }}" \
+            -f infra/ai.bicep \
+            -p infra/ai.uat.bicepparam \
+            -p location="$AI_LOCATION" \
+            "${email_arg[@]}" \
+            --query properties.outputs -o json)"
+
+          ai_endpoint="$(echo "$outputs" | jq -r '.aiEndpoint.value')"
+          ai_deployment="$(echo "$outputs" | jq -r '.aiDeploymentNameOut.value')"
+
+          # Back to the app subscription for the rest of the deploy, and wire the
+          # endpoint + deployment name onto the API app (re-applying what the
+          # main.bicep provision dropped).
+          az account set -s "$app_sub"
+          az webapp config appsettings set -g "$AZURE_RESOURCE_GROUP" -n "$api" \
+            --settings "Ai__Endpoint=${ai_endpoint}" "Ai__Deployment=${ai_deployment}" \
+            --output none
+          echo "AI gate provisioned: ${ai_deployment} @ ${ai_endpoint}"
 
       # --- Let the API accept every web origin for REST + the SignalR hub -----
       # AllowCredentials is on for the hub transport, so CORS cannot use a

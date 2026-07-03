@@ -9,10 +9,13 @@
 
 # ADR 0001: AI provider, model, and the AI cost gate shape
 
-- **Status:** Accepted (spike complete; owner resolved the four open decisions on 2026-07-02 - see Decision)
+- **Status:** Accepted (spike complete; owner resolved the four open decisions on 2026-07-02 - see
+  Decision; model pick partially superseded the same day by deploy-time availability - see the Update
+  note before Decision)
 - **Date:** 2026-07-02
 - **Context feature:** `ai-on-demand-generation` (the jumble backend) + a new shared `ai-cost-gate` feature
-- **Supersedes / superseded by:** none
+- **Supersedes / superseded by:** provider + gate shape stands; model pick (gpt-4o-mini) superseded by
+  gpt-5-mini at deploy time (2026-07-02, PR #131) - see Update note
 
 ## Context
 
@@ -43,11 +46,14 @@ The jumble is a tiny text call: a short system prompt (brand voice + family-safe
 and a short exclusion list; the output is 8-10 short single words as a JSON array. This favors the
 cheapest small model that can hold a brand voice and a safety instruction.
 
+**Historical pricing context** (spike-time rates; see the Update note above - none of
+gpt-4.1-nano/gpt-4o-mini were deployable by the time provisioning actually ran):
+
 | Model (Foundry) | Input $/1M | Output $/1M | Notes |
 |---|---|---|---|
-| gpt-4.1-nano (spike default) | $0.10 | $0.40 | Cheapest 4.1-family; built for high-volume simple tasks (classify/tag/generate short lists); text. The swap-to target if 4o-mini is overkill. |
-| **gpt-4o-mini** (chosen - see Decision) | $0.15 | $0.60 | Slightly stronger/pricier; owner's pick for brand-voice headroom. Per-call cost still negligible. |
-| Phi-4-mini (MaaS serverless) | ~$0.07 | ~$0.23 | Cheapest overall, but an open small model - likely needs more prompt tuning to hold the stone-carving brand voice. |
+| gpt-4.1-nano (spike default) | $0.10 | $0.40 | Cheapest 4.1-family; built for high-volume simple tasks (classify/tag/generate short lists); text. The swap-to target if 4o-mini is overkill. Zero real-time quota in eastus2 by deploy time - not deployable. |
+| gpt-4o-mini (chosen at spike time - see Decision) | $0.15 | $0.60 | Slightly stronger/pricier; owner's pick for brand-voice headroom. `Deprecating` (blocked for new deployments) by deploy time - superseded by gpt-5-mini (see Update above). |
+| Phi-4-mini (MaaS serverless) | ~$0.07 | ~$0.23 | Cheapest overall, but an open small model - likely needs more prompt tuning to hold the stone-carving brand voice. Not deployed. |
 
 **Per-call estimate (gpt-4.1-nano):** ~400 input tokens (system + category + exclusions) x $0.10/1M
 = ~$0.00004; ~60 output tokens x $0.40/1M = ~$0.000024. **~$0.0001 per jumble** (roughly a
@@ -186,6 +192,32 @@ compute now; real charging attaches to the same seam later.
 - **D - Async vs in-app:** in-app synchronous server proxy for the jumble (recommended) vs. stand up
   Azure Functions now.
 
+## Update (2026-07-02): model superseded by availability at deploy time
+
+The core decision below - **GO on Azure AI Foundry / Azure OpenAI, keyless** - stands
+and is what was deployed. The specific model pick, **gpt-4o-mini**, is **superseded**:
+by the time `ai-cost-gate/06` actually provisioned the account (same day, deploy-time
+research), gpt-4o-mini and the whole gpt-4o/gpt-4.1 mini family were `lifecycleStatus:
+Deprecating` in the target region (Azure blocks *new* deployments of a deprecating
+model), and the cheaper `gpt-4.1-nano` / `gpt-5-nano` / `gpt-5.4-nano` all showed
+**zero real-time quota in eastus2** on the target subscription. The current
+GenerallyAvailable small chat model **with quota** is **gpt-5-mini** (version
+`2025-08-07`, GlobalStandard quota 500) - that is what was deployed. The current-gen
+mini models also dropped the regional "Standard" SKU the 4o-mini generation offered,
+so the deployment uses `GlobalStandard` instead.
+
+The model name, version, and deployment SKU are now **Bicep parameters**
+(`aiModelName` / `aiModelVersion` / `aiDeploymentSku` in `infra/ai.bicep`), so the
+next time availability shifts, swapping the model is a config/param change, not a
+code change - "which model" is a decision revisited against live availability at
+deploy time, not a one-time pick. The cost table above (gpt-4.1-nano / gpt-4o-mini /
+Phi-4-mini) is now **historical pricing context**, not the live deployable set; see
+`infra/ai.bicep` and `docs/features/ai-cost-gate/06-iac-provisioning-seam.md` for the
+deployed shape (including the cross-subscription topology this also required -
+the app's "Azure for Students" subscription cannot host Azure OpenAI at all, so the
+provider footprint lives in a separate Pay-As-You-Go subscription; see that story).
+Deployed and verified via PR #131.
+
 ## Decision
 
 Resolved by the owner on 2026-07-02:
@@ -222,7 +254,11 @@ not invent one. `ai-voice-narration` will make its own TTS engine/voice-tier dec
 
 - A new shared `ai-cost-gate` feature folder becomes the home of the five-piece plumbing every future
   AI feature reuses; new AI features are consumers, not new gates.
-- `infra/main.bicep` grows a Foundry (Azure OpenAI) resource + deployment, an optional Content Safety
-  resource, a Key Vault secret (or managed-identity RBAC), and the Cost Management budget + action
-  group. Provisioning is the owner's to run ("I prep the Bicep, you run the Azure provisioning").
+- **Superseded by deploy-time reality (see Update above):** the Foundry (Azure OpenAI) resource +
+  deployment, the optional Content Safety resource, and the Cost Management budget + action group did
+  not land in `infra/main.bicep` - they live in a separate `infra/ai.bicep`, deployed to its own
+  resource group on a separate Pay-As-You-Go subscription, because the app's subscription cannot host
+  Azure OpenAI at all. The API reaches the model cross-subscription via a keyless managed-identity
+  role assignment; no Key Vault secret is needed for the model call. Provisioning is the owner's to
+  run ("I prep the Bicep, you run the Azure provisioning").
 - The first real AI call is metered from the very first commit; there is no ungated AI in the tree.
