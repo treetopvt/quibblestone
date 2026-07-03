@@ -93,6 +93,51 @@ public sealed record Player(
 public sealed record GraceHoldTicket(Guid Episode, CancellationToken Token);
 
 /// <summary>
+/// session-engine/08: the two outcomes of <see cref="Room.ReclaimSeat"/> - the seat
+/// was found by its reconnect token and reclaimed, or there was nothing to reclaim
+/// (unknown / already-evicted / wrong-room token). The hub maps this to a friendly
+/// result envelope, never a throw (AC-05).
+/// </summary>
+public enum ReclaimStatus
+{
+    /// <summary>No seat in this room holds the given token (unknown, already evicted, or a token for a different room); nothing was mutated.</summary>
+    NotFound,
+
+    /// <summary>The seat was reclaimed under the new connection; the round-phase rehydration fields are populated.</summary>
+    Reclaimed,
+}
+
+/// <summary>
+/// session-engine/08: what <see cref="Room.ReclaimSeat"/> hands back after matching a
+/// reconnect token to a held seat and swapping in the caller's new connection - just
+/// enough round-phase context (computed ATOMICALLY under the room lock at reclaim time)
+/// for the hub to build the rehydration envelope story 09 consumes:
+///   - <see cref="Status"/>: whether a seat was actually reclaimed (AC-05 guard).
+///   - <see cref="Phase"/>: "lobby" (no round) | "prompting" | "reveal" (AC-02).
+///   - <see cref="IsHost"/>: whether the reclaimed seat is the room's host (AC-02).
+///   - <see cref="RemainingBlankIndices"/>: for a "prompting" round, THIS seat's own
+///     not-yet-submitted blank indices - index-only, no words, no PII, mirroring the
+///     shape of <see cref="Hubs.YourBlanksDto"/> (AC-03). Empty in any other phase.
+/// The room-wide progress ("N of M") and the reveal words are NOT duplicated here - the
+/// hub reads them from the EXISTING <see cref="GetProgressCounts"/> / <see cref="GetProgress"/>
+/// / <see cref="BuildReveal"/> projections (no second parallel round bookkeeping).
+/// </summary>
+/// <param name="Status">Whether a seat was reclaimed or nothing matched the token.</param>
+/// <param name="Phase">The round's phase at reclaim time: "lobby" | "prompting" | "reveal".</param>
+/// <param name="IsHost">True when the reclaimed seat is the room's host.</param>
+/// <param name="RemainingBlankIndices">This seat's outstanding blank indices (prompting only; empty otherwise).</param>
+public sealed record ReclaimResult(
+    ReclaimStatus Status,
+    string Phase,
+    bool IsHost,
+    IReadOnlyList<int> RemainingBlankIndices)
+{
+    /// <summary>The shared "nothing to reclaim" result (AC-05) - a clean, mutation-free miss.</summary>
+    public static readonly ReclaimResult NotFound =
+        new(ReclaimStatus.NotFound, "lobby", false, Array.Empty<int>());
+}
+
+/// <summary>
 /// One player's blank assignment within a round (group-play/02). Records WHICH
 /// blank indices this player owes, keyed server-side by the owning connection,
 /// alongside just enough anonymous identity (nickname + Guardian variant) for
@@ -587,6 +632,13 @@ public sealed class Room
                 return false;
             }
 
+            // session-engine/08 (Gate-1 nit carried from 07): the seat is gone, so any
+            // pending grace hold keyed by this same connection id must go with it - drop
+            // and dispose it so a CancellationTokenSource never outlives the seat it
+            // guards (a deliberate LeaveRoom during a held-then-abandoned window, or any
+            // odd sequencing, could otherwise leak a live CTS). No-op when none pending.
+            DiscardGraceHoldLocked(connectionId);
+
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
         }
@@ -655,11 +707,7 @@ public sealed class Room
 
             // Defensive: retire any stale hold for this connection before opening a
             // fresh episode (should not happen given the Connected guard above).
-            if (_graceHolds.Remove(connectionId, out var stale))
-            {
-                stale.Cts.Cancel();
-                stale.Cts.Dispose();
-            }
+            DiscardGraceHoldLocked(connectionId);
 
             var cts = new CancellationTokenSource();
             var episode = Guid.NewGuid();
@@ -688,15 +736,32 @@ public sealed class Room
 
         lock (_gate)
         {
-            if (!_graceHolds.Remove(connectionId, out var hold))
-            {
-                return false;
-            }
-
-            hold.Cts.Cancel();
-            hold.Cts.Dispose();
-            return true;
+            return DiscardGraceHoldLocked(connectionId);
         }
+    }
+
+    /// <summary>
+    /// session-engine/07 + /08: drop and dispose the pending grace hold (if any) keyed by
+    /// <paramref name="connectionId"/> - cancel its timer's <see cref="CancellationTokenSource"/>
+    /// (so a waiting <c>Task.Delay</c> exits without evicting) and dispose it, so a CTS's
+    /// lifetime is never longer than the seat it guards. Returns true if a hold was
+    /// dropped, false if none was pending. MUST be called under <see cref="_gate"/> - it
+    /// is the single shared "retire this connection's grace hold" primitive that
+    /// <see cref="CancelGrace"/>, <see cref="MarkDisconnected"/> (stale-hold cleanup),
+    /// <see cref="RemovePlayer"/> (Gate-1), and <see cref="ReclaimSeat"/> all compose.
+    /// </summary>
+    /// <param name="connectionId">The (dropped) connection whose grace hold to retire.</param>
+    /// <returns>True if a pending hold was dropped and disposed; false if none was pending.</returns>
+    private bool DiscardGraceHoldLocked(string connectionId)
+    {
+        if (!_graceHolds.Remove(connectionId, out var hold))
+        {
+            return false;
+        }
+
+        hold.Cts.Cancel();
+        hold.Cts.Dispose();
+        return true;
     }
 
     /// <summary>
@@ -733,6 +798,158 @@ public sealed class Room
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
         }
+    }
+
+    /// <summary>
+    /// session-engine/08 (AC-01/AC-02/AC-03): reclaim a held seat by its reconnect token
+    /// under a brand-new SignalR connection, and hand back just enough round-phase context
+    /// for the hub to rehydrate the resuming client. SignalR's own
+    /// <c>withAutomaticReconnect</c> always gets a FRESH connection id after a drop, so a
+    /// device spends the token 07 minted (see <see cref="NewReconnectToken"/>) to prove it
+    /// owns the seat and move it to the new connection - the whole reclaim happens
+    /// ATOMICALLY under <see cref="_gate"/>:
+    ///   1. Find the seat whose <see cref="Player.ReconnectToken"/> matches. No match ->
+    ///      <see cref="ReclaimResult.NotFound"/> (unknown, already-evicted-by-grace, or a
+    ///      token for a DIFFERENT room since the caller looked this room up by code): a
+    ///      clean AC-05 miss that mutates NOTHING and never throws.
+    ///   2. Cancel the seat's pending grace-expiry hold via <see cref="DiscardGraceHoldLocked"/>
+    ///      (story 07's cancellation seam). This is the DETERMINISTIC race resolver: this
+    ///      method and the grace-expiry eviction (<see cref="TryReleaseSeat"/>) both take
+    ///      THIS lock, so whichever wins the lock first wins outright - if grace-expiry ran
+    ///      first it already removed the seat (step 1 returns NotFound); if we run first we
+    ///      drop the hold here (the later TryReleaseSeat finds no hold and no-ops).
+    ///   3. Rebuild the immutable <see cref="Player"/> record with the new connection id and
+    ///      <see cref="Player.Connected"/> flipped true (the swap-a-fresh-value pattern, never
+    ///      a field mutation), preserving the token, nickname, and variant.
+    ///   4. If a round is live, rekey THIS seat's blank assignment from the old connection id
+    ///      to the new one (<see cref="RekeyAssignmentLocked"/>) so the resumed player can
+    ///      submit its still-outstanding blanks (<see cref="RecordSubmission"/> matches by
+    ///      connection id). The blank indices and every recorded submission are preserved
+    ///      untouched - only the routing key moves.
+    /// The returned <see cref="ReclaimResult"/> carries the phase, the host flag, and (for a
+    /// "prompting" round) THIS seat's remaining blank indices - never another seat's,
+    /// never any word or PII (AC-03/AC-07). Room-wide progress + the reveal words are read
+    /// by the hub from the EXISTING <see cref="GetProgress"/> / <see cref="GetProgressCounts"/>
+    /// / <see cref="BuildReveal"/> projections, so there is no second parallel bookkeeping.
+    /// </summary>
+    /// <param name="token">The seat's reconnect token, from the caller's own create/join envelope.</param>
+    /// <param name="newConnectionId">The caller's NEW SignalR connection to seat the reclaimed player under.</param>
+    /// <returns>A reclaimed result with phase-data, or <see cref="ReclaimResult.NotFound"/> when nothing matched.</returns>
+    public ReclaimResult ReclaimSeat(string token, string newConnectionId)
+    {
+        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(newConnectionId))
+        {
+            return ReclaimResult.NotFound;
+        }
+
+        lock (_gate)
+        {
+            var index = _players.FindIndex(p =>
+                string.Equals(p.ReconnectToken, token, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                // Unknown token, a seat already evicted when its grace window expired, or a
+                // token minted for a different room - nothing here to reclaim (AC-05). No
+                // mutation of any kind.
+                return ReclaimResult.NotFound;
+            }
+
+            var seat = _players[index];
+            var oldConnectionId = seat.ConnectionId;
+
+            // Cancel the pending grace-expiry hold for the OLD connection (the deterministic
+            // race resolver - see the method summary). No-op when no hold is pending (e.g. a
+            // reclaim of a seat that never actually dropped).
+            DiscardGraceHoldLocked(oldConnectionId);
+
+            // Swap in the caller's new connection and mark the seat connected again by
+            // rebuilding the immutable record - token / nickname / variant preserved.
+            _players[index] = seat with { ConnectionId = newConnectionId, Connected = true };
+
+            // Rekey this seat's live-round assignment (if any) so the resumed player owns its
+            // outstanding blanks under the new connection; compute the remaining indices from
+            // the (rekeyed) assignment for the rehydration payload.
+            var assignment = _round is null
+                ? null
+                : RekeyAssignmentLocked(oldConnectionId, newConnectionId);
+
+            LastActiveUtc = DateTimeOffset.UtcNow;
+
+            var phase = _round?.Phase ?? "lobby";
+            var remaining = assignment is null
+                ? Array.Empty<int>()
+                : RemainingBlankIndices(assignment, _round!.Submissions);
+
+            return new ReclaimResult(ReclaimStatus.Reclaimed, phase, seat.IsHost, remaining);
+        }
+    }
+
+    /// <summary>
+    /// session-engine/08: move a live round's blank assignment from <paramref name="oldConnectionId"/>
+    /// to <paramref name="newConnectionId"/> when a seat is reclaimed under a new connection,
+    /// rebuilding the assignment list with just that one entry's immutable record swapped (the
+    /// blank indices, nickname, variant, and host flag all preserved - only the connection key
+    /// moves). Returns the updated assignment, or null when this connection owned no assignment
+    /// (a lobby reclaim, or a seat dealt zero blanks that still has an entry - which is also
+    /// returned). MUST be called under <see cref="_gate"/> with a non-null round.
+    /// </summary>
+    private PlayerAssignment? RekeyAssignmentLocked(string oldConnectionId, string newConnectionId)
+    {
+        if (_round is null)
+        {
+            return null;
+        }
+
+        PlayerAssignment? updated = null;
+        var next = new List<PlayerAssignment>(_round.Assignments.Count);
+        foreach (var assignment in _round.Assignments)
+        {
+            if (assignment.ConnectionId == oldConnectionId)
+            {
+                updated = assignment with { ConnectionId = newConnectionId };
+                next.Add(updated);
+            }
+            else
+            {
+                next.Add(assignment);
+            }
+        }
+
+        if (updated is not null)
+        {
+            _round.Assignments = next;
+        }
+
+        return updated;
+    }
+
+    /// <summary>
+    /// session-engine/08 (AC-03): the small PURE helper behind a "prompting" rejoin - given
+    /// ONE seat's own <paramref name="assignment"/> and the round's <paramref name="submissions"/>,
+    /// return the blank indices it still owes (assigned but not yet in the submission store),
+    /// in ascending blank order. Index-only, no words, no connection id, no PII - it mirrors
+    /// the shape of <see cref="Hubs.YourBlanksDto"/> exactly (the resumed word-collection
+    /// screen shows only what is left, nothing already-answered re-asked). Pure and static:
+    /// it reads only its two arguments, so it is trivially unit-testable and never another
+    /// seat's blanks.
+    /// </summary>
+    /// <param name="assignment">The seat's own blank assignment.</param>
+    /// <param name="submissions">The round's collected submissions, keyed by blank index.</param>
+    /// <returns>The still-outstanding blank indices for this seat (empty when all are submitted).</returns>
+    private static IReadOnlyList<int> RemainingBlankIndices(
+        PlayerAssignment assignment,
+        IReadOnlyDictionary<int, Submission> submissions)
+    {
+        var remaining = new List<int>();
+        foreach (var index in assignment.BlankIndices)
+        {
+            if (!submissions.ContainsKey(index))
+            {
+                remaining.Add(index);
+            }
+        }
+
+        return remaining;
     }
 
     /// <summary>
