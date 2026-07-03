@@ -108,6 +108,11 @@ public sealed class CloudGalleryController : ControllerBase
     private const int MaxPartTextLength = 500;
     private const int MaxPartsCount = 400;
     private const int MaxBylineLength = 300;
+    // Bound the TOTAL retained part text so the serialized PartsJson stays well under
+    // Azure Table Storage's ~32K-char string-property limit. The per-part x per-count
+    // caps alone (400 x 500) could otherwise serialize past it and throw a 500 on save
+    // (Copilot review). A real filled-in tale is a few hundred chars; 16000 is generous.
+    private const int MaxTotalPartsTextLength = 16000;
 
     private readonly PurchaserCredentialService _credential;
     private readonly IAccountStore _accounts;
@@ -155,15 +160,15 @@ public sealed class CloudGalleryController : ControllerBase
             return Ok(new CloudGalleryResult([]));
         }
 
-        // AC-04: the ONE entitlement decision for this signed-in session, read once
-        // here against the catalog key. Default-unlocked makes it true today; the
-        // check preserves the seam so real gating flips a stored grant with no
-        // consumer refactor. NOT re-checked on save / delete.
-        var session = await _entitlements.EvaluateForSession(account.Email, cancellationToken);
-        if (!session.IsUnlocked(EntitlementCatalog.GalleryCloudSync))
+        // AC-04: gallery.cloudSync must be unlocked for this account. Default-unlocked
+        // makes it true today; the check preserves the seam so real gating flips a
+        // stored grant with no consumer refactor. Applied here AND on every write op
+        // (see CloudSyncLockedAsync) so a future gating flip is enforced uniformly,
+        // never bypassable by POSTing/DELETEing directly (Copilot review). It is a
+        // single cheap capability read per op, never a per-item loop.
+        if (await CloudSyncLockedAsync(account, cancellationToken) is { } locked)
         {
-            return StatusCode(StatusCodes.Status403Forbidden,
-                new { message = "Cloud gallery is not available on this account." });
+            return locked;
         }
 
         var ownerKey = AccountIdentity.KeyFor(account.Email);
@@ -185,8 +190,9 @@ public sealed class CloudGalleryController : ControllerBase
     /// already-filtered tale to the signed-in purchaser's cloud gallery (AC-01).
     /// 401 when not signed in. Re-vets EVERY non-empty part + the byline server-side
     /// (AC-05), enforces length caps, skips empty coral slots, mints a tale id, keys
-    /// it off the purchaser account, and stores it. NO entitlement re-check here -
-    /// that decision was made once at the gallery load (AC-04). Rate limited per IP.
+    /// it off the purchaser account, and stores it. Enforces the gallery.cloudSync
+    /// entitlement too (AC-04) so a future gating flip cannot be bypassed by POSTing
+    /// directly. Rate limited per IP.
     /// </summary>
     [HttpPost]
     [EnableRateLimiting(CloudGalleryRateLimit.PolicyName)]
@@ -206,6 +212,13 @@ public sealed class CloudGalleryController : ControllerBase
         if (account is null)
         {
             return Unauthorized();
+        }
+
+        // Entitlement (AC-04): enforced on the write path too, so a future gating flip
+        // cannot be bypassed by calling POST directly (Copilot review).
+        if (await CloudSyncLockedAsync(account, cancellationToken) is { } locked)
+        {
+            return locked;
         }
 
         if (request is null)
@@ -279,6 +292,13 @@ public sealed class CloudGalleryController : ControllerBase
             return BadRequest(new { message = "A tale needs some story to sync." });
         }
 
+        // Bound the TOTAL stored text so PartsJson stays under Azure Table's string-
+        // property limit (the per-part x per-count caps alone could exceed it - 500).
+        if (parts.Sum(p => p.Text.Length) > MaxTotalPartsTextLength)
+        {
+            return BadRequest(new { message = "That tale is too long to sync." });
+        }
+
         if (byline.Length > 0)
         {
             var bylineVerdict = await _safety.CheckAsync(byline, cancellationToken);
@@ -324,6 +344,12 @@ public sealed class CloudGalleryController : ControllerBase
             return NoContent();
         }
 
+        // Entitlement (AC-04): enforced on the write path too (Copilot review).
+        if (await CloudSyncLockedAsync(account, cancellationToken) is { } locked)
+        {
+            return locked;
+        }
+
         var ownerKey = AccountIdentity.KeyFor(account.Email);
         await _store.DeleteAsync(ownerKey, taleId, cancellationToken);
         return NoContent();
@@ -350,6 +376,12 @@ public sealed class CloudGalleryController : ControllerBase
             return NoContent();
         }
 
+        // Entitlement (AC-04): enforced on the write path too (Copilot review).
+        if (await CloudSyncLockedAsync(account, cancellationToken) is { } locked)
+        {
+            return locked;
+        }
+
         var ownerKey = AccountIdentity.KeyFor(account.Email);
         await _store.DeleteAllForOwnerAsync(ownerKey, cancellationToken);
         return NoContent();
@@ -371,5 +403,20 @@ public sealed class CloudGalleryController : ControllerBase
             }
         }
         return Request.Cookies.TryGetValue(PurchaserCredentialService.CookieName, out var cookie) ? cookie : null;
+    }
+
+    // The gallery.cloudSync entitlement gate (AC-04), applied by EVERY authenticated
+    // gallery operation (read AND write) so a future gating flip is enforced uniformly
+    // and cannot be bypassed by calling a write endpoint directly (Copilot review). A
+    // single cheap capability read per op - never a per-item loop. Returns a 403 result
+    // when the capability is locked, or null when it is unlocked (default-unlocked
+    // today, so this is null in the current alpha).
+    private async Task<IActionResult?> CloudSyncLockedAsync(Account account, CancellationToken cancellationToken)
+    {
+        var session = await _entitlements.EvaluateForSession(account.Email, cancellationToken);
+        return session.IsUnlocked(EntitlementCatalog.GalleryCloudSync)
+            ? null
+            : StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "Cloud gallery is not available on this account." });
     }
 }

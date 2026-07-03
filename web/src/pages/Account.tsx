@@ -245,12 +245,21 @@ export function Account({ onBack }: AccountProps) {
     setVerifying(true);
     try {
       const result = await verifySignIn(devToken);
-      setMessage(result.message);
-      // Record the sign-in in the app-wide session so it survives navigation.
       if (result.outcome === 'signed-in' && result.credential) {
+        // Record the sign-in in the app-wide session so it survives navigation.
         session.signIn(result.credential, result.email ?? '');
+        setMessage(result.message);
+        setPhase('signed-in');
+      } else if (result.outcome === 'signed-in') {
+        // A 'signed-in' outcome with no credential is a malformed response - do NOT
+        // enter the signed-in state without a session credential (Copilot review),
+        // which would show "You're signed in" with no gallery and no way to act.
+        setMessage('We could not complete sign-in just now - please request a fresh link and try again.');
+        setPhase('error');
+      } else {
+        setMessage(result.message);
+        setPhase(result.outcome);
       }
-      setPhase(result.outcome);
     } finally {
       setVerifying(false);
     }

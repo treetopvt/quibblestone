@@ -124,13 +124,12 @@ public sealed class TableStorageCloudGalleryStore : ICloudGalleryStore
             _logger.LogDebug(ex, "Cloud-gallery list returned 404 (table not yet created); treating as an empty gallery.");
             return [];
         }
-        catch (Exception ex)
-        {
-            // A storage blip on the signed-in gallery read degrades to an empty list
-            // rather than a 500; logged server-side (no PII).
-            _logger.LogWarning(ex, "Cloud-gallery list failed for an owner (served as empty).");
-            return [];
-        }
+        // A genuine storage failure (non-404) PROPAGATES rather than degrading to an
+        // empty list: for a private, purchaser-facing gallery, silently returning
+        // "no tales" on a transient fault reads as data loss and hides the client's
+        // error state. Letting it bubble lets the controller surface a non-2xx so the
+        // web client shows its "could not reach your cloud gallery" note (Copilot
+        // review). Logged (no PII) by the framework at the boundary.
 
         return tales;
     }

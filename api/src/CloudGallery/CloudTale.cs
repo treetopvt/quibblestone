@@ -18,10 +18,12 @@
 //  not inboxes - exactly like the account store keys itself.
 //
 //  ISOLATION (deliberate): CloudGallery defines its OWN small CloudTalePart record
-//  rather than importing PublishedTales.TalePart, mirroring the isolation precedent
-//  keepsake-gallery/04 set - this surface never depends on the PublishedTales
-//  namespace, GameHub, or the round lifecycle. The two features happen to share a
-//  content SHAPE, not a type.
+//  and its own store contract rather than importing PublishedTales.TalePart, mirroring
+//  the isolation precedent keepsake-gallery/04 set - the two features share a content
+//  SHAPE, not a type. It never touches GameHub or the round lifecycle. The ONE small
+//  exception is the controller reusing PublishedTales.SlugGenerator to mint a tale id
+//  (a shared id minter, not a data-model coupling) - a deliberate reuse, not a leak of
+//  the published-tale model into this surface.
 //
 //  A record, not a mutable entity: a synced tale is an immutable keepsake fact
 //  ("this crew carved this on this date"). QuibbleStone is a toy, not a system of

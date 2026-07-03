@@ -218,6 +218,30 @@ public class CloudGalleryControllerTests
     }
 
     [Fact]
+    public async Task Save_rejects_a_tale_whose_total_text_exceeds_the_size_cap()
+    {
+        // The per-part (500) and per-count (400) caps pass individually, but the TOTAL
+        // stored text must stay bounded so the serialized PartsJson fits Azure Table
+        // Storage's string-property limit rather than throwing a 500 on save.
+        var h = NewHarness();
+        await h.Accounts.CreateOrGetAsync(PurchaserA);
+        SignIn(h, PurchaserA);
+
+        var big = new string('a', 500); // clean text, exactly at the per-part cap
+        var parts = new List<CloudTalePartRequest>();
+        for (var i = 0; i < 40; i++)     // 40 x 500 = 20000 > the 16000 total cap
+        {
+            parts.Add(new CloudTalePartRequest(IsWord: false, Text: big));
+        }
+        var request = new SaveCloudTaleRequest(Title: "Too big", Parts: parts, BylineNames: string.Empty);
+
+        var result = await h.Controller.Save(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Empty(await ListTales(h));
+    }
+
+    [Fact]
     public async Task Save_drops_empty_coral_words_but_keeps_the_story()
     {
         var h = NewHarness();
