@@ -16,8 +16,9 @@ lightweight account, and only when they buy").
 - [ ] AC-01: Given a person is about to complete a purchase (tip jar or a
       gated purchase) and has no purchaser account yet, when the purchase flow
       reaches the point of needing one, then an account is created holding
-      only an email address or a single OAuth provider identity - no name,
-      birthdate, address, or phone number is collected.
+      only an email address (the magic-link identity, ADR 0002 Decision A) -
+      no password, no OAuth identity, no name, birthdate, address, or phone
+      number is collected.
 - [ ] AC-02: Given no one has ever purchased anything in a browser/device,
       when that device is used for free play (single-player or a same-code
       group), then no purchaser account exists and none is created - account
@@ -31,7 +32,7 @@ lightweight account, and only when they buy").
       "is there an entitled purchaser behind this session" from this account
       without touching player/room data (the seam named in
       accounts-identity/01 AC-02).
-- [ ] AC-05: Given a purchaser account is created, then the email/OAuth
+- [ ] AC-05: Given a purchaser account is created, then the email
       identity is treated as adult data, not child data - no age-of-consent
       flow is triggered for the account itself, because completing a checkout
       is itself evidence the account holder is the purchasing adult, per
@@ -42,10 +43,9 @@ lightweight account, and only when they buy").
 
 ## Out of Scope
 - The sign-in / restore-on-a-new-device flow (accounts-identity/03).
-- Choosing the specific OAuth provider(s) or deciding email-link vs.
-  password vs. OAuth-only - flagged as an open decision below; this story
-  ships with **one** minimal mechanism and leaves multi-provider linking
-  parked (feature.md, Phase 3+).
+- Any identity provider other than magic-link email (OAuth, password) -
+  explicitly NOT chosen (ADR 0002 Decision A resolved this on 2026-07-03);
+  multi-provider linking stays parked (feature.md, Phase 3+).
 - Any account settings UI beyond what checkout itself requires (change email,
   delete account, GDPR export/delete request handling) - a later, separate
   pass.
@@ -58,25 +58,26 @@ lightweight account, and only when they buy").
 ## Technical Notes
 - **Minimal-auth mechanism resolved: magic-link email** (ADR 0002 Decision A,
   2026-07-03). Purchasers sign in via an emailed one-time link - no password
-  stored, no OAuth SDK. This satisfies AC-01 ("email address or a single OAuth
-  provider identity, nothing more"). The one-time-token issue/verify plumbing
-  built here is deliberately reused by the sys-admin back office for operator
-  login (`sysadmin-console/01`) against a separate operator allowlist - so keep
-  the token issuer/verifier a reusable service, not inlined into the purchase
-  flow. No purchaser session ever grants admin scope.
+  stored, no OAuth SDK. This satisfies AC-01 ("email address, nothing more").
+  The one-time-token issue/verify plumbing built here is deliberately reused
+  by the sys-admin back office for operator login (`sysadmin-console/01`)
+  against a separate operator allowlist - so keep the token issuer/verifier a
+  reusable service, not inlined into the purchase flow. No purchaser session
+  ever grants admin scope.
 - New `api/src/Accounts/` folder (mirrors the existing `api/src/Rooms/` and
   `api/src/Safety/` project-per-concern layout): an `Account` record type
-  (email-or-OAuth-subject, created-at, no PII beyond that) and an
+  (email address, created-at, no PII beyond that) and an
   `IAccountStore` / `AccountStore` service backed by Azure Table Storage,
   registered as a singleton in `Program.cs` following the existing
   `RoomRegistry` / `ContentSafetyFilter` registration pattern (see
   `api/src/Program.cs`).
-- Table Storage partition/row key scheme should key by a hash of the email or
-  the OAuth subject identifier - never store the account's Table key as a
-  guessable sequential ID, since it is effectively a purchaser identifier.
-- No secrets belong in `VITE_*` web env vars (CLAUDE.md section 4/6); any
-  OAuth client secret or session-signing key lives in Azure Key Vault,
-  consistent with billing-entitlements/03's Stripe key handling.
+- Table Storage partition/row key scheme should key by a hash of the email
+  address - never store the account's Table key as a guessable sequential ID,
+  since it is effectively a purchaser identifier.
+- No secrets belong in `VITE_*` web env vars (CLAUDE.md section 4/6); the
+  magic-link token-signing key (and, later, the email-delivery provider's key)
+  lives in Azure Key Vault, consistent with billing-entitlements/03's Stripe
+  key handling.
 - This story does **not** touch `api/src/Rooms/` (accounts-identity/01 AC-05
   guarantees that).
 - Web-side: a minimal account-creation surface only appears inside the
@@ -87,7 +88,7 @@ lightweight account, and only when they buy").
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Accounts/AccountStoreTests.cs (to be created with the API test project): creating an account from an email/OAuth identity persists only that field + created-at.` |
+| AC-01 | `api/tests/Accounts/AccountStoreTests.cs (to be created with the API test project): creating an account from an email identity persists only that field + created-at.` |
 | AC-02 | `manual: complete a full free single-player and 2-player round with no purchase attempted - confirm zero rows written to the account table.` |
 | AC-03 | `manual: code read of the Account record type - confirm no nickname/player/room reference field exists.` |
 | AC-04 | `manual: billing-entitlements/01 build-time integration check - the session-creation gate reads this account without importing Rooms/.` |

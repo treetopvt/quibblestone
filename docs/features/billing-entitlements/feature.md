@@ -7,6 +7,18 @@ an ungated donate-first tip jar, Stripe integration, a gated purchase flow for
 packs/subscription, and purchaser-facing restore/manage. Everything defaults
 to unlocked; gating a capability later is a config flip, not a refactor.
 
+> **State of the tree (2026-07-03).** The `IEntitlementService` interface,
+> `SessionEntitlements`, the `ai.onDemand` catalog reservation, and the
+> `GameHub.CreateRoom` capture already ship as a thin, default-unlocked
+> stand-in (`ai-cost-gate/02`, #121, PR #132) - see
+> `api/src/Entitlements/IEntitlementService.cs`. Story 01 (#70) no longer
+> BUILDS this seam; it EXTENDS it: the full capability catalog, the
+> stored-value evaluation behind the same interface, and the lease-shaped
+> grant store. Stories 03-04 fold in ADR 0002's subscription specifics
+> (webhook lifecycle, dunning grace, family-plan bundle). See
+> [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)'s "State of
+> the tree" for the authoritative account.
+
 ## README reference
 README section 3 (Monetization - "a thin entitlement check on top of the core
 engine, decided at session-creation time, not per-request"; free tier
@@ -45,6 +57,9 @@ even if the UI is minimal").
   feature (add-on packs, AI illustration/voice/on-demand), is a *consumer* of
   this seam, not a new gate. If a future story is tempted to add its own
   per-request check, that is a smell - it belongs behind this seam instead.
+  The interface itself already ships thin (`ai-cost-gate/02`); story 01 now
+  extends it with the full catalog, the stored-value evaluation, and the
+  grant store.
 - **Default-unlocked is not a placeholder, it is the design.** Shipping the
   seam with every capability defaulted to free/unlocked means introducing it
   changes zero observed behavior on day one. Turning on a real paywall later
@@ -129,3 +144,13 @@ even if the UI is minimal").
     in story 03's Stripe handler. The host proves purchaser status at
     `CreateRoom` via a SignalR access token (ADR 0002 Decision F), and story 01's
     gate stores only the resolved capabilities on `Room` - never a purchaser id.
+- 2026-07-03: Story-level refresh against shipped reality: story 01 (#70) is
+  rewritten to describe EXTENDING the already-shipped `IEntitlementService`
+  seam (`ai-cost-gate/02`, #121, PR #132) rather than building it from
+  scratch - its ACs, Technical Notes, and Tests now name the exact edit
+  (catalog extension + stored-value swap + grant store) instead of a new
+  folder. Stories 03-04 gained explicit ACs for the subscription webhook
+  lifecycle, the ~7-day dunning grace, and the family-plan bundle mapping
+  (folded into the existing stories per Decisions C/D above, rather than a
+  new story - the incremental scope is additive to plumbing/mapping each
+  story already owns).
