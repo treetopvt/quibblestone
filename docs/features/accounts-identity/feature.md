@@ -18,9 +18,9 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #67 | Anonymous player, forever | In Progress |
-| 02 | #68 | Lightweight purchaser account | In Progress |
-| 03 | #69 | Sign-in and restore on a new device | In Progress |
+| 01 | #67 | Anonymous player, forever | In Review |
+| 02 | #68 | Lightweight purchaser account | In Review |
+| 03 | #69 | Sign-in and restore on a new device | In Review |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:
@@ -95,3 +95,24 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   Vault; admin authorization is allowlist membership resolved at verify time and
   is never inferred from being a purchaser (`purchaser == admin` is the bug to
   prevent). Consistent with story 02 AC-01 (email or one identity, nothing more).
+- 2026-07-03: **Built via `/orchestrate-feature` (all three stories on the
+  `claude/orchestrate-accounts-identity-a373p2` umbrella).** Notes from the build:
+  - Story 02's magic-link token verifier originally compared DECODED signature
+    bytes, which accepted a padding-equivalent final base64url char (~6% of
+    mutations) and flaked its tamper test. Fixed to compare the CANONICAL
+    base64url strings via constant-time `FixedTimeEquals`, with an exhaustive
+    regression test. Live-verified: replaying a consumed token returns
+    `link-invalid` (single-use holds).
+  - The purchaser session credential (story 03) uses ASP.NET Data Protection
+    (`ITimeLimitedDataProtector`, 12h TTL, purpose `QuibbleStone.PurchaserSession`)
+    - no new dependency, no hand-rolled crypto. The current key ring is the
+    framework default (per-process, not durable); a Key Vault-backed shared key
+    ring is a **billing-entitlements deployment follow-up**, not this slice.
+  - AC-05 no-enumeration is structural: the request endpoint never reads the
+    account store (identical neutral response for any email); the dev-only token
+    echo is gated on `IsDevelopment()`. Live-verified end to end.
+  - The `signed-in` happy path is not UI-drivable yet (account creation lives in
+    the not-yet-built billing purchase flow; no seed endpoint) - it is covered by
+    `SignInTests.cs`. Verification drove request -> verify (`no-account`),
+    single-use replay, and confirmed free play (hub negotiate + the 2-device
+    group-mode e2e) is unaffected by the added `/account` route.

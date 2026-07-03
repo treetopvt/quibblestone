@@ -1,6 +1,6 @@
 # Story: Sign-in and restore on a new device
 
-**Feature:** Accounts & Identity  ·  **Status:** In Progress  ·  **Issue:** #69
+**Feature:** Accounts & Identity  ·  **Status:** In Review  ·  **Issue:** #69
 
 ## Context
 A purchaser who bought the family plan on their phone should not have to
