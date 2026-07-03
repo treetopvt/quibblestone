@@ -97,7 +97,17 @@ once and reused by every later AI feature.
   "a story about our dog in space" (`ai-voice-narration`, `ai-illustration`,
   `ai-on-demand-generation`). Same gate, bigger payloads, strongest moderation.
 - **Charge for it** - purchaser account + tip jar -> Stripe -> gated purchase
-  (`accounts-identity`, `billing-entitlements`). The cost gate is already half of it.
+  (`accounts-identity`, `billing-entitlements`). The cost gate is already half of it:
+  the `IEntitlementService` seam shipped thin + default-unlocked, captured at
+  `CreateRoom` (ai-cost-gate/02); `billing-entitlements/01` (#70) extends it with the
+  real catalog + grant store. How this stays anonymous while a paying adult unlocks
+  content/features for their sessions - the family-plan subscription shape, and the
+  operator back office - is decided in [ADR 0002](./adr/0002-accounts-subscriptions-and-admin.md)
+  (decisions A-F resolved) and decomposed in
+  [`sysadmin-console`](./features/sysadmin-console/feature.md) (3 stories + a Wave
+  Plan: operator login/boundary, grant/revoke, public-tale report/takedown). The
+  admin auth boundary (story 01) is buildable now; grant/revoke pairs with real
+  charging.
 - **Bottomless library** - pack catalog + the offline generate -> vet -> publish
   content factory (`story-packs`, `ai-content-factory`).
 

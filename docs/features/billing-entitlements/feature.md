@@ -110,3 +110,22 @@ even if the UI is minimal").
   though story 03's plumbing is a technical prerequisite for story 02 to
   actually charge a card - see the Wave Plan in implementation.md for the real
   build order.
+- 2026-07-03: [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)
+  (accounts, subscriptions, sys-admin surface) adds small, additive subscription
+  scope on top of this feature without reshaping the #70 seam. Decisions C + D
+  are resolved:
+  - **C - family plan = the full paid-tier bundle; packs sold separately.** The
+    subscription grants `library.full`, `play.remote`, `play.largeGroup`, and the
+    `ai.*` keys (once those features exist) while active; add-on packs stay a
+    separate one-time `pack.<id>` purchase on the same plumbing. The grant is
+    lease-shaped: the `EntitlementGrant` row carries `validThrough` + `source`
+    (subscription vs one-time), refreshed on each renewal webhook, so the
+    session-creation check reads "active?" from one Table Storage read (story 03).
+  - **D - dunning grace: ~7 days.** On `past_due`, extend `validThrough` a ~7-day
+    grace rather than expiring immediately, so a failed card does not lock a
+    family mid-session; then fall back to the generous free tier. Full
+    dunning/retry stays parked (below).
+  - Subscription webhook lifecycle (created / renewed / past_due / canceled) lands
+    in story 03's Stripe handler. The host proves purchaser status at
+    `CreateRoom` via a SignalR access token (ADR 0002 Decision F), and story 01's
+    gate stores only the resolved capabilities on `Room` - never a purchaser id.
