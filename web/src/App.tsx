@@ -722,6 +722,11 @@ export default function App() {
               collectProgress={collectProgress}
               submitWord={submitWord}
               crownedNickname={crownedNickname}
+              // game-modes/07 AC-03: the AI "Fresh runes" jumble needs the join
+              // code (the server resolves it to the room's anonymous InstanceId)
+              // and the round's family-safe toggle (sticky in App).
+              roomCode={room.code}
+              familySafe={lastFamilySafe}
               onLeave={handleGoHome}
             />
           ) : (

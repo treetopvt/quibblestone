@@ -40,8 +40,13 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   entitlement-at-session, per-session quota + per-IP limiter, the $20/month spend
   circuit-breaker + anonymous cost attribution, and moderate-before-display. gpt-5-mini
   via keyless managed identity; the app degrades to the deterministic fallback with
-  zero AI config. The gate is built but has NO consumer yet - the first one (the Fresh
-  Runes AI jumble) is the next AI step (below), not shipped.
+  zero AI config.
+- **The first AI slice - Fresh Runes (2026-07-03, PR #140).** The gate's first real
+  consumer: **Fresh Runes** on the Word Bank surface - a FREE deterministic reshuffle
+  (`game-modes/07`) and, layered on top, an AI jumble (`ai-on-demand-generation/05` +
+  moderation `/02`) that rides the gate (`feature=jumble`) and falls back to the free
+  reshuffle whenever the gate degrades. The throwaway measurement probe was removed
+  once this real consumer landed.
 
 > Known gap: **group play is Classic-Blind-only.** The other three built modes are
 > not yet reachable in a group - that is `group-play/05` (below), and it is mostly
@@ -56,7 +61,7 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 | Anonymous usage metrics | `platform-devops/05` | modes, session length; reuses 04's pipeline |
 | Favorite a story | `story-selection/06` | device-local replay |
 | Serve log | `story-selection/04` | what got played |
-| Fresh Runes (free half) | `game-modes/07` | deterministic reshuffle, no AI |
+| ~~Fresh Runes (free + AI)~~ **shipped** | `game-modes/07` + `ai-on-demand-generation/05` | deterministic reshuffle + AI jumble behind the cost gate (2026-07-03) |
 | Group mode selection | `group-play/05` | host picks the mode for the room |
 | Reconnect / rejoin | `session-engine` (deferred) | survive a dropped phone |
 
@@ -86,9 +91,10 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 ### 3. The AI question (explore sooner, gate the cost)
 Prove the AI plumbing ONCE, on the cheapest/safest payload, behind a gate built
 once and reused by every later AI feature.
-- **Thin slice:** the **Fresh Runes AI jumble** (`game-modes/07` AI layer, backed by
-  `ai-on-demand-generation/05`) - a tiny text payload, easy to moderate, with a
-  non-AI fallback. What it teaches transfers straight to voices and on-demand tales.
+- **Thin slice - SHIPPED (2026-07-03, PR #140):** the **Fresh Runes AI jumble**
+  (`game-modes/07` AI layer, backed by `ai-on-demand-generation/05`) - a tiny text
+  payload, easy to moderate, with a non-AI fallback. What it teaches transfers
+  straight to voices and on-demand tales.
 - **The cost gate** - now BUILT and shipped (see the detailed section below), reused
   by every later AI feature.
 
@@ -159,10 +165,10 @@ session, not identity**.
    serve log). All ride things already built.
 3. **Then** - observability + anonymous usage (see how the alpha plays), then Spread
    the Word (let a shared tale travel).
-4. **Early AI** - the cost gate is now BUILT (shipped), so the next AI step is the
-   Fresh Runes free reshuffle (`game-modes/07`, no AI) then the AI jumble consumer
-   (`ai-on-demand-generation/05`) that rides the gate - proving the whole pipeline on
-   the cheapest payload.
+4. **Early AI - SHIPPED (PR #140)** - the cost gate is BUILT and now has its first
+   consumer: the Fresh Runes free reshuffle (`game-modes/07`, no AI) plus the AI jumble
+   (`ai-on-demand-generation/05`) that rides the gate - the whole pipeline proven on the
+   cheapest payload. Next AI steps are the heavier payloads (voices, on-demand tales).
 5. **Later** - voices, on-demand, packs, charging - all reuse the gate; let the alpha
    and the first AI slice tell you which comes first.
 
