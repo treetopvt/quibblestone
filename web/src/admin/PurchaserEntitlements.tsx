@@ -175,8 +175,14 @@ export function PurchaserEntitlements({ operatorEmail }: PurchaserEntitlementsPr
   const onGrant = grant.handleSubmit(async (values) => {
     if (!searchedEmail) return;
     const capabilityKey = isPack ? `${PACK_PREFIX}${values.packId.trim()}` : values.capabilityChoice;
-    // An ISO instant for the day the operator picked, or null for "no expiry".
-    const validThrough = values.validThrough ? new Date(values.validThrough).toISOString() : null;
+    // The lease end, or null for "no expiry". Pin it to the END of the chosen day
+    // (UTC) so a grant "valid through" that date stays active for all of it: a bare
+    // new Date('YYYY-MM-DD') parses to 00:00Z (the START of the day), which - since
+    // EntitlementGrant.IsActiveAt treats ValidThrough as exclusive - would expire the
+    // grant a full day early.
+    const validThrough = values.validThrough
+      ? new Date(`${values.validThrough}T23:59:59.999Z`).toISOString()
+      : null;
     const result = await grantEntitlement(searchedEmail, capabilityKey, validThrough);
     setMessage(result.message);
     if (result.purchaser) setLookup(result.purchaser);

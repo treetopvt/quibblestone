@@ -156,26 +156,32 @@ export function ReviewQueue({ operatorEmail }: ReviewQueueProps) {
     void refresh();
   }, [refresh]);
 
+  // Confirm / restore surface a transport or auth failure instead of silently
+  // refreshing unchanged: the client never throws (it resolves { ok: false, message }),
+  // so on failure we show that message in the error panel; on success we reload the
+  // queue so the actioned tale drops off.
   const handleConfirm = async (slug: string) => {
     if (pendingSlug) return;
     setPendingSlug(slug);
-    try {
-      await confirmHiddenTale(slug);
-    } finally {
-      setPendingSlug(null);
+    const result = await confirmHiddenTale(slug).finally(() => setPendingSlug(null));
+    if (result.ok) {
+      await refresh();
+    } else {
+      setPhase('error');
+      setMessage(result.message);
     }
-    await refresh();
   };
 
   const handleRestore = async (slug: string) => {
     if (pendingSlug) return;
     setPendingSlug(slug);
-    try {
-      await restoreHiddenTale(slug);
-    } finally {
-      setPendingSlug(null);
+    const result = await restoreHiddenTale(slug).finally(() => setPendingSlug(null));
+    if (result.ok) {
+      await refresh();
+    } else {
+      setPhase('error');
+      setMessage(result.message);
     }
-    await refresh();
   };
 
   return (
