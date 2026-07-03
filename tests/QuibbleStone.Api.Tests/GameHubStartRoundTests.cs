@@ -24,6 +24,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Content;
+using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
@@ -45,7 +46,7 @@ public class GameHubStartRoundTests
     {
         var registry = new RoomRegistry();
         var sink = telemetry ?? new FakeTelemetrySink();
-        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), sink, TestTelemetry.NoOp, NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), sink, TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), NullLogger<GameHub>.Instance);
 
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
