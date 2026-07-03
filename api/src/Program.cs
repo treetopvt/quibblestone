@@ -25,11 +25,13 @@
 // ----------------------------------------------------------------------------
 
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
+using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
 using QuibbleStone.Api.Telemetry;
@@ -300,6 +302,64 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             });
     });
+
+    // keepsake-gallery/04 (security review W-001): the OPEN, anonymous public publish
+    // endpoint's per-IP guard, folded into this SAME AddRateLimiter registration (there
+    // can be only ONE) alongside the AI per-IP policy above. Only POST /api/tales opts
+    // in (via [EnableRateLimiting(PublishTalesRateLimit.PolicyName)]); the rest of the
+    // API (hub, health, moderation) is untouched. A rejected caller gets 429. Per-IP
+    // behind App Service is honored by the ForwardedHeaders config registered below.
+    options.AddPolicy(PublishTalesRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: PublishTalesRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = PublishTalesRateLimit.PermitLimit,
+                Window = PublishTalesRateLimit.Window,
+                QueueLimit = 0,
+            }));
+});
+
+// keepsake-gallery/04 (shareable tale link): the published-tale store, chosen at
+// STARTUP by whether a storage connection string is configured - EXACTLY the
+// NoOp-when-absent posture of the telemetry sink above. This is the feature's ONE
+// server surface (a public read-only tale page + a stored tale), kept isolated in
+// its own thin controller (PublishedTalesController) - it never touches GameHub or
+// the round lifecycle. WITH a connection string (supplied per-environment from the
+// SAME storage account, NEVER a committed literal), it writes each host-published,
+// already-filtered tale to the "PublishedTales" table under an unguessable slug
+// with a TTL (AC-03/AC-05). WITHOUT one (local dev, CI, a fresh clone), it degrades
+// to the disabled store so the app runs with the feature simply OFF and ZERO Azure
+// setup: publish returns a clear "not available" and the public GET 404s (AC-05).
+// A singleton: stateless after construction (a TableClient or nothing). The share
+// link is FREE - no entitlement check anywhere on this path (AC-04).
+var talesConnectionString = builder.Configuration["PublishedTales:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(talesConnectionString))
+{
+    builder.Services.AddSingleton<IPublishedTaleStore, DisabledPublishedTaleStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IPublishedTaleStore>(sp =>
+        new TableStoragePublishedTaleStore(
+            talesConnectionString,
+            sp.GetRequiredService<ILogger<TableStoragePublishedTaleStore>>()));
+}
+
+// keepsake-gallery/04 (W-001, deployment hardening): make the per-IP publish
+// limiter actually per-IP behind App Service. The platform terminates TLS at its
+// front end, so Connection.RemoteIpAddress is the load balancer unless we honor
+// the forwarded header - without this the limiter (PublishTalesRateLimit.PartitionKey
+// reads RemoteIpAddress) would collapse every caller into ONE bucket. Trust only
+// X-Forwarded-For; the App Service edge is the one hop (default ForwardLimit = 1
+// takes the client IP it appends), and KnownNetworks/Proxies are cleared because
+// that edge IP is not fixed. The PII scrubber still zeroes the IP before any
+// telemetry leaves the process (README section 6), so this stays no-PII.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
 });
 
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
@@ -357,14 +417,18 @@ var app = builder.Build();
 
 // --- HTTP request pipeline ----------------------------------------------------
 
+// FIRST: honor X-Forwarded-For so Connection.RemoteIpAddress is the real client IP
+// before anything reads it (the publish rate limiter partitions on it). No-op with
+// no proxy (local dev), so it is safe everywhere.
+app.UseForwardedHeaders();
+
 app.UseCors(webClientCorsPolicy);
 
-// ai-cost-gate/03 (#122) AC-03: enforce the rate-limiter middleware in the pipeline
-// so the NAMED per-IP AI policy (registered above) applies wherever the future AI
-// consumer opts in with [EnableRateLimiting(Program.AiPerIpRateLimitPolicy)]. With no
-// global limiter configured, this is INERT for every current REST / hub endpoint - it
-// only ever engages on an endpoint that names the policy, so the existing surface is
-// never throttled.
+// Activate the rate-limiter middleware for BOTH named policies registered above
+// (ai-cost-gate/03's per-IP AI guard + keepsake-gallery/04's publish guard). It is
+// endpoint-aware with no GLOBAL limiter, so it is INERT for every current REST / hub
+// route and only ever engages where an endpoint opts in via [EnableRateLimiting] -
+// the publish action today, the future AI consumer (AiPerIpRateLimitPolicy) later.
 app.UseRateLimiter();
 
 // REST endpoints (e.g. GET /health from HealthController).

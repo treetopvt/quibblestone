@@ -3,9 +3,10 @@
 //
 //  Routing model: real URLs via react-router, but REAL-TIME STATE STAYS THE
 //  AUTHORITY. The routes are '/' (Home), '/host' (HostSetup), '/join' +
-//  '/join/:code' (Join, deep-link pre-filled), '/solo', '/favorites', '/lobby',
-//  '/round', '/reveal', '/recap'. Entry screens ('/', '/host', '/join', '/solo',
-//  '/favorites') are user-driven. The LIVE game screens are driven by the hub: a single effect
+//  '/join/:code' (Join, deep-link pre-filled), '/solo', '/favorites',
+//  '/gallery', '/lobby', '/round', '/reveal', '/recap'. Entry screens ('/',
+//  '/host', '/join', '/solo', '/favorites', '/gallery') are user-driven. The
+//  LIVE game screens are driven by the hub: a single effect
 //  derives the target path from hook state (reveal-recap > reveal > round >
 //  lobby - the same precedence the old `view` switch used) and navigates there,
 //  so a RoundStarted / RevealReady broadcast still routes EVERY player into the
@@ -37,6 +38,17 @@
 //  again for the SAME room (no re-join, AC-04); "Back to lobby" clears round/reveal
 //  for EVERYONE so all players land back on the still-live Lobby. `showRoundComplete`
 //  resets whenever `reveal` clears, so a stale recap never persists.
+//
+//  keepsake-gallery/02 (PART C): GroupReveal turns the SAME `buildCrew` crew list
+//  into a plain-text "carved by [names]" byline (../gallery/byline.ts's
+//  formatCrewByline) passed as Reveal's `saveImageByline` prop, so the saved/shared
+//  tablet image finally carries a byline for group play (keepsake-gallery/01's
+//  previously-unwired seam) - no second data source, no hub call.
+//
+//  keepsake-gallery/03 adds '/gallery' (the device-local "Tales we've carved"
+//  history screen, Gallery.tsx) as one more user-driven entry screen, wired
+//  from Home's new "Tales we've carved" tertiary nav link exactly like
+//  '/favorites' - a plain route change, no hub call, no room.
 //
 //  'solo' (single-player/01) is a self-contained local flow: Solo never touches
 //  `room`, `isHost`, or any hub call, so it lives at '/solo' with no live-state
@@ -84,10 +96,14 @@ import { HostSetup } from './pages/HostSetup';
 import { Lobby } from './pages/Lobby';
 import { Solo } from './pages/Solo';
 import { Favorites } from './pages/Favorites';
+import { Gallery } from './pages/Gallery';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { findGroupMode } from './pages/modeRegistry';
 import { Reveal, type WordAttribution } from './pages/Reveal';
+import { formatCrewByline, joinNamesReadably } from './gallery/byline';
+import { buildRevealParts } from './pages/revealParts';
+import { publishTale, revokeTale, slugFromTaleUrl, type PublishTalePart } from './gallery/publishTale';
 import { RoundComplete, type RoundCompleteCrewMember } from './pages/RoundComplete';
 import { FAMILY_SAFE_DEFAULT } from './content/familySafe';
 import type { LengthPreference } from './content/length';
@@ -211,6 +227,7 @@ function GroupReveal({
         onJoinGame={onHome}
         onPlaySolo={onHome}
         onFavorites={onHome}
+        onGallery={onHome}
         creating={false}
         disabled={false}
       />
@@ -228,6 +245,45 @@ function GroupReveal({
   // reveal-delight/04 (AC-01/AC-06): derived purely from this reveal payload -
   // no new hub message, no second connection (see buildContributorLookup doc).
   const wordAttribution = buildContributorLookup(reveal.words);
+  // keepsake-gallery/02 (PART C wiring): the SAME crew this reveal's Round
+  // Complete recap derives (buildCrew above) - never a second data source -
+  // turned into a plain-text "carved by [names]" byline for the saved/shared
+  // tablet image (Reveal's saveImageByline prop, keepsake-gallery/01's
+  // previously-unwired seam). Undefined for a round with no resolvable crew
+  // (every blank went unfilled), so Reveal simply omits the byline (AC-02
+  // "when present").
+  const crewNames = buildCrew(reveal.words).crew.map((member) => member.nickname);
+  const saveImageByline = formatCrewByline(crewNames);
+
+  // keepsake-gallery/04 (AC-01/AC-03): the host-only public-link share. Built from
+  // the SAME already-assembled, already-filtered data the reveal renders - the
+  // interleaved parts (buildRevealParts) and the crew nicknames (buildCrew) - never
+  // a second data source and never raw submissions or PII. `publish` POSTs to the
+  // server (which re-vets the coral words + byline and mints the unguessable slug);
+  // `revoke` deletes the tale so its link stops resolving (AC-07). Passed to Reveal
+  // ONLY for the host (opt-in, never automatic, AC-03); non-hosts and solo omit it.
+  const publicShare = isHost
+    ? {
+        publish: async (): Promise<string | null> => {
+          const parts: PublishTalePart[] = buildRevealParts(template, assembled)
+            .filter((part) => part.kind === 'text' || part.word !== '')
+            .map((part) =>
+              part.kind === 'text'
+                ? { isWord: false, text: part.text }
+                : { isWord: true, text: part.word },
+            );
+          const link = await publishTale({
+            title: assembled.title,
+            parts,
+            bylineNames: joinNamesReadably(crewNames),
+          });
+          return link?.url ?? null;
+        },
+        revoke: async (url: string): Promise<void> => {
+          await revokeTale(slugFromTaleUrl(url));
+        },
+      }
+    : undefined;
 
   // group-play/05 (AC-03): resolve the round's mode to its REVEAL-time surface via
   // the shared registry, restricted to the OFFERED GROUP set (findGroupMode).
@@ -249,6 +305,8 @@ function GroupReveal({
       exitAction={{ label: 'Back to home', onClick: onHome }}
       revealPresentation={revealSurfaces.revealPresentation}
       wordAttribution={wordAttribution}
+      saveImageByline={saveImageByline}
+      publicShare={publicShare}
       // reveal-delight/01 (AC-04): counts are server-authoritative (from the hub's
       // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
       // so every player in the room sees the tally update in near-real-time.
@@ -491,6 +549,12 @@ export default function App() {
     navigate('/favorites');
   }, [navigate]);
 
+  // "Tales we've carved" (keepsake-gallery/03, AC-01): no hub call, no room -
+  // a route change, mirroring handleOpenFavorites above.
+  const handleOpenGallery = useCallback(() => {
+    navigate('/gallery');
+  }, [navigate]);
+
   // Favorites screen's onPick (SOLO replay, AC-03/AC-04): remember the picked
   // template and route to '/solo', where Solo's own mount effect resolves it,
   // gates it through family-safe, and starts it with the freshness bypass.
@@ -581,6 +645,7 @@ export default function App() {
             onJoinGame={handleJoinGame}
             onPlaySolo={handlePlaySolo}
             onFavorites={handleOpenFavorites}
+            onGallery={handleOpenGallery}
             disabled={status !== 'connected'}
           />
         }
@@ -589,6 +654,7 @@ export default function App() {
         path="/favorites"
         element={<Favorites onBack={handleGoHome} onPick={handlePickFavorite} />}
       />
+      <Route path="/gallery" element={<Gallery onBack={handleGoHome} />} />
       <Route
         path="/host"
         element={

@@ -25,7 +25,7 @@ though only the jumble exists. See [feature.md](./feature.md) and
 - [ ] AC-01 (estimate per call): Given an AI call returns token usage (story 01
       AC-02), then the proxy estimates its cost as
       `(inputTokens * inputRate + outputTokens * outputRate) / 1e6` using the deployed
-      model's configured rates (gpt-4o-mini: 0.15 / 0.60 per 1M; a config constant so
+      model's configured rates (gpt-5-mini: 0.25 / 2.00 per 1M; a config constant so
       a model swap is one change), and this estimate is recorded.
 - [ ] AC-02 (running monthly total, persisted): Given estimates accrue, then a
       running total for the current UTC month is persisted in Azure Table Storage
@@ -122,7 +122,7 @@ though only the jumble exists. See [feature.md](./feature.md) and
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Ai/AiCostEstimatorTests.cs`: tokens x rates yields the expected estimate for gpt-4o-mini |
+| AC-01 | `api/tests/Ai/AiCostEstimatorTests.cs`: tokens x rates yields the expected estimate for gpt-5-mini |
 | AC-02 | `api/tests` (Table Storage emulator/fake): the monthly total round-trips and survives a simulated restart |
 | AC-03 | `api/tests`: at 100% of a (test) ceiling, the breaker opens and no AI call is made; a new month resets it |
 | AC-04 | manual + `api/tests`: with the breaker open, the jumble returns the deterministic reshuffle, no error/charge |

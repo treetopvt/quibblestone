@@ -124,6 +124,67 @@ Logs) - no dashboard or workbook (demand-driven, README section 12):
   device reach - true cross-device / unique-person counting needs accounts (Phase 2,
   out of scope). Split solo vs group with `context = tostring(customDimensions.context)`.
 
+## AI cost gate provider footprint (`infra/ai.bicep`, ai-cost-gate/06)
+
+The AI provider (Azure OpenAI) is **not** part of `main.bicep` and does **not**
+deploy to the app's resource group or subscription. It lives in its own file,
+`infra/ai.bicep`, deployed to a **separate resource group** (`quibblestone-ai-rg`)
+on a **different subscription** than everything above.
+
+**Why a different subscription.** The app runs on an "Azure for Students"
+subscription, and that subscription cannot host Azure OpenAI at all - the student
+offer + spending limit block Cognitive Services OpenAI accounts, and the target
+model family shows 0 real-time quota there. The AI account instead lives on a
+Pay-As-You-Go subscription ("Playground") in the same tenant. The app's existing
+App Service system-assigned managed identity still reaches it, **cross-subscription
+and keyless**: a "Cognitive Services OpenAI User" role assignment, created in the AI
+subscription, names the API identity's `principalId` (a GUID from the app
+subscription) as a Bicep parameter - identity GUIDs resolve across subscriptions
+within one tenant, so no key ever needs to exist.
+
+Footprint (deployed to `quibblestone-ai-rg`):
+
+| Resource | Type | Purpose |
+|---|---|---|
+| Azure AI Foundry (Azure OpenAI) account | `Microsoft.CognitiveServices/accounts` (kind `AIServices`) | Hosts the chat model deployment the AI cost gate calls |
+| Model deployment | `Microsoft.CognitiveServices/accounts/deployments` | The deployed model - name/version/SKU are Bicep params (`aiModelName` / `aiModelVersion` / `aiDeploymentSku`), currently `gpt-5-mini` (2025-08-07), `GlobalStandard`, capacity 10 |
+| Cross-sub role assignment | `Microsoft.Authorization/roleAssignments` | Grants the API's managed identity `Cognitive Services OpenAI User` (keyless) |
+| Content Safety account (optional) | `Microsoft.CognitiveServices/accounts` (kind `ContentSafety`) | The config-gated second moderation layer; behind `deployContentSafety`, defaults `false` (not deployed) |
+| Budget + action group (optional) | `Microsoft.Consumption/budgets` + `Microsoft.Insights/actionGroups` | $20/month backstop (param `monthlyBudgetUsd`), alerts at 25/50/75/100% Actual + Forecasted 100%; provisioned only when an `alertEmail` is supplied at deploy time |
+
+**Model choice is a live decision, not a one-time pick.** ADR 0001 originally chose
+`gpt-4o-mini`; by deploy time the whole gpt-4o/gpt-4.1 mini family was
+`Deprecating` (Azure blocks new deployments of a deprecating model) and the cheaper
+nano models had zero real-time quota in the target region, so `gpt-5-mini` was
+deployed instead. Model name/version/SKU are Bicep parameters specifically so the
+next availability shift is a config change. See
+[`docs/adr/0001-ai-provider.md`](../docs/adr/0001-ai-provider.md) (Update note) and
+[`docs/features/ai-cost-gate/06-iac-provisioning-seam.md`](../docs/features/ai-cost-gate/06-iac-provisioning-seam.md).
+
+**Wiring the app.** `ai.bicep` cannot set app settings on the API app directly (it
+is a different subscription/resource group, owned by `main.bicep`). It outputs the
+endpoint and deployment name; a post-deploy step applies them to the API app:
+
+```bash
+az webapp config appsettings set -g quibblestone-uat-rg \
+  -n <apiAppName> --settings Ai__Endpoint=<aiEndpoint> Ai__Deployment=<aiDeploymentName>
+```
+
+The app no-ops cleanly on absent `Ai:*` config, so this ordering is not fragile.
+
+**Provisioning hand-off** (no secrets committed - the alert email is a deploy input,
+never in `infra/ai.uat.bicepparam`):
+
+```bash
+az bicep build --file infra/ai.bicep   # validate, no Azure login needed
+
+az deployment group create -g quibblestone-ai-rg -f infra/ai.bicep \
+  -p infra/ai.uat.bicepparam -p alertEmail='owner@example.com'
+```
+
+Omit `alertEmail` and the account + model deployment + keyless grant still deploy;
+only the budget + action group are skipped.
+
 ## Shareable tale link (keepsake-gallery/04)
 
 The public read-only tale page (`GET /t/<slug>`) + host-initiated publish/revoke
