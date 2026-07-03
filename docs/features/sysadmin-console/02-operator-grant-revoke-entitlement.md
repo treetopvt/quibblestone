@@ -1,6 +1,6 @@
 # Story: Operator grant / revoke an entitlement by purchaser email
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #136
 
 ## Context
 The concrete need this story exists for (ADR 0002 "Recommendation" + Decision B): unstick a paying

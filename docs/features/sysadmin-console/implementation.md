@@ -51,9 +51,9 @@ lands they can build in parallel; the true serialization risk is each story's OW
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 operator-login-and-admin-boundary (foundation) | TBD | `api/src/Admin/IOperatorAllowlist.cs`, `OperatorAuthenticationHandler.cs`, the "Operator" auth policy in `Program.cs`; new admin web bundle root (`web/admin/` or equivalent) + its login page | accounts-identity/02 (or a thin stand-in it builds itself) | - | 1 | high |
-| 03 report-and-takedown-public-tale | TBD | `api/src/PublishedTales/` report/hidden-state additions + `ReportTalesRateLimit.cs`; new `api/src/Admin/ReportedTalesController.cs`; admin web review-queue page | 01, keepsake-gallery/04 | 02 (disjoint files) | 2 | medium |
-| 02 operator-grant-revoke-entitlement | TBD | new `api/src/Admin/AdminEntitlementsController.cs`; admin web purchaser-lookup/grant page | 01, billing-entitlements/01, accounts-identity/02 | 03 (disjoint files) | 2 | medium |
+| 01 operator-login-and-admin-boundary (foundation) | #135 | `api/src/Admin/IOperatorAllowlist.cs`, `OperatorAuthenticationHandler.cs`, the "Operator" auth policy in `Program.cs`; new admin web bundle root (`web/admin/` or equivalent) + its login page | accounts-identity/02 (or a thin stand-in it builds itself) | - | 1 | high |
+| 03 report-and-takedown-public-tale | #137 | `api/src/PublishedTales/` report/hidden-state additions + `ReportTalesRateLimit.cs`; new `api/src/Admin/ReportedTalesController.cs`; admin web review-queue page | 01, keepsake-gallery/04 | 02 (disjoint files) | 2 | medium |
+| 02 operator-grant-revoke-entitlement | #136 | new `api/src/Admin/AdminEntitlementsController.cs`; admin web purchaser-lookup/grant page | 01, billing-entitlements/01, accounts-identity/02 | 03 (disjoint files) | 2 | medium |
 
 **Concurrency per wave:** Wave 1 = 1 (01, the operator-auth foundation - must land first; both 02 and 03 import
 its authorization policy and place pages in its bundle). Wave 2 = {02, 03} in parallel (disjoint API controllers

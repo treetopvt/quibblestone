@@ -1,6 +1,6 @@
 # Story: Report -> auto-hide-after-N -> operator review of a public tale
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #137
 
 ## Context
 Public keepsake tales (`keepsake-gallery/04`, already shipped) have no report or takedown path

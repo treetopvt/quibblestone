@@ -1,6 +1,6 @@
 # Story: Operator login and admin boundary (separate surface)
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #135
 
 ## Context
 This is the foundation of the whole feature (feature.md's Candidate stories table, ADR 0002

@@ -26,8 +26,8 @@ decomposed the same day into three full story files plus an implementation.md.
 > (`IEntitlementService`, captured at `GameHub.CreateRoom`, ai-cost-gate/02 #121 / PR #132), but the
 > two seams the paid-tier work extends are still unbuilt: `billing-entitlements/01`'s grant store +
 > full catalog (#70) and `accounts-identity/02`'s magic-link + purchaser account (#68, no
-> `api/src/Accounts/` yet). See each story's "dependency reality" note. Issue numbers are TBD (no
-> GitHub issues created yet for this look-ahead feature).
+> `api/src/Accounts/` yet). See each story's "dependency reality" note. GitHub issues:
+> 01 = #135, 02 = #136, 03 = #137.
 
 ## README reference
 README section 3 (Monetization - the tiered identity model and "only the purchaser gets a
@@ -41,9 +41,9 @@ monetization seam). Full rationale + the load-bearing invariant:
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Timing | Status |
 |---|---|---|---|---|
-| [01](./01-operator-login-and-admin-boundary.md) | TBD | Operator login and admin boundary (separate surface) | foundation - build first | Not Started |
-| [02](./02-operator-grant-revoke-entitlement.md) | TBD | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | Not Started |
-| [03](./03-report-and-takedown-public-tale.md) | TBD | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | Not Started |
+| [01](./01-operator-login-and-admin-boundary.md) | #135 | Operator login and admin boundary (separate surface) | foundation - build first | Not Started |
+| [02](./02-operator-grant-revoke-entitlement.md) | #136 | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | Not Started |
+| [03](./03-report-and-takedown-public-tale.md) | #137 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | Not Started |
 
 Recorded on purpose, and deliberately NOT stories in this feature (feature.md's job is as much to say
 what is NOT this feature as what is):
