@@ -4,7 +4,7 @@
 
 # Story: Rate-limit + quota metering (per-session / per-IP + "N calls left")
 
-**Feature:** AI Cost Gate  ·  **Status:** Not Started  ·  **Issue:** #122
+**Feature:** AI Cost Gate  ·  **Status:** Complete  ·  **Issue:** #122
 
 ## Context
 The gate's third piece (feature.md; ROADMAP "The AI cost gate" piece 3): even an
@@ -18,34 +18,34 @@ this metering plus the circuit-breaker (story 04) is the ACTUAL gate on the jumb
 See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a session making AI calls, then a per-session quota limits how
+- [x] AC-01: Given a session making AI calls, then a per-session quota limits how
       many AI calls it may make (a sensible alpha default, e.g. N per session and/or
       a refill window), enforced server-side before the proxy (story 01) is called -
       a client cannot exceed it by replaying requests.
-- [ ] AC-02 (meter): Given the quota, then the remaining count ("N Fresh Runes
+- [x] AC-02 (meter): Given the quota, then the remaining count ("N Fresh Runes
       left") is returned to the client so it can show the meter and soft-disable the
       action at zero - the number is server-authoritative (the client displays it,
       never decides it).
-- [ ] AC-03 (per-IP abuse guard): Given many sessions from one origin, then a per-IP
+- [x] AC-03 (per-IP abuse guard): Given many sessions from one origin, then a per-IP
       rate-limit caps the aggregate AI call rate (a coarse abuse guard on top of the
       per-session quota), so spinning up sessions cannot multiply spend without
       bound. The IP is used transiently for rate-limiting only and is never stored as
       identity or attached to telemetry (README section 6; the PII scrubber already
       zeroes client IP).
-- [ ] AC-04 (anonymous keys): Given metering, then it keys off the anonymous session
+- [x] AC-04 (anonymous keys): Given metering, then it keys off the anonymous session
       (the room/solo `InstanceId`) and a transient IP bucket ONLY - never a nickname,
       join code, account, or any PII. Clearing the quota state loses nothing about a
       person (there is no person recorded).
-- [ ] AC-05 (degrade, do not error): Given a session that hits its quota or the
+- [x] AC-05 (degrade, do not error): Given a session that hits its quota or the
       per-IP limit, then the AI call is refused gracefully and the caller falls back
       to the deterministic path (the free reshuffle for the jumble) - the player sees
       "no fresh AI runes right now", never an error or a broken round.
-- [ ] AC-06 (distinct from entitlement, distinct from the breaker): Given the three
+- [x] AC-06 (distinct from entitlement, distinct from the breaker): Given the three
       controls, then metering (this story) is separate code from the entitlement
       check (story 02) and from the monthly spend circuit-breaker (story 04): quota
       is per-session call-count; the breaker is global monthly dollars. Both must
       pass for an AI call to proceed; neither is a substitute for the other.
-- [ ] AC-07 (fail-safe default): Given the metering store is unavailable, then the
+- [x] AC-07 (fail-safe default): Given the metering store is unavailable, then the
       gate defaults to the SAFE side - it does not fail open into unbounded calls;
       if it cannot confirm remaining quota, it degrades to the deterministic fallback
       rather than calling AI freely.
@@ -85,7 +85,7 @@ See [feature.md](./feature.md).
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Ai/AiQuotaTests.cs`: a session exceeding N calls is refused before the proxy is invoked |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Ai/AiQuotaTests.cs`: a session exceeding N calls is refused before the proxy is invoked |
 | AC-02 | `api/tests` + manual: the remaining count decrements and reaches zero server-side; the client shows it |
 | AC-03 | `api/tests`/manual: many sessions from one IP hit the per-IP cap; single-session play is unaffected |
 | AC-04 | code review: quota/rate keys are the anonymous InstanceId + transient IP only; no PII stored or logged |

@@ -24,7 +24,32 @@
 //  Concurrency: SignalR invokes can run concurrently across connections, so the
 //  Players list is guarded by a per-room lock (see the mutation helpers). The
 //  registry owns cross-room concurrency (the room dictionary).
+//
+//  ==================== IDENTITY CONTRACT (accounts-identity/01) ==============
+//  This record is PII-FREE BY DESIGN and stays that way (README section 3:
+//  "players are anonymous forever"; section 6: minimal data on minors). A player
+//  is, and forever remains, "no account": there is NO email, NO person-tied
+//  device identifier, NO account/purchaser reference, and NO sign-in prompt
+//  anywhere on Room or Player or in the join/lobby flow. DO NOT add an
+//  account/device/email/purchaser field here.
+//
+//  A purchaser account, IF one ever exists in a session, lives in a SEPARATE
+//  record keyed independently (see api/src/Accounts, accounts-identity/02) and
+//  is NEVER referenced from this file - adding accounts is additive and must
+//  never become a prerequisite for play (feature.md design note).
+//
+//  The ONE session-level entitlement seam is `Room.Entitlements` (a
+//  `SessionEntitlements` capability-key set, captured exactly once via
+//  `Room.CaptureEntitlements` at GameHub.CreateRoom - ai-cost-gate/02, #121,
+//  PR #132). It carries CAPABILITY KEYS ONLY, NEVER a purchaser identity, which
+//  is what upholds ADR 0002's load-bearing invariant ("entitlement travels with
+//  the session, not identity"). There is no second placeholder flag to add:
+//  billing-entitlements/01 (#70) resolves a real purchaser to capabilities at
+//  session-creation and captures ONLY the resolved set here, never the purchaser.
+//  ===========================================================================
 // ----------------------------------------------------------------------------
+
+using QuibbleStone.Api.Entitlements;
 
 namespace QuibbleStone.Api.Rooms;
 
@@ -326,6 +351,17 @@ public sealed class Room
     // the lobby first. Guarded by _gate. Never PII beyond an in-session nickname.
     private string? _pendingCrownNickname;
 
+    // ai-cost-gate/02 (AC-01): the AI entitlements evaluated EXACTLY ONCE for this
+    // session, captured here at room-creation and read for the room's lifetime -
+    // NEVER re-evaluated per tap/round/AI call (that is the smell the cost gate
+    // forbids). Set once via CaptureEntitlements immediately after the room is
+    // minted (GameHub.CreateRoom); a second capture is a programming error and
+    // throws. Null only in the brief window before capture (and in older callers /
+    // tests that never capture - e.g. RoomRegistry.CreateRoom used directly).
+    // Guarded by _gate. Carries no PII: it is a set of capability keys, keyed off
+    // the anonymous session, not a player (README section 6, AC-05).
+    private SessionEntitlements? _entitlements;
+
     private Room(string code)
     {
         Code = code;
@@ -357,6 +393,51 @@ public sealed class Room
     /// registry sweeps rooms idle past the inactivity window (AC-05).
     /// </summary>
     public DateTimeOffset LastActiveUtc { get; private set; }
+
+    /// <summary>
+    /// ai-cost-gate/02 (AC-01): the AI entitlements captured ONCE for this session
+    /// at room-creation (see <see cref="CaptureEntitlements"/>), or null before
+    /// capture. Later AI code READS this captured result - it never re-evaluates
+    /// entitlement per tap/round/AI call. In alpha these are default-unlocked, so
+    /// the AI jumble is reachable by every session (AC-03); the real runtime gate
+    /// is quota + the spend breaker, not this value (AC-04). Anonymous (a set of
+    /// capability keys keyed off the session, never a player - README section 6).
+    /// </summary>
+    public SessionEntitlements? Entitlements
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _entitlements;
+            }
+        }
+    }
+
+    /// <summary>
+    /// ai-cost-gate/02 (AC-01): capture the session's AI entitlements EXACTLY ONCE,
+    /// at room-creation. GameHub.CreateRoom calls this immediately after the room is
+    /// minted, passing the result of a SINGLE
+    /// <see cref="Entitlements.IEntitlementService.EvaluateForSession"/> call. The
+    /// value is then read for the room's lifetime and never re-evaluated. Capturing
+    /// twice is a programming error (a second evaluation would defeat the whole
+    /// "entitlement once" contract) and throws. Guarded by <see cref="_gate"/>.
+    /// </summary>
+    /// <param name="entitlements">The session-creation entitlement evaluation to stash.</param>
+    /// <exception cref="InvalidOperationException">If entitlements were already captured for this room.</exception>
+    public void CaptureEntitlements(SessionEntitlements entitlements)
+    {
+        ArgumentNullException.ThrowIfNull(entitlements);
+        lock (_gate)
+        {
+            if (_entitlements is not null)
+            {
+                throw new InvalidOperationException(
+                    "Session entitlements were already captured for this room - they are evaluated exactly once at creation (ai-cost-gate/02, AC-01).");
+            }
+            _entitlements = entitlements;
+        }
+    }
 
     /// <summary>
     /// Creates a room with the given code and its host as the first player.

@@ -1,6 +1,16 @@
 # Story: Jumble the word bank (fresh options on demand)
 
-**Feature:** Game Modes Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #128
+**Feature:** Game Modes Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #128
+
+> **Shipped 2026-07-03.** Both layers landed. FREE layer (AC-01/02/06/07): the pure
+> deterministic reshuffle `web/src/content/wordBankJumble.ts` (`nextOptions`, unit-tested)
+> + the "Fresh runes" button on `web/src/pages/fillblank/WordBankAnswer.tsx` (dice glyph,
+> teal tap language, big target). AI layer (AC-03/04/05/08): the button PREFERS AI via an
+> injected `requestAiJumble` fetcher (`web/src/ai/jumbleClient.ts` -> POST /api/ai/jumble,
+> the `ai-on-demand-generation/05` backend riding the cost gate) and falls back to the free
+> reshuffle whenever the gate reports `fellBack`. Wired into BOTH solo (device-session key)
+> and group (room `InstanceId` key) through the shared mode registry. No FillBlank/Reveal/
+> engine edits (AC-06 held). See `ai-cost-gate/implementation.md` cross-feature DAG (phases A + D).
 
 ## Context
 Word Bank mode (`game-modes/04`) is fun, and the curated word pool is growing
@@ -30,18 +40,18 @@ It also gives a home to feature.md's parked "AI-personalized ... word banks gene
 per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given Word Bank mode and a blank being filled, then the answer surface
+- [x] AC-01: Given Word Bank mode and a blank being filled, then the answer surface
       offers a "jumble" action (a button/chip with an on-brand label and a FontAwesome
       glyph, big tap target); tapping it replaces the currently-offered words for that
       blank with a fresh set for the SAME category, without leaving the screen or
       losing my place in the round.
-- [ ] AC-02 (free layer): Given the jumble action, then its DEFAULT source is a
+- [x] AC-02 (free layer): Given the jumble action, then its DEFAULT source is a
       deterministic reshuffle - it re-samples a DIFFERENT subset from the curated,
       already-vetted pool for the blank's category (the growing content pool), favoring
       words not just shown; if the pool is exhausted it cycles gracefully (never an
       empty list, and the action soft-disables or wraps rather than erroring). This
       layer needs NO AI, works offline, and is FREE.
-- [ ] AC-03 (AI layer): Given a session where AI is available (in alpha: every session,
+- [x] AC-03 (AI layer): Given a session where AI is available (in alpha: every session,
       subject to the cost gate's quota/breaker), then jumble can instead pull a fresh set
       of AI-generated, on-theme/on-brand words for the category - and this generation is
       delegated to `ai-on-demand-generation/05` riding the `ai-cost-gate` proxy (it does
@@ -49,7 +59,7 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
       "bottomless options" delight; the free deterministic reshuffle (AC-02) remains the
       fallback whenever AI is unavailable, quota-exhausted, breaker-open, or (later)
       unentitled.
-- [ ] AC-04 (child-safety, non-negotiable): Given the source of the words, then:
+- [x] AC-04 (child-safety, non-negotiable): Given the source of the words, then:
       curated reshuffle words stay pre-vetted and skip the free-text filter exactly as
       `game-modes/04` AC-04 already documents (they come from vetted lists); BUT
       AI-generated words are NOT pre-vetted, so every AI-sourced option MUST pass the
@@ -57,7 +67,7 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
       tappable. This is the ONE place Word Bank's filter-skip does not apply - no
       unfiltered AI word reaches a player, and a family-safe session only ever jumbles up
       family-safe words (README section 6).
-- [ ] AC-05 (entitlement seam, alpha-open): Given the two layers, then the deterministic
+- [x] AC-05 (entitlement seam, alpha-open): Given the two layers, then the deterministic
       reshuffle (AC-02) is FREE (a base delight, no gate). The AI jumble (AC-03) rides the
       `ai-cost-gate`: its entitlement key (`ai.onDemand` / reserved `ai.wordBank`) is
       evaluated ONCE at session-creation (never per-tap), but per ADR 0001 decision C it is
@@ -66,19 +76,19 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
       entitlement. The reserved key means turning on real gating later is a config flip, not
       a refactor (README section 3 - the free tier is generous; the seam is ready for
       charging without one now).
-- [ ] AC-06 (no engine/axis leak): Given this story, then it is expressed purely as an
+- [x] AC-06 (no engine/axis leak): Given this story, then it is expressed purely as an
       enhancement to the Word Bank answer surface plus a swappable option SOURCE - it
       adds NO new `ModeConfig` axis value and does NOT edit `FillBlank.tsx`,
       `Reveal.tsx`, or `web/src/engine/` (collection + assembly are unchanged; a jumbled
       word is submitted through the same `collectWord` path as any word-bank pick, per
       `game-modes/04` AC-03). If jumble ever forces an engine change, that is an
       abstraction leak - flag it (feature.md Design notes).
-- [ ] AC-07 (on-brand naming): Given the jumble action, then it is labelled "Fresh
+- [x] AC-07 (on-brand naming): Given the jumble action, then it is labelled "Fresh
       runes" (the chosen on-brand name, in QuibbleStone's stone/carving voice - not a
       generic "shuffle"). The label lives with the copy/theme, not hardcoded per
       instance, and stays kid-legible with a big tap target (a suitable FontAwesome
       glyph, e.g. dice/wand/sparkles, registered in `web/src/fontawesome.ts`).
-- [ ] AC-08 (AI cost/abuse seam): Given the AI jumble path, then it notes a rate-limit /
+- [x] AC-08 (AI cost/abuse seam): Given the AI jumble path, then it notes a rate-limit /
       quota METERING seam (how many AI jumbles remain) as distinct from the entitlement
       gate - so a player cannot spam unbounded AI calls - consistent with
       `ai-on-demand-generation`'s "entitlement answers unlocked/not; metering answers
@@ -120,7 +130,8 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
   family-safe) BEFORE display (AC-04). This story does NOT call Foundry directly and does
   NOT build its own filter. Show a brief "carving fresh words..." state; never block the
   round. (The provider/model decision is [ADR 0001](../../adr/0001-ai-provider.md):
-  Azure AI Foundry, gpt-4o-mini.)
+  Azure AI Foundry, gpt-5-mini - the ADR picked gpt-4o-mini, but it was deprecated
+  by deploy time, so gpt-5-mini is the deployed model per PR #131.)
 - **Free layer ships first, independently.** AC-01/02/06/07 (the button + deterministic
   reshuffle) need only the existing Word Bank surface and are a self-contained PR that
   ships before any AI. AC-03/04/05/08 (the AI layer) are wired once `ai-cost-gate` and

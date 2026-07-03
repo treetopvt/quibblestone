@@ -1,7 +1,9 @@
 <!--
   Implementation plan for the AI cost gate feature. Bridges feature.md + stories to orchestration.
   Also carries the CROSS-FEATURE master DAG (gate -> free jumble -> AI jumble) since the gate is the
-  spine the thin slice rides. Look-ahead pass: nothing built yet (all Not Started). No em dashes.
+  spine the thin slice rides. Look-ahead pass (2026-07-02): story 06 (IaC) delivered + deployed via
+  PR #131 as a separate infra/ai.bicep on its own subscription (see its Wave Plan row + notes below);
+  stories 01-05 (code) remain Not Started. No em dashes.
 -->
 
 # Implementation Plan: AI Cost Gate
@@ -27,8 +29,8 @@
 | Telemetry vocabulary/builder to mirror for AI cost events | `UsageTelemetry` (event constants + property/metric builders) | `api/src/Telemetry/UsageTelemetry.cs` |
 | Durable counters (the persisted monthly spend total) | the existing `Azure.Data.Tables` sink + storage connection | `api/src/Telemetry/TableStorageTelemetrySink.cs`, `infra/main.bicep` (`storage`) |
 | Entitlement seam (consumed at session-creation) | `IEntitlementService` + the `ai.*` catalog keys | `api/src/Entitlements/` (billing-entitlements/01, #70 - new) |
-| Secrets (provider key) | Azure Key Vault + KV-reference app setting | `infra/main.bicep` (`keyVault`, mirror `APPLICATIONINSIGHTS_CONNECTION_STRING`) |
-| IaC footprint conventions (naming, tags, role assignment, KV-reference) | the App Insights + Key Vault + Storage wiring | `infra/main.bicep`, `infra/README.md` |
+| Secrets (provider key) | not needed - keyless cross-subscription managed-identity role assignment instead (see story 06) | `infra/ai.bicep` |
+| IaC footprint conventions (naming, tags, role-assignment pattern) | the App Insights + Key Vault + Storage wiring in `main.bicep`, mirrored (not extended - separate file/subscription, see story 06) | `infra/main.bicep` (pattern source), `infra/ai.bicep` (actual AI footprint), `infra/README.md` |
 | Per-IP rate limiting | ASP.NET Core `AddRateLimiter` (partitioned) | `api/src/Program.cs` (new registration) |
 | AI SDK (spike-validated on net10.0) | `Azure.AI.OpenAI` + `Azure.Identity` | `api/QuibbleStone.Api.csproj` (new refs) |
 
@@ -44,14 +46,15 @@ foundation (the `api/src/Ai/` proxy + result type everything imports). Stories 0
 proxy call path in `api/src/Ai/`, so they overlap that folder - but on largely separate files
 (`AiQuota`, the estimator/breaker/telemetry, the moderation service); the orchestrator either
 serializes the ones that touch a shared file (the proxy call pipeline) or gives that pipeline seam to
-one builder and lets the leaf services fan out. Story 06 (Bicep) is file-disjoint from all code
-(`infra/` only) and can run in parallel throughout. Story 02 touches the session-creation call site
-(`GameHub.CreateRoom`) and depends on billing-entitlements/01.
+one builder and lets the leaf services fan out. Story 06 (Bicep) is file-disjoint from all code and,
+as delivered, from `infra/main.bicep` too - it lives entirely in its own `infra/ai.bicep` on a separate
+subscription (see per-story notes) - and can run in parallel throughout. Story 02 touches the
+session-creation call site (`GameHub.CreateRoom`) and depends on billing-entitlements/01.
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
 | 01 server-side AI proxy (foundation) | #120 | `api/src/Ai/IAiCompletionClient.cs` + Foundry/no-op impls, `Program.cs` registration, `.csproj` refs | infra config (soft; no-ops without) | 06 | 1 | high |
-| 06 IaC provisioning seam | #125 | `infra/main.bicep`, `infra/main.bicepparam`, `infra/README.md` | infra (existing footprint) | 01, 02, 03, 04, 05 (disjoint: infra only) | 1 | medium |
+| 06 IaC provisioning seam | #125 | `infra/ai.bicep`, `infra/ai.uat.bicepparam`, `infra/README.md` (delivered - separate file/subscription from `main.bicep`, see notes) | infra (existing footprint, as a pattern to mirror, not a shared file) | 01, 02, 03, 04, 05 (disjoint: infra only) | 1 | medium |
 | 02 entitlement at session-creation | #121 | edits at `GameHub.CreateRoom`/solo entry; reads `IEntitlementService` | billing-entitlements/01 (#70), session-engine | 03, 04, 05 | 2 | medium |
 | 03 rate-limit + quota | #122 | `api/src/Ai/AiQuota*`, `Program.cs` rate-limiter reg, result-envelope field | 01 | 04, 05 (mostly disjoint; coordinate the proxy pipeline seam) | 2 | medium |
 | 04 spend breaker + attribution | #123 | `api/src/Ai/AiCost*` (estimator/breaker), `AiCostTelemetry.cs`, Table Storage total | 01, platform-devops/04 | 03, 05 (coordinate the proxy pipeline seam) | 2 | high |
@@ -103,12 +106,22 @@ behind `ContentSafety:*` config-presence (no-op default). Reusable seam (not jum
 `ai-on-demand-generation/05` consumes it. Gotcha: no bypass path (AC-07); curated content still skips
 the filter unchanged.
 
-### 06 - IaC provisioning seam
-All Bicep in one owner. Foundry account + `gpt-4o-mini` deployment; optional Content Safety (param,
-default off); managed-identity role OR KV-secret + KV-reference app setting for the key; Cost
-Management `$20` budget (param) + action group email (param, never hardcoded) at 25/50/75/100%.
-`az bicep build` clean; `infra/README.md` documents the hand-off. Gotcha: email + keys are deploy
-inputs/KV, never committed.
+### 06 - IaC provisioning seam (delivered as `infra/ai.bicep`, separate PAYG subscription - PR #131)
+Planned as one owner in `infra/main.bicep`; delivered instead as a **separate file, `infra/ai.bicep`**,
+deployed to a **new resource group (`quibblestone-ai-rg`) on a separate Pay-As-You-Go subscription**
+("Playground"), because the app's "Azure for Students" subscription cannot host Azure OpenAI at all
+(student offer + spending limit block Cognitive Services OpenAI accounts; the target model family has
+0 real-time quota there). Foundry account + **`gpt-5-mini`** deployment (superseded from `gpt-4o-mini` -
+that model and the wider 4o/4.1-mini family are `Deprecating` by deploy time, and the cheaper nano
+models have 0 real-time quota in eastus2; model name/version/SKU are now Bicep params); optional
+Content Safety (param, default off, not deployed); a **cross-subscription keyless managed-identity role
+assignment** (the API identity's `principalId` passed as a plain Bicep parameter - no key, no Key Vault
+secret needed for the model call); Cost Management `$20` budget (param) + action group email (param,
+never hardcoded) at 25/50/75/100% + Forecasted-100. `Ai:Endpoint` / `Ai:Deployment` are set on the API
+app as a **post-deploy step** from `ai.bicep` outputs (the two Bicep files/subscriptions cannot share
+app-setting wiring). `az bicep build --file infra/ai.bicep` clean; `infra/README.md` documents the
+footprint + the hand-off. Gotcha: email + `apiPrincipalId` are deploy inputs, never committed as
+secrets (`apiPrincipalId` is a GUID, not sensitive, so it is fine as a committed bicepparam value).
 
 ## Cross-cutting concerns
 - **Consumers, not new gates.** Every AI feature routes through `api/src/Ai/` (proxy + quota + breaker
@@ -128,6 +141,15 @@ inputs/KV, never committed.
   `Azure.Identity` (+ optional Content Safety SDK) are added, all Azure-native. No i18n; no em dashes.
 
 ## Cross-feature master DAG (the first AI slice)
+
+> **Status 2026-07-03: the first AI slice is COMPLETE.** Phase A (game-modes/07 free layer)
+> and Phase D (ai-on-demand-generation/05 + its moderation /02, plus the client wiring that
+> makes the button prefer AI and fall back to A) both landed on top of the merged gate (phases
+> B + C). The throwaway probe (AiProbeController) was removed - the real consumer + its
+> `feature=jumble` attribution telemetry now supersede it as the token-usage -> cost
+> measurement path. Consumers reach the gate via `JumbleWordGenerator` -> `POST /api/ai/jumble`
+> (per-IP rate-limited); solo keys the anonymous quota on a device-session id, group on the
+> live room's `InstanceId`.
 
 The gate is the spine; the thin slice proves it on the cheapest payload. Build order across features:
 

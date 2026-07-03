@@ -7,7 +7,18 @@
 
 # Story: Live moderation gate for AI-generated content (before anyone plays)
 
-**Feature:** On-Demand AI Generation  ·  **Status:** Not Started  ·  **Issue:** #127
+**Feature:** On-Demand AI Generation  ·  **Status:** Complete  ·  **Issue:** #127
+
+> **Shipped 2026-07-03** (scoped to the jumble word payload, per this story). The policy is
+> realized by `JumbleWordGenerator` COMPOSING the gate's `ai-cost-gate/05` seam
+> (`AiOutputModerator` = `IContentSafetyFilter` + family-safe + optional Content Safety) - no
+> second filter or parallel path (AC-05). Every AI word passes moderation before it is
+> returned (AC-01); a family-safe round keeps only family-safe words (AC-02). Refuse-gracefully
+> (AC-03): too-few-safe -> the generator returns FellBack and the client degrades to the free
+> reshuffle with no which/why leak. Audit-sample (AC-04): `AiOutputModerator` logs an anonymous
+> dropped-COUNT only (no text, no PII); a richer aggregate can layer on later. Content Safety
+> stays config-gated (AC-06). The flow is general enough for story 01's prompt/template payload
+> to extend rather than fork (AC-07). Heavier prompt/whole-template moderation remains story 01.
 
 ## Context
 Moderation IS the feature (feature.md Design notes; README section 6): live AI output
@@ -25,36 +36,36 @@ applied to the word payload now. It does NOT re-implement a filter; it composes 
 gate's seam. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01 (output moderated before play, non-negotiable): Given AI-generated words
+- [x] AC-01 (output moderated before play, non-negotiable): Given AI-generated words
       (the jumble payload), then EVERY word passes the gate's moderate-before-display
       seam (`ai-cost-gate/05`) BEFORE it is returned to any client or made
       playable/tappable - unsafe words are dropped, never shown (README section 6).
-- [ ] AC-02 (family-safe tightens it): Given a family-safe session, then moderation is
+- [x] AC-02 (family-safe tightens it): Given a family-safe session, then moderation is
       stricter - only family-safe words survive - honoring the same toggle the curated
       content respects (`child-safety/02`).
-- [ ] AC-03 (refuse gracefully, no evasion teaching): Given content fails moderation,
+- [x] AC-03 (refuse gracefully, no evasion teaching): Given content fails moderation,
       then the player-facing outcome is a friendly fallback (the free reshuffle) with a
       warm message - it NEVER explains which word failed or why in a way that teaches a
       player to evade the filter (feature.md: "never explain the rejection in a way that
       teaches evasion"). If too few words survive to be useful, degrade to the
       deterministic fallback rather than show a thin set.
-- [ ] AC-04 (audit sample, anonymous): Given moderation runs, then rejections are
+- [x] AC-04 (audit sample, anonymous): Given moderation runs, then rejections are
       sampled/counted for ongoing human audit - anonymously, carrying NO PII and NO
       identity (an aggregate count or a scrubbed telemetry signal, never a nickname or
       join code) - so the automated gate's blind spots can be reviewed and tightened
       (feature.md: "sample/log for ongoing human audit").
-- [ ] AC-05 (shared seam, not a fork): Given the gate already provides the
+- [x] AC-05 (shared seam, not a fork): Given the gate already provides the
       moderate-before-display seam, then this story COMPOSES it (and the family-safe
       gate) into the on-demand feature's policy - it does NOT stand up a second filter or
       a parallel moderation path (feature.md: "reuse the factory, do not fork it";
       game-modes/07 AC-04).
-- [ ] AC-06 (Content Safety optional, config-gated): Given Azure AI Content Safety is
+- [x] AC-06 (Content Safety optional, config-gated): Given Azure AI Content Safety is
       configured (via `ai-cost-gate/05` + `/06`), then generated content also passes it
       as a second layer; given it is not (the slice default), the existing filter +
       family-safe is the whole gate and behavior is unchanged - a config flip, not code
       (ADR 0001 B). Content Safety earns its place as the payloads grow to whole
       templates (story 01).
-- [ ] AC-07 (extensible to prompt + template, later): Given the whole-template
+- [x] AC-07 (extensible to prompt + template, later): Given the whole-template
       generation (story 01) ships later, then the refuse-gracefully + audit-sample
       pattern this story establishes extends to moderating the player PROMPT and the
       generated TEMPLATE - this story does NOT build prompt/template moderation now (the

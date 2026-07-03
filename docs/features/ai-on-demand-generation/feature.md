@@ -136,7 +136,9 @@ section 3 (top paid tier).
   falls back to `game-modes/07`'s free reshuffle; story 02 (moderation) is scoped to
   the generated-WORD payload now (composing the gate's moderate-before-display seam),
   with the heavier prompt + whole-template moderation left shaped for story 01 to
-  extend later. Provider = Azure AI Foundry / gpt-4o-mini; moderation = existing filter
+  extend later. Provider = Azure AI Foundry / gpt-5-mini (ADR 0001 picked gpt-4o-mini;
+  it was deprecated by deploy time, so gpt-5-mini is the deployed model - PR #131);
+  moderation = existing filter
   now, Content Safety later; runtime = in-app proxy; alpha = AI jumble free for all,
   quota/breaker-gated not entitlement (see [ADR 0001](../../adr/0001-ai-provider.md)).
   Stories 01, 03, 04 stay sketch rows until Phase 4 proper - this feature overall still

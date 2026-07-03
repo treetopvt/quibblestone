@@ -1,7 +1,9 @@
 <!--
   Implementation plan for the billing-entitlements feature. Bridges feature.md + stories to orchestration.
-  Look-ahead pass: no story is built yet (all Not Started, Issue TBD). Written now so the feature is
-  orchestration-ready the moment its phase comes up. Use hyphens/colons/parentheses, never em dashes.
+  Refreshed 2026-07-03 against shipped reality: the IEntitlementService interface, SessionEntitlements, the
+  ai.onDemand catalog reservation, and the GameHub.CreateRoom capture already ship (ai-cost-gate/02, #121, PR
+  #132). Story 01 (#70) now EDITS that shipped folder rather than creating it. Use hyphens/colons/parentheses,
+  never em dashes.
 -->
 
 # Implementation Plan: Billing & Entitlements
@@ -14,10 +16,14 @@
 
 | Concern | Reuse | Where |
 |---|---|---|
-| Service registration pattern (singleton DI) | the existing `RoomRegistry` / `IContentSafetyFilter` registrations | `api/src/Program.cs` |
-| Session-creation call site (the ONLY place the gate runs) | the hub's room-create method + the solo entry point | `api/src/Hubs/GameHub.cs`, `web/src/pages/Solo.tsx` |
-| Purchaser identity | the account record + store from accounts-identity/02 | `api/src/Accounts/` (new, that feature) |
+| Entitlement contract (interface + result type) - ALREADY SHIPPED | `IEntitlementService`, `SessionEntitlements` (ai-cost-gate/02, #121, PR #132) | `api/src/Entitlements/IEntitlementService.cs` |
+| Reserved AI capability key - ALREADY SHIPPED | `EntitlementCatalog.AiOnDemand` / `AiCapabilities` - story 01 EXTENDS this, does not replace it | `api/src/Entitlements/IEntitlementService.cs` |
+| Default-unlocked stand-in - ALREADY SHIPPED, SUPERSEDED by story 01 | `DefaultUnlockedEntitlementService` - story 01's stored-value implementation composes it as the "no grant" baseline rather than re-deriving default-unlocked | `api/src/Entitlements/IEntitlementService.cs` |
+| Session-creation call site (the ONLY place the gate runs) - ALREADY WIRED | `GameHub.CreateRoom` already calls `EvaluateForSession` + `Room.CaptureEntitlements` exactly once; story 01 does not touch this call site | `api/src/Hubs/GameHub.cs`, `api/src/Rooms/Room.cs` |
+| Service registration pattern (singleton DI) | the existing `RoomRegistry` / `IContentSafetyFilter` registrations, and the existing `IEntitlementService` DI line story 01 swaps | `api/src/Program.cs` |
+| Purchaser identity lookup | `IAccountStore` from accounts-identity/02 (upstream dependency, not yet built) | `api/src/Accounts/` (new, that feature) |
 | Sign-in / purchaser credential | the purchaser-scoped credential from accounts-identity/03 | `api/src/Controllers/AccountsController.cs` (new, that feature) |
+| Existing test coverage to extend, not replace | `EntitlementServiceTests.cs`, `GameHubEntitlementTests.cs` (ai-cost-gate/02) | `tests/QuibbleStone.Api.Tests/` |
 | Child safety (any free-text field, e.g. a tip message) | the single server-side safety filter | `api/src/Safety/IContentSafetyFilter.cs`, `ContentSafetyFilter.cs` |
 | Styling / theme tokens (gold CTA, purple secondary, stone-tablet) | the MUI theme | `web/src/theme.ts` |
 | Shared UI contracts | the single AppBar + Button family | `web/src/components/AppBar.tsx`, `web/src/components/index.ts` |
@@ -29,8 +35,11 @@
 | Home screen pattern for a low-key, reassuring affordance | the existing "No account needed" reassurance row | `web/src/pages/Home.tsx` (reference for tone/placement) |
 
 New surfaces this feature introduces (not yet reuse targets, become them once built):
-- `api/src/Entitlements/` (`CapabilityKey`, `IEntitlementService`, storage-backed implementation) - story 01. The
-  contract every later paid feature (add-on packs, `ai.illustration`, `ai.voice`, `ai.onDemand`) will import.
+- `EntitlementGrant` + a grant-store type (`IEntitlementGrantStore` or similar) - story 01 ADDS these to the
+  ALREADY-SHIPPED `api/src/Entitlements/IEntitlementService.cs` file/folder (ai-cost-gate/02) rather than
+  creating a new folder. The contract every later paid feature (add-on packs, `ai.illustration`, `ai.voice`,
+  `ai.onDemand`, and the sysadmin-console operator grant/revoke, #136) will import is already `IEntitlementService`
+  itself - shipped.
 - `api/src/Billing/` (`StripeCheckoutService`, `StripeWebhookHandler`) - story 03. Shared by stories 02 and 04.
 - `web/src/components/TipJar.tsx` (or similar) - story 02.
 - `web/src/pages/` purchase/paywall screen and restore/manage view - stories 04 and 05 (likely sit near the
@@ -39,24 +48,34 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
 ## Wave Plan (DAG)
 
 Sizing rule: a builder owns files that are **disjoint** from its concurrent siblings. This feature has one true
-foundation story (01), one shared-plumbing story (03) that two consumer stories (02, 04) both build on, and one
-story (05) that is a thin read on top of 01 + accounts-identity/03. Story 01 is a hard prerequisite for everything
-else - it defines the catalog and the store shape every other story writes into or reads from.
+foundation story (01 - now an EXTENSION of the already-shipped `api/src/Entitlements/` folder, not a from-scratch
+build), one shared-plumbing story (03) that two consumer stories (02, 04) both build on, and one story (05) that
+is a thin read on top of 01 + accounts-identity/03. Story 01 is still a hard prerequisite for everything else - it
+defines the FULL catalog and the grant-store shape every other story writes into or reads from - but its own
+prerequisite is narrower now: it needs accounts-identity/02's `IAccountStore` (purchaser identity resolution),
+not session-engine (the session-creation call site is already wired by the shipped `ai-cost-gate/02`).
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 entitlement-model-and-gate (foundation) | #70 | `api/src/Entitlements/*`, one call-site edit in `GameHub.cs` / `Solo.tsx` | accounts-identity/01, accounts-identity/02, session-engine | - | 1 | high |
-| 03 stripe-integration-and-store | #72 | `api/src/Billing/StripeCheckoutService.cs`, `StripeWebhookHandler.cs`, `Controllers/StripeWebhookController.cs` | 01, accounts-identity/02 | - (build before 02/04 need to actually charge) | 2 | high |
+| 01 entitlement-model-and-gate (extends the shipped seam) | #70 | EDITS `api/src/Entitlements/IEntitlementService.cs` (extends `EntitlementCatalog`, adds `EntitlementGrant` + a grant-store type, swaps the `IEntitlementService` DI registration in `Program.cs`) - no edit to `GameHub.cs`'s `CreateRoom` signature/shape | accounts-identity/02 (purchaser identity / `IAccountStore` - upstream) | - | 1 | high |
+| 03 stripe-integration-and-store | #72 | `api/src/Billing/StripeCheckoutService.cs`, `StripeWebhookHandler.cs`, `Controllers/StripeWebhookController.cs` (now also the subscription lifecycle: renewal/past_due-grace/canceled) | 01, accounts-identity/02 | - (build before 02/04 need to actually charge) | 2 | high |
 | 02 tip-jar | #71 | `web/src/components/TipJar.tsx` (or `pages/`), one Home entry-point edit | 01 (confirms no-op), 03 (payment call) | 04 (disjoint files) | 3 | medium |
-| 04 gated-purchase-flow | #73 | `web/src/pages/` paywall screen, `api/src/Billing/` pack-to-capability map | 01, 03, accounts-identity/02 | 02 (disjoint files) | 3 | medium |
+| 04 gated-purchase-flow | #73 | `web/src/pages/` paywall screen, `api/src/Billing/` pack/plan-to-capability-bundle map | 01, 03, accounts-identity/02 | 02 (disjoint files) | 3 | medium |
 | 05 restore-and-manage | #74 | `web/src/pages/` restore/manage view (near accounts-identity/03's screen), a read-only API endpoint | 01, accounts-identity/03 | - (needs 03/04 landed to have anything real to show, though its empty state is independently testable) | 4 | medium |
 
-**Concurrency per wave:** Wave 1 = 1 (01, the seam - must land first, everything else imports its shape). Wave 2 =
-1 (03, the shared Stripe plumbing - technically could start once 01's shape is stable, even before 01 is fully
-merged, but treat as serial-after-01 for safety since 03 writes into 01's store). Wave 3 = {02, 04} in parallel
-(disjoint web/API files; both consume 03's `StripeCheckoutService` but call it with different parameters - a pack/
-subscription price for 04, a one-time no-entitlement price for 02). Wave 4 = 05 (benefits from 03/04 having granted
-at least one real entitlement to display, and needs accounts-identity/03's sign-in to exist as its auth guard).
+**Concurrency per wave:** Wave 1 = 1 (01, extending the shipped seam - must land first, everything else imports its
+shape; the `IEntitlementService` interface itself is already shipped, so this wave is narrower than a from-scratch
+build but still gates everything downstream). Wave 2 = 1 (03, the shared Stripe plumbing - technically could start
+once 01's grant-store shape is stable, even before 01 is fully merged, but treat as serial-after-01 for safety since
+03 writes into 01's store). Wave 3 = {02, 04} in parallel (disjoint web/API files; both consume 03's
+`StripeCheckoutService` but call it with different parameters - a pack/subscription price for 04, a one-time
+no-entitlement price for 02). Wave 4 = 05 (benefits from 03/04 having granted at least one real entitlement to
+display, and needs accounts-identity/03's sign-in to exist as its auth guard).
+
+**Cross-feature order:** accounts-identity/02 (magic-link + `IAccountStore`) is upstream of story 01's
+purchaser-lookup piece (AC-06) - schedule it first across features. Story 01's catalog-extension and grant-store
+pieces (AC-01, AC-05) do not themselves depend on accounts-identity and could be built independently, but the
+purchaser-resolution piece cannot complete until `IAccountStore` exists.
 
 **Sequencing nuance vs. the Stories table order:** feature.md's Stories table lists 02 (tip jar) before 03 (Stripe
 plumbing), reflecting the *product's* donate-first narrative. The Wave Plan reorders them for *build* purposes
@@ -66,26 +85,33 @@ DAG).
 
 ## Per-story tech notes
 
-### 01 - Entitlement model + session-creation gate (foundation)
-**Approach:** new `api/src/Entitlements/` folder (mirrors `Rooms/`, `Safety/`, `Accounts/`). A `CapabilityKey`
-catalog (string-backed, minimum set per AC-01) and `IEntitlementService.EvaluateForSession(purchaserIdentity?) ->
-SessionEntitlements`, registered in `Program.cs`. The single call site is session-creation: the room-create hub
-method (`GameHub.cs`, session-engine/01) and the solo entry point (`Solo.tsx` / its API equivalent). Storage: an
-`EntitlementGrant` row per purchaser + capability key in Azure Table Storage. **Exports:** `IEntitlementService`
-and `CapabilityKey` - the contract every consumer story (02, 04, 05) and every future paid feature imports.
-**Gotcha:** default-unlocked must be a literal code default, not a flag someone remembers to set - the whole point
-is that shipping this story changes zero observed behavior (AC-02, AC-07).
+### 01 - Entitlement model + session-creation gate (extends the shipped seam)
+**Approach:** `IEntitlementService`, `SessionEntitlements`, and the reserved `ai.onDemand` key ALREADY SHIP
+(`api/src/Entitlements/IEntitlementService.cs`, ai-cost-gate/02 #121/PR #132), as does the `GameHub.CreateRoom`
+call site (`EvaluateForSession` + `Room.CaptureEntitlements`, exactly once, session-creation-time). This story
+EDITS that same file: extends `EntitlementCatalog` to the full set (`library.full`, `play.remote`,
+`play.largeGroup`, `pack.<id>`), adds an `EntitlementGrant` record + a grant-store type (Table-Storage-backed,
+partitioned by a hash of purchaser identity), and replaces the `DefaultUnlockedEntitlementService` DI registration
+in `Program.cs` with a new stored-value implementation that COMPOSES the shipped default-unlocked behavior as its
+"no grant" baseline. **Exports:** the same `IEntitlementService` contract (unchanged shape) - the contract every
+consumer story (02, 04, 05) and every future paid feature (plus the sysadmin-console operator grant/revoke, #136)
+imports. **Gotcha:** the "no purchaser / no grant -> default-unlocked" behavior (AC-03) must be provably identical
+to today's shipped behavior - compose the existing stand-in rather than re-deriving default-unlocked, so
+`EntitlementServiceTests`/`GameHubEntitlementTests` keep passing unmodified in spirit.
 
 ### 03 - Stripe integration + entitlement store
 **Approach:** new `api/src/Billing/` folder. `StripeCheckoutService` creates Checkout Sessions in either
 `payment` (one-time) or `subscription` mode through one parameterized method (README section 3's "same billing
 plumbing"). `StripeWebhookHandler` verifies the Stripe signature, resolves the event to a purchaser + capability
-grant, and writes through `IEntitlementService` from story 01 - with idempotency keyed on the Stripe event id so a
-re-delivered webhook is a no-op. The webhook is a REST controller mapped in `Program.cs` alongside existing
-controllers. Keys come from Azure Key Vault. **Exports:** `StripeCheckoutService` (consumed by 02 and 04).
-**Gotcha:** README section 4 names Stripe webhooks as the natural first Azure Functions carve-out - `StripeWebhookHandler`
-should be written as a self-contained class with no cross-cutting dependencies, so lifting it out later is a move,
-not a rewrite. No Function project is created now.
+grant, and writes through `IEntitlementService`/the grant store from story 01 - with idempotency keyed on the
+Stripe event id so a re-delivered webhook is a no-op. It also now owns the subscription's full lifecycle (ADR 0002
+Decisions C/D): `invoice.paid` extends `validThrough` on renewal, `past_due` extends it by a ~7-day grace constant
+instead of expiring, and `canceled` (or a lapsed grace) lets `validThrough` pass so the next session-creation read
+falls back to free. The webhook is a REST controller mapped in `Program.cs` alongside existing controllers. Keys
+come from Azure Key Vault. **Exports:** `StripeCheckoutService` (consumed by 02 and 04). **Gotcha:** README section
+4 names Stripe webhooks as the natural first Azure Functions carve-out - `StripeWebhookHandler` should be written
+as a self-contained class with no cross-cutting dependencies, so lifting it out later is a move, not a rewrite. No
+Function project is created now.
 
 ### 02 - Tip jar
 **Approach:** a `TipJar` component/dialog reachable from Home's settings area (never the kid play-flow), styled
@@ -99,11 +125,13 @@ the payment call behind a small interface so 03 slots in without a rewrite - see
 **Approach:** a paywall/purchase screen (new `web/src/pages/` file) reachable only from purchaser-facing areas
 (settings, or a between-rounds host prompt - never mid-round), using the same gold-CTA / outlined-purple pattern as
 Home. Calls `StripeCheckoutService` (story 03) parameterized by the specific pack/subscription product; a small
-price-id-to-capability-key map lives alongside it. On successful purchase, checkout naturally creates the purchaser
-account (accounts-identity/02) if one does not already exist - no separate forced sign-up step. **Owns:** the
-paywall screen, the pack-to-capability lookup. **Gotcha:** this story proves the seam end to end but must not build
-any live mid-session upgrade path - the unlock is expected to show up on the *next* session-creation only (a direct
-consequence of 01 AC-03, not something 04 needs to engineer).
+price-id-to-capability-KEYS map (a LIST per product - one key for a pack, the whole family-plan bundle for the
+subscription, ADR 0002 Decision C) lives alongside it. On successful purchase, checkout naturally creates the
+purchaser account (accounts-identity/02) if one does not already exist - no separate forced sign-up step. **Owns:**
+the paywall screen, the pack/plan-to-capability-bundle lookup. **Gotcha:** this story proves the seam end to end
+but must not build any live mid-session upgrade path - the unlock is expected to show up on the *next*
+session-creation only (a direct consequence of 01 AC-03, not something 04 needs to engineer); it also must not
+render any dunning/grace messaging - that mechanic lives entirely in story 03's webhook handling.
 
 ### 05 - Restore / manage entitlements
 **Approach:** a read-only view sitting alongside accounts-identity/03's sign-in screen, guarded by the same
@@ -114,6 +142,10 @@ management, no cancellation; keep it that way per the story's Out of Scope.
 
 ## Cross-cutting concerns
 
+- **The interface is shipped; the stored-value side is not.** `IEntitlementService`, `SessionEntitlements`, the
+  `ai.onDemand` reservation, and the `GameHub.CreateRoom` capture already ship (ai-cost-gate/02, #121, PR #132) as
+  a thin, default-unlocked, read-only stand-in. Story 01 extends the SAME interface with the full catalog and a
+  real grant store - it does not re-derive the contract every consumer story already imports.
 - **Everything is a consumer of story 01's seam.** Stories 02, 04, and 05 - and every future paid feature (add-on
   packs, `ai.illustration`, `ai.voice`, `ai.onDemand`) - read or write through `IEntitlementService`. None of them
   invents a parallel check. If a future builder is tempted to add a per-request gate anywhere, that is a smell to

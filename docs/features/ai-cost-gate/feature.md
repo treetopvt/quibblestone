@@ -28,12 +28,12 @@ load-bearing rule: "the moment any AI call ships, it goes behind the cost gate."
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #120 | Server-side AI proxy (provider key server-only, browser never calls AI) | Not Started |
-| 02 | #121 | Entitlement check at session-creation (reserve `ai.*`, default-unlocked) | Not Started |
-| 03 | #122 | Rate-limit + quota metering (per-session/per-IP + "N calls left") | Not Started |
-| 04 | #123 | Spend circuit-breaker + cost attribution telemetry | Not Started |
-| 05 | #124 | Moderate AI output before display | Not Started |
-| 06 | #125 | IaC provisioning seam (Foundry + Content Safety + KV secret + budget/action group) | Not Started |
+| 01 | #120 | Server-side AI proxy (provider key server-only, browser never calls AI) | Complete |
+| 02 | #121 | Entitlement check at session-creation (reserve `ai.*`, default-unlocked) | Complete |
+| 03 | #122 | Rate-limit + quota metering (per-session/per-IP + "N calls left") | Complete |
+| 04 | #123 | Spend circuit-breaker + cost attribution telemetry | Complete |
+| 05 | #124 | Moderate AI output before display | Complete |
+| 06 | #125 | IaC provisioning seam (Foundry + keyless MI RBAC + Content Safety + budget/action group; delivered in `infra/ai.bicep`, PR #131) | Complete |
 
 ## Dependencies
 - `billing-entitlements/01` (issue #70) - the entitlement seam story 02 consumes
@@ -142,6 +142,51 @@ load-bearing rule: "the moment any AI call ships, it goes behind the cost gate."
   signal on whether players like the feature and deliberately leans on the
   circuit-breaker as the true cost control - which is the point of building it.
 - 2026-07-02: The IaC provisioning seam is its own story (06) rather than being
-  split across 01/04/05, so a single owner touches `infra/main.bicep` (avoids the
+  split across 01/04/05, so a single owner touches the AI provider Bicep (avoids the
   merge collision two Bicep-editing stories would cause) and the "I prep the Bicep,
   you run the Azure provisioning" hand-off is one clean unit.
+- 2026-07-03: **Built + integrated all six stories** on `claude/ai-cost-gate-build-uprh7b`
+  (orchestrated build, parallel worktree builders, per-story + integrated code-review
+  gates). Every story passed adversarial Gate-1 review; the integrated Gate-2 review
+  was clean (255 unit tests + 6 e2e tests incl. 2-device real-time sync all green; app
+  boots with zero AI config on the no-op path). Orchestration-time hardenings folded in:
+  the gate orchestrator now fails SAFE if any stage throws (never an unhandled exception
+  into gameplay); the transport retry gets a fresh per-attempt timeout budget;
+  `IEntitlementService` was made async (`ValueTask`) so `billing-entitlements/01` (#70)
+  subsumes it without a consumer refactor; and a `ClosedAiSpendGuard` closes a fail-OPEN
+  gap - if a real `Ai:Endpoint` is configured but no spend-total store is, the gate now
+  degrades every call to the fallback rather than ship billable AI with no ceiling.
+- 2026-07-03: **Model reconciled to gpt-5-mini** (ADR 0001 picked gpt-4o-mini; that
+  family is Deprecating / the nano variants have 0 real-time quota, so gpt-5-mini was
+  provisioned - see PR #131 + the ADR Update). The model id + rates are one-place config;
+  the estimator rates are now $0.25 in / $2.00 out per 1M and the tests assert those.
+  Auth is **keyless** (App Service managed identity; `DefaultAzureCredential` against
+  `cognitiveservices.azure.com/.default`) - no key read or stored. The **AI IaC moved to
+  `infra/ai.bicep`** (separate PAYG subscription, PR #131) and story 06's `main.bicep`
+  additions were reverted, since the app's student subscription cannot host Azure OpenAI.
+- 2026-07-03: **Carry-forward for the AI-consumer feature** (`game-modes/07` +
+  `ai-on-demand-generation/05`), not blockers here: (a) the per-IP rate-limit policy is
+  registered but inert until a consumer exposes an HTTP AI trigger (or does an in-hub IP
+  check) - a hub method over an established socket bypasses endpoint rate-limiting;
+  (b) a quota unit is debited even when a later gate stage falls back (acceptable
+  fail-safe bias for alpha); (c) the family-safe per-word signal is a documented 21-word
+  seed - replace with the real family-safe wordlist before a live family-safe AI round;
+  (d) the Content Safety second layer is a config-gated no-op until its SDK screen is
+  wired; (e) ADR 0001's "measure one real call to confirm the token/cost estimate" step
+  is now doable against the live deployment.
+- 2026-07-02: **The AI IaC was split into a separate `infra/ai.bicep`, deployed to
+  its own resource group (`quibblestone-ai-rg`) on a separate Pay-As-You-Go
+  subscription ("Playground"), because the app's "Azure for Students" subscription
+  cannot host Azure OpenAI at all** (student offer + spending limit block Cognitive
+  Services OpenAI accounts; the target model family shows 0 real-time quota there).
+  The API's existing managed identity reaches the model cross-subscription, keyless,
+  via a role assignment that takes the identity's `principalId` as a plain Bicep
+  parameter (GUIDs resolve cross-subscription within one tenant). Separately,
+  **`gpt-5-mini` replaced `gpt-4o-mini`** as the deployed model: by deploy time,
+  gpt-4o-mini and the wider gpt-4o/gpt-4.1 mini family were `Deprecating` (blocked
+  for new deployments) and the cheaper nano models had zero real-time quota in
+  eastus2; gpt-5-mini is the current GenerallyAvailable small chat model with quota.
+  Model name/version/SKU are now Bicep parameters so a future swap is config.
+  Deployed and verified via **PR #131**; story 06 flipped to In Review. See
+  [ADR 0001's Update note](../../adr/0001-ai-provider.md) and
+  [story 06](./06-iac-provisioning-seam.md) for the full detail.

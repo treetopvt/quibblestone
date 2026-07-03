@@ -61,6 +61,9 @@ import {
   // FamilySafeToggle icon (child-safety/02): the shield-heart glyph reads as
   // "protected and kid-friendly" beside the "Family-safe" toggle label.
   faShieldHeart,
+  // Word Bank "Fresh runes" jumble action (game-modes/07): a dice glyph reads
+  // as "roll me a fresh set of words" beside the on-brand "Fresh runes" label.
+  faDice,
   // Reveal icons (the-reveal/01): twinkling star glyphs flanking the "Your
   // tale is carved!" header, the narration bar's inactive play glyph (faPlay
   // is already registered above), and the gold "Play another round" CTA's
@@ -108,6 +111,12 @@ import {
   // Shareable tale link icon (keepsake-gallery/04, issue #66): the host-only
   // "Share a public link" affordance on the Reveal screen's bottom bar.
   faLink,
+  // Purchaser sign-in icons (accounts-identity/03, issue #69): faEnvelope for
+  // the "check your email" confirmation on the Account restore surface. The
+  // "Account" Home entry link reuses faUser (already registered above for Join),
+  // and the signed-in state reuses faCircleCheck / the guide-to-purchase state
+  // reuses faShieldHeart, so the envelope is the only genuinely new glyph.
+  faEnvelope,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -140,6 +149,7 @@ library.add(
   faPenNib,
   faEyeSlash,
   faShieldHeart,
+  faDice,
   faStar,
   faArrowRotateRight,
   faPenRuler,
@@ -153,5 +163,6 @@ library.add(
   faImage,
   faImages,
   faLink,
+  faEnvelope,
   faStarRegular,
 );

@@ -58,8 +58,8 @@ import { classicBlind } from '../engine/modes/classicBlind';
 import { progressiveReveal } from '../engine/modes/progressiveReveal';
 import { progressiveStory } from '../engine/modes/progressiveStory';
 import { wordBank } from '../engine/modes/wordBank';
-import type { Blank, Template } from '../engine/template';
-import { wordBankSurfaces } from './fillblank/WordBankAnswer';
+import type { Blank, Template, WordBankEntry } from '../engine/template';
+import { wordBankSurfaces, type RequestAiJumble } from './fillblank/WordBankAnswer';
 import { progressiveStorySurfaces } from './fillblank/StorySoFarContext';
 import { progressiveRevealSurfaces } from './reveal/ProgressiveRevealPresentation';
 import { classicBlindSurfaces, type ModeSurfaces } from './modeSurfaces';
@@ -83,6 +83,16 @@ export interface FillContext {
   /** The blank currently being prompted for. */
   currentBlank: Blank;
   onSubmit: (word: string) => Promise<{ accepted: boolean; message?: string }>;
+  /**
+   * OPTIONAL AI jumble fetcher (game-modes/07 AC-03, backed by
+   * ai-on-demand-generation/05). Only Word Bank's surface uses it: its "Fresh
+   * runes" button PREFERS AI-generated words and falls back to the free
+   * deterministic reshuffle when the gate falls back. The round screen (Solo /
+   * GroupRound) builds it from ../ai/jumbleClient, closing over the round's
+   * family-safe toggle + the anonymous session handle; absent for modes/screens
+   * that do not wire AI (the button is then the deterministic reshuffle only).
+   */
+  requestAiJumble?: RequestAiJumble;
 }
 
 /** The runtime context a mode needs to build its REVEAL-time surface (revealPresentation). */
@@ -117,6 +127,15 @@ const selectFamilySafe = (library: readonly Template[], familySafeOn: boolean): 
   selectTemplates(library, familySafeOn);
 
 /**
+ * A single shared empty word bank for the (defensive) case of a template with no
+ * `wordBank`. Using ONE stable reference - rather than a fresh `[]` per render -
+ * keeps WordBankAnswer's pool-reset effect from firing every render (Word Bank
+ * is only ever offered for templates that DO have a bank, so this is belt-and-
+ * suspenders, but the stable identity matters for that effect's dep list).
+ */
+const EMPTY_WORD_BANK: readonly WordBankEntry[] = [];
+
+/**
  * All four modes, in picker order. Classic blind is first so it is the default
  * selection (single-player/02 AC-01/AC-06): the existing zero-choice flow keeps
  * working with one tap on Start.
@@ -135,8 +154,13 @@ export const GAME_MODES: readonly GameMode[] = [
     blurb: 'Tap a word from a curated list instead of typing - no spelling required.',
     icon: 'wand-magic-sparkles',
     eligibleTemplates: offerWordBankTemplates,
-    fillSurfaces: ({ template, currentBlank, onSubmit }) =>
-      wordBankSurfaces({ wordBank: template.wordBank ?? [], blank: currentBlank, onSubmit }),
+    fillSurfaces: ({ template, currentBlank, onSubmit, requestAiJumble }) =>
+      wordBankSurfaces({
+        wordBank: template.wordBank ?? EMPTY_WORD_BANK,
+        blank: currentBlank,
+        onSubmit,
+        requestAiJumble,
+      }),
     revealSurfaces: () => classicBlindSurfaces,
   },
   {

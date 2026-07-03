@@ -5,7 +5,7 @@
 
 # Story: Spend circuit-breaker + cost attribution telemetry
 
-**Feature:** AI Cost Gate  ·  **Status:** Not Started  ·  **Issue:** #123
+**Feature:** AI Cost Gate  ·  **Status:** Complete  ·  **Issue:** #123
 
 ## Context
 The gate's fourth piece and the one that actually enforces the $20/month ceiling
@@ -22,57 +22,57 @@ though only the jumble exists. See [feature.md](./feature.md) and
 [ADR 0001](../../adr/0001-ai-provider.md).
 
 ## Acceptance Criteria
-- [ ] AC-01 (estimate per call): Given an AI call returns token usage (story 01
+- [x] AC-01 (estimate per call): Given an AI call returns token usage (story 01
       AC-02), then the proxy estimates its cost as
       `(inputTokens * inputRate + outputTokens * outputRate) / 1e6` using the deployed
-      model's configured rates (gpt-4o-mini: 0.15 / 0.60 per 1M; a config constant so
+      model's configured rates (gpt-5-mini: 0.25 / 2.00 per 1M; a config constant so
       a model swap is one change), and this estimate is recorded.
-- [ ] AC-02 (running monthly total, persisted): Given estimates accrue, then a
+- [x] AC-02 (running monthly total, persisted): Given estimates accrue, then a
       running total for the current UTC month is persisted in Azure Table Storage
       (the already-provisioned account the serve log/telemetry sink uses) - it
       survives a process recycle/redeploy (unlike the in-memory quota of story 03),
       because it is the authoritative fast-path spend figure.
-- [ ] AC-03 (the breaker): Given the running monthly total reaches 100% of the $20
+- [x] AC-03 (the breaker): Given the running monthly total reaches 100% of the $20
       ceiling (the ceiling is configuration, not a literal in many places), then the
       gate STOPS calling AI for the rest of that UTC month and every AI feature
       degrades to its deterministic fallback (the free reshuffle for the jumble) -
       players still play, just without AI. At the start of a new UTC month the total
       resets and AI resumes.
-- [ ] AC-04 (degrade, never bill-or-break): Given the breaker is open, then the
+- [x] AC-04 (degrade, never bill-or-break): Given the breaker is open, then the
       player experience is the deterministic fallback with no error and no charge -
       "degrade, not bill" (feature.md). This is the same fallback path story 03 uses
       at quota, so the two share one graceful-degrade seam.
-- [ ] AC-05 (one attribution event per call): Given any AI call (allowed and
+- [x] AC-05 (one attribution event per call): Given any AI call (allowed and
       completed), then it emits exactly ONE Application Insights custom event via the
       `platform-devops/04` pipeline (`TelemetryClient.TrackEvent`) carrying:
       a FEATURE tag (`jumble` now; `verdict`/`onDemand` reserved), the model id, input
       and output token counts, the estimated cost, and the ANONYMOUS session/room id
       (`Room.InstanceId`). The feature dimension is present from day one (AC restated:
       do not defer it).
-- [ ] AC-06 (child-safety / PII, non-negotiable): Given the attribution event, then
+- [x] AC-06 (child-safety / PII, non-negotiable): Given the attribution event, then
       it carries NO PII or content - no nickname, join code, player session id, IP,
       submitted word, or generated text; only the anonymous InstanceId, feature tag,
       model, token counts, and cost. It flows through the existing
       `PiiScrubbingTelemetryInitializer` choke point, and its property/metric keys are
       chosen to pass that scrubber (mirrors `UsageTelemetry`'s allowed keys) (README
       section 6).
-- [ ] AC-07 (per-feature + per-session answerable): Given the events, then a
+- [x] AC-07 (per-feature + per-session answerable): Given the events, then a
       straightforward App Insights query yields a per-FEATURE cost breakdown (which
       AI feature costs most) and a per-SESSION distribution (spend by anonymous
       InstanceId) - no dashboard required (demand-driven, README section 12).
-- [ ] AC-08 (hot-session signal): Given the per-session distribution, then a
+- [x] AC-08 (hot-session signal): Given the per-session distribution, then a
       disproportionately-spending anonymous session/room is made VISIBLE as a
       concentration/abuse signal (e.g. a flagged event or a queryable threshold),
       in addition to being rate-limited by the per-session quota (story 03).
       Concentration is measured over anonymous session/room ids ONLY - never
       identity (README section 6).
-- [ ] AC-09 (fail-soft telemetry): Given a telemetry or Table Storage write fails,
+- [x] AC-09 (fail-soft telemetry): Given a telemetry or Table Storage write fails,
       then it never blocks, delays, or errors a round or an AI call - fire-and-forget,
       the same posture `platform-devops/05` AC-08 sets. BUT the spend total write
       (AC-02) is best-effort-then-safe: if the running total cannot be read to check
       the breaker, the gate treats spend as at-ceiling and degrades to fallback
       rather than calling AI blind (fail to the safe side, mirrors story 03 AC-07).
-- [ ] AC-10 (optional faster warning): Given the running estimate, then the story at
+- [x] AC-10 (optional faster warning): Given the running estimate, then the story at
       least DOCUMENTS (and may wire) an App Insights metric alert on the app's
       running monthly estimate at 25/50/75/100% for a pre-billing warning, distinct
       from the authoritative Azure budget alerts (story 06). Recommended as a light
@@ -122,7 +122,7 @@ though only the jumble exists. See [feature.md](./feature.md) and
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Ai/AiCostEstimatorTests.cs`: tokens x rates yields the expected estimate for gpt-4o-mini |
+| AC-01 | `api/tests/Ai/AiCostEstimatorTests.cs`: tokens x rates yields the expected estimate for gpt-5-mini |
 | AC-02 | `api/tests` (Table Storage emulator/fake): the monthly total round-trips and survives a simulated restart |
 | AC-03 | `api/tests`: at 100% of a (test) ceiling, the breaker opens and no AI call is made; a new month resets it |
 | AC-04 | manual + `api/tests`: with the breaker open, the jumble returns the deterministic reshuffle, no error/charge |

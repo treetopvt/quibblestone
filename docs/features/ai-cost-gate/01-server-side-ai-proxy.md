@@ -5,7 +5,7 @@
 
 # Story: Server-side AI proxy (the browser never calls AI)
 
-**Feature:** AI Cost Gate  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #120
+**Feature:** AI Cost Gate  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #120
 
 ## Context
 This is the foundation of the whole gate (feature.md; ROADMAP "The AI cost gate"
@@ -13,45 +13,46 @@ piece 1): a single server-side seam through which every AI call in the product
 flows. The provider key lives in Key Vault (or the App Service managed identity);
 the browser never calls the AI provider directly, so every call is ours to see,
 meter (stories 03/04), and moderate (story 05). It wraps Azure AI Foundry (Azure
-OpenAI, model `gpt-4o-mini`) per [ADR 0001](../../adr/0001-ai-provider.md), but the
+OpenAI, model `gpt-5-mini` - see [ADR 0001](../../adr/0001-ai-provider.md), whose
+original `gpt-4o-mini` pick was superseded by availability at deploy time), but the
 seam is provider-agnostic so the model/provider is a swappable config value. The
 first caller is the Fresh Runes jumble (`ai-on-demand-generation/05`), but this
 story ships the generic proxy, not the jumble. See
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the API, when it needs AI output, then it calls a single
+- [x] AC-01: Given the API, when it needs AI output, then it calls a single
       server-side seam (a new `api/src/Ai/` service, e.g. `IAiCompletionClient`)
       and NOTHING in `web/` ever holds a provider key or calls the AI provider
       directly - verifiable by grep: no AI SDK, endpoint, or key in `web/`, and no
       AI provider key in any `VITE_*` var (secrets ship to the browser, forbidden
       per CLAUDE.md section 4).
-- [ ] AC-02: Given the proxy, when it is invoked, then it returns both the
+- [x] AC-02: Given the proxy, when it is invoked, then it returns both the
       generated text AND the call's token usage (input + output token counts) and
       the model id, so the cost circuit-breaker (story 04) can estimate $ per call
       from the response - the usage is surfaced on the proxy's own return type, not
       buried in the SDK response.
-- [ ] AC-03: Given the provider key/endpoint, then they come from configuration
+- [x] AC-03: Given the provider key/endpoint, then they come from configuration
       (an App Service app setting sourced from Key Vault, or the managed-identity
       RBAC path) - NEVER committed to source, NEVER a `VITE_*` var. Local dev reads
       them from user-secrets/env only.
-- [ ] AC-04 (no-op when unconfigured): Given no AI configuration is present (local
+- [x] AC-04 (no-op when unconfigured): Given no AI configuration is present (local
       dev, or before provisioning), when the proxy is resolved, then it registers a
       no-op/unavailable implementation that reports "AI unavailable" cleanly - the
       app builds and runs with zero AI config, and every consumer falls back to its
       deterministic path (mirrors the existing `ITelemetrySink` /
       `AddApplicationInsightsTelemetry` config-presence pattern in `Program.cs`).
-- [ ] AC-05 (async, in-app): Given the call, then it is fully async
+- [x] AC-05 (async, in-app): Given the call, then it is fully async
       (`Task`-returning, no blocking `.Result`/`.Wait()`) and runs in-process in the
       existing ASP.NET Core app - NO Azure Functions project is added (ADR 0001
       decision D; CLAUDE.md parks Functions). A `CancellationToken` is honored so a
       dropped client or a shed round does not leak a call.
-- [ ] AC-06 (resilience): Given a provider timeout, error, or rate-limit response,
+- [x] AC-06 (resilience): Given a provider timeout, error, or rate-limit response,
       then the proxy fails soft - it surfaces a typed "unavailable" result (never an
       unhandled exception into gameplay), applies a sane per-call timeout, and does
       NOT auto-retry in a way that could amplify spend (at most one bounded retry;
       the circuit-breaker in story 04 is the real spend guard).
-- [ ] AC-07 (generic, not jumble-specific): Given this story, then the proxy
+- [x] AC-07 (generic, not jumble-specific): Given this story, then the proxy
       exposes a general "complete this prompt, family-safe system instruction, max
       output tokens" shape reusable by future AI features (verdict, on-demand
       tales, packs) - it does NOT bake in word-bank/jumble-specific logic (that
@@ -88,7 +89,7 @@ story ships the generic proxy, not the jumble. See
   `OutputTokenCount`. Prefer `DefaultAzureCredential` (managed identity) over an API
   key where possible; the Key Vault-stored key mirrors the existing
   `APPLICATIONINSIGHTS_CONNECTION_STRING` KV-reference app-setting.
-- **Config keys:** `Ai:Endpoint`, `Ai:Deployment` (e.g. `gpt-4o-mini`), optional
+- **Config keys:** `Ai:Endpoint`, `Ai:Deployment` (e.g. `gpt-5-mini`), optional
   `Ai:ApiKey` (KV-backed), plus the per-model rate constants (input/output $/1M)
   story 04 reads. Keep the model id + rates together so a model swap is one config
   change (ADR 0001).

@@ -1,6 +1,6 @@
 # Story: Sign-in and restore on a new device
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #69
+**Feature:** Accounts & Identity  ·  **Status:** In Review  ·  **Issue:** #69
 
 ## Context
 A purchaser who bought the family plan on their phone should not have to
@@ -14,9 +14,9 @@ early even if the UI is minimal").
 
 ## Acceptance Criteria
 - [ ] AC-01: Given a purchaser has an existing account (accounts-identity/02)
-      and opens QuibbleStone on a new device, when they choose to sign in and
-      provide their email/OAuth identity, then their existing account is
-      recognized and no duplicate account is created.
+      and opens QuibbleStone on a new device, when they enter their email and
+      follow the emailed magic link (ADR 0002 Decision A), then their existing
+      account is recognized and no duplicate account is created.
 - [ ] AC-02: Given a purchaser signs in successfully, when
       billing-entitlements/05's restore view is opened, then it can look up
       that purchaser's entitlements without any device-specific state - the
@@ -31,9 +31,9 @@ early even if the UI is minimal").
       lives in a purchaser-facing area (Home's settings/account entry point or
       the restore/manage screen) - never inside the join code, lobby, word
       entry, or reveal flow a child would be using.
-- [ ] AC-05: Given a sign-in attempt with an email/OAuth identity that has no
+- [ ] AC-05: Given a magic-link request for an email address that has no
       matching account, then the system does not leak whether an account
-      exists for that identity beyond what is functionally necessary (no
+      exists for that email beyond what is functionally necessary (no
       account is silently created as a side effect of a failed sign-in
       attempt; the user is guided to purchase, not left in an ambiguous
       state).
@@ -43,9 +43,9 @@ early even if the UI is minimal").
       a family that has never paid for anything.
 
 ## Out of Scope
-- Any password-reset / account-recovery flow beyond what the chosen minimal
-  auth mechanism (accounts-identity/02) already provides natively (e.g. OAuth
-  provider or magic-link handles this outside our app).
+- Any password-reset / account-recovery flow beyond what magic-link already
+  provides natively - requesting a fresh link IS the recovery flow, since
+  there is no password to reset or forget (ADR 0002 Decision A).
 - Multi-device *simultaneous* session management (seeing "signed in on 2
   devices," remote sign-out) - a single sign-in-and-restore is enough for
   Phase 2.
@@ -63,11 +63,15 @@ early even if the UI is minimal").
   do not fork a second app-bar variant per CLAUDE.md section 4). Styled from
   `web/src/theme.ts` tokens only, consistent with the stone-tablet/Guardian
   visual language - no separate "corporate account page" look.
-- API: a sign-in endpoint (REST controller, `api/src/Controllers/`) that takes
-  the same minimal identity used at account creation (accounts-identity/02)
-  and resolves it to the existing `Account` record via `IAccountStore` - it
-  does not create a new record on a match (AC-01) and does not create one on a
-  miss (AC-05).
+- API: a sign-in endpoint (REST controller, `api/src/Controllers/`) that
+  issues a fresh magic-link token to an entered email (REUSING
+  accounts-identity/02's one-time-token issuer/verifier - the same reusable
+  service `sysadmin-console/01`'s operator login also calls, not a second
+  implementation), and, once the link is followed, resolves the verified
+  email to the existing `Account` record via `IAccountStore` - it does not
+  create a new record on a match (AC-01) and does not create one on a miss
+  (AC-05), and its response shape/timing does not reveal whether a given
+  email has an account.
 - Session/token handling for "signed in as this purchaser" should be a
   short-lived, purchaser-scoped credential (e.g. a signed cookie or bearer
   token) - it must never be required by, or checked in, the SignalR game hub
@@ -80,12 +84,12 @@ early even if the UI is minimal").
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Accounts/SignInTests.cs (to be created): sign-in with a known identity resolves the same account id twice.` |
-| AC-02 | `manual: sign in on a second simulated device/browser profile - confirm billing-entitlements/05's restore view shows the same entitlements.` |
-| AC-03 | `tests/*.spec.ts (Playwright smoke, extended): full free-play round with the sign-in affordance visible but untouched.` |
-| AC-04 | `manual: UI audit - confirm the sign-in entry point does not appear on Join, Lobby, FillBlank, or Reveal.` |
-| AC-05 | `api/tests/Accounts/SignInTests.cs: sign-in with an unknown identity creates no account row.` |
-| AC-06 | `manual: fresh environment with zero accounts/entitlements - open the restore view, confirm an empty-but-friendly state, no error.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Accounts/SignInTests.cs: verify with a known identity resolves the same account twice (created-at stable), no duplicate created.` |
+| AC-02 | `manual: sign in on a second simulated device/browser profile - confirm billing-entitlements/05's restore view shows the same entitlements (consumes the purchaser credential this story issues).` |
+| AC-03 | `manual/Playwright (tests/*.spec.ts, not in CI): full free-play round with the sign-in affordance visible but untouched. Also web/src/account/signInClient.test.ts pins the client fails graceful and never gates play.` |
+| AC-04 | `manual: UI audit - confirm the /account entry point renders only from Home, never on Join, Lobby, GroupRound (word entry), or Reveal.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/Accounts/SignInTests.cs: verify with an unknown identity creates no account row; the request endpoint returns a neutral shape (dev token echo only, gated on IsDevelopment) and never reads or writes the store.` |
+| AC-06 | `manual: fresh environment with zero accounts/entitlements - open /account, confirm an empty-but-friendly inert state, no error.` |
 
 ## Dependencies
 - accounts-identity/02 (the account this story signs back into).

@@ -6,7 +6,18 @@
 
 # Story: Generate word-bank options on demand (the AI jumble backend)
 
-**Feature:** On-Demand AI Generation  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #126
+**Feature:** On-Demand AI Generation  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #126
+
+> **Shipped 2026-07-03.** `api/src/Ai/Jumble/JumbleWordGenerator.cs` is the first real
+> consumer of the gate: it builds the tiny prompt (brand voice + family-safe + category +
+> avoid-list), routes ONE call through `GatedAiCompletionClient.CompleteGatedAsync(feature=
+> "jumble")` (never a raw provider call), and shapes the gate's already-moderated, per-line
+> output into a deduped single-word set - falling back (FellBack=true) on quota/breaker/
+> unavailable/too-few. It instructs the model to emit one word per line so the gate's generic
+> newline split moderates each candidate INDIVIDUALLY through the same seam (no parallel
+> filter - AC-07). Exposed at `POST /api/ai/jumble` (`AiJumbleController`, per-IP rate-limited,
+> anonymous InstanceId/session key). Covered by `JumbleWordGeneratorTests` (10 tests). The
+> throwaway probe was removed now that this real consumer + its attribution telemetry supersede it.
 
 ## Context
 The lightest, cheapest, safest live-generation payload in the whole product, and the
@@ -15,7 +26,9 @@ horizon 3). When a Word Bank player taps "Fresh runes" and wants AI-fresh option
 this story generates a small set (~8-10) of fresh, on-theme, family-safe WORDS for
 one blank's category via an AI call - NOT a whole template. It rides the shared
 `ai-cost-gate` (server proxy + quota + breaker + moderation), consumes ADR 0001's
-model (Azure AI Foundry, gpt-4o-mini), and falls back to `game-modes/07`'s free
+model (Azure AI Foundry, gpt-5-mini - the ADR picked gpt-4o-mini, but it was
+deprecated by deploy time, so gpt-5-mini is the deployed model per PR #131), and
+falls back to `game-modes/07`'s free
 deterministic reshuffle whenever AI is unavailable. It reuses the SAME generate +
 moderate pipeline the later whole-template on-demand generation (story 01) will use -
 it is never a fork. The consuming UX + the free fallback live in `game-modes/07`;
@@ -23,39 +36,39 @@ this story owns the moderated AI GENERATION of the words. See
 [feature.md](./feature.md) and [ADR 0001](../../adr/0001-ai-provider.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a request for AI word-bank options for a blank's category, when it
+- [x] AC-01: Given a request for AI word-bank options for a blank's category, when it
       runs, then it calls the `ai-cost-gate` server proxy (`ai-cost-gate/01`) with a
       small prompt (brand-voice system instruction + the category + words to avoid)
       and parses the model's reply into a set of ~8-10 short single words for that
       category - server-side; the browser never calls AI (game-modes/07 AC-06 boundary).
-- [ ] AC-02 (on-theme, on-brand, deduped): Given the generated words, then they are
+- [x] AC-02 (on-theme, on-brand, deduped): Given the generated words, then they are
       single common words appropriate to the category, in QuibbleStone's family-safe
       playful voice, and de-duplicated against the words just shown (favor fresh
       options) - a malformed or empty model reply is treated as "AI unavailable" and
       the caller falls back (AC-06), never surfaces a broken set.
-- [ ] AC-03 (child-safety, non-negotiable): Given AI-generated words are NOT pre-vetted,
+- [x] AC-03 (child-safety, non-negotiable): Given AI-generated words are NOT pre-vetted,
       then every word passes the gate's moderate-before-display seam (`ai-cost-gate/05`:
       the existing `IContentSafetyFilter` + family-safe) BEFORE it is returned to any
       client or made tappable; a family-safe session only ever receives family-safe
       words. This story does NOT implement a second filter - it consumes the gate's seam
       (README section 6; game-modes/07 AC-04).
-- [ ] AC-04 (metered + capped, alpha-open): Given the AI call, then it passes through the
+- [x] AC-04 (metered + capped, alpha-open): Given the AI call, then it passes through the
       gate's rate-limit/quota (`ai-cost-gate/03`) and spend circuit-breaker
       (`ai-cost-gate/04`) - so a player cannot spam it and a runaway cannot bust the $20
       ceiling. In alpha it is reachable by every session (ADR 0001 C), gated by
       quota/breaker, not entitlement; the entitlement seam (`ai-cost-gate/02`) is captured
       at session-creation and default-unlocked.
-- [ ] AC-05 (attribution): Given the AI call, then it emits the gate's ONE attribution
+- [x] AC-05 (attribution): Given the AI call, then it emits the gate's ONE attribution
       telemetry event (`ai-cost-gate/04`) tagged with the FEATURE `jumble`, the model,
       token counts, estimated cost, and the anonymous session/room id - so this feature's
       share of AI spend is measurable from day one. No PII, no generated words, in
       telemetry.
-- [ ] AC-06 (fallback is the free reshuffle): Given AI is unavailable, quota-exhausted,
+- [x] AC-06 (fallback is the free reshuffle): Given AI is unavailable, quota-exhausted,
       breaker-open, times out, or returns nothing usable (or too few survive moderation),
       then the caller degrades to `game-modes/07`'s free deterministic reshuffle - the
       player always gets fresh runes, just curated ones, with no error and a brief
       "carving fresh words..." then a graceful result.
-- [ ] AC-07 (shared pipeline, not a fork): Given this is the lightest payload, then it
+- [x] AC-07 (shared pipeline, not a fork): Given this is the lightest payload, then it
       uses the SAME server proxy + moderation path the whole-template on-demand generation
       (story 01) and its moderation (story 02) will use - a tiny payload today, the same
       plumbing tomorrow. It must not stand up a parallel generator or a parallel filter

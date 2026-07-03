@@ -18,9 +18,9 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #67 | Anonymous player, forever | Not Started |
-| 02 | #68 | Lightweight purchaser account | Not Started |
-| 03 | #69 | Sign-in and restore on a new device | Not Started |
+| 01 | #67 | Anonymous player, forever | In Review |
+| 02 | #68 | Lightweight purchaser account | In Review |
+| 03 | #69 | Sign-in and restore on a new device | In Review |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:
@@ -40,20 +40,22 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   own entitlements and let a purchase survive a device change. It is not a
   player profile, not a friends list, not a leaderboard identity - none of
   that is in scope for Phase 2.
-- **Minimum viable account.** An email (or an OAuth identity - provider TBD in
-  story 02) is the only required field. No display name, no avatar, no date of
-  birth, no address. The purchaser is assumed to be an adult (they are the one
-  completing a checkout), so no age-gating flow is needed for the account
-  itself - the age/safety posture that matters is about the **kids playing**,
-  who never touch this account.
+- **Minimum viable account.** An email (the magic-link identity, ADR 0002
+  Decision A - resolved 2026-07-03) is the only required field. No display
+  name, no avatar, no date of birth, no address, no password, no OAuth SDK.
+  The purchaser is assumed to be an adult (they are the one completing a
+  checkout), so no age-gating flow is needed for the account itself - the
+  age/safety posture that matters is about the **kids playing**, who never
+  touch this account.
 - **The account belongs to the buyer, not the kids playing.** A parent buys
   the family plan on their own phone; the kids in the back seat still join
   with just a code and a nickname. The purchaser's sign-in state never flows
   down into a player's join experience - a signed-out room plays exactly like
   today.
 - **Where it lives:** the account record is a small row keyed by the
-  purchaser's identity (email or OAuth subject), stored alongside entitlements
-  in Azure Table Storage (README section 4). No new datastore is introduced.
+  purchaser's email identity (magic-link, ADR 0002 Decision A), stored
+  alongside entitlements in Azure Table Storage (README section 4). No new
+  datastore is introduced.
 - **Session-creation is still the only place identity matters for gameplay.**
   A room does not care who is signed in mid-session; the signed-in state is
   read once, at session-creation, by the entitlement check in
@@ -62,8 +64,9 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 ## Parked - Phase 3+
 - Player-side profiles (remembered nickname/Guardian across devices,
   friends/repeat-crew list) - explicitly out of scope; players stay anonymous.
-- Social sign-in beyond a single OAuth provider (multi-provider linking,
-  account merge).
+- Social/OAuth sign-in of any kind (ADR 0002 Decision A resolved the identity
+  provider to magic-link email only) - and, within that, multi-provider
+  linking or account merge, should the mechanism ever change.
 - Household / multi-purchaser management (e.g. co-parents sharing one plan
   with separate logins) - Phase 2 ships one purchaser, one account.
 - Any UI beyond the minimum checkout/sign-in/restore flow (account settings
@@ -76,3 +79,40 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   entitlements and survive a device change. Anything broader is scope creep
   against README section 3's "lightweight" instruction. Recorded during the
   look-ahead planning pass ahead of Slice 1 shipping.
+- 2026-07-03: [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)
+  (accounts, subscriptions, sys-admin surface) states the load-bearing invariant
+  this feature's purchaser account must uphold - "entitlement travels with the
+  session, not identity": the host's purchaser identity is resolved to
+  capabilities at `GameHub.CreateRoom` and discarded at that boundary, so only
+  the resolved capability set (never a purchaser id) lands on `Room`. The host
+  proves purchaser status by supplying the magic-link session token to the hub
+  via SignalR's `accessTokenFactory` (ADR 0002 Decision F).
+- 2026-07-03: **Identity provider resolved (ADR 0002 Decision A): magic-link
+  email.** Story 02's open provider choice is closed - purchasers sign in via an
+  emailed one-time link (no password, no OAuth SDK). The same one-time-token
+  issue/verify plumbing is reused for the sys-admin back office's operator login
+  (`sysadmin-console/01`) against a SEPARATE operator allowlist in config / Key
+  Vault; admin authorization is allowlist membership resolved at verify time and
+  is never inferred from being a purchaser (`purchaser == admin` is the bug to
+  prevent). Consistent with story 02 AC-01 (email or one identity, nothing more).
+- 2026-07-03: **Built via `/orchestrate-feature` (all three stories on the
+  `claude/orchestrate-accounts-identity-a373p2` umbrella).** Notes from the build:
+  - Story 02's magic-link token verifier originally compared DECODED signature
+    bytes, which accepted a padding-equivalent final base64url char (~6% of
+    mutations) and flaked its tamper test. Fixed to compare the CANONICAL
+    base64url strings via constant-time `FixedTimeEquals`, with an exhaustive
+    regression test. Live-verified: replaying a consumed token returns
+    `link-invalid` (single-use holds).
+  - The purchaser session credential (story 03) uses ASP.NET Data Protection
+    (`ITimeLimitedDataProtector`, 12h TTL, purpose `QuibbleStone.PurchaserSession`)
+    - no new dependency, no hand-rolled crypto. The current key ring is the
+    framework default (per-process, not durable); a Key Vault-backed shared key
+    ring is a **billing-entitlements deployment follow-up**, not this slice.
+  - AC-05 no-enumeration is structural: the request endpoint never reads the
+    account store (identical neutral response for any email); the dev-only token
+    echo is gated on `IsDevelopment()`. Live-verified end to end.
+  - The `signed-in` happy path is not UI-drivable yet (account creation lives in
+    the not-yet-built billing purchase flow; no seed endpoint) - it is covered by
+    `SignInTests.cs`. Verification drove request -> verify (`no-account`),
+    single-use replay, and confirmed free play (hub negotiate + the 2-device
+    group-mode e2e) is unaffected by the added `/account` route.

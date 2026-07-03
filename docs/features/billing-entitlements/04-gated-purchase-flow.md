@@ -14,11 +14,16 @@ content ... as an alternative or supplement to subscription. Same billing
 plumbing").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a purchaser buys an add-on pack (identified by a
-      `pack.<id>` capability key from billing-entitlements/01's catalog) or a
-      family-plan subscription, when the purchase succeeds via story 03's
-      Stripe plumbing, then the corresponding capability key(s) are granted to
-      that purchaser's entitlement record.
+- [ ] AC-01: Given a purchaser buys an add-on pack (identified by a single
+      `pack.<id>` capability key from billing-entitlements/01's catalog) OR
+      the family-plan subscription (ADR 0002 Decision C: the FULL paid-tier
+      bundle - `library.full`, `play.remote`, `play.largeGroup`, and the
+      `ai.*` keys once those features exist), when the purchase succeeds via
+      story 03's Stripe plumbing, then the corresponding capability key(s) -
+      one key for a pack, the whole bundle for the family plan - are granted
+      to that purchaser's entitlement record as a lease-shaped
+      `EntitlementGrant` (`source = one-time` for a pack, `source =
+      subscription` for the family plan).
 - [ ] AC-02: Given a purchaser has just been granted an entitlement, when they
       (or a player using their device/session) creates a **new** session
       (room or solo round) afterward, then billing-entitlements/01's
@@ -64,6 +69,11 @@ plumbing").
 - Gating any AI capability (`ai.illustration`, `ai.voice`, `ai.onDemand`) -
   those features do not exist yet; this story may reference their keys in the
   catalog but does not turn on real gating for them.
+- Rendering dunning/grace-period messaging (e.g. a "your payment failed, you
+  have N days" banner) - story 03 handles the ~7-day `past_due` grace
+  mechanically by extending the grant's `validThrough` (ADR 0002 Decision D);
+  a purchaser-facing dunning UI, if ever wanted, is a later, deliberate
+  addition, not part of this story.
 
 ## Technical Notes
 - Web: a purchase/paywall surface (new `web/src/pages/` component, e.g. a
@@ -78,9 +88,13 @@ plumbing").
   integration path.
 - On the API side, the "which capability key(s) does this Stripe
   price/product id map to" lookup is a small, explicit table (config or a
-  simple in-code map) living alongside `StripeCheckoutService` - keep it easy
-  to extend when a new pack is authored, per the "config flip, not a
-  refactor" spirit of billing-entitlements/01.
+  simple in-code map) living alongside `StripeCheckoutService` - its VALUE is
+  a small LIST of capability keys, not always exactly one: a pack product
+  maps to its single `pack.<id>` key, the family-plan product maps to the
+  whole bundle (`library.full`, `play.remote`, `play.largeGroup`, `ai.*` once
+  those exist - ADR 0002 Decision C). Keep the table easy to extend when a new
+  pack is authored, per the "config flip, not a refactor" spirit of
+  billing-entitlements/01.
 - AC-02's "reflected on the next session-creation, not mid-round" behavior is
   a direct consequence of billing-entitlements/01 AC-03 - this story does not
   need to build any live-update mechanism; it only needs to *not* try to.
@@ -96,7 +110,7 @@ plumbing").
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Billing/GatedPurchaseTests.cs (to be created): a completed test-mode purchase for a pack id results in that pack's capability key being granted.` |
+| AC-01 | `api/tests/Billing/GatedPurchaseTests.cs (to be created): a completed test-mode purchase for a pack id grants that pack's single capability key; a completed family-plan subscription purchase grants the whole bundle (library.full, play.remote, play.largeGroup).` |
 | AC-02 | `api/tests/Entitlements/EntitlementServiceTests.cs: EvaluateForSession called after a grant reflects the new capability; a fake "already-open session" object is unaffected.` |
 | AC-03 | `tests/*.spec.ts (Playwright smoke) + existing session-engine/game-modes/group-play/single-player suites, re-run as regression: zero change to free-tier behavior.` |
 | AC-04 | `manual: UX/copy review of the paywall screen against the no-dark-patterns checklist in feature.md.` |
