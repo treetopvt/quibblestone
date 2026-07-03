@@ -3,6 +3,7 @@
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [
+      "/admin.html",
       "/assets/*",
       "/*.svg",
       "/*.jpg",
