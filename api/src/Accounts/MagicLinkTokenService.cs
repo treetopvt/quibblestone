@@ -81,6 +81,14 @@ public sealed class MagicLinkTokenService : IMagicLinkTokenService
     public string Issue(string subject, TimeSpan? lifetime = null)
     {
         ArgumentNullException.ThrowIfNull(subject);
+        if (subject.Length == 0)
+        {
+            // An empty subject encodes to an empty payload segment the verifier treats
+            // as malformed, so a token minted for it could never verify. Reject it at
+            // issue time so the contract is explicit rather than handing back a dead
+            // token. Real subjects (an email, an operator id) are never empty.
+            throw new ArgumentException("A magic-link token subject must be non-empty.", nameof(subject));
+        }
 
         var expiry = DateTimeOffset.UtcNow + (lifetime ?? DefaultLifetime);
         var nonce = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
@@ -109,14 +117,18 @@ public sealed class MagicLinkTokenService : IMagicLinkTokenService
         var payload = token[..dot];
         var providedSignature = token[(dot + 1)..];
 
-        // Constant-time signature check: recompute over the payload and compare the
-        // raw bytes with FixedTimeEquals (no early-out on the first mismatched byte).
-        if (!TryDecodeBase64Url(providedSignature, out var providedSigBytes))
-        {
-            return false;
-        }
-        var expectedSigBytes = SignBytes(payload);
-        if (!CryptographicOperations.FixedTimeEquals(providedSigBytes, expectedSigBytes))
+        // Constant-time signature check: recompute the CANONICAL base64url signature
+        // over the payload and compare the encoded STRINGS, not the decoded bytes.
+        // Comparing decoded bytes would ACCEPT a non-canonical re-encoding of the same
+        // 32-byte HMAC: a base64url-encoded 32-byte value ends in a char carrying only
+        // 4 significant bits (2 are unused), so several distinct final chars decode to
+        // the identical bytes - a tampered last char would verify. Comparing the
+        // canonical strings admits exactly the one encoding this service produces.
+        // FixedTimeEquals stays constant-time and handles a length mismatch safely.
+        var expectedSignature = Sign(payload);
+        if (!CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(providedSignature),
+                Encoding.UTF8.GetBytes(expectedSignature)))
         {
             return false;
         }

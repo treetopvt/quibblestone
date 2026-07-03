@@ -45,14 +45,46 @@ public class MagicLinkTokenServiceTests
         var service = NewService();
         var token = service.Issue("buyer@example.com");
 
-        // Flip the final character (part of the signature / payload) - any single
-        // mutation must invalidate the HMAC.
-        var lastChar = token[^1];
-        var replacement = lastChar == 'A' ? 'B' : 'A';
-        var tampered = token[..^1] + replacement;
+        // Mutate a character INSIDE the payload (the first char of the encoded
+        // subject, just after "v1|") - a deterministic change that must invalidate
+        // the HMAC. Deliberately NOT the final char, whose malleability is covered
+        // exhaustively below.
+        var idx = token.IndexOf('|') + 1;
+        var replacement = token[idx] == 'A' ? 'B' : 'A';
+        var tampered = token[..idx] + replacement + token[(idx + 1)..];
 
         Assert.False(service.TryVerify(tampered, out var subject));
         Assert.Equal(string.Empty, subject);
+    }
+
+    // Regression for the Gate-1 base64url signature-malleability finding (CR-001):
+    // the final base64url char of a 32-byte HMAC carries unused bits, so several
+    // distinct final chars DECODE to the same bytes. A verifier that compared
+    // decoded bytes would accept such a mutated token; comparing the canonical
+    // strings must reject EVERY non-original final char. Exhaustive over the whole
+    // base64url alphabet, so it is deterministic and can never flake.
+    [Fact]
+    public void SignatureMalleability_EveryNonCanonicalFinalChar_IsRejected()
+    {
+        const string base64UrlAlphabet =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        var service = NewService();
+        var token = service.Issue("buyer@example.com");
+        var original = token[^1];
+
+        foreach (var candidate in base64UrlAlphabet)
+        {
+            if (candidate == original)
+            {
+                continue;
+            }
+
+            var mutated = token[..^1] + candidate;
+            Assert.False(
+                service.TryVerify(mutated, out var subject),
+                $"a token whose final char is '{candidate}' (original '{original}') must be rejected");
+            Assert.Equal(string.Empty, subject);
+        }
     }
 
     [Fact]

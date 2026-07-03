@@ -88,12 +88,12 @@ lightweight account, and only when they buy").
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Accounts/AccountStoreTests.cs (to be created with the API test project): creating an account from an email identity persists only that field + created-at.` |
-| AC-02 | `manual: complete a full free single-player and 2-player round with no purchase attempted - confirm zero rows written to the account table.` |
-| AC-03 | `manual: code read of the Account record type - confirm no nickname/player/room reference field exists.` |
-| AC-04 | `manual: billing-entitlements/01 build-time integration check - the session-creation gate reads this account without importing Rooms/.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Accounts/AccountStoreTests.cs: creating an account from an email identity persists only email + created-at (CreateOrGet_persists_only_email_and_created_at).` |
+| AC-02 | `manual: complete a full free single-player and 2-player round with no purchase attempted - confirm zero rows written to the account table (no auto-create path exists near gameplay). Plus AccountStoreTests: GetByIdentity never creates a row on a miss.` |
+| AC-03 | `manual: code read of the Account record type (api/src/Accounts/Account.cs) - confirm it holds only Email + CreatedUtc, no nickname/player/room reference field.` |
+| AC-04 | `manual: billing-entitlements/01 build-time integration check - the session-creation gate reads this account via IAccountStore without importing Rooms/ (IAccountStore/Account import nothing from api/src/Rooms).` |
 | AC-05 | `manual: code/flow read - confirm no age-gate prompt appears in the purchase-triggered account creation path.` |
-| AC-06 | `manual: inspect the Table Storage entity + Key Vault config - confirm no plaintext secret in the account row or logs.` |
+| AC-06 | `tests/QuibbleStone.Api.Tests/Accounts/MagicLinkTokenServiceTests.cs (single-use, tamper, expiry, malleability regression) + manual: inspect the Table Storage entity + Key Vault config - confirm the token-signing key is config/Key Vault supplied and no plaintext secret is in the account row or logs.` |
 
 ## Dependencies
 - accounts-identity/01 (the anonymous-forever contract this account sits

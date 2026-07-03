@@ -104,6 +104,9 @@ public sealed class TableStorageAccountStore : IAccountStore
         {
             // A concurrent purchase for the SAME identity won the Add race. Re-read
             // and return the winner so the create-or-get stays idempotent (one row).
+            // Log at Debug (the hashed key only - never the raw email or any secret,
+            // AC-06): a benign, expected race, not an error.
+            _logger.LogDebug(ex, "Concurrent account create lost the Add race (409); re-reading the existing account.");
             var winner = await ReadAsync(key, ct);
             return winner ?? new Account(normalizedEmail, createdUtc);
         }
@@ -134,7 +137,9 @@ public sealed class TableStorageAccountStore : IAccountStore
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
             // The table itself does not exist yet (no account has ever been created)
-            // - that is simply a miss, not an error.
+            // - that is simply a miss, not an error. Trace it (no PII, AC-06) so a
+            // real storage misconfig is not fully invisible.
+            _logger.LogDebug(ex, "Account table read returned 404 (table not yet created); treating as a miss.");
             return null;
         }
     }
