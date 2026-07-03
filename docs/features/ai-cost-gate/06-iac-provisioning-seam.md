@@ -4,7 +4,7 @@
 
 # Story: IaC provisioning seam (Foundry + keyless MI RBAC + Content Safety + budget/action group)
 
-**Feature:** AI Cost Gate  ·  **Status:** In Review  ·  **Issue:** #125
+**Feature:** AI Cost Gate  ·  **Status:** Complete  ·  **Issue:** #125
 
 ## Context
 The gate's infrastructure, in one owner so a single story touches the AI provider
