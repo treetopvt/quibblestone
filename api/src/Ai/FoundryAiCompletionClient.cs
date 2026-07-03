@@ -41,6 +41,7 @@
 
 using Azure;
 using Azure.AI.OpenAI;
+using Azure.AI.OpenAI.Chat;
 using Azure.Identity;
 using Microsoft.Extensions.Logging;
 using OpenAI.Chat;
@@ -68,7 +69,16 @@ public sealed class FoundryAiCompletionClient : IAiCompletionClient
     /// <see cref="AiOptions.ApiKey"/> is configured, else
     /// <see cref="DefaultAzureCredential"/> (the managed-identity path).
     /// </summary>
-    public FoundryAiCompletionClient(AiOptions options, ILogger<FoundryAiCompletionClient> logger)
+    /// <param name="clientOptions">
+    /// Optional SDK client options - null in production (the SDK's defaults). This is
+    /// a TEST SEAM: a test injects a capturing transport here to assert the exact
+    /// request body on the wire (e.g. that the token cap ships as
+    /// <c>max_completion_tokens</c>, not the model-rejected <c>max_tokens</c>).
+    /// </param>
+    public FoundryAiCompletionClient(
+        AiOptions options,
+        ILogger<FoundryAiCompletionClient> logger,
+        AzureOpenAIClientOptions? clientOptions = null)
     {
         _options = options;
         _logger = logger;
@@ -84,8 +94,8 @@ public sealed class FoundryAiCompletionClient : IAiCompletionClient
         var endpoint = new Uri(options.Endpoint);
 
         AzureOpenAIClient azureClient = string.IsNullOrWhiteSpace(options.ApiKey)
-            ? new AzureOpenAIClient(endpoint, new DefaultAzureCredential())
-            : new AzureOpenAIClient(endpoint, new AzureKeyCredential(options.ApiKey));
+            ? new AzureOpenAIClient(endpoint, new DefaultAzureCredential(), clientOptions)
+            : new AzureOpenAIClient(endpoint, new AzureKeyCredential(options.ApiKey), clientOptions);
 
         _chatClient = azureClient.GetChatClient(options.Deployment);
     }
@@ -103,6 +113,18 @@ public sealed class FoundryAiCompletionClient : IAiCompletionClient
         {
             MaxOutputTokenCount = request.MaxOutputTokens,
         };
+
+        // Emit the token cap as `max_completion_tokens`, NOT the legacy `max_tokens`.
+        // Reasoning-era models (gpt-5-mini, o-series) REJECT `max_tokens` with a 400
+        // ("Unsupported parameter ... Use 'max_completion_tokens' instead"), and by
+        // default Azure.AI.OpenAI still serializes MaxOutputTokenCount as `max_tokens`
+        // for back-compat. This opt-in (per-request, on THIS SDK's AzureChatExtensions)
+        // flips it to the new field so the gated call actually reaches the model. The
+        // AOAI001 suppression is the SDK's "evaluation-only API" gate on that method -
+        // deliberate: it is the sole supported way to send the modern field today.
+#pragma warning disable AOAI001
+        chatOptions.SetNewMaxCompletionTokensPropertyEnabled(true);
+#pragma warning restore AOAI001
 
         // At MOST one bounded retry (attempt 0, then a single retry). The breaker is
         // the spend guard, not retries (AC-06) - so this never becomes a retry storm.
