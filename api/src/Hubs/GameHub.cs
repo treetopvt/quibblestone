@@ -449,7 +449,8 @@ public sealed class GameHub : Hub
         //    today - it is client-driven with only anonymous telemetry beacons - so a
         //    later solo AI feature evaluates the same contract at the point the solo
         //    AI call is made; see IEntitlementService's header.)
-        var sessionEntitlements = _entitlements.EvaluateForSession(purchaserIdentity: null);
+        var sessionEntitlements = await _entitlements.EvaluateForSession(
+            purchaserIdentity: null, Context.ConnectionAborted);
         room.CaptureEntitlements(sessionEntitlements);
 
         // Subscribe the host's connection to the room group so later stories'

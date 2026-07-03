@@ -34,11 +34,11 @@ public class EntitlementServiceTests
     // AC-03 / AC-05: no purchaser (every alpha session) -> the ai.* capability is
     // UNLOCKED. Default-unlocked, non-blocking, anonymous.
     [Fact]
-    public void EvaluateForSession_with_no_purchaser_returns_ai_capability_unlocked()
+    public async Task EvaluateForSession_with_no_purchaser_returns_ai_capability_unlocked()
     {
         var service = new DefaultUnlockedEntitlementService();
 
-        var entitlements = service.EvaluateForSession();
+        var entitlements = await service.EvaluateForSession();
 
         Assert.True(entitlements.IsUnlocked(EntitlementCatalog.AiOnDemand));
         Assert.Contains(EntitlementCatalog.AiOnDemand, entitlements.UnlockedCapabilities);
@@ -47,11 +47,11 @@ public class EntitlementServiceTests
     // AC-05: passing null explicitly (the anonymous, no-accounts norm) behaves the
     // same as the default - the seam never needs a player identity.
     [Fact]
-    public void EvaluateForSession_with_null_purchaser_is_unlocked()
+    public async Task EvaluateForSession_with_null_purchaser_is_unlocked()
     {
         var service = new DefaultUnlockedEntitlementService();
 
-        var entitlements = service.EvaluateForSession(purchaserIdentity: null);
+        var entitlements = await service.EvaluateForSession(purchaserIdentity: null);
 
         Assert.True(entitlements.IsUnlocked(EntitlementCatalog.AiOnDemand));
     }
@@ -60,11 +60,11 @@ public class EntitlementServiceTests
     // grant off it later WITHOUT changing this signature; in alpha it is still
     // unlocked (default-unlocked ignores the identity).
     [Fact]
-    public void EvaluateForSession_with_a_purchaser_is_still_unlocked_in_alpha()
+    public async Task EvaluateForSession_with_a_purchaser_is_still_unlocked_in_alpha()
     {
         var service = new DefaultUnlockedEntitlementService();
 
-        var entitlements = service.EvaluateForSession(purchaserIdentity: "some-future-purchaser");
+        var entitlements = await service.EvaluateForSession(purchaserIdentity: "some-future-purchaser");
 
         Assert.True(entitlements.IsUnlocked(EntitlementCatalog.AiOnDemand));
     }
@@ -73,11 +73,11 @@ public class EntitlementServiceTests
     // so a stray key is never accidentally granted (this matters once #70 turns
     // some keys entitlement-required).
     [Fact]
-    public void Unknown_capability_reads_as_locked()
+    public async Task Unknown_capability_reads_as_locked()
     {
         var service = new DefaultUnlockedEntitlementService();
 
-        var entitlements = service.EvaluateForSession();
+        var entitlements = await service.EvaluateForSession();
 
         Assert.False(entitlements.IsUnlocked("ai.someUnreservedCapability"));
     }

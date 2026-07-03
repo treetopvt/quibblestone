@@ -115,11 +115,13 @@ public class GameHubEntitlementTests
         public int EvaluateCalls { get; private set; }
         public string? LastPurchaserIdentity { get; private set; }
 
-        public SessionEntitlements EvaluateForSession(string? purchaserIdentity = null)
+        public ValueTask<SessionEntitlements> EvaluateForSession(
+            string? purchaserIdentity = null,
+            CancellationToken cancellationToken = default)
         {
             EvaluateCalls += 1;
             LastPurchaserIdentity = purchaserIdentity;
-            return new SessionEntitlements(EntitlementCatalog.AiCapabilities);
+            return new ValueTask<SessionEntitlements>(new SessionEntitlements(EntitlementCatalog.AiCapabilities));
         }
     }
 

@@ -129,8 +129,20 @@ public interface IEntitlementService
     /// #70 can key a real grant off a purchaser later WITHOUT changing this
     /// signature. A null identity returns the default-unlocked set.
     /// </param>
+    /// <param name="cancellationToken">Cancellation for the (later I/O-bound) evaluation.</param>
     /// <returns>The session's unlocked capability set.</returns>
-    SessionEntitlements EvaluateForSession(string? purchaserIdentity = null);
+    /// <remarks>
+    /// ASYNC by design even though the alpha stand-in is synchronous: #70's real
+    /// evaluation keys a grant off stored value (accounts + Stripe entitlements),
+    /// which is I/O-bound. Returning a <see cref="ValueTask{TResult}"/> from day one
+    /// means #70 SUBSUMES this contract without forcing the consumer
+    /// (GameHub.CreateRoom, already async) to change from sync to async later, and
+    /// avoids a sync-over-async block (CLAUDE.md section 4). The default-unlocked
+    /// stand-in completes synchronously via <see cref="ValueTask"/>.
+    /// </remarks>
+    ValueTask<SessionEntitlements> EvaluateForSession(
+        string? purchaserIdentity = null,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -147,8 +159,13 @@ public interface IEntitlementService
 public sealed class DefaultUnlockedEntitlementService : IEntitlementService
 {
     /// <inheritdoc />
-    public SessionEntitlements EvaluateForSession(string? purchaserIdentity = null)
+    public ValueTask<SessionEntitlements> EvaluateForSession(
+        string? purchaserIdentity = null,
+        CancellationToken cancellationToken = default)
         // Ignore the (always-null in alpha) purchaser identity: default-unlocked
         // grants every reserved ai.* capability regardless (anonymous, per session).
-        => new SessionEntitlements(EntitlementCatalog.AiCapabilities);
+        // Completes synchronously via ValueTask - no I/O in the alpha stand-in - so
+        // the async contract costs nothing today but is ready for #70's real
+        // stored-value evaluation.
+        => new ValueTask<SessionEntitlements>(new SessionEntitlements(EntitlementCatalog.AiCapabilities));
 }
