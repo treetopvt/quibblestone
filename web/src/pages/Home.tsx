@@ -98,6 +98,17 @@ export interface HomeProps {
    * signing in has ZERO effect on free play (AC-03).
    */
   onAccount: () => void;
+  /**
+   * Open the "Get more" storefront / paywall surface (billing-entitlements/04).
+   * Wired to the /get-more route. NOT gated by `disabled` - browsing what is on
+   * offer needs no hub connection, and buying has zero effect on free play.
+   */
+  onGetMore: () => void;
+  /**
+   * Open the "Support us" tip jar surface (billing-entitlements/02). Wired to the
+   * /support route. NOT gated by `disabled` - tipping needs no hub connection.
+   */
+  onSupport: () => void;
   /** True while a create-room request is in flight - disables the CTA to avoid double-taps. */
   creating?: boolean;
   /** True until the real-time connection is ready - the CTAs need the hub to act. */
@@ -183,6 +194,8 @@ export function Home({
   onFavorites,
   onGallery,
   onAccount,
+  onGetMore,
+  onSupport,
   creating = false,
   disabled = false,
 }: HomeProps) {
@@ -422,8 +435,9 @@ export function Home({
 
       {/* Utility icon bar: folds Favorites / Our tales / Account / Get more /
           Support into ONE row of five equal columns, replacing the old
-          stacked text links. Get more + Support are visually present but
-          inert (no destination yet). */}
+          stacked text links. Get more (gold) opens the storefront/paywall
+          (/get-more) and Support (coral) opens the tip jar (/support) - both
+          wired now that billing-entitlements shipped those surfaces. */}
       <Stack
         direction="row"
         sx={{
@@ -463,7 +477,7 @@ export function Home({
           chipBgcolor={alpha(theme.palette.gold.main, 0.16)}
           iconColor={theme.palette.gold.dark}
           labelColor={theme.palette.gold.dark}
-          disabled
+          onClick={onGetMore}
         />
         <UtilityBarItem
           icon="mug-saucer"
@@ -471,7 +485,7 @@ export function Home({
           chipBgcolor={alpha(theme.palette.coral.main, 0.14)}
           iconColor={theme.palette.coral.main}
           labelColor={theme.palette.text.secondary}
-          disabled
+          onClick={onSupport}
         />
       </Stack>
     </Stack>

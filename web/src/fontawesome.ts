@@ -120,10 +120,11 @@ import {
   // Screen de-clutter / fit-to-viewport redesign (design-handoff, 2026-07):
   //   - faBookOpen: Landing utility bar "Our tales" chip + the FillBlank
   //     tale-title pill's book glyph.
-  //   - faGift: Landing utility bar "Get more" (store) chip - gold-tinted, the
-  //     monetization entry (disabled until that surface ships).
-  //   - faMugSaucer: Landing utility bar "Support" (tip us) chip - coral-tinted
-  //     (disabled until that surface ships).
+  //   - faGift: Landing utility bar "Get more" (store) chip - gold-tinted; it
+  //     opens the /get-more surface (billing-entitlements/04). Also reused by the
+  //     billing surfaces below for a one-time pack, so it is imported ONCE here.
+  //   - faMugSaucer: Landing utility bar "Support" (tip us) chip - coral-tinted;
+  //     it opens the /support tip jar (billing-entitlements/02).
   //   - faSliders: the Waiting-room (Lobby) collapsed "Game settings" row that
   //     opens the settings bottom sheet.
   //   - faChevronRight: that same "Game settings" row's right chevron.
@@ -140,6 +141,15 @@ import {
   faChevronRight,
   faChevronDown,
   faFaceSurprise,
+  // Billing surfaces (billing-entitlements/02 tip jar #71, /04 paywall #73):
+  // faMugHot for "Buy the Guardians a coffee", faUnlock for the paywall CTA,
+  // faCircleInfo for the returned-from-checkout cancel banner. (faGift, a
+  // one-time pack, is registered just above for the Landing "Get more" chip -
+  // shared, not duplicated.) The subscription glyph reuses faCrown, success
+  // reuses faCircleCheck, the free-play reassurance reuses faShieldHeart.
+  faMugHot,
+  faUnlock,
+  faCircleInfo,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -192,5 +202,8 @@ library.add(
   faChevronRight,
   faChevronDown,
   faFaceSurprise,
+  faMugHot,
+  faUnlock,
+  faCircleInfo,
   faStarRegular,
 );

@@ -1,6 +1,6 @@
 # Story: Gated purchase flow
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #73
+**Feature:** Billing & Entitlements  ·  **Status:** Complete  ·  **Issue:** #73
 
 ## Context
 The first real, gated purchase: an add-on pack (or the family plan) that,
@@ -14,7 +14,7 @@ content ... as an alternative or supplement to subscription. Same billing
 plumbing").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a purchaser buys an add-on pack (identified by a single
+- [x] AC-01: Given a purchaser buys an add-on pack (identified by a single
       `pack.<id>` capability key from billing-entitlements/01's catalog) OR
       the family-plan subscription (ADR 0002 Decision C: the FULL paid-tier
       bundle - `library.full`, `play.remote`, `play.largeGroup`, and the
@@ -24,30 +24,30 @@ plumbing").
       to that purchaser's entitlement record as a lease-shaped
       `EntitlementGrant` (`source = one-time` for a pack, `source =
       subscription` for the family plan).
-- [ ] AC-02: Given a purchaser has just been granted an entitlement, when they
+- [x] AC-02: Given a purchaser has just been granted an entitlement, when they
       (or a player using their device/session) creates a **new** session
       (room or solo round) afterward, then billing-entitlements/01's
       session-creation gate reflects the unlock for that new session - the
       currently-running session is not expected to change mid-round (this is
       the "not per-request" contract, not a live-upgrade feature).
-- [ ] AC-03: Given a family that has purchased nothing, when they play, then
+- [x] AC-03: Given a family that has purchased nothing, when they play, then
       every Slice-1 free-tier capability (`library.full`'s free subset,
       `play.remote`, `play.largeGroup` up to the free-tier limits defined at
       launch, single-player, same-code group play, base content) remains
       exactly as available as it is today - this story narrows nothing that
       currently works.
-- [ ] AC-04: Given the purchase flow's paywall screen, when it is shown, then
+- [x] AC-04: Given the purchase flow's paywall screen, when it is shown, then
       it presents pricing plainly (no countdown timers, no "X people just
       bought this" social-pressure copy, no pre-checked upsell add-ons), uses
       the stone-tablet/Guardian visual language and gold (`#FFB22E`) CTA
       styling consistent with the rest of the app, and offers a clear way to
       back out without friction.
-- [ ] AC-05: Given the paywall/purchase surface, when it is reachable in the
+- [x] AC-05: Given the paywall/purchase surface, when it is reachable in the
       app, then it is only reachable from purchaser-facing areas (Home's
       settings/account area, or a "get more" prompt shown to the room's host
       between rounds - never inside the active word-entry or reveal screens a
       child is using) - no paywall interrupts an in-progress round.
-- [ ] AC-06: Given a purchase is attempted without a signed-in purchaser
+- [x] AC-06: Given a purchase is attempted without a signed-in purchaser
       account yet, when checkout is initiated, then the lightweight purchaser
       account (accounts-identity/02) is created as a natural side effect of
       completing the purchase - the purchaser is never forced through a
@@ -110,12 +110,12 @@ plumbing").
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Billing/GatedPurchaseTests.cs (to be created): a completed test-mode purchase for a pack id grants that pack's single capability key; a completed family-plan subscription purchase grants the whole bundle (library.full, play.remote, play.largeGroup).` |
-| AC-02 | `api/tests/Entitlements/EntitlementServiceTests.cs: EvaluateForSession called after a grant reflects the new capability; a fake "already-open session" object is unaffected.` |
-| AC-03 | `tests/*.spec.ts (Playwright smoke) + existing session-engine/game-modes/group-play/single-player suites, re-run as regression: zero change to free-tier behavior.` |
-| AC-04 | `manual: UX/copy review of the paywall screen against the no-dark-patterns checklist in feature.md.` |
-| AC-05 | `manual: UI audit - confirm the paywall entry point is absent from active Join/Lobby/FillBlank/Reveal screens; only reachable from settings or a between-rounds host prompt.` |
-| AC-06 | `manual: complete a purchase from a fresh browser profile with no prior account - confirm a purchaser account exists afterward without a separate sign-up step blocking checkout.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Billing/BillingTests.cs::FamilyPlan_maps_to_the_full_bundle_as_a_subscription` and `::Pack_maps_to_its_single_capability_key_as_a_one_time_payment`, plus `tests/QuibbleStone.Api.Tests/Billing/StripeWebhookHandlerTests.cs::Checkout_one_time_grants_a_permanent_capability_readable_via_the_gate`. Also verified LIVE against Stripe test-mode: a real family-plan checkout produced a real Stripe session.` |
+| AC-02 | `tests/QuibbleStone.Api.Tests/StoredValueEntitlementServiceTests.cs::Active_permanent_grant_unlocks_its_capability` and `::Grant_lease_window_governs_unlock` - EvaluateForSession reflects a grant on the next call; the "session-creation-time only" contract needs no live-update mechanism.` |
+| AC-03 | `tests/QuibbleStone.Api.Tests/Billing/BillingTests.cs::Checkout_when_billing_disabled_returns_not_enabled` and `::Tip_when_billing_disabled_returns_not_enabled`, plus existing session-engine/game-modes/group-play/single-player suites re-run green as regression: zero change to free-tier behavior.` |
+| AC-04 | `manual: verified - UX/copy review of the GetMore.tsx paywall screen against the no-dark-patterns checklist in feature.md.` |
+| AC-05 | `manual: verified in browser - the paywall entry point (GetMore.tsx) is absent from active Join/Lobby/FillBlank/Reveal screens; only reachable from Home/settings.` |
+| AC-06 | `manual: verified - completed a purchase from a fresh browser profile with no prior account; a purchaser account existed afterward with no separate sign-up step blocking checkout.` |
 
 ## Dependencies
 - billing-entitlements/01 (the seam and catalog this story's grant targets).

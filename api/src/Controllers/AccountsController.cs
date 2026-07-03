@@ -60,7 +60,6 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using QuibbleStone.Api.Accounts;
@@ -98,23 +97,18 @@ public sealed record SignInVerifyResult(string Outcome, string Message, string? 
 public sealed class AccountsController : ControllerBase
 {
     /// <summary>
-    /// The Data Protection purpose string that scopes this credential (AC-02).
-    /// Dedicated so a purchaser session credential can only ever be unprotected
-    /// by a protector created for this exact purpose - it can never be confused
-    /// with any other protected payload in the app.
+    /// The Data Protection purpose string that scopes this credential (AC-02). Now
+    /// owned by <see cref="PurchaserCredentialService"/> (the ONE minter+resolver, reused
+    /// by billing-entitlements/05's restore endpoint); forwarded here so existing
+    /// references keep working and the value cannot drift between the two.
     /// </summary>
-    public const string PurchaserSessionPurpose = "QuibbleStone.PurchaserSession";
+    public const string PurchaserSessionPurpose = PurchaserCredentialService.Purpose;
 
-    /// <summary>
-    /// How long a purchaser sign-in credential stays valid. Deliberately SHORT
-    /// (a toy, README section 4): long enough to open the restore view and see
-    /// what is owned, short enough that a leaked bearer is not a lasting key.
-    /// The magic link itself is the recovery flow, so re-signing-in is cheap.
-    /// </summary>
-    public static readonly TimeSpan CredentialLifetime = TimeSpan.FromHours(12);
+    /// <summary>How long a purchaser sign-in credential stays valid (owned by <see cref="PurchaserCredentialService"/>).</summary>
+    public static readonly TimeSpan CredentialLifetime = PurchaserCredentialService.Lifetime;
 
-    /// <summary>The HttpOnly cookie name mirroring the credential for a same-site production deployment.</summary>
-    public const string CredentialCookieName = "qs_purchaser";
+    /// <summary>The HttpOnly cookie name mirroring the credential (owned by <see cref="PurchaserCredentialService"/>).</summary>
+    public const string CredentialCookieName = PurchaserCredentialService.CookieName;
 
     /// <summary>
     /// Max accepted email length on the OPEN request endpoint (Copilot review). The
@@ -136,18 +130,18 @@ public sealed class AccountsController : ControllerBase
 
     private readonly IMagicLinkTokenService _tokens;
     private readonly IAccountStore _accounts;
-    private readonly IDataProtectionProvider _dataProtection;
+    private readonly PurchaserCredentialService _credential;
     private readonly IWebHostEnvironment _environment;
 
     public AccountsController(
         IMagicLinkTokenService tokens,
         IAccountStore accounts,
-        IDataProtectionProvider dataProtection,
+        PurchaserCredentialService credential,
         IWebHostEnvironment environment)
     {
         _tokens = tokens;
         _accounts = accounts;
-        _dataProtection = dataProtection;
+        _credential = credential;
         _environment = environment;
     }
 
@@ -294,10 +288,5 @@ public sealed class AccountsController : ControllerBase
     /// (billing-entitlements/05) unprotect with a protector created for the SAME
     /// purpose to recover the purchaser email.
     /// </summary>
-    private string ProtectCredential(string purchaserEmail)
-    {
-        var protector = _dataProtection.CreateProtector(PurchaserSessionPurpose).ToTimeLimitedDataProtector();
-        var payload = $"{purchaserEmail}|{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
-        return protector.Protect(payload, CredentialLifetime);
-    }
+    private string ProtectCredential(string purchaserEmail) => _credential.Protect(purchaserEmail);
 }

@@ -29,6 +29,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Ai;
+using QuibbleStone.Api.Billing;
 using QuibbleStone.Api.Ai.Jumble;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
@@ -415,7 +416,86 @@ builder.Services.AddSingleton<SeatGraceService>();
 // and the AI jumble stays reachable by every session. The real charging /
 // entitlement chain (billing-entitlements/01, #70) later SUBSUMES this SAME
 // contract without any consumer refactor. Singleton: the impl is stateless.
-builder.Services.AddSingleton<IEntitlementService, DefaultUnlockedEntitlementService>();
+//
+// billing-entitlements/01 (#70): the DI swap that lands the REAL stored-value
+// evaluation behind the SAME IEntitlementService contract (AC-02) - GameHub.CreateRoom,
+// SessionEntitlements, and Room.cs are untouched. DefaultUnlockedEntitlementService is
+// now registered as a CONCRETE singleton (the composed default-unlocked BASELINE,
+// AC-03), and StoredValueEntitlementService is the IEntitlementService: baseline +
+// any capabilities a resolved purchaser holds an active grant for. Anonymous sessions
+// (null purchaser - every alpha session) get exactly the baseline, so behavior is
+// unchanged today.
+builder.Services.AddSingleton<DefaultUnlockedEntitlementService>();
+builder.Services.AddSingleton<IEntitlementService, StoredValueEntitlementService>();
+
+// billing-entitlements/01 (#70): the purchaser entitlement-grant store, chosen at
+// STARTUP by whether a storage connection string is configured - EXACTLY the
+// config-presence idiom of the account store below and the telemetry / published-tale
+// stores above. WITH a connection string (supplied per-environment, NEVER a committed
+// literal), grants persist to Azure Table Storage partitioned by a SHA-256 hash of the
+// purchaser identity for a single-partition session-creation read (AC-05). WITHOUT one
+// (local dev, CI, a fresh clone), it degrades to a WORKING in-memory store - NOT a
+// no-op - so the gate and stories 03-05 are exercisable with ZERO Azure setup. A
+// singleton either way. It reuses the SAME storage account infra already provisions.
+var entitlementsConnectionString = builder.Configuration["Entitlements:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IEntitlementGrantStore, InMemoryEntitlementGrantStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IEntitlementGrantStore>(sp =>
+        new TableStorageEntitlementGrantStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageEntitlementGrantStore>>()));
+}
+
+// billing-entitlements/03 (#72): the Stripe billing seam. StripeOptions binds the
+// "Stripe" config section (SecretKey + WebhookSigningSecret are Key Vault-backed
+// SECRETS, never committed / never VITE_*, AC-01). Registered as a singleton so the
+// checkout service and webhook handler share one bound instance.
+var stripeOptions = builder.Configuration.GetSection(StripeOptions.SectionName).Get<StripeOptions>() ?? new StripeOptions();
+builder.Services.AddSingleton(stripeOptions);
+
+// The checkout service, chosen at STARTUP by whether Stripe is configured (the same
+// config-presence idiom as the AI client / stores above). WITH a secret key, the real
+// StripeCheckoutService (both payment + subscription modes through one method, AC-02);
+// WITHOUT one (local dev, CI, a fresh clone), the DISABLED no-op so the app runs with
+// ZERO Stripe setup and the tip jar / paywall show a clean "not available" state.
+if (stripeOptions.IsConfigured)
+{
+    builder.Services.AddSingleton<IStripeCheckoutService>(sp =>
+        new StripeCheckoutService(stripeOptions, sp.GetRequiredService<ILogger<StripeCheckoutService>>()));
+}
+else
+{
+    builder.Services.AddSingleton<IStripeCheckoutService, DisabledStripeCheckoutService>();
+}
+
+// The webhook idempotency ledger (AC-05), config-gated on the SAME storage account as
+// the grant store: a working in-memory ledger locally, Table Storage when configured.
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IProcessedEventStore, InMemoryProcessedEventStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IProcessedEventStore>(sp =>
+        new TableStorageProcessedEventStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageProcessedEventStore>>()));
+}
+
+// The webhook DOMAIN handler (SDK-free, AC-04): applies a normalized BillingEvent to
+// the grant store, idempotently (AC-05), keyed to the purchaser account (AC-06), with
+// the subscription lifecycle lease math (AC-08). A singleton over the stores + options.
+builder.Services.AddSingleton<StripeWebhookHandler>();
+
+// billing-entitlements/04 (#73): the product -> capability-bundle map (the family plan
+// + add-on packs + the goodwill tip), the server-side lookup BillingController uses so
+// the client only ever sends a product id, never capability keys. A singleton - the map
+// is fixed after construction (price ids resolved from StripeOptions).
+builder.Services.AddSingleton<IProductCatalog, ProductCatalog>();
 
 // accounts-identity/02 (lightweight purchaser account, #68): the purchaser-account
 // store, chosen at STARTUP by whether a storage connection string is configured -
@@ -476,6 +556,13 @@ builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
 // sign-in / restore surface - it is never required by, nor checked in, GameHub or
 // any player-facing endpoint, so free play stays 100% login-free.
 builder.Services.AddDataProtection();
+
+// accounts-identity/03 + billing-entitlements/05: the ONE purchaser-credential
+// minter+resolver over Data Protection. AccountsController mints it on sign-in;
+// EntitlementsController (the restore/manage read endpoint) resolves it - both share
+// this so the credential purpose + lifetime live in exactly one place (story 05 AC-06:
+// reuse the guard, do not write a second auth check). A singleton over the protector.
+builder.Services.AddSingleton<PurchaserCredentialService>();
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()

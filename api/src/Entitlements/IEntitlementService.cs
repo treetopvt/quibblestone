@@ -69,10 +69,49 @@ public static class EntitlementCatalog
     public const string AiOnDemand = "ai.onDemand";
 
     /// <summary>
-    /// All reserved <c>ai.*</c> capability keys - the set the alpha default-unlocked
-    /// service grants. #70's real catalog supersedes this list.
+    /// All reserved <c>ai.*</c> capability keys - the set the default-unlocked
+    /// BASELINE grants (still unlocked-for-everyone in alpha, ADR 0001 decision C).
+    /// <see cref="StoredValueEntitlementService"/> composes exactly this set as its
+    /// "no grant" baseline (billing-entitlements/01 AC-03), so shipping the real
+    /// stored-value evaluation changes zero observed behavior for these keys.
     /// </summary>
     public static readonly IReadOnlyList<string> AiCapabilities = new[] { AiOnDemand };
+
+    // ---- billing-entitlements/01 (#70): the full capability catalog ------------
+    //
+    //  These keys extend the ai.* reservation above into the WHOLE product catalog
+    //  (AC-01). They are NOT in the default-unlocked baseline: a key here reads as
+    //  LOCKED for a session UNLESS a purchaser behind that session holds an active
+    //  EntitlementGrant carrying it (AC-04). Story 01 only makes that per-key,
+    //  per-purchaser override POSSIBLE via a stored grant - it does NOT itself flip
+    //  any capability to entitlement-required as a live product decision (that is a
+    //  later, explicit call recorded in feature.md's Decisions log). Still ONE
+    //  string-keyed catalog - never one-off booleans scattered per feature (AC-07).
+
+    /// <summary>The full hand-authored template library (beyond the free base content).</summary>
+    public const string LibraryFull = "library.full";
+
+    /// <summary>Remote / different-houses group play (beyond same-code local play).</summary>
+    public const string PlayRemote = "play.remote";
+
+    /// <summary>Large-group play beyond the free-tier player cap.</summary>
+    public const string PlayLargeGroup = "play.largeGroup";
+
+    /// <summary>
+    /// The prefix for the open-ended add-on pack family. A specific pack's capability
+    /// key is <see cref="Pack"/>(id), e.g. <c>pack.spooky</c>. New packs are new keys
+    /// under this prefix - never a new gate or a schema change (AC-07).
+    /// </summary>
+    public const string PackPrefix = "pack.";
+
+    /// <summary>
+    /// Builds the capability key for an add-on pack id (e.g. <c>"spooky"</c> -&gt;
+    /// <c>"pack.spooky"</c>). The id is used verbatim after the <see cref="PackPrefix"/>;
+    /// callers pass a stable pack id, not user text.
+    /// </summary>
+    /// <param name="packId">The stable pack identifier.</param>
+    /// <returns>The <c>pack.&lt;id&gt;</c> capability key.</returns>
+    public static string Pack(string packId) => PackPrefix + packId;
 }
 
 /// <summary>

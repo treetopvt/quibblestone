@@ -42,17 +42,18 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
-import { Box, Button, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, CircularProgress, Stack, TextField, Typography } from '@mui/material';
 import { AppBar } from '../components';
 import {
   requestSignInLink,
   verifySignIn,
   type SignInOutcome,
 } from '../account/signInClient';
+import { fetchEntitlements, type OwnedEntitlement } from '../account/entitlementsClient';
 
 export interface AccountProps {
   /** Return to Home (the shared app-bar back action). */
@@ -118,6 +119,82 @@ function OutcomePanel({ icon, tint, title, body, children }: OutcomePanelProps) 
   );
 }
 
+/**
+ * The restore/manage list (billing-entitlements/05): fetches the signed-in purchaser's
+ * active entitlements with their credential and renders a plain-language list, a
+ * friendly empty state (AC-03), or a "sign in again" note (AC-06 / expired). Read-only -
+ * no plan management here. Shows what the purchaser OWNS, never a play history (AC-05).
+ */
+function PurchaseList({ credential }: { credential: string }) {
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<'ok' | 'signed-out' | 'error'>('ok');
+  const [entitlements, setEntitlements] = useState<OwnedEntitlement[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchEntitlements(credential).then((result) => {
+      if (!active) return;
+      setStatus(result.status);
+      setEntitlements(result.entitlements);
+      setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [credential]);
+
+  if (loading) {
+    return <CircularProgress size={22} sx={{ mt: 1 }} />;
+  }
+
+  if (status !== 'ok') {
+    // Signed-out (expired credential) or a transport hiccup - a calm note, no data.
+    return (
+      <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
+        {status === 'signed-out'
+          ? 'Your sign-in expired - request a fresh link to see what is unlocked.'
+          : 'We could not load your unlocks just now - please try again in a moment.'}
+      </Typography>
+    );
+  }
+
+  if (entitlements.length === 0) {
+    // AC-03: friendly empty state - a tip-only or never-purchased account is not an error.
+    return (
+      <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
+        Nothing unlocked yet - and free play is always on. When you buy something, it shows up here.
+      </Typography>
+    );
+  }
+
+  return (
+    <Stack spacing={1.5} sx={{ width: '100%' }}>
+      <Typography sx={{ fontSize: 13, fontWeight: 800, color: 'text.secondary', textAlign: 'center' }}>
+        What you have unlocked
+      </Typography>
+      {entitlements.map((entitlement) => (
+        <Stack
+          key={entitlement.key}
+          direction="row"
+          spacing={1.5}
+          alignItems="center"
+          sx={{ px: 2.5, py: 1.5, borderRadius: '14px', bgcolor: 'background.default' }}
+        >
+          <Box sx={{ color: 'teal.main', fontSize: 16, display: 'flex' }}>
+            <FontAwesomeIcon icon="circle-check" />
+          </Box>
+          <Typography sx={{ flex: 1, fontSize: 14, fontWeight: 800, color: 'text.primary' }}>
+            {entitlement.label}
+          </Typography>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
+            {entitlement.source === 'Subscription' ? 'Active' : 'Unlocked'}
+          </Typography>
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
 export function Account({ onBack }: AccountProps) {
   const theme = useTheme();
   const { control, handleSubmit, watch, formState } = useForm<AccountForm>({
@@ -133,6 +210,9 @@ export function Account({ onBack }: AccountProps) {
   // DEV ONLY: the echoed magic-link token, enabling the local "Continue" affordance.
   const [devToken, setDevToken] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  // The purchaser credential from a successful sign-in - held in memory only, presented
+  // as a bearer to the restore endpoint (billing-entitlements/05). Never persisted.
+  const [credential, setCredential] = useState<string | null>(null);
 
   const email = watch('email');
   const canSubmit = !formState.isSubmitting && EMAIL_PATTERN.test(email.trim());
@@ -155,6 +235,7 @@ export function Account({ onBack }: AccountProps) {
       const result = await verifySignIn(devToken);
       setMessage(result.message);
       setSignedInEmail(result.email ?? null);
+      setCredential(result.credential ?? null);
       setPhase(result.outcome);
     } finally {
       setVerifying(false);
@@ -262,6 +343,7 @@ export function Account({ onBack }: AccountProps) {
                 {signedInEmail}
               </Typography>
             )}
+            {credential && <PurchaseList credential={credential} />}
           </OutcomePanel>
         )}
 

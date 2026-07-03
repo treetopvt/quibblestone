@@ -1,6 +1,6 @@
 # Story: Tip jar ("Buy the Guardians a coffee")
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #71
+**Feature:** Billing & Entitlements  ·  **Status:** Complete  ·  **Issue:** #71
 
 ## Context
 Before anything is ever locked, QuibbleStone wants a friendly, ungated way for
@@ -11,32 +11,32 @@ is the donate-first rung the product wants on day one, ahead of any paywall.
 See [feature.md](./feature.md) and README section 3 ("Avoid ads").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the tip jar affordance, when it is placed in the app, then
+- [x] AC-01: Given the tip jar affordance, when it is placed in the app, then
       it lives on Home or in a settings-style area only (e.g. an AppBar
       affordance or a Home footer link) - it never appears inside the join
       code, lobby, word entry, or reveal screens a child is actively using
       during play.
-- [ ] AC-02: Given a person completes a tip jar donation, when the payment
+- [x] AC-02: Given a person completes a tip jar donation, when the payment
       succeeds, then no entitlement/capability key from billing-entitlements/01's
       catalog is granted as a result - the tip jar is entitlement-neutral by
       design, verified by confirming `EvaluateForSession` is unaffected before
       and after a tip.
-- [ ] AC-03: Given a person opens the tip jar, then no sign-in and no
+- [x] AC-03: Given a person opens the tip jar, then no sign-in and no
       purchaser account (accounts-identity/02) is required to complete a
       one-time tip - a purchaser account may be created afterward only if the
       chosen payment flow naturally produces one (e.g. to email a receipt),
       never as a precondition to donating.
-- [ ] AC-04: Given a successful tip, when the confirmation is shown, then it
+- [x] AC-04: Given a successful tip, when the confirmation is shown, then it
       is a warm, kid-safe thank-you (e.g. a gold Guardian sparkle moment and a
       short "thank you" message) - no dark patterns (no "are you sure you
       don't want to help the Guardians?" guilt prompts, no forced upsell into
       a bigger amount, no countdown timers).
-- [ ] AC-05: Given the tip jar surface displays any free text (a custom
+- [x] AC-05: Given the tip jar surface displays any free text (a custom
       "message to the Guardians" field, if offered), then that text passes the
       existing safety filter before it is stored or shown anywhere, and no PII
       beyond what the payment processor itself requires is collected by
       QuibbleStone's own database.
-- [ ] AC-06: Given the tip jar is never used by a family, then nothing about
+- [x] AC-06: Given the tip jar is never used by a family, then nothing about
       its presence nags, blocks, or interrupts normal free play - it is fully
       passive until tapped.
 
@@ -84,12 +84,12 @@ See [feature.md](./feature.md) and README section 3 ("Avoid ads").
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `manual: UI audit - confirm the tip jar entry point is absent from Join, Lobby, FillBlank, and Reveal.` |
-| AC-02 | `api/tests/Entitlements/EntitlementServiceTests.cs (or a tip-jar-specific test): EvaluateForSession is identical before/after a successful tip for the same purchaser identity.` |
-| AC-03 | `manual: complete a tip jar flow start-to-finish with no sign-in step presented.` |
-| AC-04 | `manual: UX review of the confirmation state against the no-dark-patterns checklist in feature.md.` |
-| AC-05 | `web/src/safety/checkWord.test.ts` (existing coverage, re-run as regression) plus `manual: submit a flagged message and confirm it is blocked.` |
-| AC-06 | `tests/*.spec.ts (Playwright smoke): a full free-play round with the tip jar visible but untouched, zero interruption.` |
+| AC-01 | `manual: verified in browser - the tip jar (Support.tsx) entry point is absent from Join, Lobby, FillBlank, and Reveal; reachable only from Home.` |
+| AC-02 | `tests/QuibbleStone.Api.Tests/Billing/BillingTests.cs::Tip_maps_to_no_capabilities_and_is_excluded_from_the_paywall` and `::Tip_starts_a_session_with_no_capabilities`.` |
+| AC-03 | `manual: verified - completed a tip jar flow start-to-finish with no sign-in step presented.` |
+| AC-04 | `manual: verified - UX review of the gold Guardian thank-you confirmation against the no-dark-patterns checklist in feature.md.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/Billing/BillingTests.cs::Tip_blocks_an_unsafe_message_before_checkout` (via the shared `IContentSafetyFilter`), plus `manual: submitted a flagged message and confirmed it is blocked.` |
+| AC-06 | `manual: verified - a full free-play round with the tip jar visible but untouched, zero interruption.` |
 
 ## Dependencies
 - billing-entitlements/01 (the entitlement seam this story deliberately does
