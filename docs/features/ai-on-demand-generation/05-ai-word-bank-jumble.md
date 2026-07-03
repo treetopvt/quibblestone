@@ -26,7 +26,9 @@ horizon 3). When a Word Bank player taps "Fresh runes" and wants AI-fresh option
 this story generates a small set (~8-10) of fresh, on-theme, family-safe WORDS for
 one blank's category via an AI call - NOT a whole template. It rides the shared
 `ai-cost-gate` (server proxy + quota + breaker + moderation), consumes ADR 0001's
-model (Azure AI Foundry, gpt-4o-mini), and falls back to `game-modes/07`'s free
+model (Azure AI Foundry, gpt-5-mini - the ADR picked gpt-4o-mini, but it was
+deprecated by deploy time, so gpt-5-mini is the deployed model per PR #131), and
+falls back to `game-modes/07`'s free
 deterministic reshuffle whenever AI is unavailable. It reuses the SAME generate +
 moderate pipeline the later whole-template on-demand generation (story 01) will use -
 it is never a fork. The consuming UX + the free fallback live in `game-modes/07`;

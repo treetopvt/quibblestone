@@ -130,7 +130,8 @@ per player" note. See [feature.md](./feature.md) and `game-modes/04-word-bank.md
   family-safe) BEFORE display (AC-04). This story does NOT call Foundry directly and does
   NOT build its own filter. Show a brief "carving fresh words..." state; never block the
   round. (The provider/model decision is [ADR 0001](../../adr/0001-ai-provider.md):
-  Azure AI Foundry, gpt-4o-mini.)
+  Azure AI Foundry, gpt-5-mini - the ADR picked gpt-4o-mini, but it was deprecated
+  by deploy time, so gpt-5-mini is the deployed model per PR #131.)
 - **Free layer ships first, independently.** AC-01/02/06/07 (the button + deterministic
   reshuffle) need only the existing Word Bank surface and are a self-contained PR that
   ships before any AI. AC-03/04/05/08 (the AI layer) are wired once `ai-cost-gate` and

@@ -35,13 +35,18 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Freshness loop** - length classes, quick-story, no-repeats rotation.
 - Profanity filter + family-safe toggle; MUI theme + shared components; Vitest +
   Playwright harness gating CI.
-- **The AI cost gate + the first AI slice (2026-07-03).** The shared gate
-  (server proxy + entitlement-at-session + quota/meter + spend circuit-breaker +
-  moderate-before-display + IaC) plus its first consumer: **Fresh Runes** on the
-  Word Bank surface - a FREE deterministic reshuffle (`game-modes/07`) and, layered
-  on top, an AI jumble (`ai-on-demand-generation/05` + moderation `/02`) that rides
-  the gate and falls back to the free reshuffle whenever the gate degrades. The
-  throwaway measurement probe was removed once the real consumer landed.
+- **The AI cost gate** (`ai-cost-gate`, all 6 stories - PR #132 app code + #131 IaC).
+  The shared server-side plumbing every AI feature rides behind: server-side proxy,
+  entitlement-at-session, per-session quota + per-IP limiter, the $20/month spend
+  circuit-breaker + anonymous cost attribution, and moderate-before-display. gpt-5-mini
+  via keyless managed identity; the app degrades to the deterministic fallback with
+  zero AI config.
+- **The first AI slice - Fresh Runes (2026-07-03, PR #140).** The gate's first real
+  consumer: **Fresh Runes** on the Word Bank surface - a FREE deterministic reshuffle
+  (`game-modes/07`) and, layered on top, an AI jumble (`ai-on-demand-generation/05` +
+  moderation `/02`) that rides the gate (`feature=jumble`) and falls back to the free
+  reshuffle whenever the gate degrades. The throwaway measurement probe was removed
+  once this real consumer landed.
 
 > Known gap: **group play is Classic-Blind-only.** The other three built modes are
 > not yet reachable in a group - that is `group-play/05` (below), and it is mostly
@@ -86,17 +91,29 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 ### 3. The AI question (explore sooner, gate the cost)
 Prove the AI plumbing ONCE, on the cheapest/safest payload, behind a gate built
 once and reused by every later AI feature.
-- **Thin slice:** the **Fresh Runes AI jumble** (`game-modes/07` AI layer, backed by
-  `ai-on-demand-generation/05`) - a tiny text payload, easy to moderate, with a
-  non-AI fallback. What it teaches transfers straight to voices and on-demand tales.
-- **The cost gate** (see the detailed section below) - built here, reused everywhere.
+- **Thin slice - SHIPPED (2026-07-03, PR #140):** the **Fresh Runes AI jumble**
+  (`game-modes/07` AI layer, backed by `ai-on-demand-generation/05`) - a tiny text
+  payload, easy to moderate, with a non-AI fallback. What it teaches transfers
+  straight to voices and on-demand tales.
+- **The cost gate** - now BUILT and shipped (see the detailed section below), reused
+  by every later AI feature.
 
 ### 4. Beyond alpha (once the gate exists)
 - **Full AI delight** - character voices (changeable), AI illustration, on-demand
   "a story about our dog in space" (`ai-voice-narration`, `ai-illustration`,
   `ai-on-demand-generation`). Same gate, bigger payloads, strongest moderation.
 - **Charge for it** - purchaser account + tip jar -> Stripe -> gated purchase
-  (`accounts-identity`, `billing-entitlements`). The cost gate is already half of it.
+  (`accounts-identity`, `billing-entitlements`). The cost gate is already half of it:
+  the `IEntitlementService` seam shipped thin + default-unlocked, captured at
+  `CreateRoom` (ai-cost-gate/02); `billing-entitlements/01` (#70) extends it with the
+  real catalog + grant store. How this stays anonymous while a paying adult unlocks
+  content/features for their sessions - the family-plan subscription shape, and the
+  operator back office - is decided in [ADR 0002](./adr/0002-accounts-subscriptions-and-admin.md)
+  (decisions A-F resolved) and decomposed in
+  [`sysadmin-console`](./features/sysadmin-console/feature.md) (3 stories + a Wave
+  Plan: operator login/boundary, grant/revoke, public-tale report/takedown). The
+  admin auth boundary (story 01) is buildable now; grant/revoke pairs with real
+  charging.
 - **Bottomless library** - pack catalog + the offline generate -> vet -> publish
   content factory (`story-packs`, `ai-content-factory`).
 
@@ -122,19 +139,24 @@ forward. You build the cost-control seam now (for safety and cost) and attach re
 charging to it later. Players stay anonymous - the gate meters **compute per
 session, not identity**.
 
-> **Now planned (2026-07-02).** The gate + the first AI slice are decomposed into
-> buildable stories, ready for an `/orchestrate-feature` session: the new
-> [`ai-cost-gate`](./features/ai-cost-gate/feature.md) feature (6 stories: proxy,
-> entitlement-at-session, quota/meter, spend circuit-breaker + attribution,
-> moderate-before-display, IaC seam), the free reshuffle
-> [`game-modes/07`](./features/game-modes/07-word-bank-jumble.md) (ships first, no
-> AI), and the AI jumble [`ai-on-demand-generation/05`](./features/ai-on-demand-generation/05-ai-word-bank-jumble.md)
-> + its moderation [`/02`](./features/ai-on-demand-generation/02-live-moderation-gate.md).
-> Provider/model + cost decisions: [ADR 0001](./adr/0001-ai-provider.md) (Azure AI
-> Foundry, gpt-4o-mini, in-app proxy, existing filter now + Content Safety later,
-> AI jumble free-for-all in alpha behind quota + breaker). The cross-feature build
-> order (gate foundation -> free jumble -> AI jumble) is in
-> [`ai-cost-gate/implementation.md`](./features/ai-cost-gate/implementation.md).
+> **Shipped (2026-07-03).** The [`ai-cost-gate`](./features/ai-cost-gate/feature.md)
+> feature - all 6 stories (proxy, entitlement-at-session, quota/meter, spend
+> circuit-breaker + attribution, moderate-before-display, IaC seam) - is BUILT and
+> merged (PR #132 app code + #131 IaC). The gate exists but has no consumer yet.
+> **Next AI step:** the free reshuffle
+> [`game-modes/07`](./features/game-modes/07-word-bank-jumble.md) (no AI, ships first
+> as the always-safe fallback), then the AI jumble
+> [`ai-on-demand-generation/05`](./features/ai-on-demand-generation/05-ai-word-bank-jumble.md)
+> + its moderation [`/02`](./features/ai-on-demand-generation/02-live-moderation-gate.md),
+> the first CONSUMER that proves the gate on the cheapest payload. Provider/model +
+> cost decisions: [ADR 0001](./adr/0001-ai-provider.md) (Azure AI Foundry; **gpt-5-mini**
+> after gpt-4o-mini was superseded by availability - see the ADR Update; in-app proxy,
+> existing filter now + Content Safety later, AI jumble free-for-all in alpha behind
+> quota + breaker). The cross-feature build order (gate foundation -> free jumble ->
+> AI jumble) is in
+> [`ai-cost-gate/implementation.md`](./features/ai-cost-gate/implementation.md). A
+> config-gated throwaway probe (`POST /api/ai/probe`) ships with the gate to measure
+> one real call (ADR 0001); it is removed when the AI jumble consumer lands.
 
 ## Recommended sequence
 
@@ -143,8 +165,10 @@ session, not identity**.
    serve log). All ride things already built.
 3. **Then** - observability + anonymous usage (see how the alpha plays), then Spread
    the Word (let a shared tale travel).
-4. **Early AI** - the Fresh Runes AI jumble behind the cost gate (proves the whole
-   pipeline on the cheapest payload).
+4. **Early AI - SHIPPED (PR #140)** - the cost gate is BUILT and now has its first
+   consumer: the Fresh Runes free reshuffle (`game-modes/07`, no AI) plus the AI jumble
+   (`ai-on-demand-generation/05`) that rides the gate - the whole pipeline proven on the
+   cheapest payload. Next AI steps are the heavier payloads (voices, on-demand tales).
 5. **Later** - voices, on-demand, packs, charging - all reuse the gate; let the alpha
    and the first AI slice tell you which comes first.
 
