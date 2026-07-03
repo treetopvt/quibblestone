@@ -163,7 +163,13 @@ public sealed class GatedAiCompletionClient
                 IsAvailable: true,
                 RemainingQuota: quota.Remaining,
                 FellBack: false,
-                Output: moderation.Safe);
+                Output: moderation.Safe)
+            {
+                // Diagnostic usage (for the probe's measurement); anonymous token counts.
+                InputTokens = completion.InputTokens,
+                OutputTokens = completion.OutputTokens,
+                ModelId = completion.ModelId,
+            };
         }
         catch (OperationCanceledException)
         {
@@ -218,8 +224,23 @@ public sealed record AiGateResult(
     IReadOnlyList<string> Output)
 {
     /// <summary>
+    /// DIAGNOSTIC only (not needed by real consumers): the input token count of the
+    /// underlying call, surfaced so the throwaway probe can confirm the token-usage
+    /// cost estimate WITHOUT a raw, gate-bypassing transport call (PR #132 review).
+    /// 0 on any fall-back. Anonymous - a token count, never content.
+    /// </summary>
+    public int InputTokens { get; init; }
+
+    /// <summary>DIAGNOSTIC only: the output token count of the underlying call. 0 on fall-back.</summary>
+    public int OutputTokens { get; init; }
+
+    /// <summary>DIAGNOSTIC only: the model id the underlying call used. Empty on fall-back.</summary>
+    public string ModelId { get; init; } = string.Empty;
+
+    /// <summary>
     /// Builds the graceful fall-back envelope (degrade, never break): not available,
     /// fell back, no output, carrying the remaining quota so the meter stays honest.
+    /// The diagnostic usage fields stay at their zero/empty defaults.
     /// </summary>
     public static AiGateResult FellBackWith(int remainingQuota) =>
         new(IsAvailable: false, RemainingQuota: remainingQuota, FellBack: true, Output: Array.Empty<string>());

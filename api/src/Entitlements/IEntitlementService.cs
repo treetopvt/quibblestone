@@ -106,8 +106,13 @@ public sealed class SessionEntitlements
     /// <param name="capabilityKey">A catalog capability key, e.g. <see cref="EntitlementCatalog.AiOnDemand"/>.</param>
     public bool IsUnlocked(string capabilityKey) => _unlocked.Contains(capabilityKey);
 
-    /// <summary>The unlocked capability keys (a detached, read-only view).</summary>
-    public IReadOnlyCollection<string> UnlockedCapabilities => _unlocked;
+    /// <summary>
+    /// The unlocked capability keys as a DETACHED snapshot (a fresh array), so a caller
+    /// cannot downcast the returned reference to the backing set and mutate it - the
+    /// captured, immutable entitlement guarantee holds even against a misbehaving caller
+    /// (PR #132 review).
+    /// </summary>
+    public IReadOnlyCollection<string> UnlockedCapabilities => _unlocked.ToArray();
 }
 
 /// <summary>

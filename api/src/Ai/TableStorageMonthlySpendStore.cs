@@ -39,6 +39,7 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
+using System.Globalization;
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Logging;
@@ -95,9 +96,12 @@ public sealed class TableStorageMonthlySpendStore : IMonthlySpendStore
     public const string SpendPartitionKey = "spend";
 
     // The entity column holding the running total. Table Storage has no decimal
-    // column type, so the total round-trips through a double here; the estimator's
-    // arithmetic (AiCostEstimator) stays in decimal, and a running total against a
-    // $20 ceiling is well within double's exact-integer-cents range in practice.
+    // column type, and this is the MONEY figure the $20 breaker enforces on, so it
+    // must NOT round-trip through a double (float drift over many increments could
+    // systematically mis-count - PR #132 review). We persist the EXACT decimal as an
+    // invariant-culture STRING and keep all arithmetic in decimal; ReadTotal parses
+    // it back (and still reads a legacy double value, so an in-flight month survives
+    // the format change).
     private const string TotalColumn = "TotalUsd";
 
     // Bounded optimistic-concurrency retries. Under normal single-instance load an
@@ -199,7 +203,7 @@ public sealed class TableStorageMonthlySpendStore : IMonthlySpendStore
                     // and retried into the update path so neither increment is lost.
                     var created = new TableEntity(SpendPartitionKey, monthKey)
                     {
-                        [TotalColumn] = (double)amountUsd,
+                        [TotalColumn] = amountUsd.ToString(CultureInfo.InvariantCulture),
                     };
                     await _table.AddEntityAsync(created, cancellationToken).ConfigureAwait(false);
                     return;
@@ -210,7 +214,7 @@ public sealed class TableStorageMonthlySpendStore : IMonthlySpendStore
                 // and retried so the concurrent increment is not clobbered (AC-02).
                 var entity = existing.Value;
                 var updatedTotal = ReadTotal(entity) + amountUsd;
-                entity[TotalColumn] = (double)updatedTotal;
+                entity[TotalColumn] = updatedTotal.ToString(CultureInfo.InvariantCulture);
                 await _table
                     .UpdateEntityAsync(entity, entity.ETag, TableUpdateMode.Replace, cancellationToken)
                     .ConfigureAwait(false);
@@ -232,11 +236,25 @@ public sealed class TableStorageMonthlySpendStore : IMonthlySpendStore
             MaxIncrementAttempts);
     }
 
-    /// <summary>Reads the stored double total back into decimal (defaulting to 0 for a missing column).</summary>
+    /// <summary>
+    /// Reads the stored total back into decimal (defaulting to 0 for a missing column).
+    /// The total is persisted as an EXACT invariant-culture decimal STRING (money must
+    /// not drift through double - PR #132 review); a legacy row that still holds a raw
+    /// double is also read so an in-flight month is not lost on the format change.
+    /// </summary>
     private static decimal ReadTotal(TableEntity entity)
     {
-        var value = entity.GetDouble(TotalColumn) ?? 0d;
-        return (decimal)value;
+        if (!entity.TryGetValue(TotalColumn, out var raw) || raw is null)
+        {
+            return 0m;
+        }
+
+        return raw switch
+        {
+            string text when decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed) => parsed,
+            double legacy => (decimal)legacy,
+            _ => 0m,
+        };
     }
 
     /// <summary>Ensures the table exists, once (see the ensure-once guard rationale in the header).</summary>

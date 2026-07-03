@@ -55,20 +55,17 @@ public sealed class AiProbeController : ControllerBase
     private const string ProbePrompt = "Give 8 short, family-safe, on-theme fantasy words for a word-bank round.";
     private const int ProbeMaxOutputTokens = 64;
 
-    private readonly IAiCompletionClient _transport;
     private readonly GatedAiCompletionClient _gate;
     private readonly AiOptions _options;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AiProbeController> _logger;
 
     public AiProbeController(
-        IAiCompletionClient transport,
         GatedAiCompletionClient gate,
         AiOptions options,
         IConfiguration configuration,
         ILogger<AiProbeController> logger)
     {
-        _transport = transport;
         _gate = gate;
         _options = options;
         _configuration = configuration;
@@ -76,10 +73,13 @@ public sealed class AiProbeController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/ai/probe - makes one raw transport call (for the token-usage + cost
-    /// measurement the ADR asks for) and one full gated call (to prove the chain +
-    /// moderation), and returns both. 404s unless `Ai:EnableProbe` is true. POST (not
-    /// GET) so a browser prefetch/refresh can never silently trigger a paid call.
+    /// POST /api/ai/probe - makes ONE fully-gated call and returns the measurement
+    /// (token counts + estimated cost, from the gate result's diagnostic usage) plus
+    /// the gate outcome. It does NOT bypass the gate: there is no raw transport call,
+    /// so quota / spend-breaker / moderation all apply even when enabled, and NO
+    /// unmoderated model text is ever returned (PR #132 review). 404s unless
+    /// `Ai:EnableProbe` is true. POST (not GET) so a browser prefetch/refresh can
+    /// never silently trigger a paid call.
     /// </summary>
     [HttpPost]
     public async Task<IActionResult> Probe(CancellationToken cancellationToken)
@@ -95,15 +95,12 @@ public sealed class AiProbeController : ControllerBase
             Prompt: ProbePrompt,
             MaxOutputTokens: ProbeMaxOutputTokens);
 
-        // 1. RAW transport call - the ADR measurement. AiCompletionResult surfaces the
-        //    input/output token counts + model id on OUR type, so we can confirm the
-        //    estimate deterministically ((in*inRate + out*outRate)/1e6).
-        var raw = await _transport.CompleteAsync(request, cancellationToken);
-        var estCostUsd = AiCostEstimator.EstimateUsd(raw, _options);
-
-        // 2. FULL gated call - proves the whole chain runs and degrades gracefully.
-        //    Keyed on a transient anonymous "probe" instance id (never PII). feature
-        //    "probe" keeps these calls separable from real "jumble" cost in App Insights.
+        // ONE fully-gated call - quota -> spend-ceiling -> transport -> record +
+        // attribution -> moderation. Keyed on a transient anonymous "probe" instance
+        // id (never PII); feature "probe" keeps these calls separable from real
+        // "jumble" cost in App Insights. The gate result surfaces the anonymous token
+        // usage for the ADR measurement, so we confirm the estimate WITHOUT a raw,
+        // gate-bypassing transport call.
         var probeInstanceId = "probe-" + Guid.NewGuid().ToString("N");
         var gated = await _gate.CompleteGatedAsync(
             request,
@@ -112,33 +109,29 @@ public sealed class AiProbeController : ControllerBase
             familySafe: true,
             cancellationToken);
 
+        // Confirm the estimate the $20 breaker enforces on: tokens x configured rates.
+        var estCostUsd = AiCostEstimator.EstimateUsd(gated.InputTokens, gated.OutputTokens,
+            _options.InputCostPerMillion, _options.OutputCostPerMillion);
+
         _logger.LogInformation(
-            "AI probe: available={Available} model={Model} inTok={In} outTok={Out} estUsd={Est} gatedFellBack={FellBack}",
-            raw.IsAvailable, raw.ModelId, raw.InputTokens, raw.OutputTokens, estCostUsd, gated.FellBack);
+            "AI probe: available={Available} fellBack={FellBack} model={Model} inTok={In} outTok={Out} estUsd={Est}",
+            gated.IsAvailable, gated.FellBack, gated.ModelId, gated.InputTokens, gated.OutputTokens, estCostUsd);
 
         return Ok(new
         {
-            // The measured single call (ADR): confirm tokens x rates == estimate.
-            rawCall = new
-            {
-                available = raw.IsAvailable,
-                modelId = raw.ModelId,
-                inputTokens = raw.InputTokens,
-                outputTokens = raw.OutputTokens,
-                estCostUsd,
-                inputRatePerMillion = _options.InputCostPerMillion,
-                outputRatePerMillion = _options.OutputCostPerMillion,
-                text = raw.Text,
-            },
-            // The full gate chain: quota -> ceiling -> transport -> record -> moderate.
-            gatedCall = new
-            {
-                isAvailable = gated.IsAvailable,
-                fellBack = gated.FellBack,
-                remainingQuota = gated.RemainingQuota,
-                moderatedOutput = gated.Output,
-            },
-            note = "Throwaway diagnostic (ADR 0001 'measure one real call'). Off unless Ai:EnableProbe=true. Remove when ai-on-demand-generation/05 ships.",
+            // Gate outcome + the ADR measurement, all from the SINGLE gated call. No
+            // raw text is returned - only the moderated, safe-to-display output (AC-01).
+            isAvailable = gated.IsAvailable,
+            fellBack = gated.FellBack,
+            remainingQuota = gated.RemainingQuota,
+            modelId = gated.ModelId,
+            inputTokens = gated.InputTokens,
+            outputTokens = gated.OutputTokens,
+            estCostUsd,
+            inputRatePerMillion = _options.InputCostPerMillion,
+            outputRatePerMillion = _options.OutputCostPerMillion,
+            moderatedOutput = gated.Output,
+            note = "Throwaway diagnostic (ADR 0001 'measure one real call'). Off unless Ai:EnableProbe=true. Routes fully through the gate; no raw/unmoderated output. Remove when ai-on-demand-generation/05 ships.",
         });
     }
 }

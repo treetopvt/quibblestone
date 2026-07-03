@@ -11,9 +11,11 @@
 //       CheckAsync was made async from day one precisely so this is a drop-in. An
 //       item that fails is DROPPED, never returned, never shown or made tappable.
 //    2. FAMILY-SAFE (AC-02): when the round's family-safe toggle is on, apply the
-//       STRICTER family-safe standard too, routing the per-word decision through the
-//       ONE family-safe selection RULE (FamilySafeContentSelector) so the drop
-//       semantics are single-sourced with the curated-content gate (child-safety/02).
+//       STRICTER family-safe standard too, via a minimal per-word family-safe SIGNAL
+//       (the seed set below - the curated-content FamilySafeContentSelector has no
+//       signal for a free word, so there is nothing to single-source against for the
+//       jumble's single-word output). The signal is documented + replaced by the real
+//       family-safe wordlist when the first consumer lands (child-safety/02).
 //    3. CONTENT SAFETY (AC-05): pass survivors through the OPTIONAL, config-gated
 //       Azure AI Content Safety second layer (IAiContentSafetyScreen). Absent config
 //       => the NoOp screen allows everything and behavior equals the hard filter
@@ -52,16 +54,15 @@
 // ----------------------------------------------------------------------------
 
 using Microsoft.Extensions.Logging;
-using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Safety;
 
 namespace QuibbleStone.Api.Ai;
 
 /// <summary>
 /// The real <see cref="IAiOutputModerator"/> (story 05): composes the always-on hard
-/// gate (<see cref="IContentSafetyFilter"/>), the family-safe rule
-/// (<see cref="FamilySafeContentSelector"/>), and the optional config-gated Content
-/// Safety second layer (<see cref="IAiContentSafetyScreen"/>) over every AI item, and
+/// gate (<see cref="IContentSafetyFilter"/>), a minimal per-word family-safe signal,
+/// and the optional config-gated Content Safety second layer
+/// (<see cref="IAiContentSafetyScreen"/>) over every AI item, and
 /// reports whether enough safe items survived. Registered as the default
 /// <see cref="IAiOutputModerator"/> in Program.cs, replacing the pass-through seam.
 /// </summary>
@@ -98,30 +99,29 @@ public sealed class AiOutputModerator : IAiOutputModerator
     ];
 
     private readonly IContentSafetyFilter _safety;
-    private readonly FamilySafeContentSelector _familySafe;
     private readonly IAiContentSafetyScreen _contentSafety;
     private readonly ILogger<AiOutputModerator> _logger;
     private readonly int _minimumSafeItems;
     private readonly HashSet<string> _familySafeSensitiveTerms;
 
     /// <summary>
-    /// Builds the moderator from the always-on hard gate, the family-safe rule, the
-    /// optional Content Safety screen, and a logger for anonymous rejection counts.
+    /// Builds the moderator from the always-on hard gate, the optional Content Safety
+    /// screen, and a logger for anonymous rejection counts. The family-safe DROP for an
+    /// AI word is computed by the per-word signal below (the curated-content
+    /// FamilySafeContentSelector has no signal for a free word - see the seed comment),
+    /// so it is not a constructor dependency (PR #132 review).
     /// </summary>
     /// <param name="safety">The single server-side content safety filter (child-safety/01) - the hard gate on every item (AC-01).</param>
-    /// <param name="familySafe">The family-safe selection rule (child-safety/02) - the single-sourced drop semantics for family-safe rounds (AC-02).</param>
     /// <param name="contentSafety">The optional, config-gated Content Safety second layer (AC-05). NoOp by default.</param>
     /// <param name="logger">For anonymous rejection COUNTS only - never the rejected text, never PII (AC-06).</param>
     /// <param name="minimumSafeItems">The "enough left" floor (AC-04). Defaults to <see cref="DefaultMinimumSafeItems"/>.</param>
     public AiOutputModerator(
         IContentSafetyFilter safety,
-        FamilySafeContentSelector familySafe,
         IAiContentSafetyScreen contentSafety,
         ILogger<AiOutputModerator> logger,
         int minimumSafeItems = DefaultMinimumSafeItems)
     {
         _safety = safety;
-        _familySafe = familySafe;
         _contentSafety = contentSafety;
         _logger = logger;
         _minimumSafeItems = minimumSafeItems < 1 ? 1 : minimumSafeItems;
@@ -222,15 +222,14 @@ public sealed class AiOutputModerator : IAiOutputModerator
     /// </summary>
     private bool IsFamilySafeWord(string item)
     {
-        var signal = ComputeFamilySafeSignal(item);
-
-        // Route the per-word signal through the shared family-safe RULE: model the item
-        // as a one-entry catalog carrying the computed FamilySafe flag and ask the
-        // selector (with the toggle ON) whether it survives. Keeps the family-safe DROP
-        // semantics identical to curated content (child-safety/02) instead of forking a
-        // second rule here. The SIGNAL is minimal (see the seed set); the RULE is shared.
-        var probe = new[] { new TemplateCatalogEntry(item, FamilySafe: signal, BlankCount: 0) };
-        return _familySafe.SelectAllowed(probe, familySafeOn: true).Count > 0;
+        // The family-safe DROP is trivially "keep iff the item is family-safe", so we
+        // return the computed per-word signal directly. (This used to model the word as
+        // a one-entry TemplateCatalogEntry and call FamilySafeContentSelector.SelectAllowed
+        // to "single-source" the rule, but SelectAllowed only checks the FamilySafe flag -
+        // pure ceremony + allocation + catalog-type coupling for no behavioral gain, PR
+        // #132 review.) The per-word SIGNAL below is minimal + documented; it is hardened
+        // when the real consumer + family-safe wordlist land (OPEN_QUESTIONS).
+        return ComputeFamilySafeSignal(item);
     }
 
     /// <summary>

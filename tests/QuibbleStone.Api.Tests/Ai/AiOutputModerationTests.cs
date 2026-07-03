@@ -32,7 +32,6 @@ public class AiOutputModerationTests
         int minimumSafeItems = AiOutputModerator.DefaultMinimumSafeItems) =>
         new(
             new ContentSafetyFilter(),
-            new FamilySafeContentSelector(),
             contentSafety ?? new NoOpAiContentSafetyScreen(),
             NullLogger<AiOutputModerator>.Instance,
             minimumSafeItems);
