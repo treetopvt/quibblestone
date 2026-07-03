@@ -70,12 +70,24 @@ public sealed class StripeWebhookController : ControllerBase
         Event stripeEvent;
         try
         {
-            // Verify BEFORE any processing (AC-03). Throws on a missing/invalid signature.
-            stripeEvent = EventUtility.ConstructEvent(payload, signature, _options.WebhookSigningSecret);
+            // Verify the signature BEFORE any processing (AC-03). Throws on a
+            // missing/invalid signature.
+            //
+            // throwOnApiVersionMismatch: false is REQUIRED, not optional: a webhook
+            // event carries the STRIPE ACCOUNT's API version (e.g. "2020-03-02"), which
+            // is independent of the Stripe.net SDK's pinned version. Leaving the default
+            // (true) makes ConstructEvent throw on every real event whose account version
+            // differs from the SDK's - i.e. it would reject ALL real webhooks. We only
+            // need signature + integrity here; the event shape we read (type + metadata +
+            // line period) is stable across versions. (Caught live during the test-mode
+            // end-to-end verification - the handler unit tests operate on the normalized
+            // BillingEvent, downstream of ConstructEvent, so they could not surface this.)
+            stripeEvent = EventUtility.ConstructEvent(
+                payload, signature, _options.WebhookSigningSecret, throwOnApiVersionMismatch: false);
         }
         catch (StripeException)
         {
-            // Invalid signature - reject, apply nothing. Do not log the payload/secret.
+            // Invalid / missing signature - reject, apply nothing. Do not log the payload/secret.
             _logger.LogWarning("Rejected a Stripe webhook with an invalid or missing signature.");
             return BadRequest();
         }

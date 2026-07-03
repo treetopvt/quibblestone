@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   QuibbleStone.Api - the single ASP.NET Core application that hosts BOTH the REST
   API (controllers) and the SignalR hub, per README section 4 ("one ASP.NET Core
   app instead of Azure Functions, for now").
@@ -17,6 +17,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>QuibbleStone.Api</RootNamespace>
     <AssemblyName>QuibbleStone.Api</AssemblyName>
+    <UserSecretsId>4ffd8d3d-2d5a-4471-8577-c6ef7063cc96</UserSecretsId>
   </PropertyGroup>
 
   <!--

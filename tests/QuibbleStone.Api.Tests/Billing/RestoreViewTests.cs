@@ -133,4 +133,24 @@ public class RestoreViewTests
 
         Assert.IsType<UnauthorizedResult>(action);
     }
+
+    // AC-05 (review CR-S01): the serialized payload carries NO player / nickname / session
+    // / room reference - it answers "what the purchaser owns", never "who played". A
+    // negative assertion so a future field addition that leaked such data would fail here.
+    [Fact]
+    public async Task Payload_contains_no_player_or_session_data()
+    {
+        var h = NewHarness();
+        await h.Accounts.CreateOrGetAsync(Purchaser);
+        await h.Grants.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
+        SignIn(h, Purchaser);
+
+        var result = Ok(await h.Controller.Entitlements(CancellationToken.None));
+        var json = System.Text.Json.JsonSerializer.Serialize(result);
+
+        foreach (var forbidden in new[] { "nickname", "player", "session", "room", "guardian" })
+        {
+            Assert.DoesNotContain(forbidden, json, StringComparison.OrdinalIgnoreCase);
+        }
+    }
 }
