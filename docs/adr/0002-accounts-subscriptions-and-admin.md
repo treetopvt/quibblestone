@@ -3,15 +3,15 @@
   sys-admin surface WITHOUT deanonymizing players. This is an exploration/position record: it maps
   the tension in README sections 3 + 6 against what is already designed (accounts-identity,
   billing-entitlements, ai-cost-gate), states the one load-bearing invariant that resolves the
-  tension, and SURFACES the open decisions rather than resolving them. Status is Proposed, not
-  Accepted - the owner resolves the open decisions before any of this is decomposed into build
-  stories. Companion feature exploration: docs/features/sysadmin-console/feature.md.
+  tension, and SURFACES the open decisions. The owner resolved all six (A-F) on 2026-07-03 - see the
+  Decision section; Status is now Accepted. Companion feature exploration:
+  docs/features/sysadmin-console/feature.md.
   Use hyphens/colons/parentheses, never em dashes.
 -->
 
 # ADR 0002: Purchaser accounts, family subscriptions, and the sys-admin surface (keeping players anonymous)
 
-- **Status:** Proposed (exploration - surfaces the decisions; the owner resolves them before decomposition)
+- **Status:** Accepted (exploration; the owner resolved open decisions A-F on 2026-07-03 - see Decision)
 - **Date:** 2026-07-03
 - **Context features:** `accounts-identity` (#67-69), `billing-entitlements` (#70-74),
   `ai-cost-gate` (#121), and a NEW `sysadmin-console` exploration (this ADR's companion)
@@ -217,6 +217,9 @@ and let each admin capability be minted by the feature that creates its need.
 3. **The sys-admin surface starts at option C (no bespoke tool).** For a ~50-sessions/month alpha,
    cost/abuse oversight is App Insights + budget emails (already there), content vetting is the
    content-factory queue (when built), refunds are Stripe's dashboard, and grants are Table Storage.
+   *(Superseded by Decision B: the owner elected to stand up the separate back office now, with
+   magic-link operator login + grant/revoke + the report/takedown queue as its first jobs. Cost
+   oversight still stays on App Insights + Cost Management - the back office does not rebuild it.)*
 4. **The first bespoke admin sliver is a single authenticated operator action - "grant/revoke an
    entitlement by purchaser email"** - and it is justified only when real charging goes live (so you
    can unstick a paying customer without hand-editing storage). Build it as option A (a separate,
@@ -230,7 +233,7 @@ The companion exploration `docs/features/sysadmin-console/feature.md` captures t
 a deferred umbrella whose stories activate on their trigger features, with candidate stories and the
 recommended first sliver.
 
-## Open decisions (owner resolves before decomposition - not decided here)
+## Open decisions (surfaced here; all resolved in the Decision section below on 2026-07-03)
 
 - **A - Purchaser identity provider:** magic-link email vs a single OAuth provider (Google/Apple)
   vs Stripe-Customer-as-identity (thinnest) vs Entra External ID (Azure-native). Contract
@@ -252,11 +255,66 @@ recommended first sliver.
   reaches the SignalR hub (bearer token on the hub connection, resolved server-side) **without** any
   identity landing on `Room` - the mechanism that must uphold the load-bearing invariant.
 
+## Decision
+
+Resolved by the owner on 2026-07-03:
+
+- **A - Purchaser identity: magic-link email.** Purchasers sign in via an emailed one-time link (no
+  password, no OAuth SDK). The same one-time-token issue/verify plumbing is **reused for operator
+  login** to the back office (Decision B), against a **separate operator allowlist** held in config
+  / Key Vault. Admin authorization is membership in that allowlist, resolved at verify time, and is
+  NEVER inferred from being a purchaser - `purchaser == admin` is the bug to prevent. The purchaser
+  account holds email + created-at + Stripe customer id + entitlement summary, and nothing about any
+  player. Records the choice `accounts-identity/02` left open (its AC-01 is unchanged).
+
+- **B - Admin surface: a separate, auth-gated back office, built now (option A).** Not deferred to
+  "when a need arises," and never in the kid PWA (option B rejected). Because a back office must
+  justify itself with real work, its auth boundary and its first capabilities land together (the
+  `sysadmin-console` stories): magic-link operator login (01), grant/revoke-by-email (02), and the
+  report/takedown queue (03, Decision E). Sequencing reality: grant/revoke only becomes meaningful
+  once real charging is live (`billing-entitlements/03-04`), so story 02 pairs with that; the
+  report/takedown queue (03) is actionable immediately, because public tales already exist.
+
+- **C - Family plan = the full paid-tier bundle; add-on packs sold separately.** The subscription
+  grants the README section 3 paid bundle - `library.full`, `play.remote`, `play.largeGroup`, and
+  the `ai.*` keys once those features exist - while active. Add-on packs stay a separate one-time
+  purchase (`pack.<id>`) on the same billing plumbing. The grant is **lease-shaped**: the
+  `EntitlementGrant` row carries a `validThrough` and a `source` (subscription vs one-time),
+  refreshed on each renewal webhook, so the session-creation check answers "active?" from a single
+  Table Storage read with no call to Stripe on the play path.
+
+- **D - Dunning: a ~7-day grace window on `past_due`.** A failed card keeps the family unlocked for
+  about a week (the grant's `validThrough` is extended a grace period on `past_due`, not immediately
+  expired), then falls back to the generous free tier. Avoids locking a family mid-car-ride over a
+  transient card failure; full dunning/retry stays parked (`billing-entitlements`).
+
+- **E - Public content: report -> auto-hide-after-N -> operator review.** A "report this tale"
+  control on public keepsake tales; reports accumulate, a tale auto-hides at a threshold N, and the
+  operator confirms or restores it from the back office (Decision B). Closes the child-safety gap on
+  already-public content without letting a single bad actor unilaterally suppress a tale (the
+  threshold) and without waiting on always-on human moderation (the auto-hide). N and the review
+  queue live in `sysadmin-console` (story 03).
+
+- **F - Proof at CreateRoom: an access token on the SignalR hub connection.** The host's purchaser
+  session token (from the magic-link session, Decision A) is supplied to the hub via SignalR's
+  standard `accessTokenFactory`; the server validates it at connect and, at `CreateRoom`, resolves
+  the active subscription to a capability set and stores **only** `SessionEntitlements` on `Room`.
+  One shared connection (CLAUDE.md), no cross-domain cookie handling; anonymous players supply no
+  token and hit the default-unlocked path unchanged. Here the invariant is upheld by **discipline** -
+  `CreateRoom` sees the resolved identity briefly and must discard it, keeping only capabilities - so
+  the review guard on `CreateRoom` (no purchaser id ever assigned to `Room`) is the enforcement. The
+  structurally-enforced REST mint-session alternative was considered and set aside as more moving
+  parts than a solo alpha needs.
+
+These six turn the exploration into a buildable shape. None of them changes the `billing-entitlements/01`
+seam contract; decomposition into stories follows.
+
 ## Consequences
 
-- A new `sysadmin-console` feature folder exists as an **exploration** (feature.md only, no
-  implementation.md yet) - a deferred umbrella, explicitly not built for alpha. Its stories are
-  minted by their trigger features (real charging -> operator grant/revoke; public tales -> takedown).
+- A new `sysadmin-console` feature folder exists (feature.md exploration). Per Decision B it is **no
+  longer a deferred umbrella**: the owner elected to build the separate back office now, so its first
+  stories (magic-link operator login, grant/revoke, report/takedown) are near-term rather than
+  minted-on-need - though grant/revoke still pairs with real charging going live.
 - `accounts-identity` and `billing-entitlements` gain small, additive scope (lease-shaped grants,
   subscription webhook cases, the family-plan bundle) recorded as Decisions entries pointing here -
   no reshaping of the #70 seam contract.

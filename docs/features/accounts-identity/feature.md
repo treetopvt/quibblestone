@@ -77,11 +77,18 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   against README section 3's "lightweight" instruction. Recorded during the
   look-ahead planning pass ahead of Slice 1 shipping.
 - 2026-07-03: [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)
-  (accounts, subscriptions, sys-admin surface - exploration) states the
-  load-bearing invariant this feature's purchaser account must uphold -
-  "entitlement travels with the session, not identity": the host's purchaser
-  identity is resolved to capabilities at `GameHub.CreateRoom` and discarded at
-  that boundary, so only the resolved capability set (never a purchaser id)
-  lands on `Room`. It also surfaces the still-open identity-provider choice
-  (Open Decision A: magic-link email / single OAuth / Stripe-Customer-as-identity
-  / Entra External ID) - consistent with story 02 AC-01, not narrowing it.
+  (accounts, subscriptions, sys-admin surface) states the load-bearing invariant
+  this feature's purchaser account must uphold - "entitlement travels with the
+  session, not identity": the host's purchaser identity is resolved to
+  capabilities at `GameHub.CreateRoom` and discarded at that boundary, so only
+  the resolved capability set (never a purchaser id) lands on `Room`. The host
+  proves purchaser status by supplying the magic-link session token to the hub
+  via SignalR's `accessTokenFactory` (ADR 0002 Decision F).
+- 2026-07-03: **Identity provider resolved (ADR 0002 Decision A): magic-link
+  email.** Story 02's open provider choice is closed - purchasers sign in via an
+  emailed one-time link (no password, no OAuth SDK). The same one-time-token
+  issue/verify plumbing is reused for the sys-admin back office's operator login
+  (`sysadmin-console/01`) against a SEPARATE operator allowlist in config / Key
+  Vault; admin authorization is allowlist membership resolved at verify time and
+  is never inferred from being a purchaser (`purchaser == admin` is the bug to
+  prevent). Consistent with story 02 AC-01 (email or one identity, nothing more).

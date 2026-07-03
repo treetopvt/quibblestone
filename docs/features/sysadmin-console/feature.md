@@ -1,27 +1,28 @@
 <!--
-  Feature EXPLORATION (not a fully-specified, ready-to-build feature): the sys-admin surface for
-  QuibbleStone. Companion to docs/adr/0002-accounts-subscriptions-and-admin.md. This is deliberately
-  a feature.md only - no implementation.md, no full story files - because the finding is that the
-  admin "site" should NOT be built as a monolith for alpha; its pieces are minted by the features
-  that create their need. Candidate stories below are Issue: TBD and Status: Not Started by design.
-  Use hyphens/colons/parentheses, never em dashes.
+  Feature exploration for the sys-admin surface. Companion to
+  docs/adr/0002-accounts-subscriptions-and-admin.md. The owner resolved ADR 0002 decisions A-F on
+  2026-07-03: the standing finding still holds - this is NOT a monolithic "admin site," most of what
+  the phrase evokes is already owned by other features or Azure - but Decision B greenlit standing up
+  a SEPARATE, auth-gated back office now, with three thin first stories (magic-link operator login,
+  grant/revoke, report/takedown). Still feature.md only: implementation.md + full story files come
+  when this is decomposed. Use hyphens/colons/parentheses, never em dashes.
 -->
 
 # Feature: Sys-Admin Console (exploration)
 
 ## Summary
-The operator-facing back office for QuibbleStone: the surface a solo operator (later, a human
-moderator) uses to keep the paid product healthy - purchaser/subscription support, moderation
-review of public content, and a window on cost/abuse. The headline finding of the exploration
-(ADR 0002): **this is not one thing to build.** Most of what "sys-admin site" evokes is already
-served by another feature or by an Azure surface; only two responsibilities are genuinely new and
-admin-only, and each is minted by the feature that creates its need - not built up front as a
-console.
+A separate, auth-gated back office for QuibbleStone: the surface a solo operator (later, a human
+moderator) uses to keep the paid product healthy - purchaser/subscription support and moderation
+review of public content. The headline finding of the exploration (ADR 0002) still stands: **this is
+not one big "admin site."** Most of what the phrase evokes is already served by another feature or by
+an Azure surface; only two responsibilities are genuinely new and admin-only. What changed on
+2026-07-03: the owner (ADR 0002 Decision B) elected to stand the back office up **now** rather than
+mint it on first need, so those two responsibilities become its first stories.
 
-> **This is an exploration, not a ready-to-build feature.** There is intentionally no
-> `implementation.md` and no full story files yet - the point of the exploration is to decide the
-> shape and the first sliver (ADR 0002 Open Decisions A-F) before anything is decomposed. The
-> Candidate stories table below is a map, not a backlog: every row is Issue TBD / Not Started.
+> **Decisions resolved, not yet decomposed.** ADR 0002 Open Decisions A-F are all resolved (see its
+> Decision section). This file stays feature.md-only: the `implementation.md` + full story files are
+> the next step, once this is scheduled. The Candidate stories table below is the shape those stories
+> will take (Issue TBD until decomposition).
 
 ## README reference
 README section 3 (Monetization - the tiered identity model and "only the purchaser gets a
@@ -31,20 +32,22 @@ Phase 2 monetization). CLAUDE.md section 5 (child safety non-negotiable) and sec
 monetization seam). Full rationale + the load-bearing invariant:
 [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md).
 
-## Candidate stories (a map, not a backlog - every row is Issue TBD / Not Started)
+## Candidate stories (the shape decomposition will take - Issue TBD)
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
-| # | Title | Trigger feature (mints this story) | Genuinely admin-only? | Status |
+| # | Title | Timing | Genuinely admin-only? | Status |
 |---|---|---|---|---|
-| 01 | Admin auth boundary (a separate, access-controlled surface) | first bespoke admin need below | yes (foundation) | Not Started |
-| 02 | Operator grant / revoke an entitlement by purchaser email | real charging goes live (`billing-entitlements/03-04`) | yes | Not Started |
-| 03 | Report / hide / takedown a public keepsake tale | public tales exist (`keepsake-gallery`, already shipped) | yes | Not Started |
+| 01 | Magic-link operator login + admin auth boundary (separate surface) | foundation - build first | yes (foundation) | Not Started |
+| 02 | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | yes | Not Started |
+| 03 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | yes | Not Started |
 | - | AI content vetting queue | already owned by `ai-content-factory/02` (#79) | no - not this feature | n/a |
 | - | Library / pack management | already owned by `ai-content-factory/03` + `story-packs` | no - not this feature | n/a |
 | - | Cost / abuse oversight dashboard | already served by `platform-devops/04` App Insights + Cost Management + the `ai-cost-gate` breaker | no - do not rebuild | n/a |
 
-The bottom three rows are recorded on purpose: the exploration's job is as much to say **what is NOT
+The bottom three rows are recorded on purpose: this feature's job is as much to say **what is NOT
 this feature** as what is. Rebuilding cost dashboards or a second vetting queue here would be the
-smell.
+smell. Build order: story 01 (auth boundary) is the foundation; story 03 (takedown) can follow
+immediately since public tales already exist; story 02 (grant/revoke) lands alongside real charging,
+when a stuck paying customer is actually possible.
 
 ## Dependencies
 - `billing-entitlements/01` (#70) - the `IEntitlementService` seam + capability catalog that story
@@ -58,24 +61,32 @@ smell.
   reimplement moderation logic.
 
 ## Design notes
-- **The admin surface is a deferred umbrella, not a monolith (ADR 0002 recommendation).** For a
-  solo, ~50-sessions/month alpha, build none of it as a standalone site. Cost/abuse = App Insights
-  + budget emails; content vetting = the content-factory queue when that feature lands; refunds =
-  Stripe's own dashboard; entitlement grants = Table Storage tooling (`az` / Storage Explorer). A
-  bespoke admin surface is minted only when a specific need cannot be met that way.
-- **Where it lives: a SEPARATE, auth-gated back office (option A), never the kid PWA (option B).**
-  When the first bespoke need arrives, it goes in a separate bundle/route tree with its own auth -
-  it handles PII-adjacent purchaser data and moderation actions and must never share a surface with
-  the anonymous, kid-facing app (blast radius; kid-safety-by-construction, CLAUDE.md section 5).
-  Option B (an in-app admin area) is explicitly not recommended. See ADR 0002 Open Decision B.
-- **The first bespoke sliver is story 02 (grant/revoke by email), and only when real charging is
-  live.** The concrete need: unstick a paying customer whose entitlement did not apply, without
-  hand-editing Table Storage. Build it as the thinnest option A - one or two protected endpoints +
-  a minimal internal page reusing the MUI theme - not a full admin app.
-- **Story 03 (public-tale takedown) is a live safety question, not a clean deferral.** Keepsake
-  tales are already public, so a report/hide path may already be worth a thin slice. Because it has
-  a child-safety dimension, whether to build it now is an explicit owner call (ADR 0002 Open
-  Decision E), raised rather than parked silently.
+- **Still not a monolith - three thin stories, and a firm boundary on what is out.** Standing the
+  back office up now (Decision B) does not mean absorbing everything: cost/abuse stays on App
+  Insights + budget emails; content vetting stays the content-factory queue; refunds stay Stripe's
+  dashboard. This feature is only the operator jobs no other feature owns.
+- **Where it lives: a SEPARATE, auth-gated back office (option A, Decision B), never the kid PWA.**
+  Its own bundle/route tree with its own auth - it handles PII-adjacent purchaser data and
+  moderation actions and must never share a surface with the anonymous, kid-facing app (blast
+  radius; kid-safety-by-construction, CLAUDE.md section 5). Option B (an in-app admin area) was
+  rejected.
+- **Operator login reuses the magic-link plumbing (Decision A), against a SEPARATE allowlist.**
+  Story 01 issues an operator session with the same one-time-token issue/verify plumbing the
+  purchaser magic-link uses (`accounts-identity/02`) - but admin authorization is membership in an
+  operator allowlist held in config / Key Vault, resolved at verify time. `purchaser == admin` must
+  be impossible: a signed-in purchaser reaching an admin endpoint is the bug to prevent. Admin
+  endpoints check the operator scope, never mere sign-in.
+- **Story 02 (grant/revoke by email) pairs with real charging.** The concrete need: unstick a paying
+  customer whose entitlement did not apply, without hand-editing Table Storage. It writes an
+  `EntitlementGrant` (the same lease-shaped row `billing-entitlements` defines - `validThrough` +
+  `source`, ADR 0002 Decision C) keyed by purchaser identity. Thinnest option A: one or two protected
+  endpoints + a minimal internal page reusing the MUI theme, not a full admin app.
+- **Story 03 (public-tale moderation) = report -> auto-hide-after-N -> operator review (Decision E).**
+  A "report this tale" control on public keepsake tales; reports accumulate, a tale auto-hides at a
+  threshold N (a small config value), and the operator confirms or restores it from the back office.
+  The threshold stops a single bad actor from unilaterally suppressing a tale; the auto-hide means no
+  wait on always-on moderation. It reuses the authoritative child-safety posture, does not
+  reimplement filtering, and is actionable now because public tales already shipped.
 - **The anonymity invariant applies here too.** No admin surface may join a purchaser identity to a
   player nickname, room, or session. Purchaser support operates on the purchaser plane (email ->
   grant); moderation operates on published *content*, not on the anonymous author. Reviewers guard
@@ -94,14 +105,16 @@ smell.
 - Any audit-trail / immutability ceremony - explicitly out (CLAUDE.md: toy, not a system of record).
 
 ## Open decisions
-Tracked centrally in [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md) Open Decisions
-A-F. The two that gate THIS feature specifically:
-- **B - where the admin surface lives** (separate back office recommended; resolve before story 01).
-- **E - is a public-content takedown path needed in alpha** (child-safety call; gates story 03).
+The cross-cutting decisions A-F are all resolved in
+[ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)'s Decision section. The remaining
+open item is a story-level detail, not a blocker:
+- **The auto-hide threshold N** (story 03) - the number of reports that hides a tale pending review.
+  Pick a small starting value at build time and make it a config constant; tune from real signal.
 
 ## Decisions
-- 2026-07-03: Created as an exploration (feature.md only, no implementation.md / no full stories)
-  rather than a fully-specified feature, because the finding is that the admin "site" should not be
-  built as a monolith - its pieces are minted by their trigger features, and the first bespoke
-  sliver (operator grant/revoke) is justified only when real charging goes live. Recorded alongside
-  ADR 0002. Decompose into real stories only after ADR 0002 Open Decisions B + E are resolved.
+- 2026-07-03: Created as an exploration alongside ADR 0002. The owner then resolved ADR 0002 A-F the
+  same day: Decision B greenlit a separate, auth-gated back office built now (not a deferred
+  umbrella), Decision A set operator login on the reused magic-link plumbing (separate allowlist),
+  and Decision E set public-tale moderation as report -> auto-hide-after-N -> operator review. The
+  three candidate stories above are the result. Next step is decomposition (implementation.md + full
+  story files); this feature.md stays the shape-of-record until then.

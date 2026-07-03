@@ -56,12 +56,14 @@ lightweight account, and only when they buy").
   to.
 
 ## Technical Notes
-- **Open decision to resolve at build time:** the exact minimal-auth mechanism
-  (magic-link email, a single OAuth provider such as Google/Apple, or both) is
-  not fixed by this story - the AC-01 constraint ("email address or a single
-  OAuth provider identity, nothing more") is the contract regardless of which
-  is chosen. Note it in README section 12 (Open Decisions) if it is still
-  undecided when this story is picked up.
+- **Minimal-auth mechanism resolved: magic-link email** (ADR 0002 Decision A,
+  2026-07-03). Purchasers sign in via an emailed one-time link - no password
+  stored, no OAuth SDK. This satisfies AC-01 ("email address or a single OAuth
+  provider identity, nothing more"). The one-time-token issue/verify plumbing
+  built here is deliberately reused by the sys-admin back office for operator
+  login (`sysadmin-console/01`) against a separate operator allowlist - so keep
+  the token issuer/verifier a reusable service, not inlined into the purchase
+  flow. No purchaser session ever grants admin scope.
 - New `api/src/Accounts/` folder (mirrors the existing `api/src/Rooms/` and
   `api/src/Safety/` project-per-concern layout): an `Account` record type
   (email-or-OAuth-subject, created-at, no PII beyond that) and an
