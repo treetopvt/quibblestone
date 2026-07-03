@@ -107,6 +107,14 @@
 //  same-tab blip). A rejected Rejoin discards the stored handle (AC-04). The hook
 //  exposes `isRejoining` so story 10 can hold the live-route guards open while a
 //  rejoin is in flight, instead of bouncing the player Home first.
+//
+//  session-engine/10 (web, presentation only - no change to this file's rejoin
+//  MECHANICS) adds the `connected` flag to `Player` below (mirroring the hub's
+//  `PlayerDto.Connected` from story 07, already riding along on every roster
+//  broadcast unused until now) and combines `isRejoining` with `status` +
+//  `../reconnect.ts`'s `loadReconnectHandle()` in `App.tsx` to decide whether a
+//  live-route guard should show a calm "reconnecting..." beat instead of
+//  bouncing Home - see App.tsx's `shouldHoldLiveRouteForResume`.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -138,6 +146,15 @@ export interface Player {
   nickname: string;
   variant: string;
   isHost: boolean;
+  /**
+   * session-engine/07 (server) marks a seat's Connected flag false while it is
+   * held through a disconnect grace window (a dropped connection, not a
+   * deliberate leave - a deliberate leave removes the seat entirely rather than
+   * flipping this), true otherwise. Mirrors the hub's `PlayerDto.Connected`.
+   * session-engine/10 renders a dimmed/pulsing "reconnecting..." tile for a
+   * seat with `connected === false` instead of the ordinary READY/HOST chip.
+   */
+  connected: boolean;
 }
 
 /**
