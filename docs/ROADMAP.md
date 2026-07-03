@@ -63,7 +63,7 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 | Serve log | `story-selection/04` | what got played |
 | ~~Fresh Runes (free + AI)~~ **shipped** | `game-modes/07` + `ai-on-demand-generation/05` | deterministic reshuffle + AI jumble behind the cost gate (2026-07-03) |
 | Group mode selection | `group-play/05` | host picks the mode for the room |
-| Reconnect / rejoin | `session-engine` (deferred) | survive a dropped phone |
+| Reconnect / rejoin | `session-engine/07-10` | survive a dropped phone - now decomposed, ready to build |
 
 ## The paths, by horizon
 
@@ -75,7 +75,12 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   log (`story-selection/04`).
 - **Fresh Runes, free half** - the deterministic word-bank reshuffle (`game-modes/07`,
   non-AI layer).
-- **Don't Lose the Room** - reconnect + rejoin (`session-engine`, deferred hardening).
+- **Don't Lose the Room** - reconnect + rejoin, the deferred hardening pass, now
+  planned as [`session-engine/07-10`](./features/session-engine/feature.md): a
+  disconnect grace window (07), the `Rejoin` hub method + round-state rehydration
+  (08), the web token + auto-rejoin (09), and the resumed-screen UI (10) - see
+  the feature's Decisions log for the design + open questions (grace-window
+  length, whether a mid-round host drop is treated specially).
 
 ### 2. Biggest bang, now
 - **Modes in Group Play** (`group-play/05`) - host picks the mode; Classic Blind,
