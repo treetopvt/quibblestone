@@ -114,17 +114,27 @@ public sealed class FoundryAiCompletionClient : IAiCompletionClient
             MaxOutputTokenCount = request.MaxOutputTokens,
         };
 
-        // Emit the token cap as `max_completion_tokens`, NOT the legacy `max_tokens`.
-        // Reasoning-era models (gpt-5-mini, o-series) REJECT `max_tokens` with a 400
-        // ("Unsupported parameter ... Use 'max_completion_tokens' instead"), and by
-        // default Azure.AI.OpenAI still serializes MaxOutputTokenCount as `max_tokens`
-        // for back-compat. This opt-in (per-request, on THIS SDK's AzureChatExtensions)
-        // flips it to the new field so the gated call actually reaches the model. The
-        // AOAI001 suppression is the SDK's "evaluation-only API" gate on that method -
-        // deliberate: it is the sole supported way to send the modern field today.
-#pragma warning disable AOAI001
+        // Two gpt-5-mini-critical request settings, each behind an SDK "evaluation-only"
+        // API gate (AOAI001 / OPENAI001). The suppressions are deliberate - these are the
+        // sole supported ways to send the settings today:
+        //
+        //   1. max_completion_tokens (NOT the legacy max_tokens): reasoning-era models
+        //      (gpt-5-mini, o-series) REJECT max_tokens with a 400 ("Unsupported
+        //      parameter ... Use 'max_completion_tokens' instead"), yet Azure.AI.OpenAI
+        //      still serializes MaxOutputTokenCount as max_tokens for back-compat. This
+        //      per-request opt-in flips it to the modern field so the call reaches the model.
+        //
+        //   2. reasoning_effort=minimal: the right default for THIS product's payloads -
+        //      short, list-shaped generations (the word-bank jumble). At default effort a
+        //      reasoning model spends the ENTIRE MaxOutputTokenCount budget on hidden
+        //      reasoning tokens and returns empty visible content, so every gated call
+        //      would silently fall back (verified live: default effort at an 80-token cap =
+        //      80 reasoning tokens, 0 words; minimal = 0 reasoning, all 10 words in ~32
+        //      tokens). Promote to a per-request field if a feature ever needs more.
+#pragma warning disable AOAI001, OPENAI001
         chatOptions.SetNewMaxCompletionTokensPropertyEnabled(true);
-#pragma warning restore AOAI001
+        chatOptions.ReasoningEffortLevel = ChatReasoningEffortLevel.Minimal;
+#pragma warning restore AOAI001, OPENAI001
 
         // At MOST one bounded retry (attempt 0, then a single retry). The breaker is
         // the spend guard, not retries (AC-06) - so this never becomes a retry storm.

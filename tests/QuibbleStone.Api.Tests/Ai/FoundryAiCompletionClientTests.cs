@@ -25,14 +25,16 @@ namespace QuibbleStone.Api.Tests.Ai;
 public class FoundryAiCompletionClientTests
 {
     [Fact]
-    public async Task Token_cap_is_sent_as_max_completion_tokens_not_the_model_rejected_max_tokens()
+    public async Task Request_uses_max_completion_tokens_and_minimal_reasoning_for_gpt5()
     {
-        // Reasoning-era models (gpt-5-mini, o-series) 400 on `max_tokens` and demand
-        // `max_completion_tokens`; by default Azure.AI.OpenAI still serializes the cap
-        // as `max_tokens`. This drives the REAL client through a capturing transport
-        // (no live Azure) and asserts the exact request body - the layer the gate/
-        // IAiCompletionClient stubs never touch, which is why the field-name bug once
-        // reached UAT unseen. See FoundryAiCompletionClient's opt-in call.
+        // Two gpt-5-mini gotchas, both asserted on the exact wire body via a capturing
+        // transport (the layer the gate / IAiCompletionClient stubs never touch, which
+        // is why both once reached UAT unseen and silently fell every jumble back):
+        //   1. `max_completion_tokens`, NOT the model-rejected legacy `max_tokens`
+        //      (Azure.AI.OpenAI serializes the cap as `max_tokens` unless opted in).
+        //   2. `reasoning_effort=minimal` - else a reasoning model spends the whole
+        //      token budget on hidden reasoning and returns empty content.
+        // See FoundryAiCompletionClient.CompleteAsync.
         var capture = new CapturingHandler();
         var clientOptions = new AzureOpenAIClientOptions
         {
@@ -56,6 +58,7 @@ public class FoundryAiCompletionClientTests
         Assert.NotNull(capture.RequestBody);
         Assert.Contains("\"max_completion_tokens\"", capture.RequestBody);
         Assert.DoesNotContain("\"max_tokens\"", capture.RequestBody);
+        Assert.Contains("\"reasoning_effort\":\"minimal\"", capture.RequestBody);
     }
 
     /// <summary>
