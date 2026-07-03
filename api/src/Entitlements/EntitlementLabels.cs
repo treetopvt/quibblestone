@@ -32,6 +32,7 @@ public static class EntitlementLabels
         EntitlementCatalog.PlayRemote => "Remote Play",
         EntitlementCatalog.PlayLargeGroup => "Large Groups",
         EntitlementCatalog.AiOnDemand => "AI Word Bank",
+        EntitlementCatalog.GalleryCloudSync => "Cloud Gallery",
         _ when capabilityKey.StartsWith(EntitlementCatalog.PackPrefix, StringComparison.Ordinal) => PackLabel(capabilityKey),
         _ => capabilityKey,
     };
