@@ -14,6 +14,7 @@ import {
   GALLERY_CAP,
   getTaleImage,
   listTales,
+  markTaleSynced,
   saveTale,
   talesToEvict,
   type GalleryAdapter,
@@ -25,7 +26,14 @@ function createFakeAdapter(): GalleryAdapter {
   const store = new Map<string, TaleMeta & { image: Blob }>();
   return {
     async readAllMeta() {
-      return [...store.values()].map(({ id, title, savedAt, bylineNames }) => ({ id, title, savedAt, bylineNames }));
+      return [...store.values()].map(({ id, title, savedAt, bylineNames, parts, cloudTaleId }) => ({
+        id,
+        title,
+        savedAt,
+        bylineNames,
+        parts,
+        cloudTaleId,
+      }));
     },
     async putTale(meta, image) {
       store.set(meta.id, { ...meta, image });
@@ -35,6 +43,10 @@ function createFakeAdapter(): GalleryAdapter {
     },
     async deleteTale(id) {
       store.delete(id);
+    },
+    async setCloudTaleId(id, cloudTaleId) {
+      const record = store.get(id);
+      if (record) store.set(id, { ...record, cloudTaleId });
     },
   };
 }
@@ -125,6 +137,61 @@ describe('saveTale / listTales (AC-01, AC-03)', () => {
   it('returns undefined for a missing tale image', async () => {
     const adapter = createFakeAdapter();
     expect(await getTaleImage('does-not-exist', adapter)).toBeUndefined();
+  });
+});
+
+describe('flattened parts + synced marker (keepsake-gallery/05)', () => {
+  it('round-trips the flattened display parts (upload payload)', async () => {
+    const adapter = createFakeAdapter();
+    await saveTale(
+      {
+        title: 'A carved tale',
+        image: makeBlob(),
+        parts: [
+          { isWord: false, text: 'The ' },
+          { isWord: true, text: 'wobbly' },
+          { isWord: false, text: ' dragon sneezed.' },
+        ],
+      },
+      adapter,
+    );
+
+    const [tale] = await listTales(adapter);
+    expect(tale.parts).toEqual([
+      { isWord: false, text: 'The ' },
+      { isWord: true, text: 'wobbly' },
+      { isWord: false, text: ' dragon sneezed.' },
+    ]);
+  });
+
+  it('leaves parts undefined for an old-style save (not uploadable, never crashes)', async () => {
+    const adapter = createFakeAdapter();
+    await saveTale({ title: 'Legacy tale', image: makeBlob() }, adapter);
+
+    const [tale] = await listTales(adapter);
+    expect(tale.parts).toBeUndefined();
+    expect(tale.cloudTaleId).toBeUndefined();
+  });
+
+  it('marks a local tale synced with its cloud tale id (upload dedupe)', async () => {
+    const adapter = createFakeAdapter();
+    await saveTale({ title: 'To sync', image: makeBlob(), parts: [{ isWord: false, text: 'hi' }] }, adapter);
+
+    const [before] = await listTales(adapter);
+    expect(before.cloudTaleId).toBeUndefined();
+
+    await markTaleSynced(before.id, 'cloud-abc-123', adapter);
+
+    const [after] = await listTales(adapter);
+    expect(after.cloudTaleId).toBe('cloud-abc-123');
+    // The image and other metadata survive the in-place stamp.
+    expect(after.title).toBe('To sync');
+    expect(await getTaleImage(after.id, adapter)).toBeInstanceOf(Blob);
+  });
+
+  it('marking a missing tale synced is a graceful no-op', async () => {
+    const adapter = createFakeAdapter();
+    await expect(markTaleSynced('does-not-exist', 'cloud-x', adapter)).resolves.toBeUndefined();
   });
 });
 

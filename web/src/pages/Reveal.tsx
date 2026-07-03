@@ -793,7 +793,22 @@ export function Reveal({
       // (saveTale swallows its own storage failures), so a gallery-write
       // problem can never undo or block the download above, which has
       // already completed by this point.
-      void saveTale({ title: assembled.title, image: blob, bylineNames: saveImageByline });
+      //
+      // keepsake-gallery/05: ALSO persist the flattened display parts (the SAME
+      // already-vetted `parts` this screen renders, mapped to {isWord, text}),
+      // so a signed-in purchaser can later upload this tale to the cloud gallery
+      // as text from the Account area. This adds LOCAL data only - it does not
+      // make the reveal flow credential/sign-in aware (the auth boundary: the
+      // child-facing reveal never touches a purchaser credential).
+      void saveTale({
+        title: assembled.title,
+        image: blob,
+        bylineNames: saveImageByline,
+        parts: parts.map((part) => ({
+          isWord: part.kind === 'word',
+          text: part.kind === 'word' ? part.word : part.text,
+        })),
+      });
     } catch {
       // Rendering/download can fail (an unsupported canvas API, a blocked
       // download) - fail quietly rather than surface an error UI in Slice 1,

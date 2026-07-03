@@ -54,6 +54,7 @@ import {
   type SignInOutcome,
 } from '../account/signInClient';
 import { fetchEntitlements, type OwnedEntitlement } from '../account/entitlementsClient';
+import { CloudGallery } from './CloudGallery';
 
 export interface AccountProps {
   /** Return to Home (the shared app-bar back action). */
@@ -213,6 +214,13 @@ export function Account({ onBack }: AccountProps) {
   // The purchaser credential from a successful sign-in - held in memory only, presented
   // as a bearer to the restore endpoint (billing-entitlements/05). Never persisted.
   const [credential, setCredential] = useState<string | null>(null);
+  // keepsake-gallery/05: whether the signed-in purchaser has opened their cloud
+  // gallery. Deliberately behind a tap (not shown by default) so opening it is a
+  // purchaser-consented action, and so it is impossible for an anonymous player
+  // to ever reach it (it only renders in the 'signed-in' phase, where a
+  // credential exists - AC-02). The credential lives in this component's memory,
+  // so the cloud gallery MUST render here, not on a separate route.
+  const [cloudGalleryOpen, setCloudGalleryOpen] = useState(false);
 
   const email = watch('email');
   const canSubmit = !formState.isSubmitting && EMAIL_PATTERN.test(email.trim());
@@ -344,6 +352,23 @@ export function Account({ onBack }: AccountProps) {
               </Typography>
             )}
             {credential && <PurchaseList credential={credential} />}
+            {/* keepsake-gallery/05: the cloud-gallery affordance lives HERE, in
+                the signed-in state, where the in-memory `credential` is in scope
+                (AC-02: anonymous players can never reach it). Behind a tap so
+                opening it is an explicit purchaser action. */}
+            {credential &&
+              (cloudGalleryOpen ? (
+                <CloudGallery credential={credential} />
+              ) : (
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  onClick={() => setCloudGalleryOpen(true)}
+                  startIcon={<FontAwesomeIcon icon="images" style={{ width: 18, height: 18 }} />}
+                >
+                  Open my cloud gallery
+                </Button>
+              ))}
           </OutcomePanel>
         )}
 

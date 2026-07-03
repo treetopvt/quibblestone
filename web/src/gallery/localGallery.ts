@@ -52,17 +52,45 @@
 // ----------------------------------------------------------------------------
 
 /**
+ * One flattened display part of a saved tale - already-vetted, ordered
+ * text/word runs from `buildRevealParts` (web/src/pages/revealParts.ts),
+ * NOT engine `AssembledStory`/`Template` data. keepsake-gallery/05 (AC-05)
+ * persists these so a saved tale can later be UPLOADED to the purchaser cloud
+ * gallery as text (rendered server-side / DOM-side, never from a fresh engine
+ * assembly). Story 03 keeps its deliberate disjointness from the engine
+ * (feature.md Decision 2026-07-01): we store the flattened parts, not the
+ * template + assembled story. `isWord` marks a coral-highlighted filled word;
+ * `text` is the literal run (or the filled word's text).
+ */
+export interface TalePart {
+  isWord: boolean;
+  text: string;
+}
+
+/**
  * One saved tale's small metadata record (AC-05: nothing beyond this - no
  * PII, no raw engine/story data). `savedAt` is an epoch-ms timestamp.
  * `bylineNames` mirrors Reveal's `saveImageByline` prop (already-filtered
  * display names, e.g. "carved by Sam & Mia") - omitted when the caller had no
  * byline to give (e.g. solo).
+ *
+ * keepsake-gallery/05 additions (both optional, both backward-compatible):
+ *   - `parts`: the flattened display parts (see {@link TalePart}). Present only
+ *     for tales saved once the cloud-gallery upload path existed - OLD records
+ *     saved before this story have NO `parts` and are simply not uploadable to
+ *     the cloud (the cloud gallery skips them; nothing crashes).
+ *   - `cloudTaleId`: set AFTER a successful upload to the purchaser cloud
+ *     gallery (the server-minted tale id), so the UI can show "synced" and
+ *     never re-upload the same local tale (upload dedupe). Absent = not yet
+ *     synced from this device.
  */
 export interface TaleMeta {
   id: string;
   title: string;
   savedAt: number;
   bylineNames?: string;
+  parts?: TalePart[];
+  cloudTaleId?: string;
 }
 
 /** Input to {@link saveTale}: the rendered image plus its small display metadata. */
@@ -71,6 +99,13 @@ export interface SaveTaleInput {
   image: Blob;
   title: string;
   bylineNames?: string;
+  /**
+   * The flattened display parts (from `buildRevealParts`, mapped to
+   * `{ isWord, text }`) - keepsake-gallery/05. Optional: a tale saved without
+   * them stays a local-only, non-uploadable tale (never crashes the cloud
+   * gallery, which simply skips parts-less tales when uploading).
+   */
+  parts?: TalePart[];
 }
 
 /**
@@ -89,6 +124,12 @@ export interface GalleryAdapter {
   readImage(id: string): Promise<Blob | undefined>;
   /** Remove a tale (metadata + image) by id. A no-op if it was never stored. */
   deleteTale(id: string): Promise<void>;
+  /**
+   * keepsake-gallery/05: stamp a local tale's `cloudTaleId` in place, preserving
+   * its stored image and other metadata, so the UI can show "synced" and never
+   * re-upload it. A no-op if the tale is missing (it was evicted meanwhile).
+   */
+  setCloudTaleId(id: string, cloudTaleId: string): Promise<void>;
 }
 
 // ----------------------------------------------------------------------------
@@ -180,7 +221,16 @@ function createIndexedDbAdapter(): GalleryAdapter {
         const request = tx.objectStore(STORE_NAME).getAll();
         request.onsuccess = () => {
           const records = request.result as StoredRecord[];
-          resolve(records.map(({ id, title, savedAt, bylineNames }) => ({ id, title, savedAt, bylineNames })));
+          resolve(
+            records.map(({ id, title, savedAt, bylineNames, parts, cloudTaleId }) => ({
+              id,
+              title,
+              savedAt,
+              bylineNames,
+              parts,
+              cloudTaleId,
+            })),
+          );
         };
         request.onerror = () => reject(request.error ?? new Error('Failed to read the gallery.'));
       });
@@ -216,6 +266,23 @@ function createIndexedDbAdapter(): GalleryAdapter {
         tx.onerror = () => reject(tx.error ?? new Error('Failed to delete the tale.'));
       });
     },
+    async setCloudTaleId(id, cloudTaleId) {
+      const db = await getDb();
+      return new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const getRequest = store.get(id);
+        getRequest.onsuccess = () => {
+          const record = getRequest.result as StoredRecord | undefined;
+          // Missing (evicted meanwhile): a no-op, not an error - the tx still
+          // completes cleanly so the caller's await resolves.
+          if (record) store.put({ ...record, cloudTaleId });
+        };
+        getRequest.onerror = () => reject(getRequest.error ?? new Error('Failed to read the tale to mark synced.'));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('Failed to mark the tale synced.'));
+      });
+    },
   };
 }
 
@@ -247,6 +314,11 @@ export async function saveTale(input: SaveTaleInput, adapter: GalleryAdapter = g
       title: input.title,
       savedAt: Date.now(),
       bylineNames: input.bylineNames,
+      // keepsake-gallery/05: persist the flattened display parts (when the
+      // caller supplied them) so this tale can later be uploaded to the cloud
+      // gallery as text. Omitted for callers that do not pass them - such a
+      // tale stays local-only and non-uploadable, never crashing anything.
+      parts: input.parts,
     };
     const existing = await adapter.readAllMeta();
     const evictIds = talesToEvict(existing, GALLERY_CAP);
@@ -282,5 +354,27 @@ export async function getTaleImage(id: string, adapter: GalleryAdapter = getDefa
     return await adapter.readImage(id);
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * keepsake-gallery/05: marks a local tale as SYNCED to the purchaser cloud
+ * gallery by stamping the server-minted `cloudTaleId` onto its stored record,
+ * so the UI can show "synced" and the upload path can dedupe (never re-upload
+ * a tale that already carries a `cloudTaleId`). Call this only AFTER a
+ * successful `saveCloudTale`. Swallows any storage failure (matching the rest
+ * of this module) - a failed mark simply leaves the tale looking un-synced,
+ * which at worst re-uploads it once (the server treats each upload as a new
+ * tale, so a duplicate is a harmless, bounded cost, not data loss).
+ */
+export async function markTaleSynced(
+  id: string,
+  cloudTaleId: string,
+  adapter: GalleryAdapter = getDefaultAdapter(),
+): Promise<void> {
+  try {
+    await adapter.setCloudTaleId(id, cloudTaleId);
+  } catch {
+    // Storage unavailable/blocked/quota: no-op, matching saveTale's posture.
   }
 }
