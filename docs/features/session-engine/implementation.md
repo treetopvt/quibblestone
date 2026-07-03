@@ -34,7 +34,7 @@ half exists; the web half (09, 10) is where a human sees the payoff.
 | Child safety (nicknames are free text) | the server-side filter `IContentSafetyFilter` (**child-safety/01**) | `api/src/Safety/` |
 | Icons | FontAwesome, registered once | `web/src/fontawesome.ts` |
 | Config (hub/API URLs) | `import.meta.env` (`VITE_*`) | `web/.env.development` |
-| Device-local, versioned, try/catch-everywhere storage pattern (07-10 reuse this shape for the reconnect handle) | `identity.ts`'s load/save/clear + shape-validation posture | `web/src/identity.ts` |
+| Device-local, versioned, try/catch-everywhere storage pattern (the WEB stories 09-10 reuse this shape for the reconnect handle; 07-08 are server-side) | `identity.ts`'s load/save/clear + shape-validation posture | `web/src/identity.ts` |
 | Operational telemetry (optional grace-window events, 07) | the App Insights client + `HubAbnormalDisconnect` posture (platform-devops/04) | `api/src/Hubs/GameHub.cs`'s `_appInsights` field |
 | Roster tile visual idioms (10's "reconnecting" tile) | the existing pulsing-ring / dashed-border language | `web/src/pages/Lobby.tsx` (`PlayerTile`, `EmptySlot`) |
 
@@ -63,8 +63,8 @@ serial (the hub signature is the contract; there is no codegen step).
 | 09 web-remember-and-rejoin | TBD | new `web/src/reconnect.ts`, edits `web/src/signalr/useGameHub.ts` (rejoin invoke + wiring to `onreconnected` + mount-time check, save/clear the handle) | se/08 | - | 8 | medium-high |
 | 10 web-resume-live-screen | TBD | edits `web/src/App.tsx` (live-route guards wait on an in-flight rejoin), `web/src/pages/Lobby.tsx` (`PlayerTile`/`Player` type gain `connected`, a "reconnecting" tile treatment) | se/09 | - | 9 | medium |
 
-**Concurrency per wave:** 1 at every wave. The chain is `01 -> 02 -> 05 -> 03 -> 04`, then, once routing lands,
-`06`, then the reconnect hardening chain `07 -> 08 -> 09 -> 10`. Reason: 01/02/05/03 all edit `GameHub.cs` +
+**Concurrency per wave:** 1 at every wave. The chain is `01 -> 02 -> 05 -> 03 -> 04 -> 06` (all shipped), then the
+reconnect hardening chain `07 -> 08 -> 09 -> 10`. Reason: 01/02/05/03 all edit `GameHub.cs` +
 `useGameHub.ts` (the contract grows story by story); 05 and 02 share `Join.tsx`; 03 and 04 share `Lobby.tsx`; 07 and
 08 both edit `Room.cs` + `GameHub.cs` (08's `Rejoin` spends the token/grace-state 07 mints); 09 and 10 both edit
 `useGameHub.ts`-adjacent web surface (09 the hook, 10 the routing + roster tile that CONSUMES what 09 exposes).
@@ -149,10 +149,12 @@ fanning out waves 6-7.
 - **Approach:** today `GameHub.OnDisconnectedAsync` calls `RoomRegistry.RemoveConnection` immediately, and
   `HandlePlayerLeftAsync` aborts a "prompting" round on the spot. This story inserts a grace window between "the
   connection dropped" and "the seat is actually gone": on an abnormal disconnect, mark the seat disconnected (keep it
-  in the roster, `PlayerCount` unchanged, the round NOT aborted) and schedule a ONE-SHOT delayed continuation
-  (`Task.Delay(graceWindow).ContinueWith(...)`, guarded so a reconnect in the meantime - story 08 - cancels/no-ops
-  it) that, on firing, performs exactly today's eviction + conditional `RoundAborted` + `RosterChanged` if the seat
-  is STILL disconnected. `LeaveRoom` (deliberate) is untouched - it keeps evicting immediately, no grace. Also mints
+  in the roster, `PlayerCount` unchanged, the round NOT aborted) and schedule a ONE-SHOT delayed eviction as a
+  fire-and-forget `async` task (`await Task.Delay(graceWindow, ct)` under a per-seat `CancellationTokenSource` that
+  story 08's `Rejoin` cancels on reconnect; wrapped in try/catch so a fault is logged, never unobserved) that, on
+  firing, performs exactly today's eviction + conditional `RoundAborted` + `RosterChanged` if the seat is STILL
+  disconnected. Deliberately NOT `Task.Delay(...).ContinueWith(...)` - ContinueWith's default-scheduler +
+  unobserved-exception semantics make it a footgun for a fire-and-forget timer. `LeaveRoom` (deliberate) is untouched - it keeps evicting immediately, no grace. Also mints
   a server-side, cryptographically random reconnect token at `CreateRoom`/`JoinRoom`, returned ONLY in that call's own
   result envelope (never on `RoomStateDto`/`PlayerDto`, which every player receives) - story 08 is the only consumer.
 - **Owns / exports:** the seat's disconnected/grace state + the reconnect token on `Room`'s player record; `PlayerDto`

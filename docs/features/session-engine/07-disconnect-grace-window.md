@@ -81,12 +81,16 @@ today. See [feature.md](./feature.md) (Decisions log) and `docs/ROADMAP.md`
   needs to happen if nobody touches an abandoned room), a 20-60 SECOND grace
   window has other seated players actively waiting on the dropped seat's blanks -
   if nobody else calls the hub in the interim, they would otherwise wait forever.
-  Schedule ONE fire-and-forget delayed continuation from `OnDisconnectedAsync`
-  (`Task.Delay(graceWindow).ContinueWith(...)`), guarded (under the room's
-  `_gate`, by re-checking the same disconnect episode / token is still pending)
-  so a reconnect that lands in between - story 08's `Rejoin` - cancels it rather
-  than evicting a fresh connection. This is the one place in this codebase a
-  scheduled timer is justified over lazy-on-access.
+  Schedule ONE fire-and-forget delayed eviction from `OnDisconnectedAsync` as an
+  `async` task: `await Task.Delay(graceWindow, ct)` under a per-seat
+  `CancellationTokenSource`, then re-check under the room's `_gate` (the same
+  disconnect episode / token is still pending) before evicting - so a reconnect
+  that lands in between (story 08's `Rejoin`) cancels the token rather than
+  evicting a fresh connection, and any fault is caught + logged, never unobserved.
+  Deliberately NOT `Task.Delay(...).ContinueWith(...)` - ContinueWith's default
+  scheduler + unobserved-exception semantics are a footgun for a fire-and-forget
+  timer. This is the one place in this codebase a scheduled timer is justified
+  over lazy-on-access.
 - `api/src/Rooms/RoomRegistry.cs`: `OnDisconnectedAsync`'s call swaps from the
   existing `RemoveConnection` (still used, unchanged, by `LeaveRoom`'s immediate
   path - AC-04) to a new mark-disconnected path that returns enough information
