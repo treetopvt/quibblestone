@@ -42,7 +42,7 @@
 // =============================================================================
 
 // --- Parameters --------------------------------------------------------------
-@description('Region for the AI resources. Defaults to the resource group location (eastus2), which has gpt-4o-mini Standard quota on the target PAYG sub.')
+@description('Region for the AI resources. Defaults to the resource group location (eastus2), which has gpt-5-mini GlobalStandard quota on the target PAYG sub.')
 param location string = resourceGroup().location
 
 @description('Name prefix, matched to the app footprint so resource names read consistently across resource groups.')
@@ -120,7 +120,7 @@ resource aiFoundry 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   }
 }
 
-// --- 1a. The gpt-4o-mini model deployment ------------------------------------
+// --- 1a. The model deployment (defaults to gpt-5-mini) -----------------------
 // The deployment NAME is what the API reads as Ai:Deployment (output below).
 //
 // SKU = GlobalStandard (param): gpt-5-mini is GA with GlobalStandard quota 500 in

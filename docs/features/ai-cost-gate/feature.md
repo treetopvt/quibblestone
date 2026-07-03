@@ -33,7 +33,7 @@ load-bearing rule: "the moment any AI call ships, it goes behind the cost gate."
 | 03 | #122 | Rate-limit + quota metering (per-session/per-IP + "N calls left") | Not Started |
 | 04 | #123 | Spend circuit-breaker + cost attribution telemetry | Not Started |
 | 05 | #124 | Moderate AI output before display | Not Started |
-| 06 | #125 | IaC provisioning seam (Foundry + Content Safety + KV secret + budget/action group) | In Review |
+| 06 | #125 | IaC provisioning seam (Foundry + keyless MI RBAC + Content Safety + budget/action group) | In Review |
 
 ## Dependencies
 - `billing-entitlements/01` (issue #70) - the entitlement seam story 02 consumes

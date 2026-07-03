@@ -220,6 +220,7 @@ jobs:
             -n "ai-provision-${{ github.run_number }}" \
             -f infra/ai.bicep \
             -p infra/ai.uat.bicepparam \
+            -p location="$AI_LOCATION" \
             "${email_arg[@]}" \
             --query properties.outputs -o json)"
 

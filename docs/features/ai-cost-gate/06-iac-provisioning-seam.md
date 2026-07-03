@@ -2,7 +2,7 @@
   Story 06 of the AI cost gate - the single-owner Bicep/IaC seam. "I prep the Bicep, you provision." No em dashes.
 -->
 
-# Story: IaC provisioning seam (Foundry + Content Safety + KV secret + budget/action group)
+# Story: IaC provisioning seam (Foundry + keyless MI RBAC + Content Safety + budget/action group)
 
 **Feature:** AI Cost Gate  ·  **Status:** In Review  ·  **Issue:** #125
 
