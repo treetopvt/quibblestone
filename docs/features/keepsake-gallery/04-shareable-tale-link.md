@@ -1,6 +1,14 @@
 # Story: Shareable tale link (the back-link growth loop)
 
-**Feature:** Keepsake Gallery  ·  **Status:** In Progress  ·  **Issue:** #66
+**Feature:** Keepsake Gallery  ·  **Status:** Complete  ·  **Issue:** #66
+
+> Code Complete and merged (PR #130): the server surface, host publish/revoke, the
+> public read-only tale page, server-side re-vet, unguessable slug, noindex, TTL,
+> and the per-IP publish rate limit all ship. The public surface stays DISABLED
+> until Azure is provisioned (the connection string is wired) - see
+> `docs/runbooks/keepsake-published-tales.md`. The deploy-gated / on-device manual
+> ACs (AC-02 visual, AC-06 phone PWA hand-off, AC-05 live TTL eviction) are
+> verified during that provisioning pass, not in CI.
 
 ## Context
 A shared tale should pull new players IN, not just show a pretty picture. Today's

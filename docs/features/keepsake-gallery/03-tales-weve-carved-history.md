@@ -1,6 +1,6 @@
 # Story: "Tales we've carved" local history
 
-**Feature:** Keepsake Gallery  ·  **Status:** In Progress  ·  **Issue:** #65
+**Feature:** Keepsake Gallery  ·  **Status:** Complete  ·  **Issue:** #65
 
 ## Context
 A family plays several rounds over a session (or several sessions over weeks)

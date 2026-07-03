@@ -43,6 +43,13 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   Progressive Reveal, resolved through a shared mode registry (solo + group now
   consume one list). Progressive Story stays deferred (it needs a live cross-player
   "story so far" broadcast - its own story). Group play is no longer Classic-Blind-only.
+- **Spread the Word** - a finished tale AND a live room now travel (`session-engine/06`
+  + `keepsake-gallery/01-04`, PR #130): a tappable `/join/:code` deep-link share from
+  the Lobby, save the reveal as a stone-tablet image, watermarked image share, a
+  device-local "Tales we've carved" gallery, and the host-opt-in public tale link
+  (server-side re-vetted, unguessable slug, noindex, TTL, per-IP rate limited). The
+  public tale page stays disabled until Azure Table Storage is provisioned (the code
+  ships behind a connection-string flag - see the keepsake-published-tales runbook).
 - Profanity filter + family-safe toggle; MUI theme + shared components; Vitest +
   Playwright harness gating CI.
 
@@ -74,9 +81,10 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   needs a live cross-player "story so far" broadcast (its own story).*
 - **Land the Laugh** (`reveal-delight/01-04`) - **DONE** (PR #112): reactions,
   carving animation, word attribution, Golden Guardian. All on the built reveal.
-- **Spread the Word** (`session-engine/06` + `keepsake-gallery/01-04`) - deep-link
-  join, save/share the tale, public tale page. Routing already made the deep link
-  cheap.
+- **Spread the Word** (`session-engine/06` + `keepsake-gallery/01-04`) - **DONE**
+  (PR #130): deep-link join, save/share the tale, device-local gallery, public tale
+  page. The public tale page ships disabled until Azure Table Storage is provisioned
+  (connection-string flag - see the keepsake-published-tales runbook).
 
 ### 3. The AI question (explore sooner, gate the cost)
 Prove the AI plumbing ONCE, on the cheapest/safest payload, behind a gate built
@@ -134,12 +142,13 @@ session, not identity**.
 ## Recommended sequence
 
 1. **Done** - deploy, routing, solo modes, freshness loop, Land the Laugh
-   (`reveal-delight`, the reveal payoff polish), and Modes in Group Play
+   (`reveal-delight`, the reveal payoff polish), Modes in Group Play
    (`group-play/05`, the host mode picker - group play now runs all three
-   real-time-safe modes).
+   real-time-safe modes), and Spread the Word (`session-engine/06` +
+   `keepsake-gallery/01-04`, a shared tale and a live room both travel; the public
+   tale page ships behind an Azure-provisioning flag).
 2. **Now** - observability + anonymous usage (`platform-devops/04-05`, see how the
-   alpha plays), then Spread the Word (`session-engine/06` + `keepsake-gallery`, let
-   a shared tale travel).
+   alpha plays).
 3. **Early AI** - the Fresh Runes AI jumble behind the cost gate (proves the whole
    pipeline on the cheapest payload).
 4. **Later** - voices, on-demand, packs, charging - all reuse the gate; let the alpha

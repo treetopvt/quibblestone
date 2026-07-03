@@ -17,7 +17,7 @@ Architecture: section 4 (cloud real-time, SignalR).
 - [ ] 03 - See a live player roster
 - [ ] 04 - Copy and share the room code from the Lobby
 - [ ] 05 - Guardian avatar selection at join
-- [ ] 06 - Share a join link to the room (deep-link share; depends on client routing)
+- [x] 06 - Share a join link to the room (deep-link share; depends on client routing)
 
 ## Dependencies
 - platform-devops (the real-time backbone must be deployable and reachable).
