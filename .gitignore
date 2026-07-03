@@ -475,3 +475,13 @@ blob-report/
 # ============================================================================
 .DS_Store
 Thumbs.db
+
+# ============================================================================
+#  Locally-installed skill tooling (per-developer, not app code)
+# ============================================================================
+# Ad-hoc skill installs (e.g. the stripe-projects helper) vendor a copy of an
+# external skill plus a lockfile into these paths. They are personal developer
+# tooling, not project code, so they stay out of the repo. The project's OWN
+# shared skills/agents live under .claude/ and ARE committed.
+.agents/
+skills-lock.json
