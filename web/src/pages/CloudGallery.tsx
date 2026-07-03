@@ -370,21 +370,29 @@ export function CloudGallery({ credential }: CloudGalleryProps) {
         </Typography>
       )}
 
-      {/* Upload this device's un-synced local tales (AC-01) - explicit, consented. */}
+      {/* Upload this device's un-synced local tales (AC-01) - explicit, consented.
+          Only show a button when there is actually something to do; otherwise a
+          calm one-line note, so an empty state never reads as a broken/greyed CTA. */}
       <Stack spacing={1.5}>
-        <Button
-          variant="outlined"
-          fullWidth
-          onClick={() => void handleUpload()}
-          disabled={uploading || pendingUploads.length === 0}
-          startIcon={<FontAwesomeIcon icon="images" style={{ width: 16, height: 16 }} />}
-        >
-          {uploading
-            ? 'Syncing...'
-            : pendingUploads.length === 0
-              ? 'Nothing new to sync from this device'
+        {uploading || pendingUploads.length > 0 ? (
+          <Button
+            variant="contained"
+            fullWidth
+            onClick={() => void handleUpload()}
+            disabled={uploading}
+            startIcon={<FontAwesomeIcon icon="images" style={{ width: 16, height: 16 }} />}
+          >
+            {uploading
+              ? 'Syncing...'
               : `Sync ${pendingUploads.length} tale${pendingUploads.length === 1 ? '' : 's'} from this device`}
-        </Button>
+          </Button>
+        ) : (
+          <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
+            {localTales.length > 0
+              ? 'Nothing new to sync from this device.'
+              : 'Save a tale after a game and it can sync here to follow you across devices.'}
+          </Typography>
+        )}
         {uploadNote && (
           <Typography role="status" sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
             {uploadNote}
@@ -416,7 +424,7 @@ export function CloudGallery({ credential }: CloudGalleryProps) {
 
       {tales.length === 0 ? (
         <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
-          No tales in your cloud gallery yet - sync some from this device to keep them across your devices.
+          No tales in your cloud gallery yet.
         </Typography>
       ) : visibleTales.length === 0 ? (
         <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
