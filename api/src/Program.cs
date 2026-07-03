@@ -419,6 +419,19 @@ else
 builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
     new MagicLinkTokenService(sp.GetRequiredService<IConfiguration>()[MagicLinkTokenService.ConfigKeyName]));
 
+// accounts-identity/03 (sign-in / restore on a new device, #69): ASP.NET Core
+// Data Protection, used by AccountsController to mint the SHORT-LIVED, purchaser-
+// scoped sign-in credential (a time-limited protector under a dedicated purpose
+// string - see AccountsController.PurchaserSessionPurpose). This is built INTO
+// the framework, so it adds NO NuGet dependency and NO hand-rolled crypto; the
+// protection key is framework-managed (Key Vault-backed when deployed, NEVER a
+// committed literal or a VITE_* var, AC-06). Registered here beside the account /
+// token domain services it serves. CRITICAL boundary (AC-03/AC-04): this
+// credential is consumed ONLY by the purchaser sign-in / restore surface - it is
+// never required by, nor checked in, GameHub or any player-facing endpoint, so
+// free play stays 100% login-free.
+builder.Services.AddDataProtection();
+
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
 //       .AddAzureSignalR(builder.Configuration["AzureSignalR:ConnectionString"]);

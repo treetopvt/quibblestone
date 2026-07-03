@@ -18,6 +18,16 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    accounts-identity/03 (#69): the ASP.NET Core shared framework, so controller
+    tests can reference hosting types (IWebHostEnvironment) + Data Protection
+    directly. A ProjectReference to a Web SDK app does NOT flow its Framework
+    reference into a plain-SDK test project, so it is declared explicitly here.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\api\QuibbleStone.Api.csproj" />
   </ItemGroup>

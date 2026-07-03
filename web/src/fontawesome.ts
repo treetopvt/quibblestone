@@ -108,6 +108,12 @@ import {
   // Shareable tale link icon (keepsake-gallery/04, issue #66): the host-only
   // "Share a public link" affordance on the Reveal screen's bottom bar.
   faLink,
+  // Purchaser sign-in icons (accounts-identity/03, issue #69): faEnvelope for
+  // the "check your email" confirmation on the Account restore surface. The
+  // "Account" Home entry link reuses faUser (already registered above for Join),
+  // and the signed-in state reuses faCircleCheck / the guide-to-purchase state
+  // reuses faShieldHeart, so the envelope is the only genuinely new glyph.
+  faEnvelope,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -153,5 +159,6 @@ library.add(
   faImage,
   faImages,
   faLink,
+  faEnvelope,
   faStarRegular,
 );
