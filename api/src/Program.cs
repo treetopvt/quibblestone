@@ -27,6 +27,7 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
+using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Ai.Jumble;
 using QuibbleStone.Api.Content;
@@ -326,6 +327,22 @@ builder.Services.AddRateLimiter(options =>
                 Window = PublishTalesRateLimit.Window,
                 QueueLimit = 0,
             }));
+
+    // accounts-identity/03 (review W-001): the OPEN, unauthenticated magic-link
+    // request endpoint's per-IP guard, in this SAME registration alongside the two
+    // policies above. Only POST /api/accounts/signin/request opts in (via
+    // [EnableRateLimiting(SignInRateLimit.PolicyName)]); verify is bounded by the
+    // single-use nonce + short expiry, and the game path is untouched. Stops an
+    // email-bomb / token-mint flood before an email provider ships. 429 on reject.
+    options.AddPolicy(SignInRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: SignInRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = SignInRateLimit.PermitLimit,
+                Window = SignInRateLimit.Window,
+                QueueLimit = 0,
+            }));
 });
 
 // keepsake-gallery/04 (shareable tale link): the published-tale store, chosen at
@@ -388,6 +405,66 @@ builder.Services.AddSingleton<RoomRegistry>();
 // entitlement chain (billing-entitlements/01, #70) later SUBSUMES this SAME
 // contract without any consumer refactor. Singleton: the impl is stateless.
 builder.Services.AddSingleton<IEntitlementService, DefaultUnlockedEntitlementService>();
+
+// accounts-identity/02 (lightweight purchaser account, #68): the purchaser-account
+// store, chosen at STARTUP by whether a storage connection string is configured -
+// EXACTLY the config-presence idiom of the telemetry sink / published-tale store
+// above. WITH a connection string (supplied per-environment, NEVER a committed
+// literal), it persists accounts (email + created-at ONLY, AC-01) to Azure Table
+// Storage keyed by a SHA-256 hash of the normalized email (AC-06 spirit). WITHOUT
+// one (local dev, CI, a fresh clone), it degrades to a WORKING in-memory store -
+// NOT a no-op - so accounts-identity/03's sign-in / restore is exercisable with
+// ZERO Azure setup. A singleton either way (stateless past construction / holds
+// the process-local dictionary). This store carries NO room / player reference
+// (AC-03), so billing-entitlements/01's session gate can read "is there an entitled
+// purchaser?" from it without touching gameplay state (AC-04).
+var accountsConnectionString = builder.Configuration["Accounts:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(accountsConnectionString))
+{
+    builder.Services.AddSingleton<IAccountStore, InMemoryAccountStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IAccountStore>(sp =>
+        new TableStorageAccountStore(
+            accountsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageAccountStore>>()));
+}
+
+// accounts-identity/02 (#68): the REUSABLE magic-link token service - a SINGLETON
+// because it owns the process-wide single-use nonce set AND the signing key
+// (regenerated per process only when Accounts:TokenSigningKey is absent, so all
+// callers must share the ONE instance or tokens would not verify across it). The
+// signing secret is read from configuration (Key Vault-backed when deployed, NEVER
+// a committed literal and NEVER a VITE_* var, AC-06); the service NEVER logs the
+// token or the key. It is deliberately identity-neutral (subject is opaque), so
+// sysadmin-console/01's operator login reuses this SAME registration against a
+// SEPARATE allowlist - purchaser and admin stay structurally distinct here.
+builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
+    new MagicLinkTokenService(sp.GetRequiredService<IConfiguration>()[MagicLinkTokenService.ConfigKeyName]));
+
+// accounts-identity/03 (sign-in / restore on a new device, #69): ASP.NET Core
+// Data Protection, used by AccountsController to mint the SHORT-LIVED, purchaser-
+// scoped sign-in credential (a time-limited protector under a dedicated purpose
+// string - see AccountsController.PurchaserSessionPurpose). This is built INTO
+// the framework, so it adds NO NuGet dependency and NO hand-rolled crypto, and no
+// key material is ever a committed literal or a VITE_* var (AC-06).
+//
+// KEY RING SCOPE (deliberately the framework DEFAULT for now): this bare
+// registration uses the default key ring (local key store), which is NOT shared
+// across App Service scale-out and does NOT survive an app restart. That is fine
+// for this thin slice - the credential TTL is short (12h) and re-signing-in is a
+// cheap magic link, and the consumer (billing-entitlements/05) is still future.
+// A durable, shared key ring (`.PersistKeysToAzureBlobStorage(...)` +
+// `.ProtectKeysWithAzureKeyVault(...)`) is a FOLLOW-UP for the billing-entitlements
+// deployment, alongside its Stripe / Key Vault wiring - NOT pulled in now so this
+// slice takes on no unvalidatable Azure config.
+//
+// Registered here beside the account / token domain services it serves. CRITICAL
+// boundary (AC-03/AC-04): this credential is consumed ONLY by the purchaser
+// sign-in / restore surface - it is never required by, nor checked in, GameHub or
+// any player-facing endpoint, so free play stays 100% login-free.
+builder.Services.AddDataProtection();
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()

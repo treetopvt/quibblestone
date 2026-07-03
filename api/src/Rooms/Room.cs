@@ -24,6 +24,29 @@
 //  Concurrency: SignalR invokes can run concurrently across connections, so the
 //  Players list is guarded by a per-room lock (see the mutation helpers). The
 //  registry owns cross-room concurrency (the room dictionary).
+//
+//  ==================== IDENTITY CONTRACT (accounts-identity/01) ==============
+//  This record is PII-FREE BY DESIGN and stays that way (README section 3:
+//  "players are anonymous forever"; section 6: minimal data on minors). A player
+//  is, and forever remains, "no account": there is NO email, NO person-tied
+//  device identifier, NO account/purchaser reference, and NO sign-in prompt
+//  anywhere on Room or Player or in the join/lobby flow. DO NOT add an
+//  account/device/email/purchaser field here.
+//
+//  A purchaser account, IF one ever exists in a session, lives in a SEPARATE
+//  record keyed independently (see api/src/Accounts, accounts-identity/02) and
+//  is NEVER referenced from this file - adding accounts is additive and must
+//  never become a prerequisite for play (feature.md design note).
+//
+//  The ONE session-level entitlement seam is `Room.Entitlements` (a
+//  `SessionEntitlements` capability-key set, captured exactly once via
+//  `Room.CaptureEntitlements` at GameHub.CreateRoom - ai-cost-gate/02, #121,
+//  PR #132). It carries CAPABILITY KEYS ONLY, NEVER a purchaser identity, which
+//  is what upholds ADR 0002's load-bearing invariant ("entitlement travels with
+//  the session, not identity"). There is no second placeholder flag to add:
+//  billing-entitlements/01 (#70) resolves a real purchaser to capabilities at
+//  session-creation and captures ONLY the resolved set here, never the purchaser.
+//  ===========================================================================
 // ----------------------------------------------------------------------------
 
 using QuibbleStone.Api.Entitlements;

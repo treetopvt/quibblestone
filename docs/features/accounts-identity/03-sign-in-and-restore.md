@@ -1,6 +1,6 @@
 # Story: Sign-in and restore on a new device
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #69
+**Feature:** Accounts & Identity  ·  **Status:** In Review  ·  **Issue:** #69
 
 ## Context
 A purchaser who bought the family plan on their phone should not have to
@@ -84,12 +84,12 @@ early even if the UI is minimal").
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Accounts/SignInTests.cs (to be created): sign-in with a known identity resolves the same account id twice.` |
-| AC-02 | `manual: sign in on a second simulated device/browser profile - confirm billing-entitlements/05's restore view shows the same entitlements.` |
-| AC-03 | `tests/*.spec.ts (Playwright smoke, extended): full free-play round with the sign-in affordance visible but untouched.` |
-| AC-04 | `manual: UI audit - confirm the sign-in entry point does not appear on Join, Lobby, FillBlank, or Reveal.` |
-| AC-05 | `api/tests/Accounts/SignInTests.cs: sign-in with an unknown identity creates no account row.` |
-| AC-06 | `manual: fresh environment with zero accounts/entitlements - open the restore view, confirm an empty-but-friendly state, no error.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Accounts/SignInTests.cs: verify with a known identity resolves the same account twice (created-at stable), no duplicate created.` |
+| AC-02 | `manual: sign in on a second simulated device/browser profile - confirm billing-entitlements/05's restore view shows the same entitlements (consumes the purchaser credential this story issues).` |
+| AC-03 | `manual/Playwright (tests/*.spec.ts, not in CI): full free-play round with the sign-in affordance visible but untouched. Also web/src/account/signInClient.test.ts pins the client fails graceful and never gates play.` |
+| AC-04 | `manual: UI audit - confirm the /account entry point renders only from Home, never on Join, Lobby, GroupRound (word entry), or Reveal.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/Accounts/SignInTests.cs: verify with an unknown identity creates no account row; the request endpoint returns a neutral shape (dev token echo only, gated on IsDevelopment) and never reads or writes the store.` |
+| AC-06 | `manual: fresh environment with zero accounts/entitlements - open /account, confirm an empty-but-friendly inert state, no error.` |
 
 ## Dependencies
 - accounts-identity/02 (the account this story signs back into).

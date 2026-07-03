@@ -76,6 +76,14 @@ export interface HomeProps {
    * connection, exactly like `onFavorites` above.
    */
   onGallery: () => void;
+  /**
+   * Open the PURCHASER-only Account / restore surface (accounts-identity/03,
+   * AC-04). This is the ONE place the sign-in surface is reachable - it never
+   * appears on Join / Lobby / word-entry / Reveal (a child's flow). Deliberately
+   * NOT gated by `disabled`: restoring a purchase needs no hub connection, and
+   * signing in has ZERO effect on free play (AC-03).
+   */
+  onAccount: () => void;
   /** True while a create-room request is in flight - disables the CTA to avoid double-taps. */
   creating?: boolean;
   /** True until the real-time connection is ready - the CTAs need the hub to act. */
@@ -88,6 +96,7 @@ export function Home({
   onPlaySolo,
   onFavorites,
   onGallery,
+  onAccount,
   creating = false,
   disabled = false,
 }: HomeProps) {
@@ -378,6 +387,33 @@ export function Home({
           >
             <FontAwesomeIcon icon="images" style={{ width: 13, height: 13 }} />
             Tales we've carved
+          </Link>
+        </Box>
+
+        {/* Account entry point (accounts-identity/03, AC-04): the purchaser-only
+            sign-in / restore surface, in the SAME tertiary text-link treatment
+            as the links above - a person glyph + "Account" label. This is the
+            ONLY reachability of the sign-in surface; it never appears on a
+            child's play flow (Join / Lobby / word entry / Reveal). Not gated by
+            `disabled`: restoring a purchase needs no hub connection, and signing
+            in has zero effect on free play (AC-03). */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={onAccount}
+            underline="none"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              fontSize: 13.5,
+              fontWeight: 700,
+              color: 'primary.main',
+            }}
+          >
+            <FontAwesomeIcon icon="user" style={{ width: 13, height: 13 }} />
+            Account
           </Link>
         </Box>
       </Stack>

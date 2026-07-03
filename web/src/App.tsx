@@ -97,6 +97,7 @@ import { Lobby } from './pages/Lobby';
 import { Solo } from './pages/Solo';
 import { Favorites } from './pages/Favorites';
 import { Gallery } from './pages/Gallery';
+import { Account } from './pages/Account';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { findGroupMode } from './pages/modeRegistry';
@@ -228,6 +229,7 @@ function GroupReveal({
         onPlaySolo={onHome}
         onFavorites={onHome}
         onGallery={onHome}
+        onAccount={onHome}
         creating={false}
         disabled={false}
       />
@@ -555,6 +557,14 @@ export default function App() {
     navigate('/gallery');
   }, [navigate]);
 
+  // "Account" (accounts-identity/03, AC-04): the purchaser-only sign-in / restore
+  // surface - no hub call, no room, a plain route change like Favorites / Gallery
+  // above. Reachable ONLY from Home; never from a child's play flow (AC-04). Free
+  // play never depends on it (AC-03).
+  const handleOpenAccount = useCallback(() => {
+    navigate('/account');
+  }, [navigate]);
+
   // Favorites screen's onPick (SOLO replay, AC-03/AC-04): remember the picked
   // template and route to '/solo', where Solo's own mount effect resolves it,
   // gates it through family-safe, and starts it with the freshness bypass.
@@ -646,10 +656,12 @@ export default function App() {
             onPlaySolo={handlePlaySolo}
             onFavorites={handleOpenFavorites}
             onGallery={handleOpenGallery}
+            onAccount={handleOpenAccount}
             disabled={status !== 'connected'}
           />
         }
       />
+      <Route path="/account" element={<Account onBack={handleGoHome} />} />
       <Route
         path="/favorites"
         element={<Favorites onBack={handleGoHome} onPick={handlePickFavorite} />}
