@@ -13,7 +13,8 @@ piece 1): a single server-side seam through which every AI call in the product
 flows. The provider key lives in Key Vault (or the App Service managed identity);
 the browser never calls the AI provider directly, so every call is ours to see,
 meter (stories 03/04), and moderate (story 05). It wraps Azure AI Foundry (Azure
-OpenAI, model `gpt-4o-mini`) per [ADR 0001](../../adr/0001-ai-provider.md), but the
+OpenAI, model `gpt-5-mini` - see [ADR 0001](../../adr/0001-ai-provider.md), whose
+original `gpt-4o-mini` pick was superseded by availability at deploy time), but the
 seam is provider-agnostic so the model/provider is a swappable config value. The
 first caller is the Fresh Runes jumble (`ai-on-demand-generation/05`), but this
 story ships the generic proxy, not the jumble. See
@@ -88,7 +89,7 @@ story ships the generic proxy, not the jumble. See
   `OutputTokenCount`. Prefer `DefaultAzureCredential` (managed identity) over an API
   key where possible; the Key Vault-stored key mirrors the existing
   `APPLICATIONINSIGHTS_CONNECTION_STRING` KV-reference app-setting.
-- **Config keys:** `Ai:Endpoint`, `Ai:Deployment` (e.g. `gpt-4o-mini`), optional
+- **Config keys:** `Ai:Endpoint`, `Ai:Deployment` (e.g. `gpt-5-mini`), optional
   `Ai:ApiKey` (KV-backed), plus the per-model rate constants (input/output $/1M)
   story 04 reads. Keep the model id + rates together so a model swap is one config
   change (ADR 0001).
