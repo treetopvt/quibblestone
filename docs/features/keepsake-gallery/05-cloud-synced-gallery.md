@@ -1,6 +1,6 @@
 # Story: Cloud-synced, browsable gallery for purchasers
 
-**Feature:** Keepsake Gallery  ·  **Status:** Not Started  ·  **Issue:** TBD
+**Feature:** Keepsake Gallery  ·  **Status:** In Progress  ·  **Issue:** #154
 
 ## Context
 Story 03's "Tales we've carved" gallery is device-local and anonymous by
@@ -23,10 +23,17 @@ This story is **GATED**: it cannot start until `accounts-identity/02`
 inventing its own check.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in purchaser (accounts-identity/02) plays a round
-      and saves a tale, when they sign in on a second device, then the same
-      tale appears in their gallery there too - the gallery is keyed to the
-      purchaser account, not to a device's local storage.
+- [ ] AC-01: Given a signed-in purchaser (accounts-identity/02) has tales in
+      their device-local gallery (story 03) and uploads them to the cloud from
+      the signed-in Account area, when they sign in on a second device, then the
+      same tales appear in their cloud gallery there too - the gallery is keyed
+      to the purchaser account, not to a device's local storage. (Decision
+      2026-07-03: cloud sync is an explicit purchaser-surface action - browse +
+      upload from the signed-in Account area - NOT an automatic push from the
+      child-facing reveal, which must never touch a purchaser credential per the
+      auth-boundary invariant established by accounts-identity/03. The outcome -
+      tales follow the purchaser across devices - is unchanged; only the trigger
+      is an explicit sync. See Decisions at pickup below.)
 - [ ] AC-02: Given a player has never signed in as a purchaser (the common,
       anonymous case), when they save tales, then those tales stay in the
       device-local gallery from story 03 only - no cloud gallery is created,
@@ -39,15 +46,21 @@ inventing its own check.
       date/session) - the access pattern this story exists to add, which
       `keepsake-gallery/03`'s local list and `04`'s single-slug lookup do not
       need to support.
-- [ ] AC-04 (entitlement): Given a session is created, then whether the
-      cloud-synced gallery is available for that session is decided once, at
-      session-creation, by reading the `billing-entitlements/01` seam for a
-      dedicated capability key (e.g. `gallery.cloudSync`) - not per-request,
-      per-save, or per-gallery-view; the free tier keeps the device-local
-      gallery (story 03) in full, and this story states plainly whether
-      `gallery.cloudSync` ships default-unlocked (per
-      `billing-entitlements/01` AC-02) or is a deliberately gated paid-tier
-      perk - that decision is made when this story is picked up, not before.
+- [ ] AC-04 (entitlement): Given a signed-in purchaser opens the cloud gallery,
+      then whether cloud sync is available is decided once, when the signed-in
+      gallery surface is entered (the authenticated gallery-load call), by reading
+      the `billing-entitlements/01` seam (`IEntitlementService.EvaluateForSession`)
+      for the dedicated capability key `gallery.cloudSync` - not per-save or
+      per-item. (Account-scoped, not room-scoped: the "session" here is the
+      purchaser's signed-in session, since a cloud gallery is unrelated to a
+      room/round - the AI-gate's "at room-creation" framing does not apply.) The
+      free tier keeps the device-local gallery (story 03) in full. **Decision
+      2026-07-03:** `gallery.cloudSync` ships **default-unlocked** for signed-in
+      purchasers (added to the default-unlocked baseline alongside the `ai.*`
+      keys), so the effective gate is "is this a signed-in purchaser" (a 401
+      without a valid purchaser credential). The seam is still read against the
+      catalog key so real gating can later flip it to a stored grant with no
+      consumer refactor (mirrors `ai-cost-gate/02`'s default-unlocked posture).
 - [ ] AC-05 (child-safety): Given any tale synced to or browsed in the cloud
       gallery, then it is the same already-filtered content story 01 already
       produced (no new free-text entry point), and the only identity attached
@@ -81,7 +94,31 @@ inventing its own check.
   into the cloud gallery on first sign-in - a reasonable follow-up, but not
   required for this story to ship; note as a candidate small addition.
 
-## Datastore decision (open - this story is the trigger to make it)
+## Decisions at pickup (2026-07-03)
+Picked up once both hard gates landed on main (accounts-identity/02 #68 code
+merged via PR #147; billing-entitlements/01 #70 Complete via PR #152). Three
+decisions, each recorded here and in `feature.md`'s Decisions log:
+- **Datastore: stay on Azure Table Storage** (see the section below - client-side
+  scans over one purchaser's own bounded tale set; no new Azure resource).
+- **Entitlement: `gallery.cloudSync` default-unlocked** for signed-in purchasers
+  (see AC-04); the effective gate is a valid purchaser credential.
+- **Sync is an explicit purchaser-surface action, not an at-reveal push** (see
+  AC-01) - the child-facing game/reveal flow never touches a purchaser credential
+  (auth-boundary invariant, README section 6 / accounts-identity/03).
+
+## Datastore decision - RESOLVED 2026-07-03: stay on Azure Table Storage
+Chosen: **Azure Table Storage**, one entity per synced tale, `PartitionKey` = the
+owner key (the SHA-256 hash of `account.Email`, reusing `AccountIdentity.KeyFor`
+so the gallery keys exactly like accounts/grants), `RowKey` = a minted tale id.
+List-by-owner is a single-partition query; search-by-title/byline and sort are
+done client-side over that bounded per-purchaser result set. Rationale: keeps the
+5-resource footprint (README section 9), no new ORM/connection pattern, and a
+family's tale count stays small enough that partition-scoped scans are cheap. If a
+single purchaser's tale count ever grows large enough that client-side
+browse/search degrades, revisit Azure SQL/Cosmos then (a documented later trigger,
+not a now-cost). The original trade-off analysis is kept below for that revisit.
+
+### Original open analysis (kept for the future revisit trigger)
 `keepsake-gallery/04` chose Azure Table Storage because its ONLY access
 pattern is a single keyed point-read (`PartitionKey = RowKey = slug`) - cheap,
 zero-query, rides the existing storage account. This story introduces access
