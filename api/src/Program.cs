@@ -223,7 +223,40 @@ else
             sp.GetRequiredService<Microsoft.ApplicationInsights.TelemetryClient>(),
             sp.GetRequiredService<ILogger<AiSpendBreaker>>()));
 }
-builder.Services.AddSingleton<IAiOutputModerator, PassthroughAiOutputModerator>();
+
+// ai-cost-gate/05 (moderate-before-display): the OPTIONAL Azure AI Content Safety
+// second layer, chosen at STARTUP by whether `ContentSafety:Endpoint` is configured -
+// EXACTLY the ITelemetrySink / IAiCompletionClient config-presence idiom above. WITHOUT
+// it (local dev, CI, a fresh clone, today's deployed footprint) the NoOp screen allows
+// everything, so the moderator runs the always-on hard filter + family-safe ONLY and
+// behaves identically to before this seam existed (AC-05). WITH it, the real Azure AI
+// Content Safety screen is a documented DROP-IN registered in the else branch - that
+// concrete screen + its Azure.AI.ContentSafety SDK land with story 06's optional Bicep
+// resource (not added now, so the app takes on no heavy, unvalidatable dependency and
+// restores cleanly on net10.0). Turning the layer on is a config flip, not a code change.
+var contentSafetyEndpoint = builder.Configuration["ContentSafety:Endpoint"];
+if (string.IsNullOrWhiteSpace(contentSafetyEndpoint))
+{
+    builder.Services.AddSingleton<IAiContentSafetyScreen, NoOpAiContentSafetyScreen>();
+}
+else
+{
+    // Story 06 drop-in point: swap the real AzureAiContentSafetyScreen (endpoint +
+    // Key Vault-backed key / managed identity) in here. Until it lands, keep the hard
+    // filter + family-safe as the whole gate (fail to the safe, no-second-layer side)
+    // rather than reference an SDK that is not yet validated on net10.0.
+    builder.Services.AddSingleton<IAiContentSafetyScreen, NoOpAiContentSafetyScreen>();
+}
+
+// ai-cost-gate/05 (moderate-before-display): the REAL last-stage moderator replaces
+// the pass-through seam. It composes the always-on hard gate (IContentSafetyFilter,
+// child-safety/01) + the family-safe rule (FamilySafeContentSelector, child-safety/02)
+// + the optional Content Safety screen above over EVERY AI item before any child sees
+// it (AC-01/02/05), drops the unsafe and signals whether enough safe items survived
+// (AC-04). Stateless after construction, so a singleton like its dependencies. There is
+// no code path returning AI output without this stage (AC-07); curated content still
+// skips the filter unchanged (game-modes/04).
+builder.Services.AddSingleton<IAiOutputModerator, AiOutputModerator>();
 builder.Services.AddSingleton<GatedAiCompletionClient>();
 
 // ai-cost-gate/03 (#122) AC-03: the per-IP abuse guard - a COARSE cap on the
