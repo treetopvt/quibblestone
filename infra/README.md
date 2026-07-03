@@ -10,12 +10,9 @@ this is intentionally not gold-plated.
 | 1 | Static Web App | `Microsoft.Web/staticSites` | Hosts the React + Vite web client |
 | 2 | App Service (+ Plan) | `Microsoft.Web/sites` (+ `serverfarms`) | Hosts the single ASP.NET Core app (API + SignalR hub) |
 | 3 | Azure SignalR Service | `Microsoft.SignalRService/signalR` | Real-time backplane for production scale-out |
-| 4 | Storage Account | `Microsoft.Storage/storageAccounts` | Table (templates, entitlements) + Blob (AI images, later) |
+| 4 | Storage Account | `Microsoft.Storage/storageAccounts` | Table: `StoryServes` / `StoryFeedback` (telemetry) + `PublishedTales` (keepsake-gallery/04 public tale links); Blob (AI images, later) |
 | 5 | Key Vault | `Microsoft.KeyVault/vaults` | Secrets (Stripe, AI provider keys); now also holds the App Insights connection string |
 | 6 | Application Insights (+ Log Analytics workspace) | `Microsoft.Insights/components` (+ `Microsoft.OperationalInsights/workspaces`) | Operational telemetry for the API (exceptions, failed requests, latency, dependencies) - `platform-devops/04` |
-| 7 | AI Foundry (Azure OpenAI) + `gpt-4o-mini` deployment | `Microsoft.CognitiveServices/accounts` (kind `AIServices`) + `.../deployments` | The AI provider the cost-gate proxy calls - `ai-cost-gate/06` |
-| 8 | Azure AI Content Safety (OPTIONAL, off by default) | `Microsoft.CognitiveServices/accounts` (kind `ContentSafety`) | The optional second moderation layer, `deployContentSafety` param - `ai-cost-gate/06` |
-| 9 | Cost Management budget + action group (only when `alertEmail` set) | `Microsoft.Consumption/budgets` + `Microsoft.Insights/actionGroups` | The billing backstop to the app spend breaker - `ai-cost-gate/06` |
 
 The App Service Plan is part of resource #2 (App Service cannot run without a
 plan). Application Insights is workspace-based, so it needs the Log Analytics
@@ -127,71 +124,21 @@ Logs) - no dashboard or workbook (demand-driven, README section 12):
   device reach - true cross-device / unique-person counting needs accounts (Phase 2,
   out of scope). Split solo vs group with `context = tostring(customDimensions.context)`.
 
-## AI cost gate (ai-cost-gate/06)
+## Shareable tale link (keepsake-gallery/04)
 
-The infrastructure seam for the AI cost gate (ADR 0001). This story preps the Bicep;
-the owner runs the provisioning ("I prep the Bicep, you provision"). Everything here
-has safe defaults so `az bicep build` and an AI-free deploy still work, and - crucially
-- **the app still runs with NONE of this provisioned**: the AI proxy (story 01) and the
-moderation seam (story 05) no-op when their `Ai:*` / `ContentSafety:*` config is absent.
+The public read-only tale page (`GET /t/<slug>`) + host-initiated publish/revoke
+ride the **existing** Storage account: `main.bicep` declares the `PublishedTales`
+table and two deploy-composed app settings (`PublishedTales__StorageConnectionString`
+from `storage.listKeys()`, `PublishedTales__WebAppBaseUrl` from the SWA host) -
+no new resource, no committed secret. The feature is **OFF without the connection
+string** (a disabled store: publish 503, page 404), exactly like the telemetry
+NoOp fallback, so it needs zero setup locally and can be kept dark in a deployed
+environment by omitting that one setting.
 
-What it adds:
-
-- **AI Foundry (Azure OpenAI) account + `gpt-4o-mini` deployment** (`resource 7`). The
-  provider the server-side proxy (story 01) calls. The endpoint and deployment name are
-  surfaced to the API as the `Ai__Endpoint` and `Ai__Deployment` app settings
-  (double-underscore = ASP.NET Core's `Ai:Endpoint` / `Ai:Deployment` nested-key
-  convention). Both are **config, not secrets** (the endpoint is a public URL).
-- **Keyless credential (preferred).** The API App Service's SystemAssigned identity is
-  granted the built-in **Cognitive Services OpenAI User** role
-  (`5e0bd9bd-7b93-4f28-af87-19fc36ad61bd`) scoped to the Foundry account - the same
-  role-assignment pattern as the Key Vault grant. No API key is stored or committed; the
-  identity authenticates against the data plane via Azure AD (the account sets a
-  `customSubDomainName`, which token auth requires). NEVER a `VITE_*` var.
-- **Optional Azure AI Content Safety** (`resource 8`) behind the `deployContentSafety`
-  bool param, **defaulting `false`**. When off, nothing is provisioned and story 05
-  no-ops. When on, its key is stored as the `ContentSafetyKey` Key Vault secret and
-  surfaced to the API as the `ContentSafety__Key` **Key Vault reference** app setting -
-  the same secret-safe path as the App Insights connection string.
-- **Cost Management budget + email action group** (`resource 9`), provisioned **only
-  when `alertEmail` is supplied**. A resource-group-scoped `Microsoft.Consumption/budgets`
-  at `monthlyBudgetUsd` (default **$20**), `Monthly` grain, with notifications at **25 /
-  50 / 75 / 100%** Actual plus a **Forecasted 100%** early warning, wired to a
-  `Microsoft.Insights/actionGroups` email receiver.
-
-**Budget lag - why the app breaker is the real enforcer.** Azure budget evaluation is
-billing-driven and **lags hours** (typically evaluated every 8-24h). So the budget is the
-authoritative-but-slow **backstop** that catches everything (AI + infra); the **app spend
-breaker (story 04) is the real-time enforcer** that stops AI calls the moment the running
-estimate hits the ceiling. The two target the same 25/50/75/100% thresholds and are
-reconciled periodically - do not rely on the budget alone to stop a runaway.
-
-### Provisioning hand-off (what the owner runs)
-
-The email is a **deploy input, never committed** (AC-05/AC-07). Provision (or
-re-provision) with it:
-
-```bash
-az deployment group create \
-  -g quibblestone-uat-rg \
-  -f infra/main.bicep \
-  -p infra/main.uat.bicepparam \
-  -p alertEmail='you@example.com'          # arms the budget + action group
-# optional extras:
-#   -p deployContentSafety=true            # add the second moderation layer
-#   -p monthlyBudgetUsd=20                 # override the $20 default ceiling
-#   -p budgetStartDate='2026-07-01'        # first of the month you provision in
-```
-
-- **Leave `alertEmail` unset** and the budget + action group are simply skipped - the
-  Foundry + deployment + keyless role still deploy, and the app runs; only the billing
-  backstop is absent (the story-04 app breaker still enforces in real time).
-- **No secrets or keys** are passed on the command line: the Foundry credential is
-  keyless (managed identity), and the optional Content Safety key is read into Key Vault
-  at deploy time - never a committed literal.
-- **RBAC propagation:** as with the Key Vault grant, the OpenAI-User role can take a few
-  minutes to propagate on first deploy; until it does the proxy fails soft (typed
-  "unavailable", degrades to the deterministic fallback) rather than erroring.
+**Before it faces the public internet** there is a hard security gate (an
+unauthenticated write endpoint needs a rate limit) plus a smoke-check and a kill
+switch - the full turnkey procedure is the runbook:
+[`docs/runbooks/keepsake-published-tales.md`](../docs/runbooks/keepsake-published-tales.md).
 
 ## Cost lever: `appServicePlanSku`
 

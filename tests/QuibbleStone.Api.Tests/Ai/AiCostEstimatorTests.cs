@@ -13,30 +13,32 @@ namespace QuibbleStone.Api.Tests.Ai;
 
 public class AiCostEstimatorTests
 {
-    // The ADR 0001 gpt-4o-mini rates: 0.15 input / 0.60 output per 1,000,000 tokens.
-    private const decimal InputRate = 0.15m;
-    private const decimal OutputRate = 0.60m;
+    // The deployed gpt-5-mini rates: 0.25 input / 2.00 output per 1,000,000 tokens
+    // (ADR 0001 picked gpt-4o-mini at 0.15/0.60; gpt-5-mini was deployed after that
+    // pick was superseded by availability - see the ADR Update note + PR #131).
+    private const decimal InputRate = 0.25m;
+    private const decimal OutputRate = 2.00m;
 
     [Fact]
     public void One_million_input_tokens_costs_the_input_rate()
     {
         var est = AiCostEstimator.EstimateUsd(1_000_000, 0, InputRate, OutputRate);
-        Assert.Equal(0.15m, est);
+        Assert.Equal(0.25m, est);
     }
 
     [Fact]
     public void One_million_output_tokens_costs_the_output_rate()
     {
         var est = AiCostEstimator.EstimateUsd(0, 1_000_000, InputRate, OutputRate);
-        Assert.Equal(0.60m, est);
+        Assert.Equal(2.00m, est);
     }
 
     [Fact]
     public void Mixed_tokens_use_both_rates()
     {
-        // (400 * 0.15 + 30 * 0.60) / 1e6 = (60 + 18) / 1e6 = 0.000078
+        // (400 * 0.25 + 30 * 2.00) / 1e6 = (100 + 60) / 1e6 = 0.00016
         var est = AiCostEstimator.EstimateUsd(400, 30, InputRate, OutputRate);
-        Assert.Equal(0.000078m, est);
+        Assert.Equal(0.00016m, est);
     }
 
     [Fact]
@@ -57,9 +59,9 @@ public class AiCostEstimatorTests
     public void The_result_overload_reads_the_rates_from_options()
     {
         var options = new AiOptions { InputCostPerMillion = InputRate, OutputCostPerMillion = OutputRate };
-        var result = new AiCompletionResult("moss\nember", InputTokens: 1000, OutputTokens: 200, ModelId: "gpt-4o-mini", IsAvailable: true);
+        var result = new AiCompletionResult("moss\nember", InputTokens: 1000, OutputTokens: 200, ModelId: "gpt-5-mini", IsAvailable: true);
 
-        // (1000 * 0.15 + 200 * 0.60) / 1e6 = (150 + 120) / 1e6 = 0.00027
-        Assert.Equal(0.00027m, AiCostEstimator.EstimateUsd(result, options));
+        // (1000 * 0.25 + 200 * 2.00) / 1e6 = (250 + 400) / 1e6 = 0.00065
+        Assert.Equal(0.00065m, AiCostEstimator.EstimateUsd(result, options));
     }
 }
