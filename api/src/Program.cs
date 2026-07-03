@@ -480,6 +480,12 @@ else
 // the subscription lifecycle lease math (AC-08). A singleton over the stores + options.
 builder.Services.AddSingleton<StripeWebhookHandler>();
 
+// billing-entitlements/04 (#73): the product -> capability-bundle map (the family plan
+// + add-on packs + the goodwill tip), the server-side lookup BillingController uses so
+// the client only ever sends a product id, never capability keys. A singleton - the map
+// is fixed after construction (price ids resolved from StripeOptions).
+builder.Services.AddSingleton<IProductCatalog, ProductCatalog>();
+
 // accounts-identity/02 (lightweight purchaser account, #68): the purchaser-account
 // store, chosen at STARTUP by whether a storage connection string is configured -
 // EXACTLY the config-presence idiom of the telemetry sink / published-tale store

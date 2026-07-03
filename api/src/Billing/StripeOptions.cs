@@ -40,11 +40,28 @@ public sealed class StripeOptions
     public string PublishableKey { get; set; } = string.Empty;
 
     /// <summary>
+    /// The web app's base URL, used to build the Stripe checkout success/cancel
+    /// redirect URLs (billing-entitlements/04). Supplied per-environment (defaults to
+    /// the local Vite dev origin) - not a secret. NEVER a VITE_* var (this is the
+    /// server building a redirect target).
+    /// </summary>
+    public string ClientBaseUrl { get; set; } = "http://localhost:5173";
+
+    /// <summary>
     /// The dunning grace window (days) a past_due subscription's lease is EXTENDED by
     /// rather than expired (ADR 0002 Decision D, AC-08) - a failed card must not lock a
     /// family mid-ride. Defaults to 7.
     /// </summary>
     public int PastDueGraceDays { get; set; } = 7;
+
+    /// <summary>
+    /// Stripe price ids keyed by product id (billing-entitlements/04): e.g.
+    /// "family-plan", "pack.spooky", "tip". Supplied per-environment from config /
+    /// Key Vault (a price id is not a secret, but it is environment-specific). A
+    /// product with no configured price id is simply not purchasable yet, so the app
+    /// runs with zero Stripe setup. Empty by default.
+    /// </summary>
+    public Dictionary<string, string> PriceIds { get; set; } = new();
 
     /// <summary>True when a Stripe secret key is configured - the real billing path is live.</summary>
     public bool IsConfigured => !string.IsNullOrWhiteSpace(SecretKey);
