@@ -155,12 +155,15 @@ public sealed class ContentSafetyFilter : IContentSafetyFilter
             return false;
         }
 
-        // Known baseline gap (CLAUDE.md section 7 - solid, not exhaustive):
-        // profanity fused inside a longer single token ("fuckface", "dumbass") is
-        // NOT caught, because catching every compound via substring would
-        // re-introduce the Scunthorpe false positives above. Standalone and
-        // obfuscated forms ARE caught; fuller compound / AI moderation is parked
-        // in the backlog (README section 12).
+        // Compound / fused profanity (CLAUDE.md section 7 - solid, not exhaustive):
+        // a bad word fused inside a longer single token ("shithead", "dumbass") is
+        // caught ONLY when that whole compound is itself listed in blocklist.txt (a
+        // curated set IS - see its "Compound / fused profanity" section, matched by
+        // pass 1's exact-token equality above). We deliberately still do NOT
+        // substring-scan to catch ARBITRARY compounds, because that re-introduces the
+        // Scunthorpe false positives above - even "shit" and "cunt" have innocent
+        // hosts ("shiitake", "Scunthorpe"). Broad generative coverage of unlisted
+        // compounds is the parked AI-moderation work (README section 12).
         return true;
     }
 
