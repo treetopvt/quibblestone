@@ -1,6 +1,6 @@
 # Story: Wire the "+ invite" roster slot to the share action
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
 
 ## Context
 The fit-to-viewport de-clutter (`design-system/05`) replaced the Lobby's
@@ -22,35 +22,35 @@ story reuses), and
 (which introduced the slot as a static placeholder).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I am on the Lobby roster row, when I tap the "+ invite"
+- [x] AC-01: Given I am on the Lobby roster row, when I tap the "+ invite"
       slot, then the SAME invite action the `ShareWidget`'s "Share" button
       performs runs: the Web Share API opens with the room's `/join/:code`
       deep link (built by `joinLink.ts`'s `buildJoinLink`, the same payload as
       story 06's Share button) when `navigator.share` is available.
-- [ ] AC-02: Given the Web Share API is unavailable on the current browser
+- [x] AC-02: Given the Web Share API is unavailable on the current browser
       (story 04 AC-04's fallback case), when I tap the "+ invite" slot, then
       the deep link is copied to the clipboard instead (the same payload the
       "Copy" button produces) and the slot briefly reflects a "Copied!"-style
       confirmation, mirroring the widget's own confirmation timer - no dead
       tap and no JS error either way.
-- [ ] AC-03: Given the invite action is triggered from either the "+ invite"
+- [x] AC-03: Given the invite action is triggered from either the "+ invite"
       slot or the `ShareWidget`'s own Copy/Share buttons, then the underlying
       copy/share logic is NOT duplicated - both call the same shared
       function(s), so there is exactly one canonical invite action in the
       codebase (the current per-widget closures move to a shared helper the
       slot and the widget both call).
-- [ ] AC-04: Given any player in the room (not only the host), when they tap
+- [x] AC-04: Given any player in the room (not only the host), when they tap
       the "+ invite" slot, then the same invite action runs for them too - the
       slot is not host-gated, matching the fact that the room code itself is
       already visible to every player on this screen (there is nothing
       host-only being exposed).
-- [ ] AC-05: Given the "+ invite" slot now performs an action, then it exposes
+- [x] AC-05: Given the "+ invite" slot now performs an action, then it exposes
       a proper `button` semantics (a real `button`/`role="button"` element,
       `aria-label` such as "Invite someone to this room", and a visible
       focus/pressed state) rather than a bare decorative `div`, consistent
       with the rest of the Lobby's tappable rows (e.g. the "Game settings"
       row).
-- [ ] AC-06 (child safety / privacy, README section 6): the invite action
+- [x] AC-06 (child safety / privacy, README section 6): the invite action
       carries only the anonymous room code / join link - no nickname, no
       free text, no PII - identical to story 06 AC-07's link contents, so
       there is nothing new here for the safety filter to check; this story
@@ -108,10 +108,11 @@ story reuses), and
 |---|---|
 | AC-01 | manual: on a device/browser with Web Share support, tap "+ invite"; confirm the native share sheet opens with the same `/join/<code>` link the widget's own Share button produces |
 | AC-02 | manual (desktop browser without Web Share): tap "+ invite"; confirm the link lands on the clipboard (paste to verify) and a brief confirmation shows, with no console error |
-| AC-03 | code review: `InviteSlot` and `ShareWidget` both call the same exported helper/hook - no second `navigator.clipboard`/`navigator.share` call site |
+| AC-03 | code review (done): `InviteSlot` and `ShareWidget` (`web/src/pages/Lobby.tsx`) both call the same `useRoomInvite(code)` hook (`web/src/pages/useRoomInvite.ts`) - no second `navigator.clipboard`/`navigator.share` call site anywhere in the codebase |
 | AC-04 | manual: as a non-host player in the room, tap "+ invite"; confirm the same behavior as AC-01/AC-02 (no host-only gate) |
-| AC-05 | manual + code review: the slot is a real `button` (keyboard-focusable, visible focus ring) with an `aria-label`, not a non-interactive `div` |
-| AC-06 | code review: the shared invite helper's payload is unchanged from story 06 (room code / join link only, no PII) |
+| AC-05 | manual + code review (done): the slot is a real `Box component="button" type="button"` (keyboard-focusable, visible `:focus-visible` ring) with `aria-label="Invite another player"`, not a non-interactive `div` |
+| AC-06 | code review (done): `useRoomInvite`'s payload is unchanged from story 06 (room code / join link only, no PII) |
+| Vitest | `web/src/pages/useRoomInvite.test.ts` covers `resolveOrigin`'s pure origin-selection logic (the `VITE_PUBLIC_BASE_URL` override vs. `window.location.origin` vs. the no-`window` fallback, AC-06); the stateful `copy`/`share`/`copied`-timer behavior has no render harness in this repo yet (CLAUDE.md section 9) and is covered by the manual passes above |
 
 ## Dependencies
 - session-engine/04-copy-share-room-code (the Copy/Share plumbing this story

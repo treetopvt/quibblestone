@@ -32,7 +32,7 @@ reconnect + rejoin" (Open/near-done).
 | 08 | #142 | Rejoin: reclaim your seat and resume the round | Complete |
 | 09 | #143 | Web: remember this seat and rejoin automatically | Complete |
 | 10 | #144 | Web: resume the live screen, don't bounce Home | Complete |
-| 11 | TBD | Wire the "+ invite" roster slot to the share action | Not Started |
+| 11 | TBD | Wire the "+ invite" roster slot to the share action | Complete |
 
 ## Dependencies
 - platform-devops (the real-time backbone must be deployable and reachable).

@@ -8,6 +8,12 @@
 //  screen simply reacts - so newcomers appear and departed players' tiles revert
 //  to empty slots in near-real-time (AC-02, AC-04) without any polling here.
 //
+//  session-engine/11: the trailing "+ invite" roster slot (`InviteSlot`, below)
+//  is no longer decorative - tapping it triggers the SAME invite action as the
+//  stone-tablet `ShareWidget`'s own Copy/Share buttons, via the shared
+//  `useRoomInvite` hook (./useRoomInvite.ts). Any player may tap it (not
+//  host-gated - the room code is already visible to everyone here).
+//
 //  FIT-TO-VIEWPORT REDESIGN (screen de-clutter, 2026-07): the previous layout
 //  stacked the family-safe toggle, story-length choice, and mode picker inline
 //  in a scrollable area, and drew all MAX_PLAYERS seats as a grid (present
@@ -133,9 +139,9 @@ import type { LengthPreference } from '../content/length';
 import { seedLibrary } from '../content/seedLibrary';
 import type { Player, RoomState, StartRoundResult } from '../signalr/useGameHub';
 import { FavoritesList } from './Favorites';
-import { buildJoinLink } from './joinLink';
 import { ModePicker } from './ModePicker';
 import { DEFAULT_GROUP_MODE, GROUP_MODES, type GameMode } from './modeRegistry';
+import { useRoomInvite } from './useRoomInvite';
 
 // Room capacity for Slice 1: the roster tops out at six carvers (AC-01). The
 // live count chip still reads "{n} of {MAX_PLAYERS}" even though the redesign
@@ -145,10 +151,6 @@ const MAX_PLAYERS = 6;
 // How long the "[Name] pulled up a stone" toast stays on screen (AC-02): matches
 // the qsToastIn animation duration so it slides out exactly as it is removed.
 const TOAST_DURATION_MS = 2600;
-
-// How long the "Copy" button shows its teal-check "Copied!" confirmation
-// before reverting (session-engine/04 AC-02) - matches the design spec's ~1.8s.
-const COPIED_CONFIRMATION_MS = 1800;
 
 export interface LobbyProps {
   /** The current room (code + live roster). Roster updates flow in via the hook's RosterChanged handler. */
@@ -409,20 +411,54 @@ function ReconnectingChip() {
 }
 
 /**
- * The trailing "+ invite" slot (AC-03, redesigned): previously the roster grid
- * pre-drew one dashed "waiting..." placeholder PER remaining seat (up to
- * MAX_PLAYERS). The fit-to-viewport redesign draws exactly ONE of these,
- * trailing the single row of present players, since the point - "there is
- * still room, go invite someone" - does not need repeating per empty seat and
- * five near-duplicate placeholders were most of the old scroll height. Same
- * dashed-circle + purple-pulsing-border language as a held (disconnected)
- * seat, just with a "+" glyph and "invite" caption instead of dots.
+ * The trailing "+ invite" slot (session-engine/11: wired to the SAME invite
+ * action `ShareWidget`'s Copy/Share buttons trigger, via the shared
+ * `useRoomInvite` hook - see ./useRoomInvite.ts). Previously (design-system/05)
+ * this was a purely decorative dashed circle with no `onClick`: the roster grid
+ * used to pre-draw one dashed "waiting..." placeholder PER remaining seat (up
+ * to MAX_PLAYERS), and the fit-to-viewport redesign collapsed that down to
+ * exactly ONE trailing slot, but left it inert. Now tapping it DOES the thing
+ * its label promises (AC-01/AC-02): Share-first when the Web Share API is
+ * available (the single highest-value tap for a big "+ invite" affordance),
+ * falling back to Copy-plus-a-brief-local-confirmation otherwise - mirroring
+ * the widget's own Share-first, Copy-fallback posture rather than a third UX
+ * pattern. AC-03: this slot owns NO copy/share logic of its own - it only
+ * calls the one shared hook, so there is exactly one invite code path in the
+ * codebase.
+ *
+ * Not host-gated (AC-04): every player in the room already sees the room code
+ * on this same screen, so there is nothing host-only being exposed here - any
+ * player may tap invite.
+ *
+ * A real `<button type="button">` (not the old non-interactive `Stack`/`Box`)
+ * so it gets proper button semantics: keyboard-focusable, a visible
+ * `:focus-visible` outline, and an `aria-label` (AC-05) - matching the pattern
+ * already used by the "Game settings" row below in this same file. The
+ * dashed-circle + "+" glyph + "invite" caption visual (design-system/05) is
+ * unchanged; only behavior was added.
  */
-function InviteSlot() {
+function InviteSlot({ code }: { code: string }) {
   const theme = useTheme();
+  const { canShare, copied, copy, share } = useRoomInvite(code);
+
+  const handleTap = () => {
+    // Share-first when available (AC-01), Copy-fallback otherwise (AC-02) -
+    // the SAME behavior split as ShareWidget's two buttons, just collapsed
+    // onto this slot's single tap target.
+    if (canShare) {
+      void share();
+    } else {
+      void copy();
+    }
+  };
+
   return (
     <Stack alignItems="center" spacing={0.75} sx={{ flexShrink: 0 }}>
       <Box
+        component="button"
+        type="button"
+        onClick={handleTap}
+        aria-label="Invite another player"
         sx={{
           width: 60,
           height: 60,
@@ -433,12 +469,25 @@ function InviteSlot() {
           alignItems: 'center',
           justifyContent: 'center',
           color: theme.palette.stoneEdge.main,
+          cursor: 'pointer',
+          p: 0,
+          fontFamily: 'inherit',
           '--qs-pulse-from': alpha(theme.palette.stoneEdge.main, 0.4),
           '--qs-pulse-to': alpha(theme.palette.primary.main, 0.5),
           animation: `${borderPulse} 2.6s ease-in-out infinite`,
+          '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
         }}
       >
-        <FontAwesomeIcon icon="plus" style={{ width: 18, height: 18 }} />
+        {/* A light local confirmation (a brief check-glyph swap) when Share is
+            unavailable and the fallback Copy just ran - this slot is a small
+            circle, so a check icon reads better here than swapping the caption
+            text, but it mirrors the SAME `copied` timer ShareWidget's own
+            "Copied!" confirmation uses (AC-02). */}
+        {copied ? (
+          <FontAwesomeIcon icon="check" style={{ width: 18, height: 18, color: theme.palette.teal.main }} />
+        ) : (
+          <FontAwesomeIcon icon="plus" style={{ width: 18, height: 18 }} />
+        )}
       </Box>
       <Typography
         sx={{
@@ -448,7 +497,7 @@ function InviteSlot() {
           color: 'text.secondary',
         }}
       >
-        invite
+        {copied ? 'copied!' : 'invite'}
       </Typography>
     </Stack>
   );
@@ -475,77 +524,18 @@ function InviteSlot() {
  * that the round-setup controls live in the settings sheet.) All Copy/Share
  * behavior (the deep-link payload, the "Copied!" confirmation timer, the Web
  * Share feature-detect) is unchanged.
+ *
+ * session-engine/11: the Copy/Share closures, the `joinLink` build, the
+ * `canShare` feature-detect, and the `copied` confirmation timer all now live
+ * in the shared `useRoomInvite` hook (./useRoomInvite.ts) - this widget and the
+ * roster's "+ invite" slot (`InviteSlot`, above) both call it, so there is
+ * exactly one invite code path (AC-03). Nothing about the widget's OWN
+ * behavior changed: same payload, same ~1.8s confirmation, same hidden-when-
+ * unavailable Share button.
  */
 function ShareWidget({ code }: { code: string }) {
   const theme = useTheme();
-
-  // The link's base (AC-06): prefer an explicit VITE_PUBLIC_BASE_URL override
-  // when set and non-empty, otherwise the running app's own origin. Guarded
-  // for SSR / a non-browser environment (no `window`) - falls back to an empty
-  // origin rather than throwing, which still yields a coherent (if relative)
-  // `/join/<code>` path.
-  const configuredBase = import.meta.env.VITE_PUBLIC_BASE_URL;
-  const origin =
-    configuredBase && configuredBase.length > 0
-      ? configuredBase
-      : typeof window !== 'undefined'
-        ? window.location.origin
-        : '';
-  const joinLink = buildJoinLink(code, origin);
-
-  // "Copied!" confirmation (AC-02): local state only, reverts after
-  // COPIED_CONFIRMATION_MS. The timer is cleared on unmount so we never call
-  // setState after the component is gone.
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    };
-  }, []);
-
-  const handleCopy = async () => {
-    // Guard clipboard availability gracefully (e.g. insecure context / an
-    // older browser) - never throw, just skip the confirmation.
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
-    try {
-      // session-engine/06 AC-04/AC-05: copy the tappable deep link, not the
-      // bare code - this path is independent of Web Share availability, so it
-      // still yields the full link with no error when Share is hidden below.
-      await navigator.clipboard.writeText(joinLink);
-      setCopied(true);
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-      copiedTimer.current = setTimeout(() => setCopied(false), COPIED_CONFIRMATION_MS);
-    } catch {
-      // Clipboard permission denied or unavailable - fail silently, no error surfaced.
-    }
-  };
-
-  // Feature-detect the Web Share API once (it does not change over the
-  // component's lifetime) - AC-04: hide the Share button entirely when it is
-  // not available (e.g. desktop Chrome) rather than showing a dead button.
-  const [canShare] = useState(
-    () => typeof navigator !== 'undefined' && typeof navigator.share === 'function',
-  );
-
-  const handleShare = async () => {
-    if (!canShare) return;
-    try {
-      // session-engine/06 AC-01: the tappable deep link travels in `url`
-      // alongside the human-readable `text` (still naming the bare code, so
-      // a channel that drops `url` - e.g. some SMS clients - still shows a
-      // readable message), so the recipient can just tap through.
-      await navigator.share({
-        title: 'QuibbleStone',
-        text: `Join my QuibbleStone game! Room code: ${code}`,
-        url: joinLink,
-      });
-    } catch {
-      // A user-cancelled share (AbortError) or any other rejection should
-      // never surface as an unhandled error or noisy console log.
-    }
-  };
+  const { canShare, copied, copy, share } = useRoomInvite(code);
 
   return (
     <Box
@@ -599,7 +589,7 @@ function ShareWidget({ code }: { code: string }) {
       <Stack direction="row" spacing={1.25} sx={{ mt: 3 }}>
         <Button
           variant="outlined"
-          onClick={handleCopy}
+          onClick={() => void copy()}
           sx={{ flex: 1, height: 48, fontSize: 15, gap: 1 }}
         >
           {copied ? (
@@ -614,7 +604,7 @@ function ShareWidget({ code }: { code: string }) {
         {canShare && (
           <Button
             variant="sharePurple"
-            onClick={handleShare}
+            onClick={() => void share()}
             sx={{ flex: 1, height: 48, fontSize: 15, gap: 1 }}
           >
             <FontAwesomeIcon icon="share-nodes" style={{ width: 16, height: 16 }} />
@@ -910,7 +900,7 @@ export function Lobby({
                 crowned={!!crownedNickname && player.nickname === crownedNickname}
               />
             ))}
-            <InviteSlot />
+            <InviteSlot code={room.code} />
           </Stack>
         </Box>
 

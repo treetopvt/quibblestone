@@ -17,11 +17,11 @@
 //      are gone. "Play solo" is promoted to its own full-width pill (a way to
 //      START playing, so it stays visually distinct from the CTAs above it).
 //      Favorites / Our tales / Account collapse into a single-row, 5-column
-//      icon utility bar, which also makes room for two DISABLED entries that
-//      do not have destinations yet: "Get more" (future storefront, gold
-//      tint) and "Support" (future tip jar, coral tint) - both render
-//      visually present (so the bar reads as "more is coming") but are
-//      inert: no onClick, reduced opacity, `aria-disabled`.
+//      icon utility bar, which also makes room for two more entries: "Get
+//      more" (storefront/paywall, gold tint) and "Support" (tip jar, coral
+//      tint). Both now open real destinations (billing-entitlements shipped
+//      `/get-more` and `/support`) and render as fully-enabled, tappable
+//      chips - same affordance as the other three.
 //    - Vertical rhythm is distributed with flex (`justifyContent:
 //      'space-between'` on the outer column, `mt: 'auto'` on the action
 //      block) so the hero can be generous while the CTAs + utility bar still
@@ -57,9 +57,12 @@
 //      onFavorites / onGallery / onAccount respectively - also not gated by
 //      `disabled`, since all three are device-local surfaces (favorites list,
 //      IndexedDB gallery, purchaser restore) that need no hub connection.
-//    - "Get more" and "Support" have no handlers yet (no story/prop exists
-//      for either) - they are intentionally inert placeholders, not wired to
-//      anything, per this pass's scope.
+//    - "Get more" opens the storefront/paywall via onGetMore (App wires this
+//      to the /get-more route, billing-entitlements/04). "Support" opens the
+//      tip jar via onSupport (App wires this to /support,
+//      billing-entitlements/02). Neither is gated by `disabled` - browsing
+//      what is on offer or leaving a tip needs no hub connection, same
+//      reasoning as Favorites / Our tales / Account above.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------

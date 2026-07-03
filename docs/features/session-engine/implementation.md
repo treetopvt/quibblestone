@@ -65,8 +65,8 @@ serial (the hub signature is the contract; there is no codegen step).
 | 11 invite-slot-action | TBD | edits `web/src/pages/Lobby.tsx` (`InviteSlot` gains an `onClick`; `ShareWidget`'s Copy/Share closures are lifted into a shared helper/hook both call) | se/04, se/06, design-system/05 | - | 10 | low |
 
 **Concurrency per wave:** 1 at every wave. The chain is `01 -> 02 -> 05 -> 03 -> 04 -> 06` (all shipped), then the
-reconnect hardening chain `07 -> 08 -> 09 -> 10`, then the standalone follow-on `11` (web-only, no hub change,
-edits the same `Lobby.tsx` as 04/06/10 so it runs after them rather than concurrently). Reason: 01/02/05/03 all edit `GameHub.cs` +
+reconnect hardening chain `07 -> 08 -> 09 -> 10` (all shipped), then the standalone follow-on `11` (shipped - web-only,
+no hub change, edits the same `Lobby.tsx` as 04/06/10 so it runs after them rather than concurrently). Reason: 01/02/05/03 all edit `GameHub.cs` +
 `useGameHub.ts` (the contract grows story by story); 05 and 02 share `Join.tsx`; 03 and 04 share `Lobby.tsx`; 07 and
 08 both edit `Room.cs` + `GameHub.cs` (08's `Rejoin` spends the token/grace-state 07 mints); 09 and 10 both edit
 `useGameHub.ts`-adjacent web surface (09 the hook, 10 the routing + roster tile that CONSUMES what 09 exposes).
@@ -230,17 +230,20 @@ fanning out waves 6-7.
   only its remaining blanks. Out of scope: any change to the reconnect MECHANICS (07-09 own those), host-migration
   UI, a persistent connection-quality indicator beyond the roster tile.
 
-### 11 - Wire the "+ invite" roster slot to the share action
-- **Approach:** the "+ invite" slot (`design-system/05`) is currently a decorative, non-interactive dashed circle.
-  Lift `ShareWidget`'s Copy/Share closures (`handleCopy`, `handleShare`, the `joinLink` build, the `canShare`
-  feature-detect, the `copied` confirmation state) out into a shared helper/hook both `ShareWidget` and `InviteSlot`
-  call, then give `InviteSlot` a real `button` element with an `onClick` that invokes it: Share-first when
-  `navigator.share` is available, Copy-plus-brief-confirmation fallback otherwise (mirroring the widget's own
-  posture). No hub/API change - this is the same client-side-only surface as stories 04/06.
-- **Owns / exports:** the shared invite-action helper (e.g. `useInviteAction(code)`) that both the widget and the
-  slot call; nothing new for other features to consume.
+### 11 - Wire the "+ invite" roster slot to the share action (shipped)
+- **Approach:** the "+ invite" slot (`design-system/05`) was a decorative, non-interactive dashed circle.
+  `ShareWidget`'s Copy/Share closures (`handleCopy`, `handleShare`, the `joinLink` build, the `canShare`
+  feature-detect, the `copied` confirmation state) were lifted into a new shared hook,
+  `web/src/pages/useRoomInvite.ts`'s `useRoomInvite(code)`, that both `ShareWidget` and `InviteSlot` now call.
+  `InviteSlot` became a real `Box component="button" type="button"` with an `onClick` that invokes it: Share-first
+  when `navigator.share` is available, Copy-plus-brief-confirmation fallback otherwise (mirroring the widget's own
+  posture - the slot swaps its "+" glyph for a check + "copied!" caption while `copied` is true). No hub/API
+  change - this is the same client-side-only surface as stories 04/06.
+- **Owns / exports:** `useRoomInvite(code)` (`web/src/pages/useRoomInvite.ts`) - the shared invite-action hook both
+  the widget and the slot call; nothing new for other features to consume. Its `resolveOrigin` helper is exported
+  and covered by `useRoomInvite.test.ts` (Vitest, node env - the one pure decision in an otherwise-stateful hook).
 - **Gotchas:** do not fork the copy/share logic into a second implementation (AC-03) - this is the whole point of
-  the story. Keep story 04's feature-detection posture (`typeof navigator.share === 'function'`; never gate on
+  the story. Keeps story 04's feature-detection posture (`typeof navigator.share === 'function'`; never gated on
   `navigator.canShare()`). Not host-gated (AC-04) - the room code is already visible to everyone on this screen. Out
   of scope: changing the share payload/wording (04/06 own that), a QR code, or any visual redesign of the slot.
 
