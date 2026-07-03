@@ -1,6 +1,6 @@
 # Story: Cloud-synced, browsable gallery for purchasers
 
-**Feature:** Keepsake Gallery  ·  **Status:** In Progress  ·  **Issue:** #154
+**Feature:** Keepsake Gallery  ·  **Status:** Complete  ·  **Issue:** #154
 
 ## Context
 Story 03's "Tales we've carved" gallery is device-local and anonymous by
@@ -23,7 +23,7 @@ This story is **GATED**: it cannot start until `accounts-identity/02`
 inventing its own check.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in purchaser (accounts-identity/02) has tales in
+- [x] AC-01: Given a signed-in purchaser (accounts-identity/02) has tales in
       their device-local gallery (story 03) and uploads them to the cloud from
       the signed-in Account area, when they sign in on a second device, then the
       same tales appear in their cloud gallery there too - the gallery is keyed
@@ -34,19 +34,19 @@ inventing its own check.
       auth-boundary invariant established by accounts-identity/03. The outcome -
       tales follow the purchaser across devices - is unchanged; only the trigger
       is an explicit sync. See Decisions at pickup below.)
-- [ ] AC-02: Given a player has never signed in as a purchaser (the common,
+- [x] AC-02: Given a player has never signed in as a purchaser (the common,
       anonymous case), when they save tales, then those tales stay in the
       device-local gallery from story 03 only - no cloud gallery is created,
       offered, or implied for them; anonymous players never get a cloud
       gallery, full stop (README section 6 - minimal data on minors; mirrors
       accounts-identity/01's "anonymous, forever" contract).
-- [ ] AC-03: Given a purchaser's cloud gallery, then they can browse it beyond
+- [x] AC-03: Given a purchaser's cloud gallery, then they can browse it beyond
       a simple recency list: search by title or byline name, and filter/sort
       (e.g. most-liked, once `the-reveal`'s reaction counts exist, or by
       date/session) - the access pattern this story exists to add, which
       `keepsake-gallery/03`'s local list and `04`'s single-slug lookup do not
       need to support.
-- [ ] AC-04 (entitlement): Given a signed-in purchaser opens the cloud gallery,
+- [x] AC-04 (entitlement): Given a signed-in purchaser opens the cloud gallery,
       then whether cloud sync is available is decided once, when the signed-in
       gallery surface is entered (the authenticated gallery-load call), by reading
       the `billing-entitlements/01` seam (`IEntitlementService.EvaluateForSession`)
@@ -61,13 +61,13 @@ inventing its own check.
       without a valid purchaser credential). The seam is still read against the
       catalog key so real gating can later flip it to a stored grant with no
       consumer refactor (mirrors `ai-cost-gate/02`'s default-unlocked posture).
-- [ ] AC-05 (child-safety): Given any tale synced to or browsed in the cloud
+- [x] AC-05 (child-safety): Given any tale synced to or browsed in the cloud
       gallery, then it is the same already-filtered content story 01 already
       produced (no new free-text entry point), and the only identity attached
       to a synced tale is the in-session nickname(s) + Guardian variant(s) -
       never a real name, email, or other PII from the purchaser account leaks
       onto a tale a child might see.
-- [ ] AC-06: Given a purchaser deletes their account or revokes cloud sync,
+- [x] AC-06: Given a purchaser deletes their account or revokes cloud sync,
       then their cloud-stored tales are removed within a bounded, documented
       window - consistent with "most data is mutable, nothing here is a
       system of record" (README section 4).
@@ -165,6 +165,28 @@ made - do not silently default to "just add another Table."
   is a purchaser-account-scoped read/write surface, entirely separate from
   session/round state, following the same isolation precedent
   `keepsake-gallery/04` set for its own server surface.
+
+## Implementation record (2026-07-03)
+Shipped in PR #157 (issue #154). All ACs met, reviewed clean (0 critical), CI green.
+- **API (`api/src/CloudGallery/`):** an owner-scoped, bearer-credential-authenticated
+  store + controller (`api/account/gallery` - GET list, POST save, DELETE one, DELETE
+  revoke-all), isolated from `GameHub`/`Rooms`, auth mirrored from `EntitlementsController`.
+  Owner key derived server-side (`AccountIdentity.KeyFor(account.Email)`), never from the
+  request body (AC-05, IDOR-safe). Server-side re-vet of every part + byline on save
+  (AC-05). Azure Table Storage (owner-partitioned) per the datastore decision, with a
+  working in-memory fallback; revoke-all is fail-loud (AC-06). `gallery.cloudSync` added
+  to the default-unlocked baseline, evaluated once on gallery-load (AC-04).
+- **Web:** `cloudGalleryClient.ts`; `localGallery.ts` extended to persist flattened
+  display parts + a `cloudTaleId` sync stamp (dedupe, AC-01); `CloudGallery.tsx` renders
+  inside Account's signed-in state only (AC-02) with browse/search/sort (AC-03), consented
+  upload, per-tale delete, and revoke-all (AC-06). The reveal flow stays credential-blind.
+- **Enabler:** an app-wide in-memory `PurchaserSession` (accounts-identity/03, #69) so
+  sign-in persists across navigation - without it, returning to the gallery forced a fresh
+  sign-in every time. In-memory only (never persisted).
+- **Verified:** the full signed-in flow end-to-end (sign-in -> list -> save -> re-vet
+  reject -> delete -> revoke), sign-in persistence, empty state, and the AC-02 boundary.
+- **Not migrated (as scoped):** existing device-local (story 03) tales saved before this
+  work lack the text parts, so they are not uploadable - a documented, non-required gap.
 
 ## Tests
 | AC | Test |

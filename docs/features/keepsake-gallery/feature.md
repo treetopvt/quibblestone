@@ -24,7 +24,7 @@ mirrors for sharing the image).
 | 02 | #64 | Share the tale with watermark | Complete |
 | 03 | #65 | "Tales we've carved" local history | Complete |
 | 04 | #66 | Shareable tale link (the back-link growth loop) | Complete |
-| 05 | #154 | Cloud-synced, browsable gallery for purchasers | In Progress |
+| 05 | #154 | Cloud-synced, browsable gallery for purchasers | Complete |
 
 ## Dependencies
 - the-reveal (the assembled story + stone-tablet rendering this feature
