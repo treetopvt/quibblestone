@@ -33,10 +33,10 @@ section 3 (top paid tier).
 | Story | Issue | Title | Status |
 |---|---|---|---|
 | 01 | TBD | Generate a template live from a player prompt (sketch - Phase 4) | Not Started |
-| 02 | #127 | [Live moderation gate](./02-live-moderation-gate.md) (buildable; jumble-scoped now) | Not Started |
+| 02 | #127 | [Live moderation gate](./02-live-moderation-gate.md) (jumble-scoped) | Complete |
 | 03 | TBD | AI "Guardian's Verdict" - optional playful funniest-pick judge (sketch - Phase 4) | Not Started |
 | 04 | TBD | Gate behind the ai.onDemand entitlement (sketch; see `ai-cost-gate/02`) | Not Started |
-| 05 | #126 | [Generate word-bank options on demand](./05-ai-word-bank-jumble.md) (buildable; the jumble backend) | Not Started |
+| 05 | #126 | [Generate word-bank options on demand](./05-ai-word-bank-jumble.md) (the jumble backend) | Complete |
 
 ## Dependencies
 - template-model (generated output conforms to the existing template schema -

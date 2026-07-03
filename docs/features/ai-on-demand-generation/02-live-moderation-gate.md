@@ -20,6 +20,14 @@
 > stays config-gated (AC-06). The flow is general enough for story 01's prompt/template payload
 > to extend rather than fork (AC-07). Heavier prompt/whole-template moderation remains story 01.
 
+> **Follow-up (2026-07-03, PR #149).** Family-safe OFF is now an intentional cheeky
+> grown-up mode, driven by the GENERATOR steering the prompt (`/05`) - NOT a change to
+> this moderation policy. AC-01's always-on hard gate (`IContentSafetyFilter`) still
+> drops profanity, slurs, and explicit terms regardless of the toggle; AC-02's stricter
+> family-safe layer still applies only when the toggle is ON. So "edgier" can only ever
+> mean blocklist-clean grown-up words, never unsafe output - the safety floor is
+> unchanged.
+
 ## Context
 Moderation IS the feature (feature.md Design notes; README section 6): live AI output
 to children is the highest-risk surface in the product, so the generated content must

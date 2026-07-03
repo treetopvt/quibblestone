@@ -63,7 +63,13 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   (`game-modes/07`) and, layered on top, an AI jumble (`ai-on-demand-generation/05` +
   moderation `/02`) that rides the gate (`feature=jumble`) and falls back to the free
   reshuffle whenever the gate degrades. The throwaway measurement probe was removed
-  once this real consumer landed.
+  once this real consumer landed. **Made live + enriched same day:** two gpt-5-mini
+  transport fixes (PR #146 `max_completion_tokens`, PR #148 `reasoning_effort=minimal`)
+  turned a silent always-fall-back into real words - VERIFIED on UAT (on-theme words +
+  a `feature=jumble` cost event in App Insights) - and PR #149 added a soft theme steer
+  (from the template's curated `tags.themes`, no story text sent), a cheeky grown-up
+  word set when family-safe is off (still behind the always-on profanity filter), and a
+  larger avoid-list.
 
 ## Open / near-done
 
@@ -156,21 +162,24 @@ session, not identity**.
 > **Shipped (2026-07-03).** The [`ai-cost-gate`](./features/ai-cost-gate/feature.md)
 > feature - all 6 stories (proxy, entitlement-at-session, quota/meter, spend
 > circuit-breaker + attribution, moderate-before-display, IaC seam) - is BUILT and
-> merged (PR #132 app code + #131 IaC). The gate exists but has no consumer yet.
-> **Next AI step:** the free reshuffle
-> [`game-modes/07`](./features/game-modes/07-word-bank-jumble.md) (no AI, ships first
-> as the always-safe fallback), then the AI jumble
+> merged (PR #132 app code + #131 IaC), and now has its **first live consumer**: the
+> Fresh Runes AI jumble
 > [`ai-on-demand-generation/05`](./features/ai-on-demand-generation/05-ai-word-bank-jumble.md)
 > + its moderation [`/02`](./features/ai-on-demand-generation/02-live-moderation-gate.md),
-> the first CONSUMER that proves the gate on the cheapest payload. Provider/model +
-> cost decisions: [ADR 0001](./adr/0001-ai-provider.md) (Azure AI Foundry; **gpt-5-mini**
+> on the free reshuffle surface
+> [`game-modes/07`](./features/game-modes/07-word-bank-jumble.md) (PR #140), proving the
+> gate on the cheapest payload. It is **verified working on UAT** (real gpt-5-mini words
+> + a `feature=jumble` attribution event) after two same-day transport fixes - PR #146
+> (`max_completion_tokens`) and PR #148 (`reasoning_effort=minimal`) - with PR #149
+> adding the theme steer + family-safe-off grown-up mode. Provider/model + cost
+> decisions: [ADR 0001](./adr/0001-ai-provider.md) (Azure AI Foundry; **gpt-5-mini**
 > after gpt-4o-mini was superseded by availability - see the ADR Update; in-app proxy,
 > existing filter now + Content Safety later, AI jumble free-for-all in alpha behind
 > quota + breaker). The cross-feature build order (gate foundation -> free jumble ->
 > AI jumble) is in
-> [`ai-cost-gate/implementation.md`](./features/ai-cost-gate/implementation.md). A
-> config-gated throwaway probe (`POST /api/ai/probe`) ships with the gate to measure
-> one real call (ADR 0001); it is removed when the AI jumble consumer lands.
+> [`ai-cost-gate/implementation.md`](./features/ai-cost-gate/implementation.md). The
+> config-gated throwaway probe (`POST /api/ai/probe`) that shipped with the gate to
+> measure one real call (ADR 0001) was removed once this AI jumble consumer landed.
 
 ## Recommended sequence
 
