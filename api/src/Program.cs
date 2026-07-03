@@ -27,6 +27,7 @@
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Content;
+using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
@@ -182,6 +183,18 @@ builder.Services.AddSingleton<GatedAiCompletionClient>();
 // state - there is no database (CLAUDE.md section 10); rooms live in memory for
 // the length of a play session and expire when idle (AC-05).
 builder.Services.AddSingleton<RoomRegistry>();
+
+// ai-cost-gate/02 (entitlement at session-creation, #121): the thin, #70-shaped,
+// DEFAULT-UNLOCKED entitlement seam. Registered here beside the room/session
+// domain services (NOT in the AI-cost-gate/01 pipeline block above, to keep this
+// edit off the lines the AI-pipeline builders touch). GameHub.CreateRoom evaluates
+// it EXACTLY ONCE per session and captures the result on the Room; nothing is
+// re-evaluated per AI call (AC-01). In alpha every reserved ai.* capability is
+// unlocked, so shipping this changes zero observed behavior (ADR 0001 decision C)
+// and the AI jumble stays reachable by every session. The real charging /
+// entitlement chain (billing-entitlements/01, #70) later SUBSUMES this SAME
+// contract without any consumer refactor. Singleton: the impl is stateless.
+builder.Services.AddSingleton<IEntitlementService, DefaultUnlockedEntitlementService>();
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
