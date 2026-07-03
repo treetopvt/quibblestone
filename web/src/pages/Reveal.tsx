@@ -37,6 +37,48 @@
 //  (AC-06) - unlike ShareWidget's Copy/Share pair, there is no separate Copy
 //  button here, so Share must always offer SOME action.
 //
+//  Share the IMAGE first (keepsake-gallery/02, AC-01/AC-02/AC-06): `handleShare`
+//  now PREFERS sharing the same watermarked tablet image `renderTabletImage()`
+//  produces (../gallery/renderTablet.ts - the SAME render `handleSaveImage`
+//  below already calls, never a second image derivation), wrapped in a `File`.
+//  A file payload is offered ONLY when `navigator.canShare({ files: [file] })`
+//  reports it is actually supported - this is the ONE place this screen gates
+//  on `canShare()`, deliberately: that predicate is unreliable for a plain
+//  TEXT/URL share (session-engine/04's note, which is why the fallback below
+//  still does NOT gate on it), but it is the correct, narrower feature-detect
+//  for a FILE payload specifically. When the browser cannot share files (or
+//  the render itself fails - AC guard), Share falls through to the EXISTING
+//  text-only path unchanged (title + storyText via `navigator.share`, then
+//  `copyTale()`), so the text-share fallback this screen already had keeps
+//  working exactly as before this story (AC-06). A user-cancelled AbortError
+//  is swallowed at either the image or text step, matching this screen's
+//  existing posture; any OTHER rejection falls through rather than leaving
+//  Share a silent no-op. The image-share step's actual "share this File,
+//  gracefully" logic (feature-detect, AbortError-swallow, never-throw) is
+//  EXTRACTED into ../gallery/shareImageFile.ts (keepsake-gallery/03) -
+//  Gallery.tsx's re-share action reuses the exact same helper, so there is
+//  one canonical file-share code path, not two.
+//
+//  Save as image (keepsake-gallery/01, AC-01): a LOW-KEY link (not a full-size
+//  Button) sits below the outlined "Share the tale" button - secondary weight,
+//  deliberately not competing with the gold "Play another round" CTA. On tap
+//  it renders the SAME tablet via `renderTabletImage()` (../gallery/renderTablet.ts,
+//  which itself reuses `buildRevealParts` - never a second text derivation)
+//  and triggers a client-side download; there is no server round-trip (AC-06).
+//  A `savingImage` flag disables re-taps and swaps the label to "Saving
+//  image..." while it renders (AC-03). The optional `saveImageByline` prop
+//  carries the SAME attribution text the caller already shows via
+//  `attribution` (when the caller has a plain-text form of it to give) - see
+//  its own doc comment below for why Reveal never derives a second byline
+//  format and why this prop is presently unwired from any caller.
+//
+//  Capture into the local gallery (keepsake-gallery/03, AC-01): the SAME blob
+//  `handleSaveImage` renders for the download is ALSO handed to `saveTale()`
+//  (../gallery/localGallery.ts) - one render, two outcomes (download + a new
+//  local-gallery entry), never a second render pass. `saveTale` swallows its
+//  own storage failures internally, so a gallery-write problem can never
+//  break the existing download (AC-06 posture preserved).
+//
 //  Narration bar (AC-07): rendered but INACTIVE in Slice 1 - the play button is
 //  disabled (a "coming soon" affordance) and the waveform bars are static (no
 //  animation). The real estate is reserved so Phase 3 can wire TTS with no
@@ -75,6 +117,9 @@ import { AppBar, BottomActionBar, BottomActionBarSpacer, FavoriteStarButton, Gua
 import type { GuardianVariant } from '../components';
 import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
+import { renderTabletImage } from '../gallery/renderTablet';
+import { saveTale } from '../gallery/localGallery';
+import { shareImageFile, slugifyTitle } from '../gallery/shareImageFile';
 import { buildRevealParts } from './revealParts';
 
 export interface RevealProps {
@@ -194,6 +239,53 @@ export interface RevealProps {
    * `taleFeedback`'s "never ask about a round twice" rule.
    */
   favorite?: { templateId: string; title: string };
+  /**
+   * Optional plain-text byline for the "Save as image" / "Share the tale"
+   * actions (keepsake-gallery/01 AC-02, wired by keepsake-gallery/02 PART C):
+   * rendered onto the saved/shared PNG as "carved by [names]", sourced from
+   * the SAME crew data the caller already shows elsewhere - never a second
+   * byline format invented by Reveal. Reveal stays ROOM-AGNOSTIC here too: it
+   * does not know about crews or solo, it only forwards this string (or omits
+   * the byline entirely, a still-valid image per AC-02) to
+   * `renderTabletImage()`.
+   *
+   * Wired by App.tsx's `GroupReveal` wrapper (`../gallery/byline.ts`'s
+   * `formatCrewByline`, built from the same `buildCrew` crew list the Round
+   * Complete recap already derives - "carved by Sam, Mia & Bo"). Solo.tsx
+   * deliberately OMITS this prop: solo collects no nickname at all (see
+   * Solo.tsx's own comment at its `<Reveal>` call), so there is no faithful
+   * byline string to give, not an oversight.
+   */
+  saveImageByline?: string;
+  /**
+   * Optional HOST-ONLY public-link share (keepsake-gallery/04, AC-01/AC-03/AC-07):
+   * when supplied, renders a low-key, OPT-IN "Share a public link" affordance below
+   * the "Save as image" link. Reveal stays ROOM-AGNOSTIC - it knows nothing about
+   * publishing, the hub, or storage; it only calls `publish` on tap and threads the
+   * returned `/t/<slug>` link into its EXISTING share payload (alongside the
+   * watermarked image, or as the whole share when file-share is unsupported). Once a
+   * link exists, a "Stop sharing this link" affordance calls `revoke` (AC-07).
+   * OMITTED for non-hosts and for solo (which has no crew / nickname byline) - the
+   * affordance is then simply absent, so publishing is never automatic (AC-03).
+   */
+  publicShare?: PublicShare;
+}
+
+/**
+ * The host-only public-link share slot on the Reveal (keepsake-gallery/04). See
+ * RevealProps.publicShare. Both callbacks are network actions the caller owns;
+ * Reveal only invokes them from an explicit host tap and never on its own.
+ */
+export interface PublicShare {
+  /**
+   * Publishes the current tale and resolves its public `/t/<slug>` URL, or `null`
+   * when publishing is unavailable / failed (Reveal then falls back to the plain
+   * image / text share, AC-01). Host-initiated and opt-in - only ever called from
+   * the affordance's tap.
+   */
+  publish: () => Promise<string | null>;
+  /** Revokes the last-published link so it stops resolving (AC-07). */
+  revoke: (url: string) => Promise<void>;
 }
 
 /**
@@ -472,6 +564,8 @@ export function Reveal({
   goldenGuardian,
   wordAttribution,
   favorite,
+  saveImageByline,
+  publicShare,
 }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
@@ -537,34 +631,176 @@ export function Reveal({
     () => typeof navigator !== 'undefined' && typeof navigator.share === 'function',
   );
 
-  // Copy the tale text as the always-available fallback for Share (AC-06 -
-  // the button must always DO something). Guards navigator/clipboard and
-  // swallows a denied-permission rejection.
-  const copyTale = async () => {
+  // Copy the tale as the always-available fallback for Share (AC-06 - the button
+  // must always DO something). Guards navigator/clipboard and swallows a
+  // denied-permission rejection. keepsake-gallery/04 (AC-01): when a public tale
+  // `link` exists, copy THAT (the whole point of the back-link is that the
+  // recipient can open it) rather than the raw story text.
+  const copyTale = async (link?: string) => {
     if (typeof navigator === 'undefined' || !navigator.clipboard) return;
     try {
-      await navigator.clipboard.writeText(assembled.storyText);
+      await navigator.clipboard.writeText(link !== undefined && link.length > 0 ? link : assembled.storyText);
     } catch {
       // Clipboard permission denied or unavailable - fail silently, no error surfaced.
     }
   };
 
-  const handleShare = async () => {
+
+  // The EXISTING text-only share path (session-engine/04 pattern): feature-detect
+  // `navigator.share`, swallow a user-cancelled AbortError, and fall back to
+  // clipboard when Web Share is unavailable or rejects for any other reason
+  // (AC-06's "no JS error ever thrown"). keepsake-gallery/04 (AC-01): an optional
+  // public tale `link` rides the SAME payload (Web Share `url` slot) when the host
+  // has published one - and when Web Share is unavailable, the link is copied
+  // instead of the story text so the recipient still gets the real back-link. With
+  // no link this is byte-for-byte the pre-04 text share.
+  const shareText = async (link?: string): Promise<void> => {
     if (canShare) {
       try {
-        await navigator.share({ title: assembled.title, text: assembled.storyText });
+        const payload: ShareData = { title: assembled.title, text: assembled.storyText };
+        if (link !== undefined && link.length > 0) payload.url = link;
+        await navigator.share(payload);
+        return;
       } catch (error) {
-        // A user cancellation (AbortError) is intentional - leave it be. Any
-        // OTHER rejection (non-secure context, unsupported payload, etc.) means
-        // the share never happened, so fall back to clipboard rather than leave
-        // the button a silent no-op (AC-06).
         if (error instanceof Error && error.name === 'AbortError') return;
-        await copyTale();
+        await copyTale(link);
+        return;
       }
-      return;
     }
-    // Web Share unavailable at all: copy the tale so Share stays actionable.
-    await copyTale();
+    await copyTale(link);
+  };
+
+  // keepsake-gallery/02 (AC-01/AC-06): try sharing the SAME watermarked
+  // tablet image handleSaveImage renders (never a second image derivation),
+  // wrapped in a File. Returns true once the share attempt is "handled" - a
+  // successful share OR a user cancellation (AbortError, swallowed exactly
+  // like the text-share path above) - so handleShare knows NOT to fall
+  // through to the text share in either of those cases. Returns false to
+  // signal "fall back to text share" when file sharing is unsupported, the
+  // render itself fails (AC guard: rendering must never break the button), or
+  // navigator.share rejects for any reason other than a cancellation.
+  //
+  // `navigator.canShare({ files: [file] })` is used HERE deliberately - the
+  // one narrow, correct use of that predicate on this screen (a FILE
+  // payload), unlike the plain text/URL share above and in session-engine/04,
+  // which must NOT gate on it (see this file's header comment).
+  const shareImage = async (link?: string): Promise<boolean> => {
+    // Quick feature-detect BEFORE rendering: no point paying the render cost
+    // when this browser cannot share files at all. The actual share-with-
+    // fallback logic (the real canShare-with-a-File check, the share call,
+    // the AbortError swallow) lives in the shared ../gallery/shareImageFile.ts
+    // helper (keepsake-gallery/03) - Gallery.tsx's re-share reuses the exact
+    // same function, so there is one canonical file-share code path.
+    // keepsake-gallery/04 (AC-01): an optional public tale `link` rides ALONGSIDE
+    // the image in the SAME payload when the host has published one.
+    if (typeof navigator === 'undefined' || typeof navigator.canShare !== 'function') return false;
+    try {
+      const blob = await renderTabletImage({ assembled, template, theme, byline: saveImageByline });
+      const file = new File([blob], `${slugifyTitle(assembled.title)}.png`, { type: 'image/png' });
+      return await shareImageFile({ file, title: assembled.title, text: assembled.storyText, url: link });
+    } catch {
+      return false;
+    }
+  };
+
+  // keepsake-gallery/02 (AC-01/AC-03/AC-06 style): a client-local "share is in
+  // flight" flag - disables re-taps while the image renders and the share
+  // sheet resolves, mirroring `savingImage` below. Never shared with the hub;
+  // purely a UI affordance.
+  const [sharingImage, setSharingImage] = useState(false);
+
+  const handleShare = async () => {
+    if (sharingImage) return;
+    setSharingImage(true);
+    try {
+      const shared = await shareImage();
+      if (shared) return;
+      // File sharing unsupported, or the image path failed/was rejected for a
+      // non-cancellation reason: fall back to the existing text share,
+      // exactly as before this story (AC-06 - it is never removed or forked).
+      await shareText();
+    } finally {
+      setSharingImage(false);
+    }
+  };
+
+  // keepsake-gallery/04 (AC-01/AC-03/AC-07): host-only public-link state. The
+  // last-published link (so the share payload and the revoke affordance can both
+  // reference it) and an "in flight" flag that disables re-taps while publishing +
+  // sharing resolve. Purely client-local UI - the publish/revoke network calls
+  // live in the caller-owned `publicShare` callbacks (Reveal stays room-agnostic).
+  const [publicLink, setPublicLink] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+
+  // keepsake-gallery/04 (AC-01/AC-03): host taps the OPT-IN "Share a public link"
+  // affordance. Publish the tale (server re-vets + mints the slug), then share the
+  // returned link in the SAME payload as the watermarked image - or, when file
+  // sharing is unsupported, the link ALONE is the share (text/url). If publishing
+  // is unavailable / fails, fall back to the plain image/text share so the tap is
+  // never a dead no-op. Reuses the EXISTING share plumbing (shareImage/shareText),
+  // never a second forked share flow.
+  const handleShareLink = async () => {
+    if (!publicShare || publishing || sharingImage) return;
+    setPublishing(true);
+    try {
+      const link = await publicShare.publish();
+      if (link !== null) setPublicLink(link);
+      const shared = await shareImage(link ?? undefined);
+      if (shared) return;
+      await shareText(link ?? undefined);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  // keepsake-gallery/04 (AC-07): stop sharing - revoke the published link so it
+  // stops resolving. Low-ceremony; clears the local link either way.
+  const handleRevokeLink = async () => {
+    if (!publicShare || publicLink === null || publishing) return;
+    setPublishing(true);
+    try {
+      await publicShare.revoke(publicLink);
+      setPublicLink(null);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  // keepsake-gallery/01 (AC-01/AC-03): a client-local "is the image rendering
+  // right now" flag - disables re-taps and swaps the label while renderTablet
+  // does its work. Never shared with the hub; purely a UI affordance.
+  const [savingImage, setSavingImage] = useState(false);
+
+  const handleSaveImage = async () => {
+    if (savingImage) return;
+    setSavingImage(true);
+    try {
+      const blob = await renderTabletImage({ assembled, template, theme, byline: saveImageByline });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${slugifyTitle(assembled.title)}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      // Revoke on the next tick, not synchronously: some browsers (notably
+      // Safari variants) abort the download if the object URL is revoked in the
+      // same turn as the click. The delay still frees the URL, just after the
+      // download has latched onto it (Copilot review, PR #130).
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      // keepsake-gallery/03 (AC-01): persist the SAME rendered blob to the
+      // local gallery so it shows up in "Tales we've carved" - fire-and-forget
+      // (saveTale swallows its own storage failures), so a gallery-write
+      // problem can never undo or block the download above, which has
+      // already completed by this point.
+      void saveTale({ title: assembled.title, image: blob, bylineNames: saveImageByline });
+    } catch {
+      // Rendering/download can fail (an unsupported canvas API, a blocked
+      // download) - fail quietly rather than surface an error UI in Slice 1,
+      // mirroring the Share button's own silent-failure posture above.
+    } finally {
+      setSavingImage(false);
+    }
   };
 
   return (
@@ -1031,10 +1267,89 @@ export function Reveal({
           variant="outlined"
           fullWidth
           onClick={handleShare}
+          disabled={sharingImage}
+          aria-busy={sharingImage}
           startIcon={<FontAwesomeIcon icon="share-nodes" style={{ width: 18, height: 18 }} />}
         >
-          Share the tale
+          {sharingImage ? 'Preparing to share...' : 'Share the tale'}
         </Button>
+        {/* Save as image (keepsake-gallery/01, AC-01): deliberately a low-key
+            Link, not a third full-width Button - it must read as secondary to
+            both the gold CTA and the outlined Share button above. Disabled
+            mid-render (AC-03) so a slow phone cannot queue up repeat taps. */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={handleSaveImage}
+            disabled={savingImage}
+            aria-busy={savingImage}
+            underline="none"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              fontFamily: '"Nunito", sans-serif',
+              fontWeight: 700,
+              fontSize: 13.5,
+              color: 'text.secondary',
+              opacity: savingImage ? 0.6 : 1,
+              cursor: savingImage ? 'default' : 'pointer',
+            }}
+          >
+            <FontAwesomeIcon icon="image" style={{ width: 14, height: 14 }} />
+            {savingImage ? 'Saving image...' : 'Save as image'}
+          </Link>
+        </Box>
+        {/* Share a public link (keepsake-gallery/04, AC-01/AC-03/AC-07): a low-key,
+            HOST-ONLY, OPT-IN affordance - only rendered when the caller supplies
+            `publicShare` (host in group play), so publishing is never automatic.
+            On tap it publishes the tale and shares the returned `/t/<slug>` link.
+            Once a link exists, a quiet "Stop sharing this link" revokes it (AC-07). */}
+        {publicShare && (
+          <Box sx={{ textAlign: 'center' }}>
+            <Link
+              component="button"
+              type="button"
+              onClick={handleShareLink}
+              disabled={publishing || sharingImage}
+              aria-busy={publishing}
+              underline="none"
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 1,
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 13.5,
+                color: 'text.secondary',
+                opacity: publishing ? 0.6 : 1,
+                cursor: publishing ? 'default' : 'pointer',
+              }}
+            >
+              <FontAwesomeIcon icon="link" style={{ width: 14, height: 14 }} />
+              {publishing ? 'Preparing link...' : publicLink ? 'Share the public link again' : 'Share a public link'}
+            </Link>
+            {publicLink && !publishing && (
+              <Box sx={{ mt: 0.5 }}>
+                <Link
+                  component="button"
+                  type="button"
+                  onClick={handleRevokeLink}
+                  underline="none"
+                  sx={{
+                    fontFamily: '"Nunito", sans-serif',
+                    fontWeight: 700,
+                    fontSize: 12.5,
+                    color: 'coral.main',
+                  }}
+                >
+                  Stop sharing this link
+                </Link>
+              </Box>
+            )}
+          </Box>
+        )}
         {exitAction && (
           <Box sx={{ textAlign: 'center' }}>
             <Link

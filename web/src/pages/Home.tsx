@@ -40,6 +40,13 @@
 //  gated by `disabled`: the Favorites list is device-local (../content/
 //  favorites.ts) and needs no hub connection to read or show.
 //
+//  Gallery entry (keepsake-gallery/03, ADDITIVE): a third clearly-secondary
+//  text link, "Tales we've carved" (a stacked-photos glyph + label), in the
+//  SAME tertiary treatment as "My favorites" - it calls onGallery. Also NOT
+//  gated by `disabled`: the local gallery (../gallery/localGallery.ts) is
+//  entirely device-local (IndexedDB) and needs no hub connection to read or
+//  show, exactly like Favorites above it.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -63,6 +70,12 @@ export interface HomeProps {
    * Deliberately NOT gated by `disabled` - favorites need no hub connection.
    */
   onFavorites: () => void;
+  /**
+   * Open the device-local "Tales we've carved" gallery (keepsake-gallery/03,
+   * AC-01). Deliberately NOT gated by `disabled` - the gallery needs no hub
+   * connection, exactly like `onFavorites` above.
+   */
+  onGallery: () => void;
   /** True while a create-room request is in flight - disables the CTA to avoid double-taps. */
   creating?: boolean;
   /** True until the real-time connection is ready - the CTAs need the hub to act. */
@@ -74,6 +87,7 @@ export function Home({
   onJoinGame,
   onPlaySolo,
   onFavorites,
+  onGallery,
   creating = false,
   disabled = false,
 }: HomeProps) {
@@ -340,6 +354,30 @@ export function Home({
           >
             <FontAwesomeIcon icon="star" style={{ width: 13, height: 13 }} />
             My favorites
+          </Link>
+        </Box>
+
+        {/* Gallery entry point (keepsake-gallery/03, AC-01): the SAME tertiary
+            text-link treatment as "My favorites" above - a stacked-photos
+            glyph + label. Not gated by `disabled` - the local gallery needs
+            no hub connection. */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={onGallery}
+            underline="none"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              fontSize: 13.5,
+              fontWeight: 700,
+              color: 'primary.main',
+            }}
+          >
+            <FontAwesomeIcon icon="images" style={{ width: 13, height: 13 }} />
+            Tales we've carved
           </Link>
         </Box>
       </Stack>

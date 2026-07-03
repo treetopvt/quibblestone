@@ -1,6 +1,6 @@
 # Story: Share a join link to the room (deep-link share)
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Session & Room Engine  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #115
 
 ## Context
 Today the Lobby share (session-engine/04) sends the bare room code as text ("Join
@@ -16,31 +16,31 @@ this one shares an IN-PROGRESS room to join). See [feature.md](./feature.md) and
 `session-engine/04-copy-share-room-code.md` (the share widget this extends).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I am the host on the Lobby and client routing exposes a
+- [x] AC-01: Given I am the host on the Lobby and client routing exposes a
       `/join/:code` route, when I tap "Share", then the Web Share payload includes a
       full, tappable deep link to this room (e.g. `https://<app>/join/MOSS`) in the
       shared text, in addition to the human-readable message - not just the raw code.
-- [ ] AC-02: Given a recipient opens the shared link on any device (no app install,
+- [x] AC-02: Given a recipient opens the shared link on any device (no app install,
       no account), then the app loads directly on the Join screen with the room code
       pre-filled from the URL, so they only choose a nickname and Guardian and tap
       "Join" - they never retype the code.
-- [ ] AC-03: Given the shared link's code, when the app hydrates the Join screen
+- [x] AC-03: Given the shared link's code, when the app hydrates the Join screen
       from `/join/:code`, then the code is normalized and validated exactly as a
       hand-typed code is (same no-ambiguous-glyph alphabet, same "room not found"
       handling if it has expired) - a link to a dead room fails as gracefully as a
       mistyped code, with the same friendly message.
-- [ ] AC-04: Given the "Copy" affordance from story 04, then it copies the same
+- [x] AC-04: Given the "Copy" affordance from story 04, then it copies the same
       deep link (not the bare code) so a host who pastes into any app also shares a
       tappable link; the on-screen room code display itself is unchanged (still the
       big carved code from story 04 AC-05).
-- [ ] AC-05: Given Web Share is unavailable (story 04 AC-04's fallback path), then
+- [x] AC-05: Given Web Share is unavailable (story 04 AC-04's fallback path), then
       the Copy affordance still yields the full link and no JS error is thrown - the
       link travels by whatever channel the host chooses.
-- [ ] AC-06: Given the base URL for the link, then it is derived from the running
+- [x] AC-06: Given the base URL for the link, then it is derived from the running
       app origin (or a `VITE_*` public-base env), never a hardcoded host (CLAUDE.md
       section 4: hub/API/app URLs come from `import.meta.env`, never hardcoded) - so
       the same code works in dev, UAT, and prod without edits.
-- [ ] AC-07 (child-safety / privacy): Given the shared link, then it carries ONLY
+- [x] AC-07 (child-safety / privacy): Given the shared link, then it carries ONLY
       the room code - no nickname, no PII, no session token - and joining through it
       is the same anonymous join as any other (README sections 3 and 6). The link is
       not secret (a room code is shareable by design), so it grants nothing beyond
@@ -80,6 +80,7 @@ this one shares an IN-PROGRESS room to join). See [feature.md](./feature.md) and
 ## Tests
 | AC | Test |
 |---|---|
+| AC-01, AC-04 | unit: `web/src/pages/joinLink.test.ts` covers `buildJoinLink` (full `/join/<code>` URL, trailing-slash de-dup, code placement) - the link both payloads carry |
 | AC-01 | manual: tap Share on the Lobby; confirm the payload text contains a full `/join/<code>` URL, not just the code |
 | AC-02 | manual (second device/browser): open the link; confirm it lands on Join with the code pre-filled, only nickname/Guardian left to choose |
 | AC-03 | manual: open a `/join/<code>` link for an expired/nonexistent room; confirm the same friendly "room not found" path as a mistyped code |
