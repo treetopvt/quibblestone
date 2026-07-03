@@ -61,7 +61,7 @@ public class AiJumbleControllerTests
         var room = rooms.CreateRoom("conn-1", "Ada", "fox");
 
         var result = await controller.Jumble(
-            new AiJumbleRequest("noun", FamilySafe: false, Avoid: null, RoomCode: room.Code, SessionId: "device-x"),
+            new AiJumbleRequest("noun", FamilySafe: false, Avoid: null, Themes: null, RoomCode: room.Code, SessionId: "device-x"),
             CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
@@ -75,7 +75,7 @@ public class AiJumbleControllerTests
         var (controller, quota, _) = Build();
 
         await controller.Jumble(
-            new AiJumbleRequest("noun", FamilySafe: false, Avoid: null, RoomCode: null, SessionId: "device-x"),
+            new AiJumbleRequest("noun", FamilySafe: false, Avoid: null, Themes: null, RoomCode: null, SessionId: "device-x"),
             CancellationToken.None);
 
         Assert.Equal("device-x", quota.LastInstanceId);
@@ -87,7 +87,7 @@ public class AiJumbleControllerTests
         var (controller, quota, _) = Build();
 
         await controller.Jumble(
-            new AiJumbleRequest("noun", FamilySafe: false, Avoid: null, RoomCode: "ZZZZ", SessionId: "device-x"),
+            new AiJumbleRequest("noun", FamilySafe: false, Avoid: null, Themes: null, RoomCode: "ZZZZ", SessionId: "device-x"),
             CancellationToken.None);
 
         Assert.Equal("device-x", quota.LastInstanceId);
@@ -99,7 +99,7 @@ public class AiJumbleControllerTests
         var (controller, quota, _) = Build();
 
         var result = await controller.Jumble(
-            new AiJumbleRequest("noun", FamilySafe: false, Avoid: null, RoomCode: null, SessionId: null),
+            new AiJumbleRequest("noun", FamilySafe: false, Avoid: null, Themes: null, RoomCode: null, SessionId: null),
             CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
@@ -117,7 +117,7 @@ public class AiJumbleControllerTests
         var (controller, quota, _) = Build();
 
         var result = await controller.Jumble(
-            new AiJumbleRequest(category, FamilySafe: false, Avoid: null, RoomCode: null, SessionId: "device-x"),
+            new AiJumbleRequest(category, FamilySafe: false, Avoid: null, Themes: null, RoomCode: null, SessionId: "device-x"),
             CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
@@ -134,7 +134,7 @@ public class AiJumbleControllerTests
         var huge = Enumerable.Range(0, 10_000).Select(i => new string('x', 5_000) + i).ToArray();
 
         var result = await controller.Jumble(
-            new AiJumbleRequest("noun", FamilySafe: false, Avoid: huge, RoomCode: null, SessionId: "device-x"),
+            new AiJumbleRequest("noun", FamilySafe: false, Avoid: huge, Themes: null, RoomCode: null, SessionId: "device-x"),
             CancellationToken.None);
 
         // It still returns a normal OK result (the stub transport's clean words survive).

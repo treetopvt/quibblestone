@@ -324,7 +324,7 @@ export function GroupRound({
     // AI "Fresh runes" for Word Bank (game-modes/07 AC-03): the gate meters on
     // the live room's anonymous Room.InstanceId (resolved server-side from the
     // join code). Falls back to the free reshuffle whenever the gate does.
-    requestAiJumble: createAiJumbleRequester({ familySafe, roomCode }),
+    requestAiJumble: createAiJumbleRequester({ familySafe, themes: template.tags.themes, roomCode }),
   });
 
   return (
