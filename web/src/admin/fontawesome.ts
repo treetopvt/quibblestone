@@ -28,6 +28,13 @@ import {
   faFlag,
   faTrashCan,
   faRotateLeft,
+  // sysadmin-console/02 (#136) - purchaser entitlements: the key reads "capability /
+  // entitlement"; the magnifying glass is the email lookup; the plus is the grant CTA;
+  // the ban glyph is the per-grant revoke.
+  faKey,
+  faMagnifyingGlass,
+  faPlus,
+  faBan,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -39,4 +46,8 @@ library.add(
   faFlag,
   faTrashCan,
   faRotateLeft,
+  faKey,
+  faMagnifyingGlass,
+  faPlus,
+  faBan,
 );
