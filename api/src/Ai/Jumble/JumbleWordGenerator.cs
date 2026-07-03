@@ -78,8 +78,13 @@ public sealed class JumbleWordGenerator
     private const int MaxOutputTokens = 128;
 
     // How many already-shown words to name in the avoid-list. Enough to steer the
-    // model toward fresh options without bloating the prompt (and its input cost).
-    private const int MaxAvoidWords = 20;
+    // model toward fresh options without bloating the prompt (and its input cost);
+    // with minimal reasoning effort even a 40-word list is a trivial input cost.
+    private const int MaxAvoidWords = 40;
+
+    // How many curated theme tags to name in the prompt (e.g. "fantasy", "space").
+    // A soft flavor steer - a few is plenty; more just dilutes it and costs tokens.
+    private const int MaxThemeTags = 4;
 
     private readonly GatedAiCompletionClient _gate;
     private readonly ILogger<JumbleWordGenerator> _logger;
@@ -96,19 +101,21 @@ public sealed class JumbleWordGenerator
     /// </summary>
     /// <param name="category">The blank's category (e.g. "noun") - a controlled label, not player free text. Steers the prompt.</param>
     /// <param name="avoid">Words already shown for this blank (curated or prior AI, already vetted) - the model is asked to skip them.</param>
+    /// <param name="themes">The template's curated theme tags (e.g. "fantasy", "space") - a soft flavor steer so words fit the story's vibe WITHOUT the model ever seeing the story text (no spoiled reveal). Controlled vocabulary, already bounded/sanitized by the caller. May be empty.</param>
     /// <param name="familySafe">The round's family-safe toggle - tightens the prompt AND the gate's moderation (story 05 AC-03).</param>
     /// <param name="instanceId">The anonymous session key (room InstanceId or solo device session id) the gate meters + attributes on. NEVER PII.</param>
     /// <param name="cancellationToken">Cancellation threaded to the gate (a dropped client / shed round).</param>
     public async Task<JumbleWordResult> GenerateAsync(
         string category,
         IReadOnlyList<string> avoid,
+        IReadOnlyList<string> themes,
         bool familySafe,
         string instanceId,
         CancellationToken cancellationToken = default)
     {
         var request = new AiCompletionRequest(
             SystemInstruction: BuildSystemInstruction(familySafe),
-            Prompt: BuildPrompt(category, avoid),
+            Prompt: BuildPrompt(category, avoid, themes),
             MaxOutputTokens: MaxOutputTokens);
 
         // The ONE gated call: quota -> spend-ceiling -> transport -> record +
@@ -162,14 +169,50 @@ public sealed class JumbleWordGenerator
                 " Every word must be wholesome and family-safe: nothing about violence, weapons, gore, " +
                 "romance, alcohol, or anything unkind.");
         }
+        else
+        {
+            // Family-safe is OFF: grown-ups are playing, so lean into cheeky, PG-13
+            // adult humor - playful innuendo, mild rudeness, gross-out silliness, and
+            // everyday grown-up mishaps (dating, hangovers, questionable life choices).
+            // Keep it good-natured and clever, NOT crude: no slurs, hate, or anything
+            // sexually explicit or graphic. (Belt and braces: the server's always-on
+            // profanity/slur filter drops genuinely explicit output regardless, so
+            // aiming above that line just wastes words on picks that get filtered out.)
+            instruction.Append(
+                " These are grown-ups playing without kids, so lean into cheeky, playful adult humor: " +
+                "silly innuendo, mild rudeness, gross-out or awkward everyday-grown-up words " +
+                "(dating, hangovers, questionable decisions). Keep it good-natured and clever - " +
+                "no slurs, no hate, nothing sexually explicit or graphic.");
+        }
         return instruction.ToString();
     }
 
-    /// <summary>Builds the user prompt: the category plus a short avoid-list of already-shown words (story 05 AC-01/02).</summary>
-    private static string BuildPrompt(string category, IReadOnlyList<string> avoid)
+    /// <summary>Builds the user prompt: the category, a soft theme steer, and a short avoid-list of already-shown words (story 05 AC-01/02).</summary>
+    private static string BuildPrompt(string category, IReadOnlyList<string> avoid, IReadOnlyList<string> themes)
     {
         var prompt = new StringBuilder(
             $"Give me up to {MaxWords} short, single {category} words for a word-bank round.");
+
+        // A SOFT theme steer from the template's curated tags (e.g. "fantasy", "space").
+        // "Lean toward" not "must match": the words still have to work as generic
+        // in-category answers (the reveal is funny precisely because they are dropped
+        // into a sentence they were not written for), so this only flavors them. The
+        // model never sees the story text itself, so the punchline stays hidden. Themes
+        // are a controlled vocabulary, already bounded + sanitized by the controller.
+        // Use the tags as-is (trimmed): they are a controlled vocabulary the controller
+        // has already sanitized to short letters/hyphens tokens, so "road-trip" survives
+        // intact - unlike ToSingleWord, which is for shaping the model's single-word OUTPUT.
+        var themeSample = themes
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Take(MaxThemeTags)
+            .ToArray();
+        if (themeSample.Length > 0)
+        {
+            prompt.Append(" Lean toward the theme of ");
+            prompt.Append(string.Join(", ", themeSample));
+            prompt.Append(", but keep them ordinary, usable words.");
+        }
 
         // Name a bounded sample of already-shown words so the model favors fresh
         // options (story 05 AC-02). Reduce each to a single clean word first: the

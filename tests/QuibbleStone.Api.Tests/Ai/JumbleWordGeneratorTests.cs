@@ -55,7 +55,7 @@ public class JumbleWordGeneratorTests
     {
         var gen = BuildGenerator(new StubTransport(Reply("moss\nember\nglint\nfrost\nquartz")));
 
-        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         Assert.False(result.FellBack);
         Assert.Equal(new[] { "moss", "ember", "glint", "frost", "quartz" }, result.Words);
@@ -67,7 +67,7 @@ public class JumbleWordGeneratorTests
         // Numbered lines -> the word; a multi-word line -> dropped; a case dupe -> once.
         var gen = BuildGenerator(new StubTransport(Reply("1. moss\n2. ember\nfrost quartz\nMOSS\nglint\ncinder")));
 
-        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         Assert.False(result.FellBack);
         Assert.Equal(new[] { "moss", "ember", "glint", "cinder" }, result.Words);
@@ -81,6 +81,7 @@ public class JumbleWordGeneratorTests
         var result = await gen.GenerateAsync(
             "noun",
             new[] { "moss", "Ember" },
+            Array.Empty<string>(),
             familySafe: false,
             instanceId: "room-1");
 
@@ -97,7 +98,7 @@ public class JumbleWordGeneratorTests
         // below MinUsableWords, so the caller degrades to the free reshuffle.
         var gen = BuildGenerator(new StubTransport(Reply("moss\nember\nfrost quartz")));
 
-        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         Assert.True(result.FellBack);
         Assert.Empty(result.Words);
@@ -108,7 +109,7 @@ public class JumbleWordGeneratorTests
     {
         var gen = BuildGenerator(new StubTransport(Reply("   \n  \n")));
 
-        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         Assert.True(result.FellBack);
         Assert.Empty(result.Words);
@@ -122,7 +123,7 @@ public class JumbleWordGeneratorTests
         // "shit" is on the bundled blocklist; it never reaches the returned set.
         var gen = BuildGenerator(new StubTransport(Reply("moss\nshit\nember\nglint\nfrost")));
 
-        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         Assert.False(result.FellBack);
         Assert.DoesNotContain("shit", result.Words);
@@ -135,9 +136,9 @@ public class JumbleWordGeneratorTests
         const string reply = "moss\ngun\nember\nglint\nfrost";
 
         var safe = await BuildGenerator(new StubTransport(Reply(reply)))
-            .GenerateAsync("noun", Array.Empty<string>(), familySafe: true, instanceId: "room-1");
+            .GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: true, instanceId: "room-1");
         var open = await BuildGenerator(new StubTransport(Reply(reply)))
-            .GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+            .GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         // "gun" is in the moderator's family-safe-sensitive seed set.
         Assert.DoesNotContain("gun", safe.Words);
@@ -151,7 +152,7 @@ public class JumbleWordGeneratorTests
     {
         var gen = BuildGenerator(new StubTransport(AiCompletionResult.Unavailable));
 
-        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         Assert.True(result.FellBack);
         Assert.Empty(result.Words);
@@ -165,7 +166,7 @@ public class JumbleWordGeneratorTests
         var quota = new AiQuota(new AiOptions { QuotaPerSession = 0 }, NullLogger<AiQuota>.Instance);
         var gen = BuildGenerator(counting, quota);
 
-        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         Assert.True(result.FellBack);
         Assert.Equal(0, counting.Calls);
@@ -177,10 +178,56 @@ public class JumbleWordGeneratorTests
         var quota = new AiQuota(new AiOptions { QuotaPerSession = 5 }, NullLogger<AiQuota>.Instance);
         var gen = BuildGenerator(new StubTransport(Reply("moss\nember\nglint\nfrost")), quota);
 
-        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
 
         Assert.False(result.FellBack);
         Assert.Equal(4, result.RemainingQuota); // 5 - 1 consumed
+    }
+
+    // --- theme steer + family-safe-off tone are shaped into the prompt (story 05 AC-02/03) ---
+
+    [Fact]
+    public async Task Theme_tags_flavor_the_prompt_without_the_story_text()
+    {
+        var capturing = new CapturingTransport(Reply("moss\nember\nglint\nfrost"));
+
+        await BuildGenerator(capturing).GenerateAsync(
+            "noun", Array.Empty<string>(), new[] { "fantasy", "monsters" }, familySafe: true, instanceId: "room-1");
+
+        Assert.NotNull(capturing.LastRequest);
+        Assert.Contains("theme of", capturing.LastRequest!.Prompt);
+        Assert.Contains("fantasy", capturing.LastRequest.Prompt);
+        Assert.Contains("monsters", capturing.LastRequest.Prompt);
+    }
+
+    [Fact]
+    public async Task No_theme_tags_leaves_the_prompt_generic()
+    {
+        var capturing = new CapturingTransport(Reply("moss\nember\nglint\nfrost"));
+
+        await BuildGenerator(capturing).GenerateAsync(
+            "noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: true, instanceId: "room-1");
+
+        Assert.NotNull(capturing.LastRequest);
+        Assert.DoesNotContain("theme of", capturing.LastRequest!.Prompt);
+    }
+
+    [Fact]
+    public async Task Family_safe_off_steers_the_system_instruction_toward_grown_up_humor()
+    {
+        var open = new CapturingTransport(Reply("moss\nember\nglint\nfrost"));
+        var safe = new CapturingTransport(Reply("moss\nember\nglint\nfrost"));
+
+        await BuildGenerator(open).GenerateAsync(
+            "noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
+        await BuildGenerator(safe).GenerateAsync(
+            "noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: true, instanceId: "room-1");
+
+        // Family-safe OFF -> the cheeky grown-up steer; ON -> the wholesome constraint.
+        Assert.Contains("grown-ups", open.LastRequest!.SystemInstruction);
+        Assert.DoesNotContain("family-safe", open.LastRequest.SystemInstruction);
+        Assert.Contains("family-safe", safe.LastRequest!.SystemInstruction);
+        Assert.DoesNotContain("grown-ups", safe.LastRequest.SystemInstruction);
     }
 
     /// <summary>A transport that returns a fixed, pre-baked result.</summary>
@@ -190,6 +237,19 @@ public class JumbleWordGeneratorTests
         public StubTransport(AiCompletionResult result) => _result = result;
         public Task<AiCompletionResult> CompleteAsync(AiCompletionRequest request, CancellationToken cancellationToken = default)
             => Task.FromResult(_result);
+    }
+
+    /// <summary>A transport that records the last request (to assert the shaped prompt / system instruction) and returns a fixed reply.</summary>
+    private sealed class CapturingTransport : IAiCompletionClient
+    {
+        private readonly AiCompletionResult _result;
+        public AiCompletionRequest? LastRequest { get; private set; }
+        public CapturingTransport(AiCompletionResult result) => _result = result;
+        public Task<AiCompletionResult> CompleteAsync(AiCompletionRequest request, CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(_result);
+        }
     }
 
     /// <summary>A transport that counts how many times it was called (to prove quota short-circuits before it).</summary>
