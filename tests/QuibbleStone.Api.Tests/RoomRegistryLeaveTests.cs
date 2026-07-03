@@ -93,4 +93,76 @@ public class RoomRegistryLeaveTests
         Assert.True(room.RemovePlayer("conn-host"));  // last one out
         Assert.True(room.IsEmpty);
     }
+
+    // --- session-engine/07: the room-model grace primitives (AC-01/AC-03) --------
+
+    [Fact]
+    public void MarkDisconnected_holds_the_seat_flagged_not_connected_without_removing_it()
+    {
+        var room = Room.CreateHosted("MOSS", "conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Wren", "teal", "conn-wren"));
+
+        var ticket = room.MarkDisconnected("conn-wren");
+
+        // AC-01: the seat is HELD - still present, count unchanged, flagged not-connected.
+        Assert.NotNull(ticket);
+        Assert.Equal(2, room.PlayerCount);
+        var wren = Assert.Single(room.SnapshotPlayers(), p => p.ConnectionId == "conn-wren");
+        Assert.False(wren.Connected);
+
+        // A second disconnect for the same still-held seat is a no-op (no double-schedule).
+        Assert.Null(room.MarkDisconnected("conn-wren"));
+        // An unseated connection has nothing to hold.
+        Assert.Null(room.MarkDisconnected("conn-nobody"));
+    }
+
+    [Fact]
+    public void TryReleaseSeat_evicts_only_for_the_matching_episode()
+    {
+        var room = Room.CreateHosted("MOSS", "conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Wren", "teal", "conn-wren"));
+        var ticket = room.MarkDisconnected("conn-wren");
+        Assert.NotNull(ticket);
+
+        // A stale episode never evicts a live held seat.
+        Assert.False(room.TryReleaseSeat("conn-wren", Guid.NewGuid()));
+        Assert.Equal(2, room.PlayerCount);
+
+        // The real episode evicts the seat (the deferred twin of RemovePlayer).
+        Assert.True(room.TryReleaseSeat("conn-wren", ticket!.Episode));
+        Assert.Equal(1, room.PlayerCount);
+        Assert.DoesNotContain(room.SnapshotPlayers(), p => p.ConnectionId == "conn-wren");
+    }
+
+    [Fact]
+    public void CancelGrace_stops_the_hold_so_a_later_release_is_a_no_op()
+    {
+        var room = Room.CreateHosted("MOSS", "conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Wren", "teal", "conn-wren"));
+        var ticket = room.MarkDisconnected("conn-wren");
+        Assert.NotNull(ticket);
+
+        // Story 08's cancellation seam: cancelling the hold retires it.
+        Assert.True(room.CancelGrace("conn-wren"));
+        Assert.False(room.CancelGrace("conn-wren")); // already gone -> no-op
+
+        // With the hold retired, the (would-be) expiry release evicts nothing.
+        Assert.False(room.TryReleaseSeat("conn-wren", ticket!.Episode));
+        Assert.Equal(2, room.PlayerCount); // seat kept
+    }
+
+    [Fact]
+    public void GetReconnectToken_is_per_seat_and_null_for_an_unseated_connection()
+    {
+        var room = Room.CreateHosted("MOSS", "conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Wren", "teal", "conn-wren"));
+
+        var hostToken = room.GetReconnectToken("conn-host");
+        var wrenToken = room.GetReconnectToken("conn-wren");
+
+        Assert.False(string.IsNullOrWhiteSpace(hostToken));
+        Assert.False(string.IsNullOrWhiteSpace(wrenToken));
+        Assert.NotEqual(hostToken, wrenToken);                 // distinct per seat
+        Assert.Null(room.GetReconnectToken("conn-nobody"));    // not seated -> no token
+    }
 }

@@ -70,7 +70,8 @@ namespace QuibbleStone.Api.Hubs;
 /// <param name="Nickname">In-session display name (the host now picks one on HostSetup before the room is minted).</param>
 /// <param name="Variant">Guardian avatar variant (the host picks one on HostSetup; "teal" is the default selection).</param>
 /// <param name="IsHost">True for the room creator.</param>
-public sealed record PlayerDto(string Nickname, string Variant, bool IsHost);
+/// <param name="Connected">session-engine/07: false while this seat is being held through a disconnect grace window, true otherwise. Additive to the wire contract now; web story 10 renders the "reconnecting" tile from it (nothing reads it yet). The reconnect TOKEN is deliberately NOT here - it is caller-only (AC-06).</param>
+public sealed record PlayerDto(string Nickname, string Variant, bool IsHost, bool Connected);
 
 /// <summary>
 /// The state of a room as returned to the caller of <see cref="GameHub.CreateRoom"/>
@@ -93,7 +94,8 @@ public sealed record RoomStateDto(string Code, IReadOnlyList<PlayerDto> Players)
 /// <param name="Ok">True if the caller joined the room; false for an expected validation failure.</param>
 /// <param name="Room">The room's state (code + roster) on success; null on failure.</param>
 /// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
-public sealed record JoinResultDto(bool Ok, RoomStateDto? Room, string? Error);
+/// <param name="ReconnectToken">session-engine/07 (AC-06): the caller's own opaque, server-minted reconnect handle on success (null on failure). Returned ONLY here, in the joiner's own envelope - NEVER on <see cref="RoomStateDto"/>/<see cref="PlayerDto"/> (the whole-room roster), so no other player can see or spend it. Story 08's Rejoin is the only consumer.</param>
+public sealed record JoinResultDto(bool Ok, RoomStateDto? Room, string? Error, string? ReconnectToken = null);
 
 /// <summary>
 /// The outcome of <see cref="GameHub.CreateRoom"/> (build/host-identity). Same
@@ -109,7 +111,8 @@ public sealed record JoinResultDto(bool Ok, RoomStateDto? Room, string? Error);
 /// <param name="Ok">True if the room was created; false for an expected validation failure.</param>
 /// <param name="Room">The minted room's state (code + roster) on success; null on failure.</param>
 /// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
-public sealed record CreateRoomResultDto(bool Ok, RoomStateDto? Room, string? Error);
+/// <param name="ReconnectToken">session-engine/07 (AC-06): the host's own opaque, server-minted reconnect handle on success (null on failure). Returned ONLY here, in the host's own envelope - NEVER on <see cref="RoomStateDto"/>/<see cref="PlayerDto"/> (the whole-room roster), so no other player can see or spend it. Story 08's Rejoin is the only consumer.</param>
+public sealed record CreateRoomResultDto(bool Ok, RoomStateDto? Room, string? Error, string? ReconnectToken = null);
 
 /// <summary>
 /// The outcome of <see cref="GameHub.StartRound"/> (group-play/01). Like
@@ -335,6 +338,7 @@ public sealed class GameHub : Hub
     private readonly ITelemetrySink _telemetry;
     private readonly TelemetryClient _appInsights;
     private readonly IEntitlementService _entitlements;
+    private readonly SeatGraceService _grace;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -347,6 +351,7 @@ public sealed class GameHub : Hub
         ITelemetrySink telemetry,
         TelemetryClient appInsights,
         IEntitlementService entitlements,
+        SeatGraceService grace,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -374,6 +379,13 @@ public sealed class GameHub : Hub
         // result on the Room; nothing re-evaluates it per AI call (AC-01). In alpha
         // every ai.* capability is unlocked, so this changes zero behavior (AC-03).
         _entitlements = entitlements;
+        // session-engine/07 (hold the seat): the singleton scheduler that runs the
+        // one-shot delayed eviction when a dropped seat's grace window expires. It is
+        // the ONLY scheduled timer in the codebase (every other lifecycle read is
+        // lazy-on-access) - justified because other seated players actively wait on a
+        // dropped seat's blanks, so eviction must be pushed even if nobody calls the
+        // hub in the meantime (see SeatGraceService's header + feature.md Decisions).
+        _grace = grace;
         _logger = logger;
     }
 
@@ -457,7 +469,11 @@ public sealed class GameHub : Hub
         // roster/round broadcasts (Clients.Group(room.Code)) reach them.
         await Groups.AddToGroupAsync(Context.ConnectionId, room.Code);
 
-        return new CreateRoomResultDto(true, ToRoomState(room), null);
+        // session-engine/07 (AC-06): hand the host its OWN opaque reconnect token in
+        // this envelope only - never on the roster the whole room receives. Story 08's
+        // Rejoin spends it to reclaim this seat after a drop.
+        var reconnectToken = room.GetReconnectToken(Context.ConnectionId);
+        return new CreateRoomResultDto(true, ToRoomState(room), null, reconnectToken);
     }
 
     /// <summary>
@@ -542,7 +558,11 @@ public sealed class GameHub : Hub
         await Groups.AddToGroupAsync(Context.ConnectionId, room.Code);
         await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
 
-        return new JoinResultDto(true, ToRoomState(room), null);
+        // session-engine/07 (AC-06): hand the joiner its OWN opaque reconnect token in
+        // this envelope only - never broadcast on the roster (that would let another
+        // player hijack the seat). Story 08's Rejoin spends it to reclaim this seat.
+        var reconnectToken = room.GetReconnectToken(Context.ConnectionId);
+        return new JoinResultDto(true, ToRoomState(room), null, reconnectToken);
     }
 
     /// <summary>
@@ -568,6 +588,16 @@ public sealed class GameHub : Hub
     /// an abnormal close plus the transport exception's type/stack, which the PII
     /// scrubber's allowed shape permits. No-ops cleanly with no connection string
     /// configured (AC-05).
+    ///
+    /// session-engine/07 (hold the seat): a dropped connection (ANY OnDisconnectedAsync
+    /// - the connection-lifecycle drop, as opposed to a deliberate LeaveRoom) no longer
+    /// evicts the seat on the spot. Instead it HOLDS the seat for a grace window: mark
+    /// it disconnected (kept on the roster, PlayerCount unchanged, a "prompting" round
+    /// NOT aborted - AC-01/AC-02) and schedule ONE one-shot delayed eviction that runs
+    /// today's eviction + conditional RoundAborted + RosterChanged ONLY if the window
+    /// elapses with no reconnect (AC-03). A deliberate LeaveRoom still evicts
+    /// immediately (AC-04). This is the car dead-zone / phone-lock tolerance README
+    /// section 1 calls out - a brief blip must not tear down the room.
     /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
@@ -576,7 +606,7 @@ public sealed class GameHub : Hub
             // Abnormal close only (a clean disconnect passes null). Track the
             // anonymous fact + the transport exception - never any room/player payload.
             // Wrapped so an unexpected telemetry failure can NEVER interfere with the
-            // disconnect cleanup / room removal below (AC-08 posture, matching
+            // disconnect cleanup / grace scheduling below (AC-08 posture, matching
             // TrackUsageRoundStarted/Completed and FireServeEvent).
             try
             {
@@ -589,8 +619,34 @@ public sealed class GameHub : Hub
             }
         }
 
-        var room = _rooms.RemoveConnection(Context.ConnectionId);
-        await HandlePlayerLeftAsync(room);
+        // session-engine/07: hold the dropped seat instead of evicting it now. BeginGrace
+        // marks the seat disconnected (still on the roster) and returns a handle, or null
+        // when the connection was not seated anywhere (the no-op case).
+        var handle = _rooms.BeginGrace(Context.ConnectionId);
+        if (handle is not null)
+        {
+            // AC-01: the roster still reports the seat, now flagged not-connected.
+            // Broadcast it so every remaining client's roster reflects the held seat.
+            // Nothing renders the Connected flag until web story 10; the round is NOT
+            // aborted here (AC-02) - only the deferred eviction can abort it (AC-03).
+            await Clients.Group(handle.Room.Code).SendAsync("RosterChanged", ToRoomState(handle.Room));
+
+            // Optional anonymous operational signal (no room / nickname payload), mirroring
+            // HubAbnormalDisconnect above - "a grace window began". Never breaks teardown.
+            try
+            {
+                _appInsights.TrackEvent("HubGraceStarted");
+            }
+            catch
+            {
+                // Swallowed: telemetry must never break hub teardown.
+            }
+
+            // Fire-and-forget the one-shot delayed eviction. The seat's CancellationToken
+            // lives on the Room, so story 08's Rejoin can cancel it to keep the seat;
+            // SeatGraceService wraps the run so a fault is logged, never left unobserved.
+            _ = _grace.ScheduleEviction(handle);
+        }
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -1300,34 +1356,44 @@ public sealed class GameHub : Hub
     }
 
     /// <summary>
-    /// group-play recovery: shared teardown when a player leaves a room (via a
-    /// dropped connection or a deliberate LeaveRoom). If the room still has members
-    /// and its round is mid-collection ("prompting"), that round can no longer
-    /// complete - the departed player's assigned blanks will never be submitted, so
-    /// the reveal would never fire and the survivors would hang. Reset the round and
-    /// broadcast "RoundAborted" so every remaining player drops back to the still-live
-    /// lobby with a friendly notice, then always re-broadcast the trimmed roster. A
-    /// round already at "reveal" is effectively done (everyone is on the reveal /
-    /// recap), so it is left untouched. Small recovery beyond Slice-1's parked
-    /// reconnect handling; host migration (if the HOST leaves) is still parked.
+    /// group-play recovery: shared teardown when a player leaves a room. The
+    /// instance wrapper for the LeaveRoom (deliberate) path - it broadcasts through
+    /// this invocation's own <see cref="Hub.Clients"/>. A null room (the leaver was
+    /// not seated, or leaving emptied and dropped the room) is a no-op.
     /// </summary>
-    private async Task HandlePlayerLeftAsync(Room? room)
-    {
-        if (room is null)
-        {
-            return;
-        }
+    private Task HandlePlayerLeftAsync(Room? room) =>
+        room is null ? Task.CompletedTask : BroadcastPlayerLeftAsync(Clients, room);
 
+    /// <summary>
+    /// group-play recovery: the SHARED player-left epilogue, broadcast to
+    /// <paramref name="clients"/>. If the room still has members and its round is
+    /// mid-collection ("prompting"), that round can no longer complete - the departed
+    /// player's assigned blanks will never be submitted, so the reveal would never fire
+    /// and the survivors would hang. Reset the round and broadcast "RoundAborted" so
+    /// every remaining player drops back to the still-live lobby with a friendly notice,
+    /// then always re-broadcast the trimmed roster. A round already at "reveal" is
+    /// effectively done (everyone is on the reveal / recap), so it is left untouched.
+    ///
+    /// Taking <see cref="IHubClients"/> (rather than reading this hub's own
+    /// <see cref="Hub.Clients"/>) is what lets BOTH the live LeaveRoom path (passing
+    /// this invocation's <c>Clients</c>) AND the session-engine/07 grace-expiry path
+    /// (passing <c>IHubContext&lt;GameHub&gt;.Clients</c>, since the originating hub
+    /// invocation has long since ended) run the EXACT same eviction epilogue - no
+    /// forked, mode-specific reconnect logic ("one engine, many thin modes"). Host
+    /// migration (if the HOST leaves) is still parked.
+    /// </summary>
+    internal static async Task BroadcastPlayerLeftAsync(IHubClients<IClientProxy> clients, Room room)
+    {
         var round = room.CurrentRound;
         if (round is not null && string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
         {
             room.BackToLobby();
-            await Clients.Group(room.Code).SendAsync(
+            await clients.Group(room.Code).SendAsync(
                 "RoundAborted",
                 new RoundAbortedDto("A carver left, so we headed back to the lobby. Start a fresh round when your crew's ready."));
         }
 
-        await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+        await clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
     }
 
     /// <summary>
@@ -1365,11 +1431,14 @@ public sealed class GameHub : Hub
         return lengthPref.ToLowerInvariant();
     }
 
-    // Map the in-memory Room to the wire DTO (drops the server-only connectionId).
+    // Map the in-memory Room to the wire DTO (drops the server-only connectionId AND
+    // the server-only reconnect token - session-engine/07 AC-06: the token is NEVER on
+    // the roster the whole room receives). The Connected flag DOES ride along (web
+    // story 10 renders the "reconnecting" tile from it).
     private static RoomStateDto ToRoomState(Room room)
     {
         var players = room.SnapshotPlayers()
-            .Select(p => new PlayerDto(p.Nickname, p.Variant, p.IsHost))
+            .Select(p => new PlayerDto(p.Nickname, p.Variant, p.IsHost, p.Connected))
             .ToArray();
 
         return new RoomStateDto(room.Code, players);
