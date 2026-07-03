@@ -1,6 +1,6 @@
 # Story: Web - remember this seat and rejoin automatically
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #TBD
+**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #143
 
 ## Context
 Story 08 gives the server a way to reclaim a held seat; the web client needs to

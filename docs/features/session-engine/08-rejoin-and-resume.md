@@ -1,6 +1,6 @@
 # Story: Rejoin - reclaim your seat and resume the round
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #TBD
+**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #142
 
 ## Context
 Story 07 holds a dropped seat open for a grace window and mints a reconnect token

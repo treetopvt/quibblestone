@@ -1,6 +1,6 @@
 # Story: Web - resume the live screen, don't bounce Home
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #TBD
+**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #144
 
 ## Context
 Today, a live-game URL opened with no room in state redirects Home (`App.tsx`'s

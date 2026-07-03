@@ -1,6 +1,6 @@
 # Story: Hold the seat - a disconnect grace window
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #TBD
+**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #141
 
 ## Context
 Today a dropped connection is treated as a *leave*: `GameHub.OnDisconnectedAsync`
