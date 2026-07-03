@@ -1,13 +1,70 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="QuibbleStone">
-  <!-- Brand tile (theme purple). Guardian mark echoes web/src/components/Guardian.tsx. -->
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="#6C4BD8" stroke="#5A3BC0" stroke-width="2" />
-  <!-- Gold crown nub -->
-  <circle cx="32" cy="13" r="4.5" fill="#FFB22E" stroke="#E89A12" stroke-width="1.5" />
-  <!-- Carved-sandstone head -->
-  <rect x="14" y="16" width="36" height="34" rx="13" fill="#E0CDA0" stroke="#B49B6E" stroke-width="2" />
-  <!-- Eyes -->
-  <rect x="22" y="28" width="7" height="11" rx="3.5" fill="#6C4BD8" />
-  <rect x="35" y="28" width="7" height="11" rx="3.5" fill="#6C4BD8" />
-  <!-- Smile -->
-  <path d="M25 43 q7 6 14 0" stroke="#7C6442" stroke-width="3" fill="none" stroke-linecap="round" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 158 158" role="img" aria-label="QuibbleStone">
+  <!--
+    The HERO guardian mascot (web/src/assets/HeroGuardian.tsx) - the same posed
+    character shown on the Home / Waiting screens - on the warm cream backdrop
+    (the manifest background_color, #F2E8D2). Geometry is copied 1:1 from
+    HeroGuardian's static SVG (viewBox 0 0 158 150, centered here with a little
+    headroom); the idle bob/glow animation is intentionally dropped for a still
+    icon. Hardcoded illustrative colors on purpose (the mascot palette is
+    character art, not theme chrome) - keep in sync with HeroGuardian.tsx.
+  -->
+  <defs>
+    <radialGradient id="qsAura" cx="50%" cy="48%" r="55%">
+      <stop offset="0%" stop-color="#FFB22E" stop-opacity=".55" />
+      <stop offset="45%" stop-color="#2FB8A0" stop-opacity=".22" />
+      <stop offset="100%" stop-color="#2FB8A0" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="qsBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F1E6CC" />
+      <stop offset="55%" stop-color="#DECBA0" />
+      <stop offset="100%" stop-color="#C7B083" />
+    </linearGradient>
+    <linearGradient id="qsArm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E7D6B0" />
+      <stop offset="100%" stop-color="#CBB488" />
+    </linearGradient>
+    <filter id="qsGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="2.4" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Warm cream tile -->
+  <rect x="0" y="0" width="158" height="158" rx="30" fill="#F2E8D2" />
+
+  <g transform="translate(0,5)">
+    <!-- aura -->
+    <ellipse cx="79" cy="78" rx="70" ry="64" fill="url(#qsAura)" />
+    <!-- feet -->
+    <ellipse cx="60" cy="135" rx="17" ry="10" fill="#BFA87C" />
+    <ellipse cx="98" cy="135" rx="17" ry="10" fill="#BFA87C" />
+    <!-- arms -->
+    <rect x="22" y="86" width="20" height="40" rx="10" fill="url(#qsArm)" />
+    <rect x="116" y="86" width="20" height="40" rx="10" fill="url(#qsArm)" />
+    <!-- body -->
+    <rect x="33" y="40" width="92" height="92" rx="34" fill="url(#qsBody)" stroke="#B49B6E" stroke-width="2" />
+    <!-- carved cracks -->
+    <path d="M52 48 l7 12 l-5 9" stroke="#B49B6E" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.55" />
+    <path d="M112 70 l-9 7" stroke="#B49B6E" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.5" />
+    <!-- moss accents -->
+    <ellipse cx="42" cy="52" rx="9" ry="5" fill="#2FB8A0" opacity="0.55" />
+    <ellipse cx="118" cy="120" rx="8" ry="4.5" fill="#2FB8A0" opacity="0.5" />
+    <!-- forehead rune -->
+    <path d="M79 52 l6 6 l-6 6 l-6 -6 z" fill="#FFB22E" opacity="0.9" filter="url(#qsGlow)" />
+    <!-- brows -->
+    <rect x="50" y="74" width="16" height="4.5" rx="2.2" fill="#9C815A" />
+    <rect x="92" y="74" width="16" height="4.5" rx="2.2" fill="#9C815A" />
+    <!-- eyes -->
+    <g filter="url(#qsGlow)">
+      <rect x="50" y="80" width="16" height="20" rx="8" fill="#2FB8A0" />
+      <rect x="92" y="80" width="16" height="20" rx="8" fill="#2FB8A0" />
+    </g>
+    <circle cx="55" cy="86" r="3.2" fill="#EAFBF6" />
+    <circle cx="97" cy="86" r="3.2" fill="#EAFBF6" />
+    <!-- cheeks -->
+    <circle cx="46" cy="106" r="4" fill="#FF6B57" opacity="0.5" />
+    <circle cx="112" cy="106" r="4" fill="#FF6B57" opacity="0.5" />
+    <!-- smile -->
+    <path d="M64 110 q15 13 30 0" stroke="#7C6442" stroke-width="3.4" fill="none" stroke-linecap="round" />
+  </g>
 </svg>
