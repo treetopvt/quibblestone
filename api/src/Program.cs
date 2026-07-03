@@ -27,6 +27,7 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
+using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
@@ -380,6 +381,43 @@ builder.Services.AddSingleton<RoomRegistry>();
 // entitlement chain (billing-entitlements/01, #70) later SUBSUMES this SAME
 // contract without any consumer refactor. Singleton: the impl is stateless.
 builder.Services.AddSingleton<IEntitlementService, DefaultUnlockedEntitlementService>();
+
+// accounts-identity/02 (lightweight purchaser account, #68): the purchaser-account
+// store, chosen at STARTUP by whether a storage connection string is configured -
+// EXACTLY the config-presence idiom of the telemetry sink / published-tale store
+// above. WITH a connection string (supplied per-environment, NEVER a committed
+// literal), it persists accounts (email + created-at ONLY, AC-01) to Azure Table
+// Storage keyed by a SHA-256 hash of the normalized email (AC-06 spirit). WITHOUT
+// one (local dev, CI, a fresh clone), it degrades to a WORKING in-memory store -
+// NOT a no-op - so accounts-identity/03's sign-in / restore is exercisable with
+// ZERO Azure setup. A singleton either way (stateless past construction / holds
+// the process-local dictionary). This store carries NO room / player reference
+// (AC-03), so billing-entitlements/01's session gate can read "is there an entitled
+// purchaser?" from it without touching gameplay state (AC-04).
+var accountsConnectionString = builder.Configuration["Accounts:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(accountsConnectionString))
+{
+    builder.Services.AddSingleton<IAccountStore, InMemoryAccountStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IAccountStore>(sp =>
+        new TableStorageAccountStore(
+            accountsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageAccountStore>>()));
+}
+
+// accounts-identity/02 (#68): the REUSABLE magic-link token service - a SINGLETON
+// because it owns the process-wide single-use nonce set AND the signing key
+// (regenerated per process only when Accounts:TokenSigningKey is absent, so all
+// callers must share the ONE instance or tokens would not verify across it). The
+// signing secret is read from configuration (Key Vault-backed when deployed, NEVER
+// a committed literal and NEVER a VITE_* var, AC-06); the service NEVER logs the
+// token or the key. It is deliberately identity-neutral (subject is opaque), so
+// sysadmin-console/01's operator login reuses this SAME registration against a
+// SEPARATE allowlist - purchaser and admin stay structurally distinct here.
+builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
+    new MagicLinkTokenService(sp.GetRequiredService<IConfiguration>()[MagicLinkTokenService.ConfigKeyName]));
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
