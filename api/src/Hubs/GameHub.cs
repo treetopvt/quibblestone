@@ -297,17 +297,19 @@ public sealed record RoundAbortedDto(string Reason);
 /// Broadcast to the whole room group as "ReactionCountsChanged" whenever any
 /// player reacts on the reveal (reveal-delight/01, AC-04): the FULL per-type
 /// tally for the current reveal, so every client renders the same count in
-/// near-real-time. Server-authoritative (no client double-counts). The four
-/// fields serialize to camelCase (laugh/heart/wow/star) - the EXACT shape the
-/// web's ReactionCounts (Record&lt;ReactionType, number&gt;) mirrors, so the hook
-/// hands the payload straight to the ReactionRow. A reaction carries no text and
-/// no identity (AC-06, no PII) - only these counts.
+/// near-real-time. Server-authoritative (no client double-counts). The UX
+/// de-clutter (reactions v2) narrowed the set from four (laugh/heart/wow/star) to
+/// THREE - Love / Wow / Didn't like - and made a reaction ONE-PER-USER (a player
+/// holds at most one; see <see cref="Room.SetReaction"/>). The three fields
+/// serialize to camelCase (love/wow/nope) - the EXACT shape the web's
+/// ReactionCounts (Record&lt;ReactionType, number&gt;) mirrors, so the hook hands the
+/// payload straight to the ReactionRow. A reaction carries no text and no identity
+/// (AC-06, no PII) - only these counts.
 /// </summary>
-/// <param name="Laugh">The Laugh tally.</param>
-/// <param name="Heart">The Heart tally.</param>
-/// <param name="Wow">The Wow tally.</param>
-/// <param name="Star">The Star tally.</param>
-public sealed record ReactionCountsDto(int Laugh, int Heart, int Wow, int Star);
+/// <param name="Love">The Love ("thumbs-up") tally.</param>
+/// <param name="Wow">The Wow ("face-surprise") tally.</param>
+/// <param name="Nope">The "Didn't like" ("thumbs-down") tally.</param>
+public sealed record ReactionCountsDto(int Love, int Wow, int Nope);
 
 /// <summary>
 /// Broadcast to the whole room group as "GoldenGuardianVoteCast" whenever a player
@@ -372,14 +374,15 @@ public sealed class GameHub : Hub
         LengthContentSelector.Quick, LengthContentSelector.Full, LengthContentSelector.Any,
     };
 
-    // reveal-delight/01 (AC-04): the ONLY four reaction types a client may send
-    // (mirrors the web's ReactionType union). A crafted client could send any
-    // string, so this is the server-side source of truth - React ignores anything
-    // else, exactly like NormalizeVariant guards an unknown variant. The payload is
-    // a TYPE ENUM only, so this set is the entire contract (no free text - AC-06).
+    // reveal-delight/01 (AC-04) + reactions v2: the ONLY three reaction types a
+    // client may send - Love ("love"), Wow ("wow"), Didn't like ("nope") - mirroring
+    // the web's ReactionType union. A crafted client could send any string, so this
+    // is the server-side source of truth - React ignores anything else, exactly like
+    // NormalizeVariant guards an unknown variant. The payload is a TYPE ENUM only, so
+    // this set is the entire contract (no free text - AC-06).
     private static readonly HashSet<string> KnownReactions = new(StringComparer.OrdinalIgnoreCase)
     {
-        "laugh", "heart", "wow", "star",
+        "love", "wow", "nope",
     };
 
     private readonly RoomRegistry _rooms;
@@ -1267,32 +1270,43 @@ public sealed class GameHub : Hub
     }
 
     /// <summary>
-    /// reveal-delight/01: a player reacts on the reveal (AC-04).
+    /// reveal-delight/01 + reactions v2: a player reacts on the reveal (AC-04).
     ///
     /// The lightest-weight room-wide real-time surface: a player taps one of the
-    /// four reaction pills (Laugh/Heart/Wow/Star) and every player in the room sees
-    /// that reaction's count tick up in near-real-time, over the SAME one connection
-    /// the roster and reveal already use. This is FIRE-AND-FORGET from the client's
-    /// side (it returns void, not a result envelope) - the tapper's perceived
-    /// responsiveness comes from an instant local floating-icon pop, and the
-    /// authoritative count arrives for everyone (the tapper included) via the
-    /// "ReactionCountsChanged" broadcast, so no client ever double-counts.
+    /// THREE reaction pills (Love / Wow / Didn't like) and every player in the room
+    /// sees the tally update in near-real-time, over the SAME one connection the
+    /// roster and reveal already use. This is FIRE-AND-FORGET from the client's side
+    /// (it returns void, not a result envelope) - the tapper's perceived
+    /// responsiveness comes from an instant local selection highlight, and the
+    /// authoritative counts arrive for everyone (the tapper included) via the
+    /// "ReactionCountsChanged" broadcast.
+    ///
+    /// The UX de-clutter made reactions ONE-PER-USER, which is what fixes the old
+    /// count-inflation bug (a player could previously tap a pill repeatedly to run
+    /// its count up). The SERVER is now authoritative for that de-dupe: the tapping
+    /// connection is passed to <see cref="Room.SetReaction"/>, which SELECTS the
+    /// reaction (a first tap), MOVES it (tapping a different pill decrements the old
+    /// + increments the new), or TOGGLES it off (tapping the pill you already hold
+    /// removes it). So React is idempotent-by-design - a repeat of the same tap
+    /// toggles rather than inflates.
     ///
     /// A reaction is a TYPE ENUM only (AC-06): no text and no player identity travel
     /// on the wire, so there is nothing for the safety filter to check and no PII is
-    /// collected - the payload is just "someone in this room reacted with X". The
-    /// type is validated server-side against the four allowed values (a crafted
+    /// collected - the payload is just "someone in this room reacted with X" (the
+    /// connection id used for de-dupe is a server-side handle, never broadcast). The
+    /// type is validated server-side against the three allowed values (a crafted
     /// client sending anything else is simply ignored, no throw), then the room's
-    /// ephemeral per-reveal tally is incremented and the full updated tally is
-    /// broadcast to the whole room group. The counts reset when a new round starts
-    /// (see <see cref="Room.StartRound"/>) - they are per-reveal, not persisted.
+    /// ephemeral per-reveal tally + per-connection hold are updated and the full
+    /// updated tally is broadcast to the whole room group. The counts + holds reset
+    /// when a new round starts (see <see cref="Room.StartRound"/>) - they are
+    /// per-reveal, not persisted.
     ///
     /// An unknown/expired code, or a type outside the allowed set, is a silent no-op
     /// (a stray reaction is harmless) rather than a friendly error envelope - unlike
     /// the word/round methods there is nothing the player needs to retry.
     /// </summary>
     /// <param name="code">The room's join code (case-insensitive).</param>
-    /// <param name="reactionType">One of laugh/heart/wow/star; anything else is ignored server-side.</param>
+    /// <param name="reactionType">One of love/wow/nope; anything else is ignored server-side.</param>
     public async Task React(string code, string reactionType)
     {
         // An unknown / expired room has nothing to react to - silently ignore.
@@ -1302,23 +1316,24 @@ public sealed class GameHub : Hub
             return;
         }
 
-        // Validate the type against the four allowed values (AC-06). A crafted
+        // Validate the type against the three allowed values (AC-06). A crafted
         // client sending anything else is ignored - never trust the wire value.
         if (string.IsNullOrWhiteSpace(reactionType) || !KnownReactions.Contains(reactionType))
         {
             return;
         }
 
-        // Increment the room's ephemeral per-reveal tally under its lock and get a
-        // detached snapshot to broadcast. Lowercase to the canonical key the tally
+        // Apply this connection's single reaction under the room's lock (select /
+        // move / toggle off - the server-authoritative one-per-user de-dupe) and get
+        // a detached snapshot to broadcast. Lowercase to the canonical key the tally
         // uses (the client already sends lowercase, but normalize defensively).
-        var tally = room.IncrementReaction(reactionType.ToLowerInvariant());
+        var tally = room.SetReaction(Context.ConnectionId, reactionType.ToLowerInvariant());
 
         // Broadcast the full updated tally to the whole room group so every player
         // (the tapper included) sees the count update in near-real-time (AC-04).
         await Clients.Group(room.Code).SendAsync(
             "ReactionCountsChanged",
-            new ReactionCountsDto(tally["laugh"], tally["heart"], tally["wow"], tally["star"]));
+            new ReactionCountsDto(tally["love"], tally["wow"], tally["nope"]));
     }
 
     /// <summary>

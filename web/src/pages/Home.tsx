@@ -1,58 +1,75 @@
 // ----------------------------------------------------------------------------
 //  Home - the welcome / entry screen (session-engine/01, design screen 1).
 //
-//  The front door to QuibbleStone: no login, no PII. Faithfully recreates
-//  docs/design/Home.dc.html / docs/design/README.md (Screens - screen 1):
-//    - a kicker chip (purple pill, teal glowing dot, "FAMILY WORD QUEST")
-//    - a stone-tablet hero panel (arched, glowing carved rim) with the two-tone
-//      "QuibbleStone" wordmark, a "CARVE A SILLY TALE" caption, and the
-//      HeroGuardian mascot
-//    - a tagline
-//    - the gold "Create a game" primary CTA ("+" icon) and the outlined-purple
-//      "Join a game" secondary button
-//    - a "No account needed - just pick a name & play" reassurance line with a
-//      teal check icon
+//  FIT-TO-VIEWPORT DE-CLUTTER (design-handoff, 2026-07): this screen was
+//  rebuilt to fit ONE phone viewport (~390x844) with NO page scroll. The
+//  previous composition (kicker pill + hero + tagline paragraph + four
+//  stacked text links) overflowed a real phone. The fix is structural, not
+//  cosmetic:
+//    - The root is a FIXED-HEIGHT flex column (`height: 100dvh`, `overflow:
+//      hidden`) instead of a scrolling `minHeight: 100vh` stack. Every child
+//      is sized to fit; nothing here should ever need to scroll.
+//    - The kicker chip ("Family Word Quest") and the two-line tagline
+//      paragraph are GONE - the stone-tablet hero is now the only product
+//      pitch, and carries more visual weight (it is deliberately the biggest
+//      thing on screen, per the design brief's "generous hero" note).
+//    - The four stacked text links (solo / favorites / gallery / account)
+//      are gone. "Play solo" is promoted to its own full-width pill (a way to
+//      START playing, so it stays visually distinct from the CTAs above it).
+//      Favorites / Our tales / Account collapse into a single-row, 5-column
+//      icon utility bar, which also makes room for two more entries: "Get
+//      more" (storefront/paywall, gold tint) and "Support" (tip jar, coral
+//      tint). Both now open real destinations (billing-entitlements shipped
+//      `/get-more` and `/support`) and render as fully-enabled, tappable
+//      chips - same affordance as the other three.
+//    - Vertical rhythm is distributed with flex (`justifyContent:
+//      'space-between'` on the outer column, `mt: 'auto'` on the action
+//      block) so the hero can be generous while the CTAs + utility bar still
+//      land inside the viewport without a stray gap.
+//
+//  What's still here from the original build, unchanged in spirit:
+//    - the stone-tablet hero panel (arched, glowing carved rim) with the
+//      3-glyph rune row, the two-tone "QuibbleStone" wordmark, the "CARVE A
+//      SILLY TALE" caption, and the HeroGuardian mascot
+//    - a one-line tagline
+//    - the gold "Create a game" primary CTA ("+" icon) and the
+//      outlined-purple "Join a game" secondary button
+//    - the "No account needed" reassurance line with a teal check icon
 //
 //  Contracts reused (never re-specified here): the gold CTA is just
 //  <Button variant="contained"> and the outlined-purple secondary is just
 //  <Button variant="outlined"> - both styled once in web/src/theme.ts. All
 //  colors / gradients / radii come from the theme (theme.palette.tablet,
-//  theme.palette.primary, theme.palette.teal, ...) - no hardcoded hex here.
-//  Icons are FontAwesome (registered in web/src/fontawesome.ts).
+//  theme.palette.primary, theme.palette.teal, theme.palette.gold,
+//  theme.palette.coral, ...) - no hardcoded hex here. Icons are FontAwesome
+//  (already registered in web/src/fontawesome.ts).
 //
-//  Behavior: "Create a game" calls onCreateGame (App wires it to open the
-//  HostSetup screen, where the host names itself + picks a Guardian before the
-//  room is minted - build/host-identity). "Join a game" opens the Join screen via
-//  onJoinGame. Home animations (mascot bob is built into
-//  HeroGuardian; sparkles / ambient-glow pulse) are a delight-tier pass and are
-//  intentionally minimal here (out of scope per the story).
-//
-//  Solo entry (single-player/01, ADDITIVE): a clearly-secondary text link,
-//  "Or play solo right now", sits below the reassurance row and calls
-//  onPlaySolo. It is deliberately NOT gated by `disabled` (the hub connection
-//  state) - Solo has no room, no join code, and no SignalR round-trip at all,
-//  so it works even before (or without) the real-time connection coming up.
-//  The Create/Join CTAs above it are untouched by this addition.
-//
-//  Favorites entry (story-selection/06, ADDITIVE): a second clearly-secondary
-//  text link, "My favorites" (a star glyph + label), in the SAME tertiary
-//  treatment as "Or play solo right now" - it calls onFavorites. Also NOT
-//  gated by `disabled`: the Favorites list is device-local (../content/
-//  favorites.ts) and needs no hub connection to read or show.
-//
-//  Gallery entry (keepsake-gallery/03, ADDITIVE): a third clearly-secondary
-//  text link, "Tales we've carved" (a stacked-photos glyph + label), in the
-//  SAME tertiary treatment as "My favorites" - it calls onGallery. Also NOT
-//  gated by `disabled`: the local gallery (../gallery/localGallery.ts) is
-//  entirely device-local (IndexedDB) and needs no hub connection to read or
-//  show, exactly like Favorites above it.
+//  Behavior (all wiring below is UNCHANGED from before this pass):
+//    - "Create a game" calls onCreateGame (App wires it to open the HostSetup
+//      screen, where the host names itself + picks a Guardian before the room
+//      is minted - build/host-identity).
+//    - "Join a game" opens the Join screen via onJoinGame.
+//    - "Play solo right now" calls onPlaySolo - deliberately NOT gated by
+//      `disabled` (the hub-connection state). Solo has no room, no join code,
+//      and no SignalR round-trip at all, so it works even before (or without)
+//      the real-time connection coming up.
+//    - The utility bar's "Favorites" / "Our tales" / "Account" chips call
+//      onFavorites / onGallery / onAccount respectively - also not gated by
+//      `disabled`, since all three are device-local surfaces (favorites list,
+//      IndexedDB gallery, purchaser restore) that need no hub connection.
+//    - "Get more" opens the storefront/paywall via onGetMore (App wires this
+//      to the /get-more route, billing-entitlements/04). "Support" opens the
+//      tip jar via onSupport (App wires this to /support,
+//      billing-entitlements/02). Neither is gated by `disabled` - browsing
+//      what is on offer or leaving a tip needs no hub connection, same
+//      reasoning as Favorites / Our tales / Account above.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
-import { Box, Button, Link, Stack, Typography } from '@mui/material';
+import { Box, Button, Stack, Typography } from '@mui/material';
 import { HeroGuardian } from '../components';
 
 export interface HomeProps {
@@ -85,21 +102,92 @@ export interface HomeProps {
    */
   onAccount: () => void;
   /**
-   * Open the tip jar / "Support us" surface (billing-entitlements/02, AC-01). A
-   * purchaser-facing footer link only - never in a child's play flow. Fully
-   * passive: it grants nothing and never nags (AC-06). Not gated by `disabled`.
-   */
-  onSupport: () => void;
-  /**
-   * Open the gated-purchase paywall (billing-entitlements/04, AC-05). A
-   * purchaser-facing footer link only - never mid-round. Free play is unaffected;
-   * a purchase reflects only on the NEXT session. Not gated by `disabled`.
+   * Open the "Get more" storefront / paywall surface (billing-entitlements/04).
+   * Wired to the /get-more route. NOT gated by `disabled` - browsing what is on
+   * offer needs no hub connection, and buying has zero effect on free play.
    */
   onGetMore: () => void;
+  /**
+   * Open the "Support us" tip jar surface (billing-entitlements/02). Wired to the
+   * /support route. NOT gated by `disabled` - tipping needs no hub connection.
+   */
+  onSupport: () => void;
   /** True while a create-room request is in flight - disables the CTA to avoid double-taps. */
   creating?: boolean;
   /** True until the real-time connection is ready - the CTAs need the hub to act. */
   disabled?: boolean;
+}
+
+/** One column of the bottom utility icon bar (40x40 chip + tiny label). */
+interface UtilityBarItemProps {
+  icon: 'star' | 'book-open' | 'user' | 'gift' | 'mug-saucer';
+  label: string;
+  chipBgcolor: string;
+  iconColor: string;
+  labelColor: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}
+
+function UtilityBarItem({
+  icon,
+  label,
+  chipBgcolor,
+  iconColor,
+  labelColor,
+  onClick,
+  disabled = false,
+}: UtilityBarItemProps) {
+  return (
+    <Box
+      component={disabled ? 'div' : 'button'}
+      type={disabled ? undefined : 'button'}
+      onClick={disabled ? undefined : onClick}
+      aria-disabled={disabled || undefined}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 0.75,
+        flex: 1,
+        border: 'none',
+        background: 'none',
+        p: 0,
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
+        WebkitTapHighlightColor: 'transparent',
+      }}
+    >
+      <Box
+        aria-hidden
+        sx={{
+          width: 40,
+          height: 40,
+          borderRadius: '13px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 16,
+          bgcolor: chipBgcolor,
+          color: iconColor,
+        }}
+      >
+        <FontAwesomeIcon icon={icon} />
+      </Box>
+      <Typography
+        sx={{
+          fontFamily: '"Nunito", sans-serif',
+          fontWeight: 800,
+          fontSize: 10.5,
+          lineHeight: 1.1,
+          textAlign: 'center',
+          color: labelColor,
+        }}
+      >
+        {label}
+      </Typography>
+    </Box>
+  );
 }
 
 export function Home({
@@ -109,8 +197,8 @@ export function Home({
   onFavorites,
   onGallery,
   onAccount,
-  onSupport,
   onGetMore,
+  onSupport,
   creating = false,
   disabled = false,
 }: HomeProps) {
@@ -121,12 +209,16 @@ export function Home({
       alignItems="center"
       sx={{
         position: 'relative',
-        minHeight: '100vh',
+        height: '100dvh',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
         // Screen content horizontal padding (design: 26px on Home) via the
-        // theme spacing scale (1 = 4px), plus breathing room top and bottom.
+        // theme spacing scale (1 = 4px).
         px: 6.5,
-        pt: 3,
-        pb: 6.5,
+        pt: 2,
+        pb: 3,
         mx: 'auto',
         maxWidth: 430,
       }}
@@ -150,48 +242,18 @@ export function Home({
         }}
       />
 
-      {/* Kicker chip: purple pill, teal glowing dot, "FAMILY WORD QUEST". */}
-      <Box
-        sx={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 1.75,
-          mt: 1.5,
-          px: 3.5,
-          py: 1.5,
-          borderRadius: 999,
-          bgcolor: alpha(theme.palette.primary.main, 0.1),
-          border: `1px solid ${alpha(theme.palette.primary.main, 0.22)}`,
-        }}
-      >
-        <Box
-          aria-hidden
-          sx={{
-            width: 6,
-            height: 6,
-            borderRadius: '50%',
-            bgcolor: 'teal.main',
-            boxShadow: `0 0 8px ${theme.palette.teal.main}`,
-          }}
-        />
-        <Typography
-          variant="overline"
-          sx={{ fontSize: 12.5, fontWeight: 800, lineHeight: 1, color: 'primary.main' }}
-        >
-          Family Word Quest
-        </Typography>
-      </Box>
-
-      {/* STONE-TABLET HERO: arched panel, glowing carved rim, wordmark + mascot. */}
+      {/* STONE-TABLET HERO: the sole product pitch now (kicker pill + tagline
+          paragraph were removed). Generous, fills the upper portion of the
+          screen - the brand centerpiece. Arched panel, glowing carved rim,
+          wordmark + mascot, unchanged from the previous build. */}
       <Box
         sx={{
           position: 'relative',
-          mt: 5,
-          width: 296,
-          maxWidth: '100%',
+          width: '100%',
+          maxWidth: 296,
           px: 6.5,
-          pt: 7.5,
-          pb: 5.5,
+          pt: 6,
+          pb: 4.5,
           borderRadius: '96px 96px 30px 30px',
           background: theme.palette.tablet.gradient,
           boxShadow: `0 26px 50px -22px ${alpha(theme.palette.primary.main, 0.55)}, inset 0 3px 0 ${alpha(
@@ -253,7 +315,7 @@ export function Home({
             textAlign: 'center',
             fontFamily: '"Fredoka", sans-serif',
             fontWeight: 700,
-            fontSize: 39,
+            fontSize: 42,
             lineHeight: 0.98,
             letterSpacing: '0.5px',
             textShadow: `0 2px 0 ${alpha(theme.palette.common.white, 0.45)}, 0 3px 6px ${alpha(
@@ -274,7 +336,8 @@ export function Home({
           sx={{
             textAlign: 'center',
             mt: 1,
-            fontSize: 12.5,
+            fontFamily: '"Nunito", sans-serif',
+            fontSize: 12,
             fontWeight: 700,
             letterSpacing: '2px',
             textTransform: 'uppercase',
@@ -285,30 +348,31 @@ export function Home({
         </Typography>
 
         {/* Hero mascot (owns its own idle bob). */}
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2.5 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2.25 }}>
           <HeroGuardian width={158} />
         </Box>
       </Box>
 
-      {/* Tagline. */}
+      {/* One-line tagline (the tablet is now the only pitch; this is a single
+          supporting line, not a paragraph). */}
       <Typography
         sx={{
-          mt: 5,
-          px: 1.5,
+          mt: 2,
           textAlign: 'center',
-          fontSize: 16,
-          lineHeight: 1.45,
+          fontFamily: '"Nunito", sans-serif',
+          fontSize: 16.5,
+          lineHeight: 1.3,
           fontWeight: 600,
           color: 'text.secondary',
-          textWrap: 'pretty',
         }}
       >
-        Fill in the blanks together and watch a wild story get carved into stone - perfect for
-        car rides &amp; kitchen tables.
+        Fill in the blanks together and watch a wild tale get carved into stone.
       </Typography>
 
-      {/* Actions: gold "Create a game" CTA + outlined-purple "Join a game". */}
-      <Stack spacing={3.5} sx={{ width: '100%', mt: 'auto', pt: 5 }}>
+      {/* Primary actions + reassurance + play-solo path. Sits below the hero
+          and tagline; `mt: 'auto'` lets it absorb any remaining space so the
+          bar below stays pinned near the bottom without overflowing. */}
+      <Stack spacing={2} sx={{ width: '100%', mt: 'auto', pt: 3 }}>
         <Button
           variant="contained"
           fullWidth
@@ -330,155 +394,102 @@ export function Home({
         </Button>
 
         {/* Reassurance row: teal check + "No account needed". */}
-        <Stack direction="row" spacing={1.75} alignItems="center" justifyContent="center" sx={{ mt: 0.5 }}>
-          <Box sx={{ color: 'teal.main', fontSize: 16, display: 'flex' }}>
+        <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="center">
+          <Box sx={{ color: 'teal.main', fontSize: 15, display: 'flex' }}>
             <FontAwesomeIcon icon="check" />
           </Box>
-          <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary' }}>
-            No account needed - just pick a name &amp; play
+          <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary' }}>
+            No account needed - pick a name &amp; play
           </Typography>
         </Stack>
 
-        {/* Secondary/tertiary affordance (single-player/01): a plain text
-            link, not styled as a Button, so it reads clearly as the lesser
-            option beside the gold/outlined CTAs above. Not gated by
-            `disabled` - Solo needs no hub connection. */}
-        <Box sx={{ textAlign: 'center' }}>
-          <Link
-            component="button"
-            type="button"
-            onClick={onPlaySolo}
-            underline="none"
-            sx={{ fontSize: 13.5, fontWeight: 700, color: 'primary.main' }}
+        {/* Play-path link (single-player/01): a subtle full-width pill, a way
+            to START playing, so it stays visually distinct from the utility
+            nav bar below. Not gated by `disabled` - Solo needs no hub
+            connection. */}
+        <Box
+          component="button"
+          type="button"
+          onClick={onPlaySolo}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1.5,
+            width: '100%',
+            height: 46,
+            borderRadius: '14px',
+            border: 'none',
+            bgcolor: alpha(theme.palette.primary.main, 0.08),
+            color: 'primary.main',
+            cursor: 'pointer',
+            WebkitTapHighlightColor: 'transparent',
+          }}
+        >
+          <FontAwesomeIcon icon="play" style={{ fontSize: 13 }} />
+          <Typography
+            component="span"
+            sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 16, color: 'inherit' }}
           >
-            Or play solo right now
-          </Link>
+            Play solo right now
+          </Typography>
         </Box>
+      </Stack>
 
-        {/* Favorites entry point (story-selection/06, AC-02): the SAME
-            tertiary text-link treatment as "Or play solo right now" above -
-            a star glyph + label, not a Button, so it reads as a clearly
-            secondary affordance beside the primary CTAs. Not gated by
-            `disabled` - favorites need no hub connection. */}
-        <Box sx={{ textAlign: 'center' }}>
-          <Link
-            component="button"
-            type="button"
-            onClick={onFavorites}
-            underline="none"
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              fontSize: 13.5,
-              fontWeight: 700,
-              color: 'primary.main',
-            }}
-          >
-            <FontAwesomeIcon icon="star" style={{ width: 13, height: 13 }} />
-            My favorites
-          </Link>
-        </Box>
-
-        {/* Gallery entry point (keepsake-gallery/03, AC-01): the SAME tertiary
-            text-link treatment as "My favorites" above - a stacked-photos
-            glyph + label. Not gated by `disabled` - the local gallery needs
-            no hub connection. */}
-        <Box sx={{ textAlign: 'center' }}>
-          <Link
-            component="button"
-            type="button"
-            onClick={onGallery}
-            underline="none"
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              fontSize: 13.5,
-              fontWeight: 700,
-              color: 'primary.main',
-            }}
-          >
-            <FontAwesomeIcon icon="images" style={{ width: 13, height: 13 }} />
-            Tales we've carved
-          </Link>
-        </Box>
-
-        {/* Account entry point (accounts-identity/03, AC-04): the purchaser-only
-            sign-in / restore surface, in the SAME tertiary text-link treatment
-            as the links above - a person glyph + "Account" label. This is the
-            ONLY reachability of the sign-in surface; it never appears on a
-            child's play flow (Join / Lobby / word entry / Reveal). Not gated by
-            `disabled`: restoring a purchase needs no hub connection, and signing
-            in has zero effect on free play (AC-03). */}
-        <Box sx={{ textAlign: 'center' }}>
-          <Link
-            component="button"
-            type="button"
-            onClick={onAccount}
-            underline="none"
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              fontSize: 13.5,
-              fontWeight: 700,
-              color: 'primary.main',
-            }}
-          >
-            <FontAwesomeIcon icon="user" style={{ width: 13, height: 13 }} />
-            Account
-          </Link>
-        </Box>
-
-        {/* Get more entry point (billing-entitlements/04, AC-05): the gated-purchase
-            paywall, in the SAME tertiary text-link treatment as the links above. A
-            purchaser-facing surface only - never a child's play flow. Not gated by
-            `disabled` (browsing what is available needs no hub); free play is never
-            narrowed by anything behind it (AC-03). */}
-        <Box sx={{ textAlign: 'center' }}>
-          <Link
-            component="button"
-            type="button"
-            onClick={onGetMore}
-            underline="none"
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              fontSize: 13.5,
-              fontWeight: 700,
-              color: 'primary.main',
-            }}
-          >
-            <FontAwesomeIcon icon="gift" style={{ width: 13, height: 13 }} />
-            Get more
-          </Link>
-        </Box>
-
-        {/* Tip jar entry point (billing-entitlements/02, AC-01): "Support us", the
-            SAME tertiary text-link treatment. An invitation, not a billboard - it
-            grants nothing, needs no account, and never nags (AC-06). Never appears
-            on a child's play flow (Join / Lobby / word entry / Reveal). */}
-        <Box sx={{ textAlign: 'center' }}>
-          <Link
-            component="button"
-            type="button"
-            onClick={onSupport}
-            underline="none"
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              fontSize: 13.5,
-              fontWeight: 700,
-              color: 'primary.main',
-            }}
-          >
-            <FontAwesomeIcon icon="mug-hot" style={{ width: 13, height: 13 }} />
-            Support us
-          </Link>
-        </Box>
+      {/* Utility icon bar: folds Favorites / Our tales / Account / Get more /
+          Support into ONE row of five equal columns, replacing the old
+          stacked text links. Get more (gold) opens the storefront/paywall
+          (/get-more) and Support (coral) opens the tip jar (/support) - both
+          wired now that billing-entitlements shipped those surfaces. */}
+      <Stack
+        direction="row"
+        sx={{
+          width: '100%',
+          mt: 2,
+          pt: 2,
+          borderTop: `1.5px solid ${alpha(theme.palette.stoneEdge.main, 0.16)}`,
+        }}
+      >
+        <UtilityBarItem
+          icon="star"
+          label="Favorites"
+          chipBgcolor={alpha(theme.palette.primary.main, 0.1)}
+          iconColor={theme.palette.primary.main}
+          labelColor={theme.palette.text.secondary}
+          onClick={onFavorites}
+        />
+        <UtilityBarItem
+          icon="book-open"
+          label="Our tales"
+          chipBgcolor={alpha(theme.palette.primary.main, 0.1)}
+          iconColor={theme.palette.primary.main}
+          labelColor={theme.palette.text.secondary}
+          onClick={onGallery}
+        />
+        <UtilityBarItem
+          icon="user"
+          label="Account"
+          chipBgcolor={alpha(theme.palette.primary.main, 0.1)}
+          iconColor={theme.palette.primary.main}
+          labelColor={theme.palette.text.secondary}
+          onClick={onAccount}
+        />
+        <UtilityBarItem
+          icon="gift"
+          label="Get more"
+          chipBgcolor={alpha(theme.palette.gold.main, 0.16)}
+          iconColor={theme.palette.gold.dark}
+          labelColor={theme.palette.gold.dark}
+          onClick={onGetMore}
+        />
+        <UtilityBarItem
+          icon="mug-saucer"
+          label="Support"
+          chipBgcolor={alpha(theme.palette.coral.main, 0.14)}
+          iconColor={theme.palette.coral.main}
+          labelColor={theme.palette.text.secondary}
+          onClick={onSupport}
+        />
       </Stack>
     </Stack>
   );

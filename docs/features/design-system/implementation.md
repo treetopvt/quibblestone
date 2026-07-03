@@ -41,6 +41,7 @@ Sizing rule: a builder owns files **disjoint** from its concurrent siblings. Ove
 | 01 theme + app-shell | #16 | `web/src/theme.ts` (extend), `web/src/components/AppBar.tsx`, `web/src/components/BottomActionBar.tsx`, `web/index.html` (Google Fonts), `web/src/assets/HeroGuardian.tsx`; may add app-bar icons to `web/src/fontawesome.ts` | none | 02 (disjoint files), child-safety/01, platform-devops/01-02, template-model/01 | 1 | high |
 | 02 guardian-component | #17 | `web/src/components/Guardian.tsx` | 01 (soft - project/theme exists; SVG colors are hardcoded per spec, not theme tokens) | 01 (footprints disjoint) | 1 | medium |
 | 03 orientation-landscape | TBD | `web/public/manifest.webmanifest` (new), `web/index.html` (manifest link), `web/src/pages/Reveal.tsx` (landscape reflow of the story panel) | 01 (app shell, `index.html`, `BottomActionBar`), the-reveal/01 (the Reveal screen) | 02 (disjoint files) | post-slice-1 | low |
+| 05 fit-to-viewport-declutter | TBD | `web/src/pages/Home.tsx`, `web/src/pages/Lobby.tsx`, new `web/src/components/GameSettingsSheet.tsx`, `web/src/pages/FillBlank.tsx`, `web/src/pages/Reveal.tsx` (layout only - reaction-row content itself is `reveal-delight/01`'s footprint), `web/src/fontawesome.ts` (new de-clutter icons) | 01 (theme + AppBar action-slot contract), the-reveal/01, session-engine/03, game-modes/02 | none - touches the same 4 page files `reveal-delight/01`'s revision touches; sequence, do not run concurrently with a `Reveal.tsx` editor | post-slice-1 | high |
 
 **Concurrency per wave:** Wave 1 = 2 (stories 01 and 02 in parallel - their footprints are disjoint: 01 owns
 `theme.ts`/`AppBar`/`index.html`/hero asset, 02 owns only `Guardian.tsx`). The dependency 02 declares on 01 is a
@@ -98,6 +99,29 @@ sibling here touches it).
   service worker/offline pass, and reworking other screens beyond "not broken" (Reveal is the acceptance-critical one).
   This edits `index.html` (owned by story 01) - serialize behind 01, do not run concurrently with another `index.html`
   editor.
+
+### 05 - Fit-to-viewport screen de-clutter
+- **Approach:** apply one recipe - a fixed-height flex column root
+  (`height: 100dvh`, `overflow: hidden`) with exactly one internal-scroll
+  region where content is genuinely long - to Landing, Waiting room, Gameplay,
+  and the Reveal, plus per-screen clarity cuts (Landing's utility icon bar,
+  Lobby's `GameSettingsSheet`, Gameplay's tale-title pill + "Blind" chip, the
+  Reveal's scrolling story card + app-bar Favorite star). No public prop
+  contract changes on any of the four screens (AC-06).
+- **Key files it owns:** `web/src/pages/Home.tsx`, `web/src/pages/Lobby.tsx`,
+  new `web/src/components/GameSettingsSheet.tsx`, `web/src/pages/FillBlank.tsx`,
+  `web/src/pages/Reveal.tsx` (layout regions only), `web/src/fontawesome.ts`
+  (new icon registrations for this pass).
+- **Exports:** the fixed-height-flex + single-internal-scroll pattern as the
+  reusable recipe for any future full-screen page; `GameSettingsSheet` as a
+  generic bottom-sheet chrome wrapper any future host-controls surface can
+  reuse.
+- **Gotchas:** this story's `Reveal.tsx` footprint is LAYOUT ONLY - the
+  reaction row's three-reaction narrowing and one-per-user select/move/toggle
+  rule is `reveal-delight/01`'s footprint (its own story, revised in place);
+  the two changes shipped in the same pass and touch the same file, so
+  sequence them rather than running concurrently. No hardcoded hex/raw-px;
+  FontAwesome-only; no em dashes.
 
 ## Cross-cutting concerns
 

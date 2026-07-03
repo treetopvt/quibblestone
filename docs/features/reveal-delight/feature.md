@@ -136,3 +136,18 @@ competition - grounds the Golden Guardian award's "light, no scoring" stance).
   never fires mid-carve. Verified live in a two-context group (shared reveal, vote
   sync, winner + crown, "carved by" attribution) and in solo (reactions present,
   vote + attribution absent).
+- 2026-07-03: **Reaction row narrowed and reworked (reactions v2)** as part of the
+  screen de-clutter pass (`design-system/05-fit-to-viewport-declutter`), by
+  product-owner decision. The set dropped from four reactions (Laugh, Heart, Wow,
+  Star) to three (Love/teal/thumbs-up, Wow/gold/face-surprise, Didn't
+  like/coral/thumbs-down; internal ids `love`/`wow`/`nope`), and the tap model
+  changed from a free-for-all increment to ONE REACTION PER USER, switchable:
+  select / move / toggle-off, enforced server-authoritatively for group play
+  (`Room.SetReaction`, keyed by connection id, guarded by the room lock, reset on
+  `StartRound`, cleared on leave via `ClearReactionLocked`). This REVERSES story
+  01's original Out of Scope call ("a per-player de-dupe guard is out of scope") -
+  amended in place in `01-reaction-row.md` with a dated Revised note rather than
+  superseded, since it is a revision to the same mechanic (same component, same
+  wire event, same animation discipline), not a new one. Golden Guardian (03) and
+  attribution (04) are UNCHANGED by this pass. See `design-system/05` for the
+  rest of the de-clutter (Home, Lobby, FillBlank, Reveal layout).

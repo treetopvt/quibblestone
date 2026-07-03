@@ -88,13 +88,13 @@ import {
   // Complete screens.
   faThumbsUp,
   faThumbsDown,
-  // Reaction-row icons (reveal-delight/01, issue #56): the four reaction pills
-  // on the Reveal - Laugh (gold, a beaming face) and Heart (coral) are new here;
-  // Wow (teal) reuses faWandMagicSparkles (registered above for FillBlank) and
-  // Star (purple) reuses faStar (registered above for the celebration header),
-  // so only the laugh face + heart are genuinely new.
-  faFaceLaughBeam,
-  faHeart,
+  // Reaction-row icons (reveal-delight/01, issue #56): narrowed from four pills
+  // to three (Love / Wow / Didn't like) in the 2026-07 de-clutter. Love reuses
+  // faThumbsUp and Didn't-like reuses faThumbsDown (both registered just above
+  // for TaleFeedback); Wow reuses faFaceSurprise (registered in the de-clutter
+  // block below). So the reaction row now needs NO glyph of its own here - the
+  // former Laugh (faFaceLaughBeam) and Heart (faHeart) registrations were
+  // dropped once those pills went away.
   // Golden Guardian icons (reveal-delight/03, issue #58): the "tap the funniest
   // word" vote affordance uses faHandPointer; the crowned winner reuses faCrown
   // (already registered above for the Lobby host indicator) and the "N of M
@@ -117,13 +117,37 @@ import {
   // and the signed-in state reuses faCircleCheck / the guide-to-purchase state
   // reuses faShieldHeart, so the envelope is the only genuinely new glyph.
   faEnvelope,
-  // Billing surfaces (billing-entitlements/02 tip jar #71, /04 paywall #73): faMugHot
-  // for "Buy the Guardians a coffee", faGift for a one-time pack, faUnlock for the
-  // paywall CTA, faCircleInfo for the returned-from-checkout cancel banner. The
-  // subscription glyph reuses faCrown, success reuses faCircleCheck, the free-play
-  // reassurance reuses faShieldHeart (all already registered above).
-  faMugHot,
+  // Screen de-clutter / fit-to-viewport redesign (design-handoff, 2026-07):
+  //   - faBookOpen: Landing utility bar "Our tales" chip + the FillBlank
+  //     tale-title pill's book glyph.
+  //   - faGift: Landing utility bar "Get more" (store) chip - gold-tinted; it
+  //     opens the /get-more surface (billing-entitlements/04). Also reused by the
+  //     billing surfaces below for a one-time pack, so it is imported ONCE here.
+  //   - faMugSaucer: Landing utility bar "Support" (tip us) chip - coral-tinted;
+  //     it opens the /support tip jar (billing-entitlements/02).
+  //   - faSliders: the Waiting-room (Lobby) collapsed "Game settings" row that
+  //     opens the settings bottom sheet.
+  //   - faChevronRight: that same "Game settings" row's right chevron.
+  //   - faChevronDown: the "more options below" scroll cue at the foot of the
+  //     Game settings sheet's scroll area (so players discover the modes past
+  //     Classic when the sheet scrolls).
+  //   - faFaceSurprise: the Reveal's "Wow" reaction pill (the 3-reaction set is
+  //     Love / Wow / Didn't like); Love reuses faThumbsUp and Didn't-like reuses
+  //     faThumbsDown (both already registered above).
+  faBookOpen,
   faGift,
+  faMugSaucer,
+  faSliders,
+  faChevronRight,
+  faChevronDown,
+  faFaceSurprise,
+  // Billing surfaces (billing-entitlements/02 tip jar #71, /04 paywall #73):
+  // faMugHot for "Buy the Guardians a coffee", faUnlock for the paywall CTA,
+  // faCircleInfo for the returned-from-checkout cancel banner. (faGift, a
+  // one-time pack, is registered just above for the Landing "Get more" chip -
+  // shared, not duplicated.) The subscription glyph reuses faCrown, success
+  // reuses faCircleCheck, the free-play reassurance reuses faShieldHeart.
+  faMugHot,
   faUnlock,
   faCircleInfo,
 } from '@fortawesome/free-solid-svg-icons';
@@ -166,15 +190,19 @@ library.add(
   faBook,
   faThumbsUp,
   faThumbsDown,
-  faFaceLaughBeam,
-  faHeart,
   faHandPointer,
   faImage,
   faImages,
   faLink,
   faEnvelope,
-  faMugHot,
+  faBookOpen,
   faGift,
+  faMugSaucer,
+  faSliders,
+  faChevronRight,
+  faChevronDown,
+  faFaceSurprise,
+  faMugHot,
   faUnlock,
   faCircleInfo,
   faStarRegular,
