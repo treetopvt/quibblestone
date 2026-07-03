@@ -332,6 +332,24 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             }));
 
+    // sysadmin-console/03 (#137): the OPEN, anonymous "report this tale" endpoint's
+    // per-IP guard - a SIBLING of the PublishTalesRateLimit policy above for the new
+    // report surface, in this SAME registration. Only POST /api/tales/{slug}/report
+    // opts in (via [EnableRateLimiting(ReportTalesRateLimit.PolicyName)]); the rest of
+    // the API (publish, hub, health, moderation) is untouched. It stops one actor from
+    // flooding reports to force-hide a legitimate tale past the threshold or bloating
+    // storage (AC-05). Per-IP behind App Service is honored by ForwardedHeaders below.
+    // 429 on reject.
+    options.AddPolicy(ReportTalesRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ReportTalesRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = ReportTalesRateLimit.PermitLimit,
+                Window = ReportTalesRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
     // accounts-identity/03 (review W-001): the OPEN, unauthenticated magic-link
     // request endpoint's per-IP guard, in this SAME registration alongside the two
     // policies above. Only POST /api/accounts/signin/request opts in (via

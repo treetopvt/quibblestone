@@ -21,6 +21,22 @@ import {
   faEnvelope,
   faCircleCheck,
   faTriangleExclamation,
+  // sysadmin-console/03 (#137) - the review queue: the shield reads "moderation";
+  // the flag is the report-count badge; the trash confirms a tale stays hidden; the
+  // rotate-left restores a tale to serving.
+  faShieldHalved,
+  faFlag,
+  faTrashCan,
+  faRotateLeft,
 } from '@fortawesome/free-solid-svg-icons';
 
-library.add(faLock, faEnvelope, faCircleCheck, faTriangleExclamation);
+library.add(
+  faLock,
+  faEnvelope,
+  faCircleCheck,
+  faTriangleExclamation,
+  faShieldHalved,
+  faFlag,
+  faTrashCan,
+  faRotateLeft,
+);

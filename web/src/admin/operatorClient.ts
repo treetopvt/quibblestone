@@ -79,6 +79,50 @@ function asVerifyResult(value: unknown): { outcome: OperatorOutcome; message: st
   return { outcome, message: record.message, email };
 }
 
+/** Result of checking whether an operator session is currently established. */
+export interface OperatorSessionResult {
+  /** True when a valid operator session exists (GET /api/admin/session returned 200). */
+  signedIn: boolean;
+  /** The signed-in operator email (present only when signedIn). */
+  email?: string;
+}
+
+/** Narrows an unknown parsed body from the session echo endpoint. */
+function asSessionResult(value: unknown): { email: string } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.email !== 'string' || record.email.length === 0) return null;
+  return { email: record.email };
+}
+
+/**
+ * Checks for an established operator session (GET /api/admin/session, story 01). The
+ * back office calls this on load to decide between the login screen and the review
+ * queue (sysadmin-console/03). A 401 (no session) resolves to `signedIn: false`
+ * rather than throwing, and any transport failure is treated the same - the shell
+ * simply falls back to the login screen. Sends credentials so the HttpOnly operator
+ * cookie is included for a same-origin deployment.
+ */
+export async function getOperatorSession(): Promise<OperatorSessionResult> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/admin/session`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      return { signedIn: false };
+    }
+    const body: unknown = await response.json();
+    const parsed = asSessionResult(body);
+    if (!parsed) {
+      return { signedIn: false };
+    }
+    return { signedIn: true, email: parsed.email };
+  } catch {
+    return { signedIn: false };
+  }
+}
+
 /**
  * Requests an operator magic-link email for `email` (POST
  * /api/admin/login/request). Resolves a neutral acknowledgement on success and a
