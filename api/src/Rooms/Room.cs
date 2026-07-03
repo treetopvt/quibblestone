@@ -855,11 +855,25 @@ public sealed class Room
             }
 
             var seat = _players[index];
+
+            // Seat-hijack hardening (child safety, extends story 07's AC-06/AC-07): Rejoin
+            // reclaims a HELD (dropped) seat only. A seat that is still connected is not in a
+            // grace window, so reclaiming it would let a LEAKED token boot the live occupant
+            // and take over the seat - and the booted connection would linger in the room's
+            // SignalR group, still receiving broadcasts. Every legitimate reconnect marks the
+            // seat disconnected (OnDisconnectedAsync fires and MarkDisconnected flips Connected
+            // to false) BEFORE the returning client reaches Rejoin, so this rejects only a
+            // takeover attempt, never a real resume. Friendly no-op failure mapped to the same
+            // envelope as an unknown/expired token (AC-05) - nothing here is mutated.
+            if (seat.Connected)
+            {
+                return ReclaimResult.NotFound;
+            }
+
             var oldConnectionId = seat.ConnectionId;
 
             // Cancel the pending grace-expiry hold for the OLD connection (the deterministic
-            // race resolver - see the method summary). No-op when no hold is pending (e.g. a
-            // reclaim of a seat that never actually dropped).
+            // race resolver - see the method summary). No-op when no hold is pending.
             DiscardGraceHoldLocked(oldConnectionId);
 
             // Swap in the caller's new connection and mark the seat connected again by

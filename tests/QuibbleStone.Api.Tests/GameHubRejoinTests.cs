@@ -298,6 +298,36 @@ public class GameHubRejoinTests
     }
 
     [Fact]
+    public async Task Rejoin_of_a_still_connected_seat_is_rejected_and_mutates_nothing()
+    {
+        // Seat-hijack hardening: a token names a seat that is STILL connected (it never
+        // dropped - no grace hold). Rejoin must NOT reclaim it, or a leaked token could boot
+        // a live occupant and take over the seat. The valid holder's own auto-rejoin never
+        // hits this path (a real drop marks the seat disconnected first), so only a takeover
+        // attempt is rejected.
+        var registry = new RoomRegistry();
+        var (code, _, joinerToken) = await SeatTwoAsync(registry);
+        var room = registry.TryGet(code)!;
+        // The joiner is still fully connected - deliberately NO BeginGrace / drop.
+        Assert.True(Assert.Single(room.SnapshotPlayers(), p => p.Nickname == "Maple").Connected);
+        var before = room.SnapshotPlayers().Select(p => p.ConnectionId).OrderBy(x => x).ToArray();
+
+        var (hub, clients, groups) = BuildHub(registry, "conn-thief");
+        var result = await hub.Rejoin(code, joinerToken);
+
+        // Friendly refusal, and the live seat is untouched (same connection id, no group
+        // subscription for the caller, no broadcast).
+        Assert.False(result.Ok);
+        Assert.NotNull(result.Error);
+        var after = room.SnapshotPlayers().Select(p => p.ConnectionId).OrderBy(x => x).ToArray();
+        Assert.Equal(before, after);
+        Assert.Contains("conn-joiner", after);           // the original live connection still owns the seat
+        Assert.DoesNotContain("conn-thief", after);      // the would-be thief never took it
+        Assert.Empty(groups.Added);
+        Assert.Null(clients.LastMethod);
+    }
+
+    [Fact]
     public async Task Rejoin_with_an_unknown_room_code_fails_friendly()
     {
         var registry = new RoomRegistry();
