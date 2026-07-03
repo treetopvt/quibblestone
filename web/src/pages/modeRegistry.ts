@@ -59,7 +59,7 @@ import { progressiveReveal } from '../engine/modes/progressiveReveal';
 import { progressiveStory } from '../engine/modes/progressiveStory';
 import { wordBank } from '../engine/modes/wordBank';
 import type { Blank, Template } from '../engine/template';
-import { wordBankSurfaces } from './fillblank/WordBankAnswer';
+import { wordBankSurfaces, type RequestAiJumble } from './fillblank/WordBankAnswer';
 import { progressiveStorySurfaces } from './fillblank/StorySoFarContext';
 import { progressiveRevealSurfaces } from './reveal/ProgressiveRevealPresentation';
 import { classicBlindSurfaces, type ModeSurfaces } from './modeSurfaces';
@@ -83,6 +83,16 @@ export interface FillContext {
   /** The blank currently being prompted for. */
   currentBlank: Blank;
   onSubmit: (word: string) => Promise<{ accepted: boolean; message?: string }>;
+  /**
+   * OPTIONAL AI jumble fetcher (game-modes/07 AC-03, backed by
+   * ai-on-demand-generation/05). Only Word Bank's surface uses it: its "Fresh
+   * runes" button PREFERS AI-generated words and falls back to the free
+   * deterministic reshuffle when the gate falls back. The round screen (Solo /
+   * GroupRound) builds it from ../ai/jumbleClient, closing over the round's
+   * family-safe toggle + the anonymous session handle; absent for modes/screens
+   * that do not wire AI (the button is then the deterministic reshuffle only).
+   */
+  requestAiJumble?: RequestAiJumble;
 }
 
 /** The runtime context a mode needs to build its REVEAL-time surface (revealPresentation). */
@@ -135,8 +145,8 @@ export const GAME_MODES: readonly GameMode[] = [
     blurb: 'Tap a word from a curated list instead of typing - no spelling required.',
     icon: 'wand-magic-sparkles',
     eligibleTemplates: offerWordBankTemplates,
-    fillSurfaces: ({ template, currentBlank, onSubmit }) =>
-      wordBankSurfaces({ wordBank: template.wordBank ?? [], blank: currentBlank, onSubmit }),
+    fillSurfaces: ({ template, currentBlank, onSubmit, requestAiJumble }) =>
+      wordBankSurfaces({ wordBank: template.wordBank ?? [], blank: currentBlank, onSubmit, requestAiJumble }),
     revealSurfaces: () => classicBlindSurfaces,
   },
   {

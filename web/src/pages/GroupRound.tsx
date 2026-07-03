@@ -57,6 +57,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { AppBar, BottomActionBar } from '../components';
 import { seedLibrary } from '../content/seedLibrary';
+import { createAiJumbleRequester } from '../ai/jumbleClient';
 import { createCollection } from '../engine/engine';
 import { getBlanks, type Blank } from '../engine/template';
 import type { CollectProgress } from '../signalr/useGameHub';
@@ -104,6 +105,22 @@ export interface GroupRoundProps {
    * progress row.
    */
   crownedNickname?: string | null;
+  /**
+   * The room's join code (game-modes/07 AC-03): the AI "Fresh runes" jumble POSTs
+   * it so the server keys the gate's anonymous quota on the live room's
+   * Room.InstanceId. The client never sees the InstanceId itself (no PII).
+   */
+  roomCode: string;
+  /**
+   * The round's family-safe toggle (the host's choice, client-sticky in App - the
+   * same posture the rest of the app uses, NOT room state), threaded to the AI
+   * jumble so a family-safe room gets family-safe AI words (game-modes/07 AC-04).
+   * The server moderates AI output ACCORDING TO this flag but does not derive it
+   * independently (there is no room-side family-safe state to key on today); the
+   * always-on hard profanity gate holds regardless of the flag. A future
+   * server-authoritative family-safe would need room-side state (out of scope here).
+   */
+  familySafe: boolean;
   /** Leave the round and return Home. */
   onLeave: () => void;
 }
@@ -161,6 +178,8 @@ export function GroupRound({
   collectProgress,
   submitWord,
   crownedNickname,
+  roomCode,
+  familySafe,
   onLeave,
 }: GroupRoundProps) {
   // Resolve the round's mode (group-play/05) to its registry entry ONCE per mode.
@@ -302,6 +321,10 @@ export function GroupRound({
     collectedSoFar: createCollection(),
     currentBlank: current.blank,
     onSubmit: handleSubmitWord,
+    // AI "Fresh runes" for Word Bank (game-modes/07 AC-03): the gate meters on
+    // the live room's anonymous Room.InstanceId (resolved server-side from the
+    // join code). Falls back to the free reshuffle whenever the gate does.
+    requestAiJumble: createAiJumbleRequester({ familySafe, roomCode }),
   });
 
   return (

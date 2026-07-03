@@ -132,7 +132,8 @@ import {
 } from '../engine/engine';
 import { getBlanks, type Template } from '../engine/template';
 import { checkWord } from '../safety/checkWord';
-import { recordSoloServe } from '../telemetry/serveLog';
+import { createAiJumbleRequester } from '../ai/jumbleClient';
+import { getOrCreateSessionId, recordSoloServe } from '../telemetry/serveLog';
 import { recordSoloRoundCompleted, recordSoloRoundStarted } from '../telemetry/usageBeacon';
 import { FillBlank } from './FillBlank';
 import { Reveal } from './Reveal';
@@ -510,6 +511,10 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
       collectedSoFar: collectionRef.current,
       currentBlank,
       onSubmit: handleSubmitWord,
+      // AI "Fresh runes" for Word Bank (game-modes/07 AC-03): solo has no room,
+      // so the gate meters on the anonymous device-local telemetry session id.
+      // The button falls back to the free reshuffle whenever the gate does.
+      requestAiJumble: createAiJumbleRequester({ familySafe, sessionId: getOrCreateSessionId() }),
     });
     return (
       <FillBlank

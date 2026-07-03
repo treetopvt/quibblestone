@@ -7,7 +7,7 @@
 
 # QuibbleStone Roadmap
 
-**As of 2026-07-02.** The thin vertical slice is live and playable end to end -
+**As of 2026-07-03.** The thin vertical slice is live and playable end to end -
 so this is no longer "get to playable," it is "what makes an alpha land, and how
 do we bring AI in without a stranger running up the bill." Every path below traces
 to a written story in [`docs/features/`](./features/); this file is the map over
@@ -35,6 +35,13 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Freshness loop** - length classes, quick-story, no-repeats rotation.
 - Profanity filter + family-safe toggle; MUI theme + shared components; Vitest +
   Playwright harness gating CI.
+- **The AI cost gate + the first AI slice (2026-07-03).** The shared gate
+  (server proxy + entitlement-at-session + quota/meter + spend circuit-breaker +
+  moderate-before-display + IaC) plus its first consumer: **Fresh Runes** on the
+  Word Bank surface - a FREE deterministic reshuffle (`game-modes/07`) and, layered
+  on top, an AI jumble (`ai-on-demand-generation/05` + moderation `/02`) that rides
+  the gate and falls back to the free reshuffle whenever the gate degrades. The
+  throwaway measurement probe was removed once the real consumer landed.
 
 > Known gap: **group play is Classic-Blind-only.** The other three built modes are
 > not yet reachable in a group - that is `group-play/05` (below), and it is mostly
@@ -49,7 +56,7 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 | Anonymous usage metrics | `platform-devops/05` | modes, session length; reuses 04's pipeline |
 | Favorite a story | `story-selection/06` | device-local replay |
 | Serve log | `story-selection/04` | what got played |
-| Fresh Runes (free half) | `game-modes/07` | deterministic reshuffle, no AI |
+| ~~Fresh Runes (free + AI)~~ **shipped** | `game-modes/07` + `ai-on-demand-generation/05` | deterministic reshuffle + AI jumble behind the cost gate (2026-07-03) |
 | Group mode selection | `group-play/05` | host picks the mode for the room |
 | Reconnect / rejoin | `session-engine` (deferred) | survive a dropped phone |
 

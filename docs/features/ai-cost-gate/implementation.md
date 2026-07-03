@@ -142,6 +142,15 @@ secrets (`apiPrincipalId` is a GUID, not sensitive, so it is fine as a committed
 
 ## Cross-feature master DAG (the first AI slice)
 
+> **Status 2026-07-03: the first AI slice is COMPLETE.** Phase A (game-modes/07 free layer)
+> and Phase D (ai-on-demand-generation/05 + its moderation /02, plus the client wiring that
+> makes the button prefer AI and fall back to A) both landed on top of the merged gate (phases
+> B + C). The throwaway probe (AiProbeController) was removed - the real consumer + its
+> `feature=jumble` attribution telemetry now supersede it as the token-usage -> cost
+> measurement path. Consumers reach the gate via `JumbleWordGenerator` -> `POST /api/ai/jumble`
+> (per-IP rate-limited); solo keys the anonymous quota on a device-session id, group on the
+> live room's `InstanceId`.
+
 The gate is the spine; the thin slice proves it on the cheapest payload. Build order across features:
 
 | Phase | Work | Feature/story | Gates on |

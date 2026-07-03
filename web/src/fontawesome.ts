@@ -61,6 +61,9 @@ import {
   // FamilySafeToggle icon (child-safety/02): the shield-heart glyph reads as
   // "protected and kid-friendly" beside the "Family-safe" toggle label.
   faShieldHeart,
+  // Word Bank "Fresh runes" jumble action (game-modes/07): a dice glyph reads
+  // as "roll me a fresh set of words" beside the on-brand "Fresh runes" label.
+  faDice,
   // Reveal icons (the-reveal/01): twinkling star glyphs flanking the "Your
   // tale is carved!" header, the narration bar's inactive play glyph (faPlay
   // is already registered above), and the gold "Play another round" CTA's
@@ -140,6 +143,7 @@ library.add(
   faPenNib,
   faEyeSlash,
   faShieldHeart,
+  faDice,
   faStar,
   faArrowRotateRight,
   faPenRuler,

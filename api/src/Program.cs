@@ -28,6 +28,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Ai;
+using QuibbleStone.Api.Ai.Jumble;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
@@ -261,6 +262,13 @@ else
 // skips the filter unchanged (game-modes/04).
 builder.Services.AddSingleton<IAiOutputModerator, AiOutputModerator>();
 builder.Services.AddSingleton<GatedAiCompletionClient>();
+
+// ai-on-demand-generation/05 (#126): the FIRST real consumer of the gate - the AI
+// word-bank jumble. It builds the tiny prompt, routes it through the gate above
+// (never a raw provider call), and shapes the moderated reply into fresh words; a
+// degraded gate makes it fall back to game-modes/07's free reshuffle. Stateless
+// (holds only the gate + a logger), so a singleton like its dependencies.
+builder.Services.AddSingleton<JumbleWordGenerator>();
 
 // ai-cost-gate/03 (#122) AC-03: the per-IP abuse guard - a COARSE cap on the
 // aggregate AI call rate from one origin, on top of the per-session quota above, so
