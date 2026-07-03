@@ -76,3 +76,12 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   entitlements and survive a device change. Anything broader is scope creep
   against README section 3's "lightweight" instruction. Recorded during the
   look-ahead planning pass ahead of Slice 1 shipping.
+- 2026-07-03: [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)
+  (accounts, subscriptions, sys-admin surface - exploration) states the
+  load-bearing invariant this feature's purchaser account must uphold -
+  "entitlement travels with the session, not identity": the host's purchaser
+  identity is resolved to capabilities at `GameHub.CreateRoom` and discarded at
+  that boundary, so only the resolved capability set (never a purchaser id)
+  lands on `Room`. It also surfaces the still-open identity-provider choice
+  (Open Decision A: magic-link email / single OAuth / Stripe-Customer-as-identity
+  / Entra External ID) - consistent with story 02 AC-01, not narrowing it.

@@ -90,6 +90,11 @@ once and reused by every later AI feature.
   `ai-on-demand-generation`). Same gate, bigger payloads, strongest moderation.
 - **Charge for it** - purchaser account + tip jar -> Stripe -> gated purchase
   (`accounts-identity`, `billing-entitlements`). The cost gate is already half of it.
+  How this stays anonymous while a paying adult unlocks content/features for their
+  sessions - plus the family-plan subscription shape and the sys-admin surface - is
+  explored in [ADR 0002](./adr/0002-accounts-subscriptions-and-admin.md) +
+  [`sysadmin-console`](./features/sysadmin-console/feature.md) (exploration only;
+  open decisions surfaced for the owner, nothing built).
 - **Bottomless library** - pack catalog + the offline generate -> vet -> publish
   content factory (`story-packs`, `ai-content-factory`).
 

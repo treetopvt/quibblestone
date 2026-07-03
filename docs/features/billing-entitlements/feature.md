@@ -110,3 +110,12 @@ even if the UI is minimal").
   though story 03's plumbing is a technical prerequisite for story 02 to
   actually charge a card - see the Wave Plan in implementation.md for the real
   build order.
+- 2026-07-03: [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)
+  (accounts, subscriptions, sys-admin surface - exploration) adds small,
+  additive subscription scope on top of this feature without reshaping the #70
+  seam: a lease-shaped grant (an optional `validThrough` + a `source` of
+  subscription-vs-one-time on the `EntitlementGrant` row, story 03), the
+  subscription webhook lifecycle cases (created / renewed / past_due / canceled,
+  story 03), and a named "family plan" -> capability-bundle mapping (the README
+  section 3 paid keys). Surfaced there, not decided; resolve ADR 0002 Open
+  Decisions C + D before decomposing.
