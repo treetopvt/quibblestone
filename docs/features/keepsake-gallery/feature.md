@@ -24,6 +24,7 @@ mirrors for sharing the image).
 | 02 | #64 | Share the tale with watermark | In Progress |
 | 03 | #65 | "Tales we've carved" local history | In Progress |
 | 04 | #66 | Shareable tale link (the back-link growth loop) | In Progress |
+| 05 | TBD | Cloud-synced, browsable gallery for purchasers | Not Started |
 
 ## Dependencies
 - the-reveal (the assembled story + stone-tablet rendering this feature
@@ -34,6 +35,9 @@ mirrors for sharing the image).
   saved image, or a published tale page).
 - infra (story 04's public tale page stores the published tale in Azure Table
   Storage - README section 9; stories 01-03 need no backend).
+- accounts-identity/02 and billing-entitlements/01 (story 05's hard gates - a
+  purchaser account and the entitlement seam, respectively, must exist before
+  story 05 can start).
 
 ## Design notes
 - This feature does **not** touch the engine. It is entirely presentation
@@ -72,24 +76,33 @@ mirrors for sharing the image).
   Guardian only), an unguessable + noindex link, host-initiated (opt-in)
   publishing, and a TTL so published tales expire. Sharing a link is FREE - it
   is the growth loop, not a gated feature (README section 3).
-- All four stories stay anonymous by construction: the only identity on a
-  saved or shared image, or a published tale page, is an in-session nickname +
+- Story 05 (cloud-synced, browsable gallery) is GATED: it cannot start until
+  `accounts-identity/02` (the purchaser account) and `billing-entitlements/01`
+  (the session-creation entitlement seam) both exist, and it consumes both
+  rather than inventing its own account or gate. It is also the first story
+  in this feature to introduce a query access pattern (list-by-owner, search,
+  sort/rank) that `04`'s single-slug point-read was never designed for - see
+  its own "Datastore decision" section, which is the explicit trigger to
+  re-evaluate Table Storage vs. a queryable store (Azure SQL/Cosmos DB) for
+  that new need. Anonymous players never get a cloud gallery, full stop -
+  story 03's device-local gallery stays their only, permanent option.
+- Stories 01-04 stay anonymous by construction: the only identity on a saved
+  or shared image, or a published tale page, is an in-session nickname +
   Guardian variant, exactly what the roster already displays - never a real
-  name, device id, or any other PII.
+  name, device id, or any other PII. Story 05 is the one deliberate exception
+  that ties saved content to a purchaser account, and only for the purchaser
+  who signs in - never for anonymous players (see its own Out-of-Scope/ACs).
 
 ## Parked - Phase 2+
 - Server-side render pipeline for the image (only if client-side canvas/DOM
   fidelity proves insufficient after story 01 ships - see Design notes).
-- Cloud-synced keepsake gallery tied to a purchaser account (once accounts
-  exist per README section 7 Phase 2, a paying "family plan" purchaser could
-  sync their gallery across devices; anonymous players still never get one).
 - Reaction counts or comments attached to a saved tale (the Reveal's Phase-4
   reaction row is `the-reveal/feature.md`'s own parked idea; if it ships, a
-  saved tale could show its final counts, but that is additive scope for
-  later, not this feature).
+  saved tale could show its final counts, and story 05's sort/rank surface
+  could consume them, but reactions themselves are additive scope for later,
+  not this feature).
 - Exporting the local gallery as a printable "yearbook" of tales (a nice idea,
   needs its own design pass).
-- Search/filter within the local gallery beyond a simple recency list.
 
 ## Decisions
 - 2026-07-01: Story 03 (local history) is scoped as a consumer of story 01's
@@ -112,3 +125,10 @@ mirrors for sharing the image).
   feature), kept isolated and behind family-safe / no-PII / unguessable /
   noindex / opt-in / TTL guardrails, and that the link is FREE (never gated) -
   gating the growth loop would defeat its purpose.
+- 2026-07-02: Promoted the two parked "cloud-synced gallery" and "search/filter
+  beyond recency" bullets to story 05, now that `accounts-identity/02` and
+  `billing-entitlements/01` are specified enough to gate against. Story 05 will
+  revisit the Table-vs-SQL/Cosmos datastore choice: `04`'s Table Storage
+  (point-read by slug) does not serve list-by-owner/search/rank, so this is the
+  explicit trigger to re-evaluate it rather than silently bolting queries onto
+  a store chosen for a different access pattern.
