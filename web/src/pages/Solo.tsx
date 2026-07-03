@@ -514,7 +514,11 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
       // AI "Fresh runes" for Word Bank (game-modes/07 AC-03): solo has no room,
       // so the gate meters on the anonymous device-local telemetry session id.
       // The button falls back to the free reshuffle whenever the gate does.
-      requestAiJumble: createAiJumbleRequester({ familySafe, sessionId: getOrCreateSessionId() }),
+      requestAiJumble: createAiJumbleRequester({
+        familySafe,
+        themes: template.tags.themes,
+        sessionId: getOrCreateSessionId(),
+      }),
     });
     return (
       <FillBlank

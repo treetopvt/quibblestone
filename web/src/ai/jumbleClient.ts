@@ -44,6 +44,12 @@ import type { AiJumbleOutcome, RequestAiJumble } from '../pages/fillblank/WordBa
 export interface JumbleSession {
   /** The round's family-safe toggle - tightens generation + moderation server-side. */
   familySafe: boolean;
+  /**
+   * The template's curated theme tags (e.g. ['fantasy', 'monsters']) - a soft flavor
+   * steer so AI words fit the story's vibe. The server never sees the story text, only
+   * these tags, so the reveal stays unspoiled. Optional; omitted -> generic words.
+   */
+  themes?: readonly string[];
   /** The group join code (resolved to the anonymous Room.InstanceId server-side). Group play only. */
   roomCode?: string;
   /** The solo client's anonymous device-local session id. Solo play only. */
@@ -86,6 +92,7 @@ export function createAiJumbleRequester(session: JumbleSession): RequestAiJumble
           category,
           familySafe: session.familySafe,
           avoid: [...avoid],
+          themes: session.themes ? [...session.themes] : null,
           roomCode: session.roomCode ?? null,
           sessionId: session.sessionId ?? null,
         }),
