@@ -45,6 +45,7 @@ public class GameHubEntitlementTests
             new FakeTelemetrySink(),
             TestTelemetry.NoOp,
             entitlements,
+            TestSeatGrace.NoOp(registry),
             NullLogger<GameHub>.Instance);
 
         hub.Groups = new NoOpGroups();

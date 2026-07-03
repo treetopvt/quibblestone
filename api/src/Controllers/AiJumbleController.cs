@@ -47,12 +47,14 @@ namespace QuibbleStone.Api.Controllers;
 /// <param name="Category">The blank's category label (e.g. "noun"). A controlled value, not player free text.</param>
 /// <param name="FamilySafe">The round's family-safe toggle - tightens generation + moderation.</param>
 /// <param name="Avoid">Words already shown for this blank (already vetted) - the model is asked to skip them. May be null.</param>
+/// <param name="Themes">The template's curated theme tags (e.g. "fantasy", "space") - a soft flavor steer. A controlled vocabulary, but still sanitized here as untrusted input. May be null. NEVER the story text (no spoiled reveal).</param>
 /// <param name="RoomCode">The group join code (resolved to the anonymous Room.InstanceId server-side). Null/empty for solo.</param>
 /// <param name="SessionId">The solo client's anonymous, device-local session id (used only when no live room resolves). Null/empty for group.</param>
 public sealed record AiJumbleRequest(
     string? Category,
     bool FamilySafe,
     IReadOnlyList<string>? Avoid,
+    IReadOnlyList<string>? Themes,
     string? RoomCode,
     string? SessionId);
 
@@ -73,6 +75,13 @@ public sealed class AiJumbleController : ControllerBase
     // word bank (the prompt itself only names the first ~20), tiny for an abuser.
     private const int MaxAvoidItems = 100;
     private const int MaxAvoidItemLength = 40;
+
+    // Bounds on the client-controlled theme tags. Curated client-side, but treated as
+    // untrusted here: a small count of short letters/hyphens tokens (the same shape as
+    // a category), so nothing sentence- or injection-shaped reaches the prompt. The
+    // generator names only the first few; the OUTPUT is moderated regardless.
+    private const int MaxThemeItems = 6;
+    private const int MaxThemeItemLength = 24;
 
     private readonly JumbleWordGenerator _generator;
     private readonly RoomRegistry _rooms;
@@ -128,6 +137,7 @@ public sealed class AiJumbleController : ControllerBase
         var result = await _generator.GenerateAsync(
             category,
             CapAvoid(request.Avoid),
+            CapThemes(request.Themes),
             request.FamilySafe,
             instanceId,
             cancellationToken);
@@ -192,14 +202,50 @@ public sealed class AiJumbleController : ControllerBase
         return capped;
     }
 
+    /// <summary>
+    /// Bounds + sanitizes the client-controlled theme tags before they reach the
+    /// prompt: trims, keeps only short letters/hyphens tokens (the same controlled
+    /// shape as a category, so a stray sentence / injection-shaped value is dropped,
+    /// not forwarded), and keeps at most <see cref="MaxThemeItems"/>. Invalid entries
+    /// are dropped individually - a bad tag never fails the whole request, it just
+    /// does not flavor the prompt. Defense in depth: the OUTPUT is moderated regardless.
+    /// </summary>
+    private static IReadOnlyList<string> CapThemes(IReadOnlyList<string>? themes)
+    {
+        if (themes is null || themes.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var capped = new List<string>(Math.Min(themes.Count, MaxThemeItems));
+        foreach (var theme in themes)
+        {
+            if (string.IsNullOrWhiteSpace(theme))
+            {
+                continue;
+            }
+            var trimmed = theme.Trim();
+            if (trimmed.Length > MaxThemeItemLength || !IsLettersOrHyphens(trimmed))
+            {
+                continue;
+            }
+            capped.Add(trimmed);
+            if (capped.Count >= MaxThemeItems)
+            {
+                break;
+            }
+        }
+        return capped;
+    }
+
     /// <summary>A category is valid if it is short and letters/hyphens only (a controlled BlankCategory label).</summary>
     private static bool IsValidCategory(string category)
+        => category.Length <= MaxCategoryLength && IsLettersOrHyphens(category);
+
+    /// <summary>True if every character is a letter or a hyphen (the controlled shape for a category / theme tag).</summary>
+    private static bool IsLettersOrHyphens(string value)
     {
-        if (category.Length > MaxCategoryLength)
-        {
-            return false;
-        }
-        foreach (var ch in category)
+        foreach (var ch in value)
         {
             if (!char.IsLetter(ch) && ch != '-')
             {
