@@ -19,7 +19,7 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 | Story | Issue | Title | Status |
 |---|---|---|---|
 | 01 | #67 | Anonymous player, forever | In Progress |
-| 02 | #68 | Lightweight purchaser account | Not Started |
+| 02 | #68 | Lightweight purchaser account | In Progress |
 | 03 | #69 | Sign-in and restore on a new device | Not Started |
 
 ## Dependencies
