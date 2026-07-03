@@ -67,10 +67,15 @@ public sealed class JumbleWordGenerator
     /// </summary>
     public const int MinUsableWords = 3;
 
-    // A short cap on the max output tokens: ~10 short words on their own lines is
-    // well under this, and the small cap bounds both latency and per-call cost
-    // (this is the ~$0.0001/call payload the gate is proved on - ADR 0001).
-    private const int MaxOutputTokens = 80;
+    // A short cap on the max output tokens. With the transport's minimal reasoning
+    // effort, ~10 short words on their own lines cost ~32 completion tokens (measured
+    // live), so this is comfortable headroom, not a limit we brush against; billing is
+    // on ACTUAL tokens, so the margin is free. It still bounds worst-case latency/cost
+    // (the ~$0.0001/call payload the gate is proved on - ADR 0001). NOTE: this cap is
+    // only safe because the transport pins reasoning effort to minimal - a reasoning
+    // model at default effort would burn the entire budget on hidden reasoning and
+    // return nothing (the bug that once silently fell every jumble back).
+    private const int MaxOutputTokens = 128;
 
     // How many already-shown words to name in the avoid-list. Enough to steer the
     // model toward fresh options without bloating the prompt (and its input cost).
