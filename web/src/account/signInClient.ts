@@ -52,6 +52,13 @@ export interface SignInVerifyResult {
   message: string;
   /** The signed-in purchaser email (present only on 'signed-in'), for the "signed in as X" UI. */
   email?: string;
+  /**
+   * The short-lived purchaser credential (present only on 'signed-in'). The SPA holds it
+   * in memory and presents it as a bearer to the restore/manage endpoint
+   * (billing-entitlements/05) - the cross-origin-friendly path, since the HttpOnly cookie
+   * is same-site only. Not persisted; not displayed.
+   */
+  credential?: string;
 }
 
 /** Friendly fallback shown when the sign-in endpoint cannot be reached or parsed (AC-06). */
@@ -71,14 +78,18 @@ function asRequestResult(value: unknown): { message: string; devToken?: string }
 const KNOWN_OUTCOMES: readonly SignInOutcome[] = ['signed-in', 'no-account', 'link-invalid'];
 
 /** Narrows an unknown parsed body from the verify endpoint. */
-function asVerifyResult(value: unknown): { outcome: SignInOutcome; message: string; email?: string } | null {
+function asVerifyResult(
+  value: unknown,
+): { outcome: SignInOutcome; message: string; email?: string; credential?: string } | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.outcome !== 'string' || typeof record.message !== 'string') return null;
   const outcome = KNOWN_OUTCOMES.find((known) => known === record.outcome);
   if (!outcome) return null;
   const email = typeof record.email === 'string' && record.email.length > 0 ? record.email : undefined;
-  return { outcome, message: record.message, email };
+  const credential =
+    typeof record.credential === 'string' && record.credential.length > 0 ? record.credential : undefined;
+  return { outcome, message: record.message, email, credential };
 }
 
 /**
@@ -115,8 +126,8 @@ export async function requestSignInLink(email: string): Promise<SignInRequestRes
  * /api/accounts/signin/verify). Resolves one of the server outcomes, or
  * `{ outcome: 'error' }` on any transport failure - never throws (AC-06). The
  * short-lived purchaser credential is set by the server (an HttpOnly cookie) and
- * also returned in the body; the restore view (billing-entitlements/05) is the
- * consumer, so this client surfaces only the outcome + signed-in email for the UI.
+ * also returned in the body; this client surfaces it (plus the outcome + email) so
+ * the restore view (billing-entitlements/05) can present it as a bearer.
  */
 export async function verifySignIn(token: string): Promise<SignInVerifyResult> {
   try {
@@ -139,7 +150,7 @@ export async function verifySignIn(token: string): Promise<SignInVerifyResult> {
     if (!parsed) {
       return { outcome: 'error', message: UNAVAILABLE_MESSAGE };
     }
-    return { outcome: parsed.outcome, message: parsed.message, email: parsed.email };
+    return { outcome: parsed.outcome, message: parsed.message, email: parsed.email, credential: parsed.credential };
   } catch {
     return { outcome: 'error', message: UNAVAILABLE_MESSAGE };
   }

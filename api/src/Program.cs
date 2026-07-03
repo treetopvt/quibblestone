@@ -546,6 +546,13 @@ builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
 // any player-facing endpoint, so free play stays 100% login-free.
 builder.Services.AddDataProtection();
 
+// accounts-identity/03 + billing-entitlements/05: the ONE purchaser-credential
+// minter+resolver over Data Protection. AccountsController mints it on sign-in;
+// EntitlementsController (the restore/manage read endpoint) resolves it - both share
+// this so the credential purpose + lifetime live in exactly one place (story 05 AC-06:
+// reuse the guard, do not write a second auth check). A singleton over the protector.
+builder.Services.AddSingleton<PurchaserCredentialService>();
+
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
 //       .AddAzureSignalR(builder.Configuration["AzureSignalR:ConnectionString"]);
