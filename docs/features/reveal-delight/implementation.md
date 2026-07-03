@@ -72,14 +72,21 @@ Phase 2+/3") - no coordination is needed today since that mode is not currently 
 ## Per-story tech notes
 
 ### 01 - Reaction row
-- **Approach:** four pill buttons (Laugh/Heart/Wow/Star) above the pinned action bar, tap-to-increment with a
-  floating-icon pop (AC-01, AC-02). Real-time in group play over the existing one connection (AC-04); works
-  identically, minus the broadcast, in solo (AC-05). No new free-text surface (AC-06).
-- **Owns / exports:** the reaction-row region of `Reveal.tsx` (or an extracted `ReactionRow.tsx`), plus a new
-  `ReactAsync` hub invoke + `ReactionCountsChanged` broadcast.
+- **Approach (revised 2026-07-03, screen de-clutter):** three pill buttons - Love (teal/thumbs-up), Wow
+  (gold/face-surprise), Didn't like (coral/thumbs-down) - above the pinned action bar, in `web/src/components/
+  ReactionRow.tsx` (extracted, not inline in `Reveal.tsx`). Originally four (Laugh/Heart/Wow/Star) with a
+  tap-to-increment model; now ONE REACTION PER USER, switchable (select / move / toggle-off), enforced
+  server-authoritatively for group play (AC-01, AC-02, AC-04, AC-04a). Works identically, minus the broadcast, in
+  solo (AC-05). No new free-text surface (AC-06).
+- **Owns / exports:** `web/src/components/ReactionRow.tsx` (a controlled single-select component - caller owns
+  `counts` + `selected`), plus the hub's `React(code, reactionType)` invoke + `ReactionCountsChanged` broadcast
+  (`ReactionCountsDto(Love, Wow, Nope)`) and `Room.SetReaction` / `ClearReactionLocked` on the API side.
 - **Gotchas:** entrance/float animation is `transform` only, never an `opacity` `@keyframes` step (design pack's own
-  documented footgun - AC-03). Reaction counts are ephemeral, reset each new Reveal screen (no persistence). Out of
-  scope: per-player de-dupe guard (Phase 4), reacting to an individual word (that is 03's different mechanic).
+  documented footgun - AC-03). Reaction counts are ephemeral, reset each new Reveal screen (no persistence) AND on
+  every leave (`ClearReactionLocked`, composed into `RemovePlayer` + `TryReleaseSeat`) so a departed player's hold
+  never lingers. The one-reaction-per-user de-dupe (formerly Out of Scope, now AC-04a) is SERVER-authoritative in
+  group play, keyed by connection id under the room lock - never trust a client-only guard. Out of scope: reacting
+  to an individual word (that is 03's different mechanic), any reaction type beyond the three named.
 
 ### 02 - Word-by-word "carving" reveal animation
 - **Approach:** literal text renders instantly; each coral filled word pops in sequentially (staggered

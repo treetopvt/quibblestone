@@ -17,6 +17,7 @@ MUI theme. No hardcoded colors or pixel spacing in components."
 - [ ] 02 - Guardian avatar component (6 variants)
 - [ ] 03 - Orientation: prefer portrait, stay readable in landscape
 - [x] 04 - Client routing (react-router) - real URLs + `/join/:code` deep link
+- [x] 05 - Fit-to-viewport screen de-clutter
 
 ## Dependencies
 None (this is the UI foundation everything else renders on top of).
@@ -47,6 +48,15 @@ None (this is the UI foundation everything else renders on top of).
   unchanged. Unblocks `session-engine/06` (the share payload for `/join/:code`) and
   pairs with the parked reconnect hardening (session-engine). See
   `04-client-routing.md`.
+- **Fit-to-viewport screen de-clutter** (story 05, 2026-07): Landing, Waiting
+  room, Gameplay, and the Reveal were rebuilt to fit ONE phone viewport
+  (~390x844) with no page scroll, via a shared fixed-height-flex-column +
+  single-internal-scroll recipe, plus per-screen clarity cuts (Landing's
+  utility icon bar, Lobby's collapsed `GameSettingsSheet`, Gameplay's
+  tale-title pill + "Blind" chip, the Reveal's scrolling story card). No
+  screen's public props changed. The reaction-row narrowing that shipped in
+  the same pass is recorded separately in
+  `reveal-delight/01-reaction-row.md`. See `05-fit-to-viewport-declutter.md`.
 
 ## Parked - Phase 4
 - Dyslexia-friendly font option and reduced-motion variants of all animations

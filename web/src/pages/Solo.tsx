@@ -90,9 +90,13 @@
 //  device-local shortcut, never routed into the serve log).
 //
 //  story-selection/04 fire-and-forgets an anonymous "template served" event on
-//  each RANDOM round start (beginRound with record:true), and story-selection/05
-//  shows a quiet per-tale thumbs vote on Reveal (taleFeedback) - both anonymous,
-//  both never gate the flow (see recordSoloServe / TaleFeedback).
+//  each RANDOM round start (beginRound with record:true) - anonymous, never
+//  gates the flow (see recordSoloServe). The solo Reveal deliberately does NOT
+//  pass Reveal's `taleFeedback` slot (story-selection/05's "Did you like this
+//  story?" thumbs): it read as a redundant second sentiment control beside the
+//  Love/Wow/Didn't-like reaction row and stole story real estate, so it was
+//  dropped from solo (the UX de-clutter). Group play keeps that vote on its
+//  Round Complete recap, not the transient reveal, so nothing there changes.
 //
 //  platform-devops/05 (anonymous product-usage) adds two more fire-and-forget,
 //  no-PII beacons on the SAME never-gate posture: a "RoundStarted" (the mode
@@ -107,12 +111,15 @@
 // ----------------------------------------------------------------------------
 
 import { useEffect, useRef, useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import {
   AppBar,
   BottomActionBar,
   BottomActionBarSpacer,
   FamilySafeToggle,
+  GameSettingsSheet,
   ReactionRow,
   StoryLengthChoice,
 } from '../components';
@@ -162,7 +169,7 @@ export interface SoloProps {
 const SOLO_PLAYER_ID = 'solo-player';
 
 /** A fresh all-zero reaction tally for a new solo reveal (reveal-delight/01, AC-05). */
-const ZERO_REACTIONS: ReactionCounts = { laugh: 0, heart: 0, wow: 0, star: 0 };
+const ZERO_REACTIONS: ReactionCounts = { love: 0, wow: 0, nope: 0 };
 
 /** The three phases of the local solo state machine. */
 type SoloPhase = 'setup' | 'fill' | 'reveal';
@@ -196,27 +203,36 @@ function countFilledWords(collected: CollectedWords): number {
 }
 
 /**
- * The solo personal summary (Reveal's `attribution` slot): title + "You
- * filled N words". Solo does NOT show the group Round Complete crew recap
- * (AC-07) - just a small, theme-driven, PII-free line about this one player.
+ * The solo personal summary (Reveal's `attribution` slot): a single, quiet
+ * "You filled N words" line. It deliberately does NOT echo the tale title -
+ * that already appears in the story card just below, so repeating it as an
+ * uppercase kicker was redundant clutter (the UX de-clutter). Solo also does
+ * NOT show the group Round Complete crew recap (AC-07) - just this one
+ * theme-driven, PII-free line about the single player.
  */
-function PersonalSummary({ title, filledCount }: { title: string; filledCount: number }) {
+function PersonalSummary({ filledCount }: { filledCount: number }) {
   return (
-    <Stack alignItems="center" spacing={0.5}>
-      <Typography
-        variant="overline"
-        sx={{ fontSize: 11, fontWeight: 800, color: 'text.secondary', lineHeight: 1 }}
-      >
-        {title}
-      </Typography>
-      <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'teal.dark' }}>
-        You filled {filledCount} {filledCount === 1 ? 'word' : 'words'}
-      </Typography>
-    </Stack>
+    <Typography sx={{ fontFamily: '"Nunito", sans-serif', fontSize: 14, fontWeight: 800, color: 'teal.dark' }}>
+      You filled {filledCount} {filledCount === 1 ? 'word' : 'words'}
+    </Typography>
   );
 }
 
-/** The lightweight solo setup screen: family-safe toggle + length choice + mode picker + a gold "Start" CTA. */
+/**
+ * The solo setup screen. Mirrors the group-play (Lobby) settings experience
+ * exactly (fit-to-viewport redesign, 2026-07): instead of stacking the
+ * family-safe toggle, story-length choice, and mode picker inline (which
+ * pushed the Start CTA past the fold), it shows a single collapsed "Game
+ * settings" row that opens the SHARED <GameSettingsSheet> slide-up bottom
+ * sheet (../components/GameSettingsSheet.tsx) holding those same three
+ * controls. The main surface is a fixed-height, non-scrolling flex column:
+ * intro line, the settings row, and the pinned gold "Start" CTA.
+ *
+ * The sheet-open flag is pure local UI state owned here (it only decides
+ * WHEN the controls are visible); the parent Solo still owns every actual
+ * setting value (familySafe / lengthPref / mode) via the passed props, so
+ * this component reuses the sheet as chrome without duplicating any state.
+ */
 function SoloSetup({
   familySafe,
   onFamilySafeChange,
@@ -236,27 +252,96 @@ function SoloSetup({
   onStart: () => void;
   onExit: () => void;
 }) {
+  const theme = useTheme();
+  // Pure local UI state: whether the settings bottom sheet is open. It never
+  // affects what a round starts with - only whether the controls are visible.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // The collapsed row's summary subtitle, reflecting the CURRENT values so the
+  // row is informative even closed (e.g. "Full tale - Classic - Family-safe
+  // on"). Identical shape to the group Waiting room's summary.
+  const lengthLabel = lengthPref === 'quick' ? 'Quick tale' : 'Full tale';
+  const settingsSummary = `${lengthLabel} - ${mode.config.label} - Family-safe ${familySafe ? 'on' : 'off'}`;
+
   return (
-    <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto' }}>
+    <Box
+      sx={{
+        position: 'relative',
+        height: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        maxWidth: 430,
+        mx: 'auto',
+      }}
+    >
       <AppBar
         title="Play solo"
         leftAction={{ icon: 'arrow-left', label: 'Back to home', onClick: onExit }}
       />
 
-      <Stack spacing={4} sx={{ px: 5.5, pt: 3 }}>
+      <Stack spacing={4} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 5.5, pt: 3 }}>
         <Typography sx={{ fontSize: 16, fontWeight: 600, color: 'text.secondary', textAlign: 'center' }}>
           A quick one-player round, right now - no room, no code, just you and a silly tale.
         </Typography>
 
-        <FamilySafeToggle checked={familySafe} onChange={onFamilySafeChange} />
-        <StoryLengthChoice value={lengthPref} onChange={onLengthPrefChange} />
-
-        <ModePicker
-          modes={SOLO_MODES}
-          selectedId={mode.config.id}
-          onSelect={onModeChange}
-          familySafe={familySafe}
-        />
+        {/* Collapsed "Game settings" row: tapping it opens <GameSettingsSheet>
+            below, which holds the SAME controls the group Waiting room puts in
+            its sheet. Identical chrome to Lobby's row (sliders chip, title +
+            live summary, chevron). */}
+        <Box
+          component="button"
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          aria-haspopup="dialog"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            width: '100%',
+            textAlign: 'left',
+            cursor: 'pointer',
+            px: 3,
+            py: 2.5,
+            bgcolor: 'card.main',
+            borderRadius: '20px',
+            border: `1.5px solid ${alpha(theme.palette.stoneEdge.main, 0.22)}`,
+            fontFamily: 'inherit',
+            '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+          }}
+        >
+          <Box
+            sx={{
+              flexShrink: 0,
+              width: 44,
+              height: 44,
+              borderRadius: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: alpha(theme.palette.primary.main, 0.14),
+              color: theme.palette.primary.main,
+            }}
+          >
+            <FontAwesomeIcon icon="sliders" style={{ width: 19, height: 19 }} />
+          </Box>
+          <Stack spacing={0.25} sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography
+              sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 16.5, color: 'text.primary' }}
+            >
+              Game settings
+            </Typography>
+            <Typography
+              noWrap
+              sx={{ fontFamily: '"Nunito", sans-serif', fontWeight: 700, fontSize: 13, color: 'text.secondary' }}
+            >
+              {settingsSummary}
+            </Typography>
+          </Stack>
+          <Box sx={{ flexShrink: 0, color: 'text.secondary', display: 'flex' }}>
+            <FontAwesomeIcon icon="chevron-right" style={{ width: 16, height: 16 }} />
+          </Box>
+        </Box>
 
         <BottomActionBarSpacer />
       </Stack>
@@ -266,6 +351,23 @@ function SoloSetup({
           Start
         </Button>
       </BottomActionBar>
+
+      {/* The SHARED settings bottom sheet - the SAME component the group
+          Waiting room uses. Pure slide-up chrome over a dim scrim; the
+          controls inside stay controlled by the parent Solo's state. Solo has
+          no "Play a favorite" panel here (that is a host-only group affordance),
+          so the sheet holds just the three round-setup controls. */}
+      <GameSettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+        <FamilySafeToggle checked={familySafe} onChange={onFamilySafeChange} />
+        <StoryLengthChoice value={lengthPref} onChange={onLengthPrefChange} />
+        <ModePicker
+          modes={SOLO_MODES}
+          selectedId={mode.config.id}
+          onSelect={onModeChange}
+          familySafe={familySafe}
+          label="Choose a mode"
+        />
+      </GameSettingsSheet>
     </Box>
   );
 }
@@ -283,15 +385,31 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   const [mode, setMode] = useState<SoloMode>(DEFAULT_SOLO_MODE);
   const [template, setTemplate] = useState<Template | undefined>(undefined);
   const [blankIndex, setBlankIndex] = useState(0);
-  // reveal-delight/01 (AC-05): solo reactions are purely LOCAL - a single tab
-  // reacting to its own tale, no room and no hub. Counts start at zero and a tap
-  // bumps this state (the ReactionRow spawns its own floater). Reset each new
-  // round in beginRound so counts are ephemeral per reveal (Out of Scope: no
-  // persistence across a replay).
+  // reveal-delight/01 (AC-05) + reactions v2: solo reactions are purely LOCAL - a
+  // single tab reacting to its own tale, no room and no hub. Solo implements the
+  // ONE-REACTION-PER-USER rule itself: `reactionCounts` is the tally and
+  // `myReaction` is the single reaction this player currently holds (null when
+  // none). Both start empty and reset each new round in beginRound so they are
+  // ephemeral per reveal (Out of Scope: no persistence across a replay).
   const [reactionCounts, setReactionCounts] = useState<ReactionCounts>(ZERO_REACTIONS);
+  const [myReaction, setMyReaction] = useState<ReactionType | null>(null);
 
+  // A tap SELECTS (none held -> +1), MOVES (a different one held -> -old +new), or
+  // TOGGLES OFF (the held one -> -1, clear) this player's single reaction, keeping
+  // the tally consistent with `myReaction`. This mirrors the server's SetReaction
+  // move/toggle for group play, so solo and group behave identically.
   const handleReact = (type: ReactionType) => {
-    setReactionCounts((current) => ({ ...current, [type]: current[type] + 1 }));
+    setReactionCounts((current) => {
+      const next = { ...current };
+      if (myReaction === type) {
+        next[type] = Math.max(0, next[type] - 1); // toggle off
+      } else {
+        if (myReaction !== null) next[myReaction] = Math.max(0, next[myReaction] - 1); // move: drop the old
+        next[type] += 1; // select / move: take the new
+      }
+      return next;
+    });
+    setMyReaction((current) => (current === type ? null : type));
   };
 
   // The collection lives in a ref (not state): collectWord mutates it in
@@ -333,9 +451,11 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     collectionRef.current = createCollection();
     setTemplate(chosen);
     setBlankIndex(0);
-    // reveal-delight/01 (AC-05): reactions are per-reveal ephemeral, so a fresh
-    // round starts every count back at zero.
+    // reveal-delight/01 (AC-05) + reactions v2: reactions are per-reveal ephemeral,
+    // so a fresh round starts every count back at zero AND clears this player's held
+    // reaction (they re-pick each reveal).
     setReactionCounts(ZERO_REACTIONS);
+    setMyReaction(null);
     setPhase('fill');
     // platform-devops/05 (anonymous product-usage, AC-01/AC-02): mark the round
     // start time and fire-and-forget one anonymous "RoundStarted" usage event with
@@ -560,14 +680,13 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     <Reveal
       assembled={assembled}
       template={template}
-      attribution={<PersonalSummary title={assembled.title} filledCount={filledCount} />}
+      attribution={<PersonalSummary filledCount={filledCount} />}
       onPlayAgain={handlePlayAgain}
       onHome={onExit}
       exitAction={{ label: 'Back to home', onClick: onExit }}
-      taleFeedback={{ templateId: template.id, mode: 'solo' }}
       favorite={{ templateId: template.id, title: template.title }}
       revealPresentation={revealSurfaces.revealPresentation}
-      reactionRow={<ReactionRow counts={reactionCounts} onReact={handleReact} />}
+      reactionRow={<ReactionRow counts={reactionCounts} selected={myReaction} onReact={handleReact} />}
     />
   );
 }

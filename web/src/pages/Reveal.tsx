@@ -96,6 +96,22 @@
 //  that needs the same highlight-correctness logic (05/06) reuses it
 //  read-only, exactly as this file already does.
 //
+//  Fit-to-viewport layout (the UX de-clutter): the page fits ONE phone viewport
+//  (~390x844) with NO page scroll in portrait - the STORY is the only element
+//  that scrolls, and it scrolls INTERNALLY. The root is a fixed-height flex
+//  column (`height:100dvh; display:flex; flexDirection:column; overflow:hidden`):
+//  the app bar + trimmed celebratory header are fixed-height at the top, the
+//  story card is `flex:1; minHeight:0` and scrolls within (so it absorbs all the
+//  slack), and the reactions strip + Golden Guardian status + bottom action bar
+//  sit at the bottom, always visible and tappable. The favorite STAR (solo-only,
+//  a distinct action from a reaction: it favorites the story TEMPLATE to the
+//  player's library) moved into the app bar's RIGHT slot - AppBar.tsx only takes
+//  an icon `rightAction`, and FavoriteStarButton is its own icon button, so it is
+//  rendered as a positioned element top-right in the header row rather than by
+//  changing AppBar. The existing `@media (orientation: landscape)` escape hatch
+//  still widens the column and lets the whole page scroll so a rotated phone is
+//  never trapped in a sliver.
+//
 //  Styling: every color comes from theme tokens (theme.palette.coral.main for
 //  the highlight color per the coral reconciliation note - the WEIGHT/underline
 //  emphasis is content-level sx, but the color itself is never a hardcoded hex).
@@ -110,10 +126,11 @@
 
 import type { ReactNode } from 'react';
 import { Fragment, useEffect, useState } from 'react';
+import type { IconProp } from '@fortawesome/fontawesome-svg-core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Link, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, FavoriteStarButton, Guardian, TaleFeedback } from '../components';
+import { AppBar, FavoriteStarButton, Guardian, TaleFeedback } from '../components';
 import type { GuardianVariant } from '../components';
 import type { AssembledStory } from '../engine/assemble';
 import type { Template } from '../engine/template';
@@ -450,24 +467,32 @@ function Confetti() {
   );
 }
 
-/** The celebratory header: twinkling stars + "Your tale is carved!" (AC-01). */
+/**
+ * The trimmed celebratory header (the UX de-clutter): ONE compact line with a
+ * twinkling star on each side of "Your tale is carved!". Deliberately a single
+ * fixed-height band at the top of the fit-to-viewport column so the story card
+ * gets the slack. The word-count / crew line is NOT hardcoded here - it belongs
+ * to the caller-owned `attribution` slot (solo passes "You filled N words";
+ * group passes its crew byline), so this header never duplicates it or asserts
+ * "together" in a solo game.
+ */
 function CelebrationHeader() {
   return (
-    <Stack alignItems="center" sx={{ position: 'relative', textAlign: 'center', px: 5.5, pt: 0.5, pb: 1.5 }}>
-      <Stack direction="row" alignItems="center" spacing={2}>
-        <Box sx={{ color: 'gold.main', fontSize: 20, display: 'flex', animation: `${twinkle} 2.4s ease-in-out infinite` }}>
+    <Stack alignItems="center" sx={{ position: 'relative', textAlign: 'center', px: 5.5, pt: 0.5, pb: 0.5 }}>
+      <Stack direction="row" alignItems="center" justifyContent="center" spacing={1.25}>
+        <Box sx={{ color: 'gold.main', fontSize: 18, display: 'flex', animation: `${twinkle} 2.4s ease-in-out infinite` }}>
           <FontAwesomeIcon icon="star" />
         </Box>
         <Typography
           component="h2"
-          sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 700, fontSize: 26, color: 'text.primary' }}
+          sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 700, fontSize: 23, color: 'text.primary' }}
         >
           Your tale is carved!
         </Typography>
         <Box
           sx={{
             color: 'gold.main',
-            fontSize: 20,
+            fontSize: 18,
             display: 'flex',
             animation: `${twinkle} 2.4s ease-in-out .8s infinite`,
           }}
@@ -806,54 +831,97 @@ export function Reveal({
   return (
     <Box
       sx={{
+        // Fit-to-viewport (the UX de-clutter): a FIXED-height flex column that
+        // cannot page-scroll in portrait - the story card (flex:1) absorbs the
+        // slack and scrolls internally, so the header + reactions + bottom bar
+        // all stay put and visible. See the file header.
         position: 'relative',
-        minHeight: '100dvh',
+        height: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
         maxWidth: 430,
         mx: 'auto',
         overflow: 'hidden',
         // Landscape (design-system/03): a handed-off phone that auto-rotates
-        // must not trap the tale in an unreadable sliver. Widen the portrait
-        // column and let the page scroll (overflow visible) so the story below
-        // can render full-length instead of inside a short capped box. Portrait
-        // is untouched - every override is scoped to `orientation: landscape`.
-        '@media (orientation: landscape)': { maxWidth: 720, overflow: 'visible' },
+        // must not trap the tale in an unreadable sliver. Widen the column and
+        // let the whole PAGE scroll (height auto + overflow visible) so the story
+        // renders full-length instead of inside a short flex box. Portrait is
+        // untouched - every override is scoped to `orientation: landscape`.
+        '@media (orientation: landscape)': {
+          maxWidth: 720,
+          height: 'auto',
+          minHeight: '100dvh',
+          display: 'block',
+          overflow: 'visible',
+        },
       }}
     >
       <Confetti />
 
-      {/* Keep the app bar (and its home icon) above the confetti - the confetti
-          is absolutely positioned, so without this it paints over the top-left
-          icon and hides the exit. */}
-      <Box sx={{ position: 'relative', zIndex: 1 }}>
-        <AppBar
-          title="The Reveal"
-          leftAction={onHome ? { icon: 'house', label: 'Go home', onClick: onHome } : undefined}
-        />
+      {/* App bar + trimmed celebratory header: the fixed-height top band of the
+          flex column (flexShrink:0 so it never gives up height to the story).
+          Kept above the confetti (which is absolutely positioned) so it never
+          paints over the home icon or the favorite star. */}
+      <Box sx={{ position: 'relative', zIndex: 1, flexShrink: 0 }}>
+        <Box sx={{ position: 'relative' }}>
+          <AppBar
+            title="The Reveal"
+            leftAction={onHome ? { icon: 'house', label: 'Go home', onClick: onHome } : undefined}
+          />
+          {/* Favorite/star toggle (story-selection/06, AC-01): the star favorites
+              this story TEMPLATE to the player's library - a DISTINCT action, NOT a
+              reaction. Solo-only, mirroring `taleFeedback`'s gating (omitted for
+              group play's transient reveal). AppBar.tsx takes only an ICON
+              rightAction and must not change, and FavoriteStarButton is its own icon
+              button, so it is positioned over the app bar's right slot here. */}
+          {favorite && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: '50%',
+                right: 'max(8px, env(safe-area-inset-right))',
+                transform: 'translateY(-50%)',
+              }}
+            >
+              <FavoriteStarButton templateId={favorite.templateId} title={favorite.title} />
+            </Box>
+          )}
+        </Box>
+
+        <CelebrationHeader />
+
+        {attribution && (
+          <Box sx={{ px: 5.5, pb: 1, textAlign: 'center' }}>{attribution}</Box>
+        )}
       </Box>
 
-      <CelebrationHeader />
-
-      {/* Favorite/star toggle (story-selection/06, AC-01): solo-only slot,
-          mirroring `taleFeedback`'s gating pattern - omitted entirely when
-          the caller does not opt in (group play's transient reveal). */}
-      {favorite && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', pb: 0.5 }}>
-          <FavoriteStarButton templateId={favorite.templateId} title={favorite.title} />
-        </Box>
-      )}
-
-      {attribution && (
-        <Box sx={{ px: 5.5, pb: 1.5, textAlign: 'center' }}>{attribution}</Box>
-      )}
-
-      <Stack sx={{ px: 5, pb: 0 }}>
+      {/* Story region: the HERO. `flex:1; minHeight:0` so it fills all the slack
+          between the header and the bottom cluster, and scrolls INTERNALLY (the
+          tablet body below) so the page itself never scrolls in portrait. The
+          Golden Guardian status + taleFeedback ride along under the tablet inside
+          this same flex region. In landscape the whole column lays out in normal
+          flow, so this is a plain block that grows with its content. */}
+      <Stack
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          px: 5,
+          pb: 0,
+          '@media (orientation: landscape)': { flex: 'none', minHeight: 'auto' },
+        }}
+      >
         {/* STONE-TABLET scroll panel (AC-01): arched radius, glowing carved rim,
-            pulsing purple/gold shadow. Literal px strings for the arch and
-            glow - a bare sx borderRadius number multiplies by
+            pulsing purple/gold shadow. `flex:1; minHeight:0` so it fills the story
+            region and its body (below) scrolls within. Literal px strings for the
+            arch and glow - a bare sx borderRadius number multiplies by
             theme.shape.borderRadius (20), which would corrupt this shape. */}
         <Box
           sx={{
             position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
             borderRadius: '40px 40px 28px 28px',
             background: theme.palette.tablet.gradient,
             overflow: 'hidden',
@@ -863,22 +931,40 @@ export function Reveal({
             '--qs-glow-inner': alpha(theme.palette.common.white, 0.55),
             '--qs-glow-edge': alpha(theme.palette.stoneEdge.main, 0.4),
             animation: `${tabletGlow} 4s ease-in-out infinite`,
+            // In landscape the tablet is a normal block that grows with its
+            // content (the whole page scrolls), matching the body override below.
+            '@media (orientation: landscape)': { flex: 'none', minHeight: 'auto' },
           }}
         >
           <NarrationBar title="Hear it in the Guardian's voice" />
 
-          {/* Story scroll: independently scrollable, capped so the pinned
-              bottom bar can never obscure it (AC-06). In landscape the cap is
-              lifted (design-system/03): a short landscape viewport turns 48vh
-              into an unreadable sliver, so the panel renders full-length and the
-              whole page scrolls instead. Portrait keeps the capped inner scroll. */}
+          {/* Story scroll: the ONE element that scrolls in portrait. `flex:1;
+              minHeight:0` so it fills the tablet's remaining height (below the
+              narration bar) and scrolls INTERNALLY - the page itself never scrolls
+              (the UX de-clutter). A soft bottom fade (mask-image, no layout impact)
+              cues that there is more story below the fold. In landscape the inner
+              scroll is lifted (design-system/03): a short landscape viewport would
+              turn this into an unreadable sliver, so the panel renders full-length
+              and the whole page scrolls instead - and the fade mask is dropped there
+              so the last line is never clipped. */}
           <Box
             sx={{
-              maxHeight: '48vh',
+              flex: 1,
+              minHeight: 0,
               overflowY: 'auto',
               px: 5,
               py: 4,
-              '@media (orientation: landscape)': { maxHeight: 'none', overflowY: 'visible' },
+              // Soft bottom fade cue: the last ~24px fades toward the tablet, hinting
+              // the story continues past the fold. A mask never affects layout.
+              maskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent 100%)',
+              WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent 100%)',
+              '@media (orientation: landscape)': {
+                flex: 'none',
+                minHeight: 'auto',
+                overflowY: 'visible',
+                maskImage: 'none',
+                WebkitMaskImage: 'none',
+              },
             }}
           >
             <Typography
@@ -1241,20 +1327,55 @@ export function Reveal({
         {taleFeedback && (
           <TaleFeedback templateId={taleFeedback.templateId} mode={taleFeedback.mode} />
         )}
-
-        <BottomActionBarSpacer />
       </Stack>
 
-      <BottomActionBar>
-        {/* Reaction row (reveal-delight/01, AC-01): pinned ABOVE the action
-            buttons, inside the same bottom cluster, so it is always visible and
-            tappable regardless of viewport height. It must live INSIDE the bar
-            (not just above the BottomActionBarSpacer): Reveal's bar holds two
-            CTAs plus the exit link, so it is far taller than the spacer's
-            single-CTA reservation - a row placed only above the spacer sits
-            under the taller absolute bar and its scrim swallows the tap. Reveal
-            stays room-agnostic - it renders whatever node the caller passed. */}
-        {reactionRow}
+      {/* Bottom cluster (the UX de-clutter): an IN-FLOW footer, NOT the absolute
+          BottomActionBar. In a fixed-height flex column an absolutely-positioned
+          bar sits OVER the flex:1 story region (which grows to the full height),
+          so the reactions painted on top of the story and a single-button spacer
+          could never reserve this tall cluster's real height. As a normal
+          flexShrink:0 child the story region shrinks to fit above it and nothing
+          overlaps. Order top -> bottom: the reactions strip, the gold "Play
+          another round" CTA, then a compact 3-pill row (Share / Save image /
+          Home) matching the design mock - not a huge full-width Share button. */}
+      <Box
+        sx={{
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1.25,
+          px: 5,
+          pt: 1.5,
+          pb: 'calc(14px + env(safe-area-inset-bottom, 0px))',
+          borderTop: `1px solid ${alpha(theme.palette.stoneEdge.main, 0.16)}`,
+          // In landscape the whole page scrolls (see the root override), so this
+          // footer just flows after the story rather than pinning.
+        }}
+      >
+        {/* Reactions strip (reveal-delight/01; reactions v2): a small uppercase
+            "WHAT DID YOU THINK?" label above the caller-supplied reaction row, in
+            normal flow BELOW the story card so it never overlaps the tale (the bug
+            the de-clutter fixes). Reveal stays room-agnostic - it renders whatever
+            node the caller passed. */}
+        {reactionRow && (
+          <Box>
+            <Typography
+              sx={{
+                textAlign: 'center',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 800,
+                fontSize: 11,
+                color: 'text.secondary',
+                mb: 0.5,
+              }}
+            >
+              What did you think?
+            </Typography>
+            {reactionRow}
+          </Box>
+        )}
         <Button
           variant="contained"
           fullWidth
@@ -1263,44 +1384,92 @@ export function Reveal({
         >
           {playAgainLabel}
         </Button>
-        <Button
-          variant="outlined"
-          fullWidth
-          onClick={handleShare}
-          disabled={sharingImage}
-          aria-busy={sharingImage}
-          startIcon={<FontAwesomeIcon icon="share-nodes" style={{ width: 18, height: 18 }} />}
-        >
-          {sharingImage ? 'Preparing to share...' : 'Share the tale'}
-        </Button>
-        {/* Save as image (keepsake-gallery/01, AC-01): deliberately a low-key
-            Link, not a third full-width Button - it must read as secondary to
-            both the gold CTA and the outlined Share button above. Disabled
-            mid-render (AC-03) so a slow phone cannot queue up repeat taps. */}
-        <Box sx={{ textAlign: 'center' }}>
-          <Link
-            component="button"
-            type="button"
-            onClick={handleSaveImage}
-            disabled={savingImage}
-            aria-busy={savingImage}
-            underline="none"
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              fontFamily: '"Nunito", sans-serif',
-              fontWeight: 700,
-              fontSize: 13.5,
-              color: 'text.secondary',
-              opacity: savingImage ? 0.6 : 1,
-              cursor: savingImage ? 'default' : 'pointer',
-            }}
-          >
-            <FontAwesomeIcon icon="image" style={{ width: 14, height: 14 }} />
-            {savingImage ? 'Saving image...' : 'Save as image'}
-          </Link>
-        </Box>
+        {/* Compact secondary-action row (design mock): three equal purple pills -
+            Share the tale, Save as image, and Home - instead of a full-width
+            outlined Share button + stacked links. Each is a big-enough tap target
+            (44px) but visually subordinate to the gold CTA above. The Home pill
+            uses onHome (falling back to exitAction) and is omitted when neither is
+            supplied. Share/Save keep their in-flight disabled + label-swap
+            behavior (keepsake-gallery/01-02). */}
+        <Stack direction="row" spacing={1.25}>
+          {(() => {
+            const homeHandler = onHome ?? exitAction?.onClick;
+            const pills: {
+              key: string;
+              icon: IconProp;
+              label: string;
+              onClick: () => void;
+              disabled: boolean;
+              busy: boolean;
+            }[] = [
+              {
+                key: 'share',
+                icon: 'share-nodes',
+                label: sharingImage ? 'Sharing...' : 'Share',
+                onClick: handleShare,
+                disabled: sharingImage,
+                busy: sharingImage,
+              },
+              {
+                key: 'save',
+                icon: 'image',
+                label: savingImage ? 'Saving...' : 'Save image',
+                onClick: handleSaveImage,
+                disabled: savingImage,
+                busy: savingImage,
+              },
+              ...(homeHandler
+                ? [
+                    {
+                      key: 'home',
+                      icon: 'house' as IconProp,
+                      label: 'Home',
+                      onClick: homeHandler,
+                      disabled: false,
+                      busy: false,
+                    },
+                  ]
+                : []),
+            ];
+            return pills.map((pill) => (
+              <Box
+                key={pill.key}
+                component="button"
+                type="button"
+                onClick={pill.onClick}
+                disabled={pill.disabled}
+                aria-busy={pill.busy}
+                sx={{
+                  flex: 1,
+                  minWidth: 0,
+                  minHeight: 44,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1,
+                  px: 1.5,
+                  border: 'none',
+                  borderRadius: '14px',
+                  cursor: pill.disabled ? 'default' : 'pointer',
+                  bgcolor: alpha(theme.palette.primary.main, 0.09),
+                  color: theme.palette.primary.main,
+                  fontFamily: '"Nunito", sans-serif',
+                  fontWeight: 800,
+                  fontSize: 13.5,
+                  opacity: pill.disabled ? 0.6 : 1,
+                  whiteSpace: 'nowrap',
+                  transition: 'background-color 120ms ease-out, transform 120ms ease-out',
+                  '&:hover': { bgcolor: alpha(theme.palette.primary.main, pill.disabled ? 0.09 : 0.16) },
+                  '&:active': { transform: pill.disabled ? 'none' : 'scale(0.96)' },
+                  '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+                }}
+              >
+                <FontAwesomeIcon icon={pill.icon} style={{ width: 15, height: 15 }} />
+                {pill.label}
+              </Box>
+            ));
+          })()}
+        </Stack>
         {/* Share a public link (keepsake-gallery/04, AC-01/AC-03/AC-07): a low-key,
             HOST-ONLY, OPT-IN affordance - only rendered when the caller supplies
             `publicShare` (host in group play), so publishing is never automatic.
@@ -1350,25 +1519,7 @@ export function Reveal({
             )}
           </Box>
         )}
-        {exitAction && (
-          <Box sx={{ textAlign: 'center' }}>
-            <Link
-              component="button"
-              type="button"
-              onClick={exitAction.onClick}
-              underline="none"
-              sx={{
-                fontFamily: '"Nunito", sans-serif',
-                fontWeight: 700,
-                fontSize: 13.5,
-                color: 'primary.main',
-              }}
-            >
-              {exitAction.label}
-            </Link>
-          </Box>
-        )}
-      </BottomActionBar>
+      </Box>
     </Box>
   );
 }

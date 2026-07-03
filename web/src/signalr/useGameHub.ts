@@ -133,7 +133,7 @@ const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
 // reveal-delight/01 (AC-04): a fresh all-zero reaction tally. Reaction counts are
 // EPHEMERAL per reveal (Out of Scope: no persistence), so this is both the initial
 // value and what the hook resets to whenever a new round starts / the reveal clears.
-const ZERO_REACTIONS: ReactionCounts = { laugh: 0, heart: 0, wow: 0, star: 0 };
+const ZERO_REACTIONS: ReactionCounts = { love: 0, wow: 0, nope: 0 };
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -819,13 +819,18 @@ export function useGameHub(): UseGameHub {
     };
     connection.on('RevealReady', handleRevealReady);
 
-    // Reaction tally (reveal-delight/01, AC-04): the hub broadcasts
+    // Reaction tally (reveal-delight/01, AC-04; reactions v2): the hub broadcasts
     // "ReactionCountsChanged" to the whole room group whenever any player reacts,
     // so every client's reaction row shows the updated count in near-real-time.
-    // The payload is the full tally ({ laugh, heart, wow, star }) - server-
-    // authoritative, so no client double-counts. Registered ONCE, guarded by
+    // The payload is the full tally ({ love, wow, nope }) - server-authoritative,
+    // and the server now de-dupes ONE REACTION PER CONNECTION (a tap selects, a
+    // different tap moves, the same tap toggles off), so no client can inflate. The
+    // camelCased wire fields (love/wow/nope) match the ReactionCounts keys exactly,
+    // so the payload feeds the row straight through. Registered ONCE, guarded by
     // inRoomRef so a broadcast racing a leave cannot revive state for a gone-Home
     // client. Reset to all-zero on a fresh RoundStarted / BackToLobby (ephemeral).
+    // The client tracks its OWN current selection locally (GroupReveal's myReaction)
+    // for the highlight - the hub is authoritative for counts, not the selection.
     const handleReactionCountsChanged = (payload: ReactionCounts) => {
       if (cancelled || !inRoomRef.current) return;
       setReactionCounts(payload);

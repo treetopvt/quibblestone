@@ -409,26 +409,42 @@ public sealed class Room
     // (mirrors the web module's MAX_HISTORY_SIZE rationale).
     private const int MaxPlayedTemplateHistory = 200;
 
-    // reveal-delight/01 (AC-04): the room-wide reaction tally for the CURRENT
-    // reveal - one counter per allowed reaction type (laugh/heart/wow/star). This
+    // The UX de-clutter (reactions v2): the room-wide reaction tally for the
+    // CURRENT reveal - one counter per allowed reaction type (love/wow/nope). This
     // is ephemeral, per-reveal state (Out of Scope: no persistence): it is RESET
     // to all-zero every time a new round starts (see StartRound). A reaction is a
     // TYPE ENUM only - no text, no player identity is ever stored here (AC-06, no
-    // PII). Guarded by _gate; mutated only via IncrementReaction / the StartRound
-    // reset. The hub validates the type against the allowed set BEFORE calling
-    // IncrementReaction, so every key here is always one of the four.
+    // PII). Guarded by _gate; mutated only via SetReaction / the StartRound reset.
+    // The hub validates the type against the allowed set BEFORE calling
+    // SetReaction, so every key here is always one of the three.
+    //
+    // The move from four types (laugh/heart/wow/star) to three (love/wow/nope) rode
+    // in alongside the one-reaction-per-user rule below (see _reactionByConnection):
+    // a player now HOLDS at most one reaction rather than tapping to inflate a count.
     private readonly Dictionary<string, int> _reactionCounts = NewReactionTally();
 
-    // A fresh all-zero tally over exactly the four allowed reaction types. The
+    // A fresh all-zero tally over exactly the three allowed reaction types. The
     // ordinal comparer keeps the (already-lowercased-by-the-hub) keys exact.
     private static Dictionary<string, int> NewReactionTally() =>
         new(StringComparer.Ordinal)
         {
-            ["laugh"] = 0,
-            ["heart"] = 0,
+            ["love"] = 0,
             ["wow"] = 0,
-            ["star"] = 0,
+            ["nope"] = 0,
         };
+
+    // The UX de-clutter (reactions v2, one-per-user): the CURRENT reaction each
+    // connection holds, keyed by connection id -> its reaction type (one of
+    // love/wow/nope). This is what makes SetReaction a SINGLE-SELECT with move +
+    // toggle-off semantics instead of the old free-for-all increment: a connection
+    // that is absent here holds no reaction; a connection present here holds exactly
+    // one, and _reactionCounts[thatType] includes it. Ephemeral and per-reveal like
+    // _reactionCounts (RESET together on StartRound), and cleared when a connection
+    // leaves the room (RemovePlayer / TryReleaseSeat) so a departed player's held
+    // reaction cannot linger in the tally. A connection id is a server-side handle,
+    // never PII (README section 6, AC-06); no text is ever stored here. Guarded by
+    // _gate; mutated only via SetReaction / ClearReactionLocked / the StartRound reset.
+    private readonly Dictionary<string, string> _reactionByConnection = new(StringComparer.Ordinal);
 
     // reveal-delight/03 (AC-04): the PENDING Golden Guardian crown - the nickname
     // that won the most recent funniest-word vote and should wear the crown for the
@@ -639,6 +655,10 @@ public sealed class Room
             // odd sequencing, could otherwise leak a live CTS). No-op when none pending.
             DiscardGraceHoldLocked(connectionId);
 
+            // reactions v2 (one-per-user): forget any reaction this leaving connection
+            // held so its count does not linger in the current reveal's tally.
+            ClearReactionLocked(connectionId);
+
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
         }
@@ -795,6 +815,9 @@ public sealed class Room
             _players.RemoveAll(p => p.ConnectionId == connectionId);
             _graceHolds.Remove(connectionId);
             hold.Cts.Dispose();
+            // reactions v2 (one-per-user): forget any reaction this evicted seat held
+            // so its count does not linger in the current reveal's tally.
+            ClearReactionLocked(connectionId);
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
         }
@@ -1093,13 +1116,17 @@ public sealed class Room
                 CrownedNickname = crownedNickname,
             };
 
-            // reveal-delight/01 (AC-04): reactions are ephemeral per reveal, so a
-            // fresh round starts every reaction count back at zero (the web hook
-            // resets its mirror on the matching RoundStarted broadcast).
+            // reveal-delight/01 (AC-04) + reactions v2 (one-per-user): reactions are
+            // ephemeral per reveal, so a fresh round starts every reaction count back
+            // at zero AND forgets every per-connection hold (a player must re-pick a
+            // reaction each reveal). Both reset together so the tally and the holds can
+            // never drift. The web hook resets its own mirror + local selection on the
+            // matching RoundStarted broadcast.
             foreach (var type in _reactionCounts.Keys.ToArray())
             {
                 _reactionCounts[type] = 0;
             }
+            _reactionByConnection.Clear();
 
             LastActiveUtc = DateTimeOffset.UtcNow;
 
@@ -1200,27 +1227,81 @@ public sealed class Room
     }
 
     /// <summary>
-    /// Increments the room-wide count for one reaction type (reveal-delight/01,
-    /// AC-04) and returns a detached snapshot of the whole tally for the hub to
-    /// broadcast. The caller (the hub's React) MUST have already validated
-    /// <paramref name="reactionType"/> against the four allowed types (and
+    /// The UX de-clutter (reactions v2): SELECT this connection's single reaction
+    /// on the CURRENT reveal, then return a detached snapshot of the whole tally for
+    /// the hub to broadcast. This replaces the old free-for-all IncrementReaction
+    /// with a SINGLE-SELECT that fixes the count-inflation bug (a player could
+    /// previously tap the same pill repeatedly to run its count up): a player now
+    /// HOLDS at most one reaction, and the tally reflects exactly what everyone
+    /// currently holds. The three cases, decided against the connection's prior hold:
+    ///   - No prior reaction -> SELECT: increment the new type, record the hold.
+    ///   - A DIFFERENT prior reaction -> MOVE: decrement the old, increment the new,
+    ///     update the hold (the player switched their pick).
+    ///   - The SAME reaction as the prior hold -> TOGGLE OFF: decrement it and clear
+    ///     the hold (a second tap on the pill you already hold removes it).
+    /// The caller (the hub's React) MUST have already validated
+    /// <paramref name="reactionType"/> against the three allowed types (and
     /// lowercased it), so the key is always present - this method never widens the
     /// tally with an arbitrary client-supplied string. A reaction is a TYPE ENUM
-    /// only: no text and no player identity are recorded (AC-06, no PII). The
-    /// counts are ephemeral per reveal and are reset in <see cref="StartRound"/>.
-    /// Mutated only under the room lock so a concurrent reaction cannot corrupt
-    /// the tally, and the returned copy never aliases the live dictionary.
+    /// only, keyed by a server-side connection handle: no text and no PII are recorded
+    /// (AC-06). The counts + per-connection holds are ephemeral per reveal and are
+    /// reset together in <see cref="StartRound"/>. Mutated only under the room lock so
+    /// concurrent reactions cannot corrupt the tally, and the returned copy never
+    /// aliases the live dictionary. A count can never go negative: it is only ever
+    /// decremented for a hold this map actually recorded incrementing.
     /// </summary>
-    /// <param name="reactionType">The already-validated, lowercased reaction type (one of laugh/heart/wow/star).</param>
+    /// <param name="connectionId">The reacting connection (server-side handle; the one-per-user key).</param>
+    /// <param name="reactionType">The already-validated, lowercased reaction type (one of love/wow/nope).</param>
     /// <returns>A detached copy of the updated per-type tally.</returns>
-    public IReadOnlyDictionary<string, int> IncrementReaction(string reactionType)
+    public IReadOnlyDictionary<string, int> SetReaction(string connectionId, string reactionType)
     {
         lock (_gate)
         {
-            _reactionCounts[reactionType] += 1;
+            var hadPrior = _reactionByConnection.TryGetValue(connectionId, out var priorType);
+            if (hadPrior && string.Equals(priorType, reactionType, StringComparison.Ordinal))
+            {
+                // TOGGLE OFF: a second tap on the pill this connection already holds
+                // removes it (decrement its count, drop the hold).
+                _reactionCounts[reactionType] -= 1;
+                _reactionByConnection.Remove(connectionId);
+            }
+            else
+            {
+                // SELECT (no prior) or MOVE (a different prior): drop the old count if
+                // any, then take up the new one and record the hold.
+                if (hadPrior && priorType is not null && _reactionCounts.ContainsKey(priorType))
+                {
+                    _reactionCounts[priorType] -= 1;
+                }
+                _reactionCounts[reactionType] += 1;
+                _reactionByConnection[connectionId] = reactionType;
+            }
+
             LastActiveUtc = DateTimeOffset.UtcNow;
             return new Dictionary<string, int>(_reactionCounts, StringComparer.Ordinal);
         }
+    }
+
+    /// <summary>
+    /// The UX de-clutter (reactions v2, one-per-user): drop the reaction (if any) a
+    /// leaving connection was holding - decrement its counted type and forget the
+    /// per-connection hold - so a departed player's reaction never lingers in the
+    /// tally. Returns true if a held reaction was cleared. MUST be called under
+    /// <see cref="_gate"/>; the shared "forget this connection's reaction" primitive
+    /// that <see cref="RemovePlayer"/> and <see cref="TryReleaseSeat"/> both compose.
+    /// A no-op (returns false) when the connection held no reaction.
+    /// </summary>
+    private bool ClearReactionLocked(string connectionId)
+    {
+        if (!_reactionByConnection.Remove(connectionId, out var priorType))
+        {
+            return false;
+        }
+        if (priorType is not null && _reactionCounts.ContainsKey(priorType))
+        {
+            _reactionCounts[priorType] -= 1;
+        }
+        return true;
     }
 
     /// <summary>

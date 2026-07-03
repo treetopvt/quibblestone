@@ -241,6 +241,13 @@ function GroupReveal({
   // first, unmounting this), so this state starts fresh each round - no manual reset.
   const [myVote, setMyVote] = useState<string | undefined>(undefined);
 
+  // reactions v2 (one-per-user): MY current reaction selection is client-local for
+  // the highlight (the SERVER is authoritative for the counts, via SetReaction's
+  // select/move/toggle - see useGameHub's react()). Like myVote it starts fresh each
+  // round because GroupReveal remounts per reveal. A tap SELECTS / MOVES / TOGGLES
+  // OFF locally to mirror what the server does, then fires the hub invoke.
+  const [myReaction, setMyReaction] = useState<ReactionType | null>(null);
+
   const template = seedLibrary.find((t) => t.id === reveal.templateId);
 
   if (!template) {
@@ -333,10 +340,24 @@ function GroupReveal({
       wordAttribution={wordAttribution}
       saveImageByline={saveImageByline}
       publicShare={publicShare}
-      // reveal-delight/01 (AC-04): counts are server-authoritative (from the hub's
-      // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
-      // so every player in the room sees the tally update in near-real-time.
-      reactionRow={<ReactionRow counts={reactionCounts} onReact={onReact} />}
+      // reveal-delight/01 (AC-04) + reactions v2: counts are server-authoritative
+      // (from the hub's ReactionCountsChanged broadcast, where the server de-dupes
+      // ONE PER USER) and a tap fires the hub's React invoke, so every player sees
+      // the tally update in near-real-time. `selected` is MY local pick, updated to
+      // mirror the server's select/move/toggle so the row highlights the pill I hold.
+      reactionRow={
+        <ReactionRow
+          counts={reactionCounts}
+          selected={myReaction}
+          onReact={(type) => {
+            // Mirror the server's one-per-user rule locally for the highlight: tapping
+            // the pill I already hold TOGGLES it off (null); any other tap SELECTS /
+            // MOVES to it. Then fire the hub invoke, which is authoritative for counts.
+            setMyReaction((current) => (current === type ? null : type));
+            onReact(type);
+          }}
+        />
+      }
       // reveal-delight/03 (AC-01/02/03): the funniest-word vote. Present ONLY in
       // group play (solo omits it entirely, AC-06). Reveal turns each coral word into
       // a tap target and paints the winner; the hub carries votes/resolution and the
