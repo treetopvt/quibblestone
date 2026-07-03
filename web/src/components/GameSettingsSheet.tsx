@@ -81,6 +81,7 @@ export function GameSettingsSheet({ open, onClose, children }: GameSettingsSheet
   // fade + a downward chevron can hint "scroll for more" - and hide once the
   // player reaches the bottom.
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [hasMoreBelow, setHasMoreBelow] = useState(false);
 
   const updateScrollCue = () => {
@@ -89,13 +90,25 @@ export function GameSettingsSheet({ open, onClose, children }: GameSettingsSheet
     setHasMoreBelow(el.scrollTop + el.clientHeight < el.scrollHeight - 8);
   };
 
-  // Re-check right after the sheet opens (its content has just laid out), so the
-  // cue appears immediately when the controls overflow - before the player has
-  // touched anything. A rAF waits one frame for the Drawer's slide-in layout.
+  // While the sheet is open, keep the cue accurate: measure once after it opens
+  // (a rAF waits a frame for the Drawer's slide-in layout), AND re-measure whenever
+  // the CONTENT height changes in place - e.g. the host expands/collapses the
+  // "Play a favorite" picker - via a ResizeObserver on the content wrapper.
+  // Without the observer the cue would go stale on those in-place height changes
+  // (Copilot review on #156); the region's `onScroll` covers the scroll case.
   useEffect(() => {
     if (!open) return;
     const raf = requestAnimationFrame(updateScrollCue);
-    return () => cancelAnimationFrame(raf);
+    const content = contentRef.current;
+    let observer: ResizeObserver | undefined;
+    if (content && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => updateScrollCue());
+      observer.observe(content);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+    };
   }, [open]);
 
   return (
@@ -141,26 +154,22 @@ export function GameSettingsSheet({ open, onClose, children }: GameSettingsSheet
         <Box
           ref={scrollRef}
           onScroll={updateScrollCue}
-          sx={{
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
-            px: 5.5,
-            pb: 3,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-          }}
+          sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 5.5, pb: 3 }}
         >
-          <Typography
-            variant="h6"
-            component="h2"
-            sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 19, textAlign: 'center' }}
-          >
-            Game settings
-          </Typography>
+          {/* Inner content wrapper: its height grows/shrinks with the controls
+              (e.g. the "Play a favorite" picker expanding), which the
+              ResizeObserver above watches to keep the scroll cue accurate. */}
+          <Box ref={contentRef} sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Typography
+              variant="h6"
+              component="h2"
+              sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 19, textAlign: 'center' }}
+            >
+              Game settings
+            </Typography>
 
-          {children}
+            {children}
+          </Box>
         </Box>
 
         {/* "More below" scroll cue: a soft fade into the sheet color plus a

@@ -391,25 +391,32 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   // `myReaction` is the single reaction this player currently holds (null when
   // none). Both start empty and reset each new round in beginRound so they are
   // ephemeral per reveal (Out of Scope: no persistence across a replay).
-  const [reactionCounts, setReactionCounts] = useState<ReactionCounts>(ZERO_REACTIONS);
-  const [myReaction, setMyReaction] = useState<ReactionType | null>(null);
+  // The tally AND this player's single held reaction live in ONE state atom so a
+  // tap updates both ATOMICALLY from the same prior value. (They were two separate
+  // useState before; the count updater closed over the outer `myReaction`, which
+  // could be stale when React batches rapid taps and decrement the wrong prior
+  // reaction - Copilot review on #156.)
+  const [reactions, setReactions] = useState<{ counts: ReactionCounts; mine: ReactionType | null }>({
+    counts: ZERO_REACTIONS,
+    mine: null,
+  });
 
   // A tap SELECTS (none held -> +1), MOVES (a different one held -> -old +new), or
-  // TOGGLES OFF (the held one -> -1, clear) this player's single reaction, keeping
-  // the tally consistent with `myReaction`. This mirrors the server's SetReaction
-  // move/toggle for group play, so solo and group behave identically.
+  // TOGGLES OFF (the held one -> -1, clear) this player's single reaction. Both the
+  // counts and the selection are derived from `prev` in a SINGLE functional update,
+  // so they can never desync. Mirrors the server's SetReaction move/toggle for group
+  // play, so solo and group behave identically.
   const handleReact = (type: ReactionType) => {
-    setReactionCounts((current) => {
-      const next = { ...current };
-      if (myReaction === type) {
-        next[type] = Math.max(0, next[type] - 1); // toggle off
-      } else {
-        if (myReaction !== null) next[myReaction] = Math.max(0, next[myReaction] - 1); // move: drop the old
-        next[type] += 1; // select / move: take the new
+    setReactions((prev) => {
+      const counts = { ...prev.counts };
+      if (prev.mine === type) {
+        counts[type] = Math.max(0, counts[type] - 1); // toggle off
+        return { counts, mine: null };
       }
-      return next;
+      if (prev.mine !== null) counts[prev.mine] = Math.max(0, counts[prev.mine] - 1); // move: drop the old
+      counts[type] += 1; // select / move: take the new
+      return { counts, mine: type };
     });
-    setMyReaction((current) => (current === type ? null : type));
   };
 
   // The collection lives in a ref (not state): collectWord mutates it in
@@ -454,8 +461,7 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     // reveal-delight/01 (AC-05) + reactions v2: reactions are per-reveal ephemeral,
     // so a fresh round starts every count back at zero AND clears this player's held
     // reaction (they re-pick each reveal).
-    setReactionCounts(ZERO_REACTIONS);
-    setMyReaction(null);
+    setReactions({ counts: ZERO_REACTIONS, mine: null });
     setPhase('fill');
     // platform-devops/05 (anonymous product-usage, AC-01/AC-02): mark the round
     // start time and fire-and-forget one anonymous "RoundStarted" usage event with
@@ -686,7 +692,7 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
       exitAction={{ label: 'Back to home', onClick: onExit }}
       favorite={{ templateId: template.id, title: template.title }}
       revealPresentation={revealSurfaces.revealPresentation}
-      reactionRow={<ReactionRow counts={reactionCounts} selected={myReaction} onReact={handleReact} />}
+      reactionRow={<ReactionRow counts={reactions.counts} selected={reactions.mine} onReact={handleReact} />}
     />
   );
 }
