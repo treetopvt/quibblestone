@@ -10,7 +10,7 @@ this is intentionally not gold-plated.
 | 1 | Static Web App | `Microsoft.Web/staticSites` | Hosts the React + Vite web client |
 | 2 | App Service (+ Plan) | `Microsoft.Web/sites` (+ `serverfarms`) | Hosts the single ASP.NET Core app (API + SignalR hub) |
 | 3 | Azure SignalR Service | `Microsoft.SignalRService/signalR` | Real-time backplane for production scale-out |
-| 4 | Storage Account | `Microsoft.Storage/storageAccounts` | Table (templates, entitlements) + Blob (AI images, later) |
+| 4 | Storage Account | `Microsoft.Storage/storageAccounts` | Table: `StoryServes` / `StoryFeedback` (telemetry) + `PublishedTales` (keepsake-gallery/04 public tale links); Blob (AI images, later) |
 | 5 | Key Vault | `Microsoft.KeyVault/vaults` | Secrets (Stripe, AI provider keys); now also holds the App Insights connection string |
 | 6 | Application Insights (+ Log Analytics workspace) | `Microsoft.Insights/components` (+ `Microsoft.OperationalInsights/workspaces`) | Operational telemetry for the API (exceptions, failed requests, latency, dependencies) - `platform-devops/04` |
 
@@ -184,6 +184,22 @@ az deployment group create -g quibblestone-ai-rg -f infra/ai.bicep \
 
 Omit `alertEmail` and the account + model deployment + keyless grant still deploy;
 only the budget + action group are skipped.
+
+## Shareable tale link (keepsake-gallery/04)
+
+The public read-only tale page (`GET /t/<slug>`) + host-initiated publish/revoke
+ride the **existing** Storage account: `main.bicep` declares the `PublishedTales`
+table and two deploy-composed app settings (`PublishedTales__StorageConnectionString`
+from `storage.listKeys()`, `PublishedTales__WebAppBaseUrl` from the SWA host) -
+no new resource, no committed secret. The feature is **OFF without the connection
+string** (a disabled store: publish 503, page 404), exactly like the telemetry
+NoOp fallback, so it needs zero setup locally and can be kept dark in a deployed
+environment by omitting that one setting.
+
+**Before it faces the public internet** there is a hard security gate (an
+unauthenticated write endpoint needs a rate limit) plus a smoke-check and a kill
+switch - the full turnkey procedure is the runbook:
+[`docs/runbooks/keepsake-published-tales.md`](../docs/runbooks/keepsake-published-tales.md).
 
 ## Cost lever: `appServicePlanSku`
 

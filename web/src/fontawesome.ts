@@ -98,6 +98,16 @@ import {
   // voted" tick reuses faCircleCheck (already registered above for the Waiting
   // status). So faHandPointer is the only genuinely new glyph here.
   faHandPointer,
+  // Keepsake gallery icon (keepsake-gallery/01, issue #63): the low-key "Save
+  // as image" action on the Reveal screen's bottom bar.
+  faImage,
+  // "Tales we've carved" gallery icons (keepsake-gallery/03, issue #65): the
+  // stacked-photos glyph for the Home nav entry, the Gallery screen's header/
+  // empty state, and each thumbnail's loading placeholder.
+  faImages,
+  // Shareable tale link icon (keepsake-gallery/04, issue #66): the host-only
+  // "Share a public link" affordance on the Reveal screen's bottom bar.
+  faLink,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -140,5 +150,8 @@ library.add(
   faFaceLaughBeam,
   faHeart,
   faHandPointer,
+  faImage,
+  faImages,
+  faLink,
   faStarRegular,
 );
