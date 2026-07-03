@@ -58,7 +58,7 @@ import { classicBlind } from '../engine/modes/classicBlind';
 import { progressiveReveal } from '../engine/modes/progressiveReveal';
 import { progressiveStory } from '../engine/modes/progressiveStory';
 import { wordBank } from '../engine/modes/wordBank';
-import type { Blank, Template } from '../engine/template';
+import type { Blank, Template, WordBankEntry } from '../engine/template';
 import { wordBankSurfaces, type RequestAiJumble } from './fillblank/WordBankAnswer';
 import { progressiveStorySurfaces } from './fillblank/StorySoFarContext';
 import { progressiveRevealSurfaces } from './reveal/ProgressiveRevealPresentation';
@@ -127,6 +127,15 @@ const selectFamilySafe = (library: readonly Template[], familySafeOn: boolean): 
   selectTemplates(library, familySafeOn);
 
 /**
+ * A single shared empty word bank for the (defensive) case of a template with no
+ * `wordBank`. Using ONE stable reference - rather than a fresh `[]` per render -
+ * keeps WordBankAnswer's pool-reset effect from firing every render (Word Bank
+ * is only ever offered for templates that DO have a bank, so this is belt-and-
+ * suspenders, but the stable identity matters for that effect's dep list).
+ */
+const EMPTY_WORD_BANK: readonly WordBankEntry[] = [];
+
+/**
  * All four modes, in picker order. Classic blind is first so it is the default
  * selection (single-player/02 AC-01/AC-06): the existing zero-choice flow keeps
  * working with one tap on Start.
@@ -146,7 +155,12 @@ export const GAME_MODES: readonly GameMode[] = [
     icon: 'wand-magic-sparkles',
     eligibleTemplates: offerWordBankTemplates,
     fillSurfaces: ({ template, currentBlank, onSubmit, requestAiJumble }) =>
-      wordBankSurfaces({ wordBank: template.wordBank ?? [], blank: currentBlank, onSubmit, requestAiJumble }),
+      wordBankSurfaces({
+        wordBank: template.wordBank ?? EMPTY_WORD_BANK,
+        blank: currentBlank,
+        onSubmit,
+        requestAiJumble,
+      }),
     revealSurfaces: () => classicBlindSurfaces,
   },
   {

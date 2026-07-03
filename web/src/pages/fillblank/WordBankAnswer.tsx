@@ -71,7 +71,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import type { Blank, BlankCategory, WordBankEntry } from '../../engine/template';
-import { DEFAULT_OFFERING_SIZE, nextOptions } from '../../content/wordBankJumble';
+import { DEFAULT_OFFERING_SIZE, nextOptions, normalizeWord } from '../../content/wordBankJumble';
 import type { ModeSurfaces } from '../modeSurfaces';
 
 /** The on-brand label for the jumble action (AC-07): QuibbleStone's stone/carving voice, not a generic "shuffle". Named here so the copy lives in one place, not a bare literal in JSX. */
@@ -169,9 +169,14 @@ export function WordBankAnswer({
   // an AI jumble has run; null means "not applicable / not yet fetched".
   const [remainingQuota, setRemainingQuota] = useState<number | null>(null);
 
-  // Reset the offered set + jumble history whenever the blank changes: the mode
-  // registry may reuse this component instance across blanks (same type/position
-  // in FillBlank), so state must not leak a previous blank's category words.
+  // Reset the offered set + jumble history whenever the option POOL changes (a
+  // new category or a new word bank): the mode registry may reuse this component
+  // instance, so state must not leak a previous pool's words. Keyed on the actual
+  // inputs (category + wordBank + offeringSize) rather than blank.id, since
+  // Blank.id is only unique WITHIN a template (engine/template.ts) - two templates
+  // could share a blank id, and this way a pool swap always resets. wordBank is a
+  // stable reference per round (the registry passes a shared empty constant when a
+  // template has none), so this fires on a genuine pool change, not every render.
   useEffect(() => {
     const fresh = nextOptions(wordBank, blank.category, [], offeringSize);
     setOffered(fresh);
@@ -179,17 +184,17 @@ export function WordBankAnswer({
     setSelected(null);
     setErrorMessage(null);
     setRemainingQuota(null);
-    // Reset keys on the blank id (its category drives the pool); wordBank +
-    // offeringSize are stable per template/round.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blank.id]);
+  }, [blank.category, wordBank, offeringSize]);
 
   // Every unique word available for this blank's category, in authored order -
   // used to decide whether a deterministic re-roll can even offer anything new
   // (a huge size returns them all from the pure helper, no duplicate logic).
   const allCategoryWords = nextOptions(wordBank, blank.category, [], Number.MAX_SAFE_INTEGER);
-  const shownSet = new Set(shown.map((w) => w.toLowerCase()));
-  const freshRemaining = allCategoryWords.filter((w) => !shownSet.has(w.toLowerCase())).length;
+  // Normalize the shown-set the SAME way the pure reshuffle helper does
+  // (trim + lower via normalizeWord), so the exhaustion count can never drift
+  // from what nextOptions considers "already shown".
+  const shownSet = new Set(shown.map(normalizeWord));
+  const freshRemaining = allCategoryWords.filter((w) => !shownSet.has(normalizeWord(w))).length;
 
   // The deterministic re-roll can offer something new only while unseen words
   // remain OR the pool is larger than one screenful (so it can cycle to a
@@ -410,12 +415,12 @@ export function WordBankAnswer({
   );
 }
 
-/** De-duplicates a word list case-insensitively while preserving first-seen order + casing. */
+/** De-duplicates a word list (trim + lower via normalizeWord) while preserving first-seen order + casing. */
 function dedupe(words: readonly string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const word of words) {
-    const key = word.toLowerCase();
+    const key = normalizeWord(word);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(word);

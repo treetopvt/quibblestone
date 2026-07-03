@@ -125,6 +125,24 @@ public class AiJumbleControllerTests
     }
 
     [Fact]
+    public async Task Oversized_avoid_list_is_capped_before_the_generator_runs()
+    {
+        var (controller, _, _) = Build();
+        // A pathological payload: 10k entries, each very long. The controller must
+        // cap it (size + per-item length) so the gated call still succeeds cleanly
+        // rather than doing unbounded dedupe work.
+        var huge = Enumerable.Range(0, 10_000).Select(i => new string('x', 5_000) + i).ToArray();
+
+        var result = await controller.Jumble(
+            new AiJumbleRequest("noun", FamilySafe: false, Avoid: huge, RoomCode: null, SessionId: "device-x"),
+            CancellationToken.None);
+
+        // It still returns a normal OK result (the stub transport's clean words survive).
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(ok.Value);
+    }
+
+    [Fact]
     public async Task Null_body_falls_back_cleanly()
     {
         var (controller, quota, _) = Build();

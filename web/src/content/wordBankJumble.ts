@@ -49,9 +49,11 @@ export const DEFAULT_OFFERING_SIZE = 8;
  * Normalizes a word for "have we shown this already?" comparisons: trimmed and
  * lower-cased, so casing/whitespace differences never leak a duplicate into a
  * "fresh" set. Output words keep their authored casing - this is only the
- * comparison key.
+ * comparison key. Exported so the surface (WordBankAnswer) computes its
+ * shown-set / exhaustion the SAME way this helper does, never a second
+ * normalization rule that could drift.
  */
-function normalize(word: string): string {
+export function normalizeWord(word: string): string {
   return word.trim().toLowerCase();
 }
 
@@ -71,7 +73,7 @@ function uniqueWordsForCategory(
     if (entry.category !== category) {
       continue;
     }
-    const key = normalize(entry.word);
+    const key = normalizeWord(entry.word);
     if (key.length === 0 || seen.has(key)) {
       continue;
     }
@@ -115,8 +117,8 @@ export function nextOptions(
     return [];
   }
 
-  const shown = new Set(alreadyShown.map(normalize));
-  const fresh = candidates.filter((word) => !shown.has(normalize(word)));
+  const shown = new Set(alreadyShown.map(normalizeWord));
+  const fresh = candidates.filter((word) => !shown.has(normalizeWord(word)));
 
   // Enough not-yet-shown words to fill the set: hand back a fully fresh subset.
   if (fresh.length >= take) {
@@ -126,7 +128,7 @@ export function nextOptions(
   // The pool is (nearly) exhausted: take every fresh word, then CYCLE - refill
   // the remainder from the pool head - so the action always yields a full,
   // non-empty set rather than dwindling to nothing (AC-02 "cycles gracefully").
-  const freshKeys = new Set(fresh.map(normalize));
-  const refill = candidates.filter((word) => !freshKeys.has(normalize(word)));
+  const freshKeys = new Set(fresh.map(normalizeWord));
+  const refill = candidates.filter((word) => !freshKeys.has(normalizeWord(word)));
   return [...fresh, ...refill].slice(0, take);
 }

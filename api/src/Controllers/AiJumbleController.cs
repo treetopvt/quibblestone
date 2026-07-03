@@ -67,6 +67,13 @@ public sealed class AiJumbleController : ControllerBase
     // input and degrades to the fallback rather than reaching the model.
     private const int MaxCategoryLength = 24;
 
+    // Bounds on the client-controlled avoid-list, enforced at the boundary BEFORE
+    // the generator iterates it: a very large payload could otherwise burn CPU /
+    // memory on dedupe before the per-IP rate limit bites. Generous for a real
+    // word bank (the prompt itself only names the first ~20), tiny for an abuser.
+    private const int MaxAvoidItems = 100;
+    private const int MaxAvoidItemLength = 40;
+
     private readonly JumbleWordGenerator _generator;
     private readonly RoomRegistry _rooms;
     private readonly ILogger<AiJumbleController> _logger;
@@ -118,10 +125,9 @@ public sealed class AiJumbleController : ControllerBase
             return Ok(FellBack());
         }
 
-        var avoid = request.Avoid ?? Array.Empty<string>();
         var result = await _generator.GenerateAsync(
             category,
-            avoid,
+            CapAvoid(request.Avoid),
             request.FamilySafe,
             instanceId,
             cancellationToken);
@@ -153,6 +159,37 @@ public sealed class AiJumbleController : ControllerBase
 
         var sessionId = request?.SessionId?.Trim();
         return string.IsNullOrEmpty(sessionId) ? null : sessionId;
+    }
+
+    /// <summary>
+    /// Bounds the client-controlled avoid-list before it reaches the generator:
+    /// drops null/blank entries, truncates each to <see cref="MaxAvoidItemLength"/>,
+    /// and keeps at most <see cref="MaxAvoidItems"/> - so an oversized payload
+    /// cannot force unbounded dedupe work (a cheap DoS surface) ahead of the
+    /// per-IP rate limit. These are already-shown words, so trimming is harmless.
+    /// </summary>
+    private static IReadOnlyList<string> CapAvoid(IReadOnlyList<string>? avoid)
+    {
+        if (avoid is null || avoid.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var capped = new List<string>(Math.Min(avoid.Count, MaxAvoidItems));
+        foreach (var word in avoid)
+        {
+            if (string.IsNullOrWhiteSpace(word))
+            {
+                continue;
+            }
+            var trimmed = word.Trim();
+            capped.Add(trimmed.Length > MaxAvoidItemLength ? trimmed[..MaxAvoidItemLength] : trimmed);
+            if (capped.Count >= MaxAvoidItems)
+            {
+                break;
+            }
+        }
+        return capped;
     }
 
     /// <summary>A category is valid if it is short and letters/hyphens only (a controlled BlankCategory label).</summary>
