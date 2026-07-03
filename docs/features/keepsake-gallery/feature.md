@@ -21,10 +21,10 @@ mirrors for sharing the image).
 | Story | Issue | Title | Status |
 |---|---|---|---|
 | 01 | #63 | Save the reveal as a stone-tablet image | Complete |
-| 02 | #64 | Share the tale with watermark | In Progress |
-| 03 | #65 | "Tales we've carved" local history | In Progress |
-| 04 | #66 | Shareable tale link (the back-link growth loop) | In Progress |
-| 05 | TBD | Cloud-synced, browsable gallery for purchasers | Not Started |
+| 02 | #64 | Share the tale with watermark | Complete |
+| 03 | #65 | "Tales we've carved" local history | Complete |
+| 04 | #66 | Shareable tale link (the back-link growth loop) | Complete |
+| 05 | #154 | Cloud-synced, browsable gallery for purchasers | Complete |
 
 ## Dependencies
 - the-reveal (the assembled story + stone-tablet rendering this feature
@@ -125,6 +125,32 @@ mirrors for sharing the image).
   feature), kept isolated and behind family-safe / no-PII / unguessable /
   noindex / opt-in / TTL guardrails, and that the link is FREE (never gated) -
   gating the growth loop would defeat its purpose.
+- 2026-07-03: Picked up story 05 (issue #154) once both hard gates landed on main
+  (accounts-identity/02 code merged via PR #147; billing-entitlements/01 Complete
+  via PR #152). Three pickup decisions: (1) **datastore** stays Azure Table Storage
+  (owner-partitioned by the account-email hash; browse/search/sort are client-side
+  over one purchaser's bounded tales - no new Azure resource); (2) **entitlement**
+  `gallery.cloudSync` ships default-unlocked for signed-in purchasers (the effective
+  gate is a valid purchaser credential; the seam is preserved for later paid
+  gating); (3) **sync is an explicit purchaser-surface action** (browse + upload
+  local tales from the signed-in Account area), NOT an automatic push from the
+  child-facing reveal - the game/reveal flow never touches a purchaser credential
+  (auth-boundary invariant, README section 6 / accounts-identity/03). This adjusts
+  AC-01's mechanism (outcome unchanged) and AC-04's framing (account-scoped, not
+  room-scoped). Server surface mirrors EntitlementsController (route `api/account/`,
+  bearer-credential auth) + the PublishedTales store/config-split precedent.
+- 2026-07-03: Status reconciliation. Stories 02, 03, and 04 shipped in PR #130
+  (deep-link share + keepsake gallery) and their issues (#64/#65/#66) are closed,
+  but their story docs still read "In Progress" - flipped to Complete to match the
+  merged code + closed issues. Residual: story 04's AC-06 stays unchecked because
+  it is a manual phone/PWA check (the "Play QuibbleStone" CTA converting into the
+  create/join flow, plus add-to-home-screen); the CTA itself is fully built and
+  routes to the web-app base (`PublishedTalesController.RenderTalePage`), so only
+  on-device verification remains, not code. Story 05 stays Not Started and is
+  BLOCKED: its two hard gates are unmet (`accounts-identity/02` #68 is In Review,
+  `billing-entitlements/01` #70 is Not Started) and it carries no work-item id
+  (Issue: TBD), so it cannot be orchestrated yet - it is horizon-4 "charging" scope
+  per docs/ROADMAP.md, deliberately deferred.
 - 2026-07-02: Promoted the two parked "cloud-synced gallery" and "search/filter
   beyond recency" bullets to story 05, now that `accounts-identity/02` and
   `billing-entitlements/01` are specified enough to gate against. Story 05 will

@@ -77,6 +77,30 @@ public static class EntitlementCatalog
     /// </summary>
     public static readonly IReadOnlyList<string> AiCapabilities = new[] { AiOnDemand };
 
+    /// <summary>
+    /// The cloud-synced keepsake gallery capability (keepsake-gallery/05, #154). A
+    /// signed-in purchaser's tales follow them across devices via this key. Ships
+    /// DEFAULT-UNLOCKED for signed-in purchasers (added to
+    /// <see cref="DefaultUnlockedCapabilities"/> alongside the <c>ai.*</c> keys), so
+    /// the effective gate is "is this a signed-in purchaser" (a 401 without a valid
+    /// purchaser credential). The seam is still read against this key so real gating
+    /// can later flip it to a stored grant with no consumer refactor (mirrors the
+    /// AI keys' default-unlocked posture, story 05 AC-04).
+    /// </summary>
+    public const string GalleryCloudSync = "gallery.cloudSync";
+
+    /// <summary>
+    /// All capability keys the default-unlocked BASELINE grants: the reserved
+    /// <c>ai.*</c> keys (<see cref="AiCapabilities"/>) PLUS <see cref="GalleryCloudSync"/>
+    /// (keepsake-gallery/05, AC-04). <see cref="DefaultUnlockedEntitlementService"/>
+    /// returns exactly this set, and <see cref="StoredValueEntitlementService"/>
+    /// composes it as its "no grant" baseline, so shipping the real stored-value
+    /// evaluation changes zero observed behavior for these keys. Adding a new
+    /// default-unlocked capability is a one-line change HERE, in one place.
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultUnlockedCapabilities =
+        [.. AiCapabilities, GalleryCloudSync];
+
     // ---- billing-entitlements/01 (#70): the full capability catalog ------------
     //
     //  These keys extend the ai.* reservation above into the WHOLE product catalog
@@ -191,8 +215,10 @@ public interface IEntitlementService
 
 /// <summary>
 /// The thin, alpha, DEFAULT-UNLOCKED entitlement service (ai-cost-gate/02, AC-03).
-/// Every session - purchaser or not - gets the reserved <c>ai.*</c> capabilities
-/// UNLOCKED, so shipping this changes ZERO observed behavior (ADR 0001 decision
+/// Every session - purchaser or not - gets the default-unlocked baseline
+/// (<see cref="EntitlementCatalog.DefaultUnlockedCapabilities"/>: the reserved
+/// <c>ai.*</c> keys plus <c>gallery.cloudSync</c>) UNLOCKED, so shipping this
+/// changes ZERO observed behavior (ADR 0001 decision
 /// C): the jumble is free for everyone and its real gating is quota (03) + the
 /// spend breaker (04). Stateless -> registered as a singleton in Program.cs.
 /// `billing-entitlements/01` (#70) REPLACES this with the real stored-value
@@ -207,9 +233,9 @@ public sealed class DefaultUnlockedEntitlementService : IEntitlementService
         string? purchaserIdentity = null,
         CancellationToken cancellationToken = default)
         // Ignore the (always-null in alpha) purchaser identity: default-unlocked
-        // grants every reserved ai.* capability regardless (anonymous, per session).
-        // Completes synchronously via ValueTask - no I/O in the alpha stand-in - so
-        // the async contract costs nothing today but is ready for #70's real
-        // stored-value evaluation.
-        => new ValueTask<SessionEntitlements>(new SessionEntitlements(EntitlementCatalog.AiCapabilities));
+        // grants every capability in the baseline regardless (the reserved ai.* keys
+        // PLUS gallery.cloudSync, keepsake-gallery/05). Completes synchronously via
+        // ValueTask - no I/O in the alpha stand-in - so the async contract costs
+        // nothing today but is ready for #70's real stored-value evaluation.
+        => new ValueTask<SessionEntitlements>(new SessionEntitlements(EntitlementCatalog.DefaultUnlockedCapabilities));
 }

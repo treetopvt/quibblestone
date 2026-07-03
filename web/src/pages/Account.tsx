@@ -54,6 +54,8 @@ import {
   type SignInOutcome,
 } from '../account/signInClient';
 import { fetchEntitlements, type OwnedEntitlement } from '../account/entitlementsClient';
+import { usePurchaserSession } from '../account/PurchaserSession';
+import { CloudGallery } from './CloudGallery';
 
 export interface AccountProps {
   /** Return to Home (the shared app-bar back action). */
@@ -202,17 +204,27 @@ export function Account({ onBack }: AccountProps) {
     mode: 'onChange',
   });
 
-  const [phase, setPhase] = useState<Phase>('form');
+  // The signed-in purchaser credential + email now live in the app-wide, in-memory
+  // PurchaserSession (../account/PurchaserSession), so sign-in survives navigation
+  // between screens within a session - a return to Account no longer forces a fresh
+  // sign-in. Still in-memory only (never persisted), and consumed only by this
+  // purchaser surface (auth boundary).
+  const session = usePurchaserSession();
+  // If already signed in this session, land straight on the signed-in state rather
+  // than the email form (the fix for re-entering the email on every visit).
+  const [phase, setPhase] = useState<Phase>(session.isSignedIn ? 'signed-in' : 'form');
   // The friendly message from the latest step (neutral confirmation or an outcome).
   const [message, setMessage] = useState<string>('');
-  // The signed-in purchaser email, shown on the success state.
-  const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   // DEV ONLY: the echoed magic-link token, enabling the local "Continue" affordance.
   const [devToken, setDevToken] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
-  // The purchaser credential from a successful sign-in - held in memory only, presented
-  // as a bearer to the restore endpoint (billing-entitlements/05). Never persisted.
-  const [credential, setCredential] = useState<string | null>(null);
+  // keepsake-gallery/05: whether the signed-in purchaser has opened their cloud
+  // gallery. Deliberately behind a tap (not shown by default) so opening it is a
+  // purchaser-consented action, and so it is impossible for an anonymous player
+  // to ever reach it (it only renders in the 'signed-in' phase, where a
+  // credential exists - AC-02). The credential lives in this component's memory,
+  // so the cloud gallery MUST render here, not on a separate route.
+  const [cloudGalleryOpen, setCloudGalleryOpen] = useState(false);
 
   const email = watch('email');
   const canSubmit = !formState.isSubmitting && EMAIL_PATTERN.test(email.trim());
@@ -233,10 +245,21 @@ export function Account({ onBack }: AccountProps) {
     setVerifying(true);
     try {
       const result = await verifySignIn(devToken);
-      setMessage(result.message);
-      setSignedInEmail(result.email ?? null);
-      setCredential(result.credential ?? null);
-      setPhase(result.outcome);
+      if (result.outcome === 'signed-in' && result.credential) {
+        // Record the sign-in in the app-wide session so it survives navigation.
+        session.signIn(result.credential, result.email ?? '');
+        setMessage(result.message);
+        setPhase('signed-in');
+      } else if (result.outcome === 'signed-in') {
+        // A 'signed-in' outcome with no credential is a malformed response - do NOT
+        // enter the signed-in state without a session credential (Copilot review),
+        // which would show "You're signed in" with no gallery and no way to act.
+        setMessage('We could not complete sign-in just now - please request a fresh link and try again.');
+        setPhase('error');
+      } else {
+        setMessage(result.message);
+        setPhase(result.outcome);
+      }
     } finally {
       setVerifying(false);
     }
@@ -336,14 +359,46 @@ export function Account({ onBack }: AccountProps) {
             icon="circle-check"
             tint={theme.palette.teal.main}
             title="You're signed in"
-            body={message}
+            // On a fresh verify `message` carries the server's note; on a return to
+            // this screen (already signed in, no new verify) fall back to a default.
+            body={message || 'You are signed in - your saved tales can follow you across your devices.'}
           >
-            {signedInEmail && (
+            {session.email && (
               <Typography sx={{ fontSize: 13.5, fontWeight: 800, color: 'text.primary' }}>
-                {signedInEmail}
+                {session.email}
               </Typography>
             )}
-            {credential && <PurchaseList credential={credential} />}
+            {session.credential && <PurchaseList credential={session.credential} />}
+            {/* keepsake-gallery/05: the cloud-gallery affordance lives HERE, in
+                the signed-in state, where the purchaser `credential` is in scope
+                (AC-02: anonymous players can never reach it). Behind a tap so
+                opening it is an explicit purchaser action. */}
+            {session.credential &&
+              (cloudGalleryOpen ? (
+                <CloudGallery credential={session.credential} />
+              ) : (
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  onClick={() => setCloudGalleryOpen(true)}
+                  startIcon={<FontAwesomeIcon icon="images" style={{ width: 18, height: 18 }} />}
+                >
+                  Open my cloud gallery
+                </Button>
+              ))}
+            <Button
+              variant="text"
+              onClick={() => {
+                session.signOut();
+                setCloudGalleryOpen(false);
+                setDevToken(null);
+                setMessage('');
+                setPhase('form');
+              }}
+              sx={{ fontWeight: 800, fontSize: 13 }}
+            >
+              Sign out
+            </Button>
           </OutcomePanel>
         )}
 

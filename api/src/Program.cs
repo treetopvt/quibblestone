@@ -31,6 +31,7 @@ using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Billing;
 using QuibbleStone.Api.Ai.Jumble;
+using QuibbleStone.Api.CloudGallery;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
@@ -344,6 +345,22 @@ builder.Services.AddRateLimiter(options =>
                 Window = SignInRateLimit.Window,
                 QueueLimit = 0,
             }));
+
+    // keepsake-gallery/05 (#154): the signed-in cloud-gallery SAVE endpoint's per-IP
+    // guard, in this SAME registration alongside the policies above. Only POST
+    // /api/account/gallery opts in (via [EnableRateLimiting(CloudGalleryRateLimit.PolicyName)]);
+    // the gallery read + deletes and the whole game path are untouched. Defense in
+    // depth so a compromised / scripted purchaser credential cannot flood the store.
+    // 429 on reject; per-IP behind App Service via the ForwardedHeaders config below.
+    options.AddPolicy(CloudGalleryRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: CloudGalleryRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = CloudGalleryRateLimit.PermitLimit,
+                Window = CloudGalleryRateLimit.Window,
+                QueueLimit = 0,
+            }));
 });
 
 // keepsake-gallery/04 (shareable tale link): the published-tale store, chosen at
@@ -370,6 +387,33 @@ else
         new TableStoragePublishedTaleStore(
             talesConnectionString,
             sp.GetRequiredService<ILogger<TableStoragePublishedTaleStore>>()));
+}
+
+// keepsake-gallery/05 (cloud-synced purchaser gallery, #154): the cloud-gallery
+// store, chosen at STARTUP by whether a storage connection string is configured -
+// the SAME config-presence idiom as the stores above, but with a WORKING in-memory
+// fallback (LIKE the account store, NOT the published-tale disabled no-op) so the
+// whole save -> list -> delete -> revoke-all flow is exercisable with ZERO Azure
+// setup. This is a purchaser-account-scoped surface (CloudGalleryController), kept
+// isolated from GameHub and the round lifecycle (the keepsake-gallery/04 precedent).
+// WITH a connection string (supplied per-environment, NEVER a committed literal),
+// tales persist to the "CloudGalleryTales" table keyed PartitionKey = owner-hash,
+// RowKey = tale id for a single-partition list-by-owner (AC-01/AC-05). WITHOUT one
+// (local dev, CI, a fresh clone), the working in-memory store keeps the flow live.
+// A singleton either way (stateless past construction / holds the process-local map).
+// Availability is gated by the entitlement seam + a valid purchaser credential
+// (AC-04), never a disabled-store flag. Reuses the SAME storage account infra provisions.
+var cloudGalleryConnectionString = builder.Configuration["CloudGallery:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(cloudGalleryConnectionString))
+{
+    builder.Services.AddSingleton<ICloudGalleryStore, InMemoryCloudGalleryStore>();
+}
+else
+{
+    builder.Services.AddSingleton<ICloudGalleryStore>(sp =>
+        new TableStorageCloudGalleryStore(
+            cloudGalleryConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageCloudGalleryStore>>()));
 }
 
 // keepsake-gallery/04 (W-001, deployment hardening): make the per-IP publish

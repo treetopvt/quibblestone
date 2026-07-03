@@ -19,6 +19,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import App from './App';
 import { theme } from './theme';
+import { PurchaserSessionProvider } from './account/PurchaserSession';
 import { installErrorBeacon } from './telemetry/errorBeacon';
 import './fontawesome';
 
@@ -36,7 +37,9 @@ createRoot(rootElement).render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <BrowserRouter>
-        <App />
+        <PurchaserSessionProvider>
+          <App />
+        </PurchaserSessionProvider>
       </BrowserRouter>
     </ThemeProvider>
   </StrictMode>,
