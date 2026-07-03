@@ -24,9 +24,11 @@
 //  Azure setup.
 // ----------------------------------------------------------------------------
 
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Hubs;
+using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
 using QuibbleStone.Api.Telemetry;
@@ -133,6 +135,69 @@ else
             sp.GetRequiredService<ILogger<TableStorageTelemetrySink>>()));
 }
 
+// keepsake-gallery/04 (shareable tale link): the published-tale store, chosen at
+// STARTUP by whether a storage connection string is configured - EXACTLY the
+// NoOp-when-absent posture of the telemetry sink above. This is the feature's ONE
+// server surface (a public read-only tale page + a stored tale), kept isolated in
+// its own thin controller (PublishedTalesController) - it never touches GameHub or
+// the round lifecycle. WITH a connection string (supplied per-environment from the
+// SAME storage account, NEVER a committed literal), it writes each host-published,
+// already-filtered tale to the "PublishedTales" table under an unguessable slug
+// with a TTL (AC-03/AC-05). WITHOUT one (local dev, CI, a fresh clone), it degrades
+// to the disabled store so the app runs with the feature simply OFF and ZERO Azure
+// setup: publish returns a clear "not available" and the public GET 404s (AC-05).
+// A singleton: stateless after construction (a TableClient or nothing). The share
+// link is FREE - no entitlement check anywhere on this path (AC-04).
+var talesConnectionString = builder.Configuration["PublishedTales:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(talesConnectionString))
+{
+    builder.Services.AddSingleton<IPublishedTaleStore, DisabledPublishedTaleStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IPublishedTaleStore>(sp =>
+        new TableStoragePublishedTaleStore(
+            talesConnectionString,
+            sp.GetRequiredService<ILogger<TableStoragePublishedTaleStore>>()));
+}
+
+// keepsake-gallery/04 (security review W-001): rate-limit the OPEN, anonymous
+// public publish endpoint (POST /api/tales) so it cannot be flooded to bloat
+// storage / mass-create public pages. A per-IP fixed window (see
+// PublishTalesRateLimit) - a real family sharing a few tales never hits it; a
+// script does. Only the publish action opts in (via [EnableRateLimiting]); the
+// rest of the API (hub, health, moderation) is untouched. A rejected caller gets
+// 429, not the middleware default 503. app.UseRateLimiter() activates it below.
+// keepsake-gallery/04 (W-001, deployment hardening): make the per-IP publish
+// limiter actually per-IP behind App Service. The platform terminates TLS at its
+// front end, so Connection.RemoteIpAddress is the load balancer unless we honor
+// the forwarded header - without this the limiter (PublishTalesRateLimit.PartitionKey
+// reads RemoteIpAddress) would collapse every caller into ONE bucket. Trust only
+// X-Forwarded-For; the App Service edge is the one hop (default ForwardLimit = 1
+// takes the client IP it appends), and KnownNetworks/Proxies are cleared because
+// that edge IP is not fixed. The PII scrubber still zeroes the IP before any
+// telemetry leaves the process (README section 6), so this stays no-PII.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(PublishTalesRateLimit.PolicyName, httpContext =>
+        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: PublishTalesRateLimit.PartitionKey(httpContext),
+            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = PublishTalesRateLimit.PermitLimit,
+                Window = PublishTalesRateLimit.Window,
+                QueueLimit = 0,
+            }));
+});
+
 // Ephemeral in-memory room store (session-engine/01). Registered as a SINGLETON
 // so every transient GameHub instance (SignalR builds a fresh hub per
 // invocation) shares the SAME set of active rooms. This is the toy's ONLY room
@@ -176,7 +241,17 @@ var app = builder.Build();
 
 // --- HTTP request pipeline ----------------------------------------------------
 
+// FIRST: honor X-Forwarded-For so Connection.RemoteIpAddress is the real client IP
+// before anything reads it (the publish rate limiter partitions on it). No-op with
+// no proxy (local dev), so it is safe everywhere.
+app.UseForwardedHeaders();
+
 app.UseCors(webClientCorsPolicy);
+
+// keepsake-gallery/04 (W-001): activate the rate limiter so the [EnableRateLimiting]
+// on the publish action takes effect. Endpoint-aware, so it only meters the one
+// opted-in action; every other route (hub, health, moderation) is unaffected.
+app.UseRateLimiter();
 
 // REST endpoints (e.g. GET /health from HealthController).
 app.MapControllers();
