@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   QuibbleStone.Api - the single ASP.NET Core application that hosts BOTH the REST
   API (controllers) and the SignalR hub, per README section 4 ("one ASP.NET Core
   app instead of Azure Functions, for now").
@@ -17,6 +17,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>QuibbleStone.Api</RootNamespace>
     <AssemblyName>QuibbleStone.Api</AssemblyName>
+    <UserSecretsId>4ffd8d3d-2d5a-4471-8577-c6ef7063cc96</UserSecretsId>
   </PropertyGroup>
 
   <!--
@@ -43,6 +44,23 @@
   -->
   <ItemGroup>
     <PackageReference Include="Azure.Data.Tables" Version="12.9.1" />
+  </ItemGroup>
+
+  <!--
+    billing-entitlements/03 (Stripe integration): the official Stripe .NET SDK.
+    Stripe is the charter's chosen payment provider (README section 3), so this is
+    IN CHARTER (NOT on CLAUDE.md's deliberately-excluded list; NO Azure Functions -
+    the webhook is an in-app controller, README section 4) and restores with NO auth
+    token. It is the transport for the ONE server-side billing seam
+    (api/src/Billing/): Checkout Session creation (payment + subscription modes) and
+    webhook signature verification / event parsing. The browser never holds the
+    Stripe SECRET key - only the publishable key + redirect URL flow to the client
+    (AC-01). With no `Stripe:SecretKey` configured (local dev, CI, a fresh clone) the
+    app registers the disabled no-op checkout service and the webhook rejects, so
+    this ref adds a dependency but no runtime coupling until Stripe is configured.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Stripe.net" Version="52.1.0" />
   </ItemGroup>
 
   <!--

@@ -117,6 +117,15 @@ import {
   // and the signed-in state reuses faCircleCheck / the guide-to-purchase state
   // reuses faShieldHeart, so the envelope is the only genuinely new glyph.
   faEnvelope,
+  // Billing surfaces (billing-entitlements/02 tip jar #71, /04 paywall #73): faMugHot
+  // for "Buy the Guardians a coffee", faGift for a one-time pack, faUnlock for the
+  // paywall CTA, faCircleInfo for the returned-from-checkout cancel banner. The
+  // subscription glyph reuses faCrown, success reuses faCircleCheck, the free-play
+  // reassurance reuses faShieldHeart (all already registered above).
+  faMugHot,
+  faGift,
+  faUnlock,
+  faCircleInfo,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -164,5 +173,9 @@ library.add(
   faImages,
   faLink,
   faEnvelope,
+  faMugHot,
+  faGift,
+  faUnlock,
+  faCircleInfo,
   faStarRegular,
 );

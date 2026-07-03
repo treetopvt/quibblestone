@@ -53,9 +53,10 @@ public class SignInTests
         // for a test - reused here so the test can unprotect what the controller
         // protected.
         IDataProtectionProvider dataProtection = new EphemeralDataProtectionProvider();
+        var credential = new PurchaserCredentialService(dataProtection);
         var environment = new FakeWebHostEnvironment(development ? "Development" : "Production");
 
-        var controller = new AccountsController(tokens, store, dataProtection, environment)
+        var controller = new AccountsController(tokens, store, credential, environment)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

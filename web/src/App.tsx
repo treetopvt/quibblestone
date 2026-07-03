@@ -122,6 +122,8 @@ import { Solo } from './pages/Solo';
 import { Favorites } from './pages/Favorites';
 import { Gallery } from './pages/Gallery';
 import { Account } from './pages/Account';
+import { GetMore } from './pages/GetMore';
+import { Support } from './pages/Support';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { findGroupMode } from './pages/modeRegistry';
@@ -254,6 +256,8 @@ function GroupReveal({
         onFavorites={onHome}
         onGallery={onHome}
         onAccount={onHome}
+        onSupport={onHome}
+        onGetMore={onHome}
         creating={false}
         disabled={false}
       />
@@ -718,6 +722,18 @@ export default function App() {
     navigate('/account');
   }, [navigate]);
 
+  // "Get more" (billing-entitlements/04, AC-05) and "Support us" (billing-
+  // entitlements/02, AC-01): purchaser-facing surfaces reached ONLY from Home, a
+  // plain route change like Account / Gallery above - never a child's play flow, no
+  // hub call, and free play never depends on either.
+  const handleOpenGetMore = useCallback(() => {
+    navigate('/get-more');
+  }, [navigate]);
+
+  const handleOpenSupport = useCallback(() => {
+    navigate('/support');
+  }, [navigate]);
+
   // Favorites screen's onPick (SOLO replay, AC-03/AC-04): remember the picked
   // template and route to '/solo', where Solo's own mount effect resolves it,
   // gates it through family-safe, and starts it with the freshness bypass.
@@ -810,11 +826,15 @@ export default function App() {
             onFavorites={handleOpenFavorites}
             onGallery={handleOpenGallery}
             onAccount={handleOpenAccount}
+            onSupport={handleOpenSupport}
+            onGetMore={handleOpenGetMore}
             disabled={status !== 'connected'}
           />
         }
       />
       <Route path="/account" element={<Account onBack={handleGoHome} />} />
+      <Route path="/get-more" element={<GetMore onBack={handleGoHome} />} />
+      <Route path="/support" element={<Support onBack={handleGoHome} />} />
       <Route
         path="/favorites"
         element={<Favorites onBack={handleGoHome} onPick={handlePickFavorite} />}

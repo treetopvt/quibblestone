@@ -1,6 +1,6 @@
 # Story: Entitlement model + session-creation gate
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #70
+**Feature:** Billing & Entitlements  ·  **Status:** Complete  ·  **Issue:** #70
 
 ## Context
 This was originally scoped as THE seam - a single service/hook answering "is
@@ -29,41 +29,41 @@ is a "consume and extend the shipped seam" story, not a "build the seam" story. 
 "State of the tree."
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the capability-key catalog is extended beyond the already-shipped
+- [x] AC-01: Given the capability-key catalog is extended beyond the already-shipped
       `ai.onDemand` reservation, when it is inspected, then it additionally contains
       at minimum `library.full`, `play.remote`, `play.largeGroup`, and an open-ended
       `pack.<id>` family - still one string-keyed `EntitlementCatalog`, not one-off
       booleans scattered per feature.
-- [ ] AC-02: Given `IEntitlementService`, `SessionEntitlements`, and the
+- [x] AC-02: Given `IEntitlementService`, `SessionEntitlements`, and the
       `GameHub.CreateRoom` call site already ship unchanged (ai-cost-gate/02, #121),
       when `DefaultUnlockedEntitlementService` is replaced with the real stored-value
       evaluation, then no change is required to `IEntitlementService`'s public shape,
       `Room.cs`, or any hub method signature - the DI registration swap in
       `Program.cs` is the only integration point touched.
-- [ ] AC-03: Given a session with no resolved purchaser identity (anonymous, the
+- [x] AC-03: Given a session with no resolved purchaser identity (anonymous, the
       alpha norm) or a resolved purchaser with no matching grant, when the stored-value
       evaluation runs, then it returns the same default-unlocked set
       `DefaultUnlockedEntitlementService` returns today - zero behavior regression,
       verified against the existing `EntitlementServiceTests` +
       `GameHubEntitlementTests` (extended, not rewritten).
-- [ ] AC-04: Given a purchaser has an `EntitlementGrant` row whose `validThrough` is
+- [x] AC-04: Given a purchaser has an `EntitlementGrant` row whose `validThrough` is
       null (permanent - e.g. a one-time pack) or in the future, when
       `EvaluateForSession(purchaserIdentity)` runs for that purchaser, then the
       granted capability key(s) are unlocked for the session; given `validThrough`
       has passed, then that grant's capability reads as locked (every other key
       still falls back to the default-unlocked baseline).
-- [ ] AC-05: Given an entitlement is granted (stories 03-04, or a future operator
+- [x] AC-05: Given an entitlement is granted (stories 03-04, or a future operator
       grant/revoke), when it is persisted, then it is stored as a lease-shaped
       `EntitlementGrant` row (capability key, `validThrough`, `source`: subscription |
       one-time | operator - ADR 0002 Decision C) in Azure Table Storage, partitioned
       by a hash of purchaser identity so the session-creation check resolves ALL of a
       purchaser's grants in a single partition read.
-- [ ] AC-06: Given the stored-value evaluation needs "is there an entitled purchaser
+- [x] AC-06: Given the stored-value evaluation needs "is there an entitled purchaser
       behind this session," then it resolves that from accounts-identity/02's
       `IAccountStore`-backed identity (the value `GameHub.CreateRoom` passes as
       `purchaserIdentity`, resolved from the host's signed-in session per ADR 0002
       Decision F) - it does not duplicate identity or token-verification logic.
-- [ ] AC-07: Given a future feature wants to gate a new capability, when it is added,
+- [x] AC-07: Given a future feature wants to gate a new capability, when it is added,
       then doing so still requires only (a) a catalog key and (b) a grant row
       carrying it - no change to `IEntitlementService`'s signature, `Room.cs` /
       `RoomRegistry.cs`, or any hub method (re-affirms the extensibility promise now
@@ -130,13 +130,13 @@ is a "consume and extend the shipped seam" story, not a "build the seam" story. 
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Entitlements/EntitlementServiceTests.cs (extend the existing suite): EntitlementCatalog contains the full key set.` |
-| AC-02 | `manual: code review confirming Program.cs's DI line is the only edit at the integration boundary - no diff in IEntitlementService.cs's public members, Room.cs, or GameHub.cs's CreateRoom signature.` |
-| AC-03 | `api/tests/Entitlements/EntitlementServiceTests.cs + tests/QuibbleStone.Api.Tests/GameHubEntitlementTests.cs (existing, re-run as regression): no purchaser / no grant still returns the same default-unlocked set.` |
-| AC-04 | `api/tests/Entitlements/EntitlementServiceTests.cs (new cases): a grant with a future validThrough unlocks its key; a grant with a past validThrough does not.` |
-| AC-05 | `api/tests/Entitlements/... (integration-style, Table Storage emulator or fake): a grant round-trips with its capability key, validThrough, and source intact, resolved via one partition read.` |
-| AC-06 | `api/tests/Entitlements/EntitlementServiceTests.cs: purchaser lookup delegates to accounts-identity/02's IAccountStore (mock/fake), no duplicate lookup logic.` |
-| AC-07 | `manual: add a throwaway capability key + grant at review time - confirm no Room.cs/hub-signature diff is needed to wire it.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/EntitlementServiceTests.cs::Catalog_contains_the_full_capability_key_set` |
+| AC-02 | `manual: verified - Program.cs's DI line is the only edit at the integration boundary; no diff in IEntitlementService.cs's public members, Room.cs, or GameHub.cs's CreateRoom signature.` |
+| AC-03 | `tests/QuibbleStone.Api.Tests/StoredValueEntitlementServiceTests.cs::No_purchaser_returns_the_default_unlocked_baseline` and `::Purchaser_identity_without_an_account_gets_only_the_baseline`, plus `tests/QuibbleStone.Api.Tests/EntitlementServiceTests.cs` + `tests/QuibbleStone.Api.Tests/GameHubEntitlementTests.cs` (existing suites, re-run green as regression).` |
+| AC-04 | `tests/QuibbleStone.Api.Tests/StoredValueEntitlementServiceTests.cs::Active_permanent_grant_unlocks_its_capability` and `::Grant_lease_window_governs_unlock`.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/EntitlementGrantStoreTests.cs::Grant_round_trips_with_all_fields_intact`, `::Re_granting_the_same_capability_upserts_one_row`, `::Distinct_capabilities_are_separate_rows_in_one_partition`.` |
+| AC-06 | `tests/QuibbleStone.Api.Tests/StoredValueEntitlementServiceTests.cs::Purchaser_resolution_consults_the_account_store` (via the `CountingAccountStore` fake - no duplicate lookup logic).` |
+| AC-07 | `manual: verified at review time - the pack.<id> family and grant-store shape confirm a new capability key needs no Room.cs/hub-signature diff to wire in.` |
 
 ## Dependencies
 - accounts-identity/02 (#68) - `IAccountStore` / the purchaser identity this story's

@@ -33,11 +33,11 @@ even if the UI is minimal").
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #70 | Entitlement model + session-creation gate | Not Started |
-| 02 | #71 | Tip jar ("Buy the Guardians a coffee") | Not Started |
-| 03 | #72 | Stripe integration + entitlement store | Not Started |
-| 04 | #73 | Gated purchase flow | Not Started |
-| 05 | #74 | Restore / manage entitlements | Not Started |
+| 01 | #70 | Entitlement model + session-creation gate | Complete |
+| 02 | #71 | Tip jar ("Buy the Guardians a coffee") | Complete |
+| 03 | #72 | Stripe integration + entitlement store | Complete |
+| 04 | #73 | Gated purchase flow | Complete |
+| 05 | #74 | Restore / manage entitlements | Complete |
 
 ## Dependencies
 - accounts-identity (a purchase needs the lightweight purchaser account from
@@ -154,3 +154,12 @@ even if the UI is minimal").
   (folded into the existing stories per Decisions C/D above, rather than a
   new story - the incremental scope is additive to plumbing/mapping each
   story already owns).
+- 2026-07-03: All five stories (01-05) shipped, code-reviewed clean, and
+  verified - including a live end-to-end pass against Stripe test-mode
+  (real Checkout Session, real signed webhook, real grant write; a live bug
+  requiring `throwOnApiVersionMismatch: false` on the webhook handler was
+  caught and fixed during that pass). Feature flipped to Complete; see each
+  story's Tests table for the automated suite and the manual verifications
+  performed (multi-device restore walk; UI audit confirming billing entry
+  points appear only on Home/Account and are absent from Join/Lobby/
+  FillBlank/Reveal).

@@ -84,6 +84,18 @@ export interface HomeProps {
    * signing in has ZERO effect on free play (AC-03).
    */
   onAccount: () => void;
+  /**
+   * Open the tip jar / "Support us" surface (billing-entitlements/02, AC-01). A
+   * purchaser-facing footer link only - never in a child's play flow. Fully
+   * passive: it grants nothing and never nags (AC-06). Not gated by `disabled`.
+   */
+  onSupport: () => void;
+  /**
+   * Open the gated-purchase paywall (billing-entitlements/04, AC-05). A
+   * purchaser-facing footer link only - never mid-round. Free play is unaffected;
+   * a purchase reflects only on the NEXT session. Not gated by `disabled`.
+   */
+  onGetMore: () => void;
   /** True while a create-room request is in flight - disables the CTA to avoid double-taps. */
   creating?: boolean;
   /** True until the real-time connection is ready - the CTAs need the hub to act. */
@@ -97,6 +109,8 @@ export function Home({
   onFavorites,
   onGallery,
   onAccount,
+  onSupport,
+  onGetMore,
   creating = false,
   disabled = false,
 }: HomeProps) {
@@ -414,6 +428,55 @@ export function Home({
           >
             <FontAwesomeIcon icon="user" style={{ width: 13, height: 13 }} />
             Account
+          </Link>
+        </Box>
+
+        {/* Get more entry point (billing-entitlements/04, AC-05): the gated-purchase
+            paywall, in the SAME tertiary text-link treatment as the links above. A
+            purchaser-facing surface only - never a child's play flow. Not gated by
+            `disabled` (browsing what is available needs no hub); free play is never
+            narrowed by anything behind it (AC-03). */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={onGetMore}
+            underline="none"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              fontSize: 13.5,
+              fontWeight: 700,
+              color: 'primary.main',
+            }}
+          >
+            <FontAwesomeIcon icon="gift" style={{ width: 13, height: 13 }} />
+            Get more
+          </Link>
+        </Box>
+
+        {/* Tip jar entry point (billing-entitlements/02, AC-01): "Support us", the
+            SAME tertiary text-link treatment. An invitation, not a billboard - it
+            grants nothing, needs no account, and never nags (AC-06). Never appears
+            on a child's play flow (Join / Lobby / word entry / Reveal). */}
+        <Box sx={{ textAlign: 'center' }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={onSupport}
+            underline="none"
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              fontSize: 13.5,
+              fontWeight: 700,
+              color: 'primary.main',
+            }}
+          >
+            <FontAwesomeIcon icon="mug-hot" style={{ width: 13, height: 13 }} />
+            Support us
           </Link>
         </Box>
       </Stack>
