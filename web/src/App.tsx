@@ -58,6 +58,21 @@
 //  ephemeral; rejoin is the separate resilience track) redirects home rather than
 //  rendering a broken shell - the per-route guards below handle that.
 //
+//  session-engine/10 narrows WHEN that redirect fires: a stored reconnect handle
+//  (../reconnect.ts's loadReconnectHandle) means a resume may still be pending,
+//  so the guards hold the screen with a calm "reconnecting your game..." beat
+//  (ResumingLiveScreen below) instead of bouncing Home first. This covers BOTH
+//  the cold-reload window (the connection has not yet reached "connected", so
+//  story 09's mount-time Rejoin has not had a chance to fire) and the in-flight-
+//  Rejoin window (the hook's `isRejoining`, story 09) - see the pure
+//  `shouldHoldLiveRouteForResume` below for the exact combined condition. Once a
+//  resume resolves - success (room/round/reveal populate, and the routing effect
+//  above lands the player on the right screen with no extra code, AC-02) or
+//  failure (story 09 discards the stale handle, AC-04) - the guard falls
+//  straight through to today's `<Navigate to="/" />` (AC-03). This story does
+//  NOT touch the reconnect MECHANICS (grace window, token, Rejoin, auto-rejoin
+//  triggers) - stories 07-09 own those; this is presentation + routing only.
+//
 //  story-selection/02 threads the host's story-length choice through the SAME
 //  seam the family-safe flag already uses: handleStartRound now takes
 //  (familySafe, lengthPref), remembers lengthPref as a sticky `lastLengthPref`
@@ -87,7 +102,16 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useGameHub, type RevealInfo, type StartRoundResult } from './signalr/useGameHub';
+import { Box, Button, Stack, Typography } from '@mui/material';
+import { keyframes } from '@mui/material/styles';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  useGameHub,
+  type ConnectionStatus,
+  type RevealInfo,
+  type StartRoundResult,
+} from './signalr/useGameHub';
+import { loadReconnectHandle } from './reconnect';
 import { seedLibrary } from './content/seedLibrary';
 import { assemble, type SubmittedWord } from './engine/assemble';
 import { Home } from './pages/Home';
@@ -352,6 +376,121 @@ function JoinRoute(props: Omit<JoinProps, 'initialCode'>) {
   return <Join {...props} initialCode={code ?? ''} key={code ?? 'join'} />;
 }
 
+/**
+ * session-engine/10 (AC-01, AC-03): should a live-route guard (/lobby, /round,
+ * /reveal) hold the current screen with the "reconnecting" beat instead of
+ * falling through to today's redirect Home? True while a resume is genuinely
+ * possible AND has not settled into a terminal failure - gated on a stored
+ * reconnect handle actually existing (no handle means there is nothing to
+ * resume, so redirect immediately exactly as today - AC-03's "no stored handle"
+ * case). Given a handle, the ONLY case we redirect Home is a SETTLED
+ * `'disconnected'` connection: SignalR's `withAutomaticReconnect()` does not
+ * cover the initial `start()`, so a cold reload / relaunch with no network
+ * lands on a terminal `'disconnected'` that never becomes `'connected'` on its
+ * own - holding the beat there would strand the player forever, so we fall
+ * through to the redirect (AC-03). We hold for every non-terminal case:
+ *   - the COLD-RELOAD window (`'connecting'`): the connection has not yet
+ *     reached `connected`, so story 09's mount-time Rejoin cannot fire yet.
+ *   - the CONNECTED-but-resume-pending window (`'connected'`, room still null):
+ *     the Rejoin is in flight or about to fire (`isRejoining` covers the former).
+ * Holding through the connected-but-pending window is what stops the one-commit
+ * flash to Home on a SUCCESSFUL cold-reload resume (`'connected'` lands a render
+ * before `isRejoining` flips and before `room` populates - AC-01). Convergence
+ * needs no extra state: a SUCCESSFUL resume populates room/round/reveal so the
+ * guard's OWN state check renders the live screen before this helper is even
+ * consulted (AC-02); a FAILED resume discards the handle (rejoin(), AC-04) so
+ * `hasReconnectHandle` is false next render. A hung `'connecting'` that never
+ * settles is not a trap either - ResumingLiveScreen carries a "Back to home"
+ * escape hatch.
+ *
+ * Pure (no localStorage / hook access) so it is unit-testable without mocking
+ * either - callers derive `hasReconnectHandle` from
+ * `loadReconnectHandle() !== null` (../reconnect.ts) and pass it in.
+ */
+export function shouldHoldLiveRouteForResume(params: {
+  status: ConnectionStatus;
+  isRejoining: boolean;
+  hasReconnectHandle: boolean;
+}): boolean {
+  if (!params.hasReconnectHandle) return false;
+  // A settled 'disconnected' (e.g. a cold reload during a real network outage,
+  // which never auto-retries the initial start) resolves negatively -> redirect
+  // Home (AC-03). Every other state ('connecting', or 'connected' while the
+  // resume is still pending) holds the calm beat. `isRejoining` is subsumed by
+  // this (it only ever occurs while 'connected'), kept in the signature for
+  // caller clarity.
+  return params.status !== 'disconnected';
+}
+
+// A calm pulsing beat for ResumingLiveScreen's icon (AC-01, AC-06). Opacity-only
+// on a single decorative icon (not a mounted/unmounted list item), the same
+// posture Lobby's own "waiting..." dots already use - see Lobby.tsx's `dots`
+// keyframe doc for why that is safe here (a steady looping style, not an
+// entrance/exit animation that could strand something invisible).
+const resumePulse = keyframes`
+  0%, 100% { opacity: .4; }
+  50% { opacity: 1; }
+`;
+
+/**
+ * session-engine/10 (AC-01, AC-06): the brief, calm beat a live-route guard
+ * shows in place of Home while `shouldHoldLiveRouteForResume` is true. Mirrors
+ * GroupRound.tsx's own "Dealing your blanks..." beat's posture - deliberately
+ * passive and reassuring, no spinner-of-doom, no technical jargon, no alarm
+ * ("hang tight," never an error state). It carries ONE low-key escape hatch (a
+ * "Back to home" text button): the beat normally resolves itself in a moment
+ * (the resume lands and the routing effect takes over, or it fails and the
+ * existing redirect fires), but a connection stuck at `'connecting'` on a real
+ * dead zone would otherwise have no in-app exit - so an always-available way
+ * out keeps the "never trapped, always a big tap target" posture (README
+ * section 10). `onGoHome` clears the room + the stored handle (handleGoHome).
+ */
+interface ResumingLiveScreenProps {
+  onGoHome: () => void;
+}
+
+function ResumingLiveScreen({ onGoHome }: ResumingLiveScreenProps) {
+  return (
+    <Box
+      sx={{
+        minHeight: '100dvh',
+        maxWidth: 430,
+        mx: 'auto',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        px: 5.5,
+      }}
+    >
+      <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center' }}>
+        <Box
+          aria-hidden
+          sx={{
+            color: 'primary.main',
+            fontSize: 34,
+            display: 'flex',
+            animation: `${resumePulse} 1.6s ease-in-out infinite`,
+          }}
+        >
+          <FontAwesomeIcon icon="plug" />
+        </Box>
+        <Typography sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 20 }}>
+          Reconnecting your game...
+        </Typography>
+        <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'text.secondary' }}>
+          Hang tight - picking up right where you left off.
+        </Typography>
+        <Button
+          onClick={onGoHome}
+          sx={{ mt: 1, fontWeight: 700, color: 'text.secondary', textTransform: 'none' }}
+        >
+          Back to home
+        </Button>
+      </Stack>
+    </Box>
+  );
+}
+
 export default function App() {
   const {
     status,
@@ -378,10 +517,24 @@ export default function App() {
     roundNotice,
     dismissRoundNotice,
     clearRoom,
+    isRejoining,
   } = useGameHub();
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  // session-engine/10 (AC-01, AC-03): whether a resume is still pending for the
+  // live-route guards below - see shouldHoldLiveRouteForResume's doc for the
+  // exact combined condition. Read `loadReconnectHandle()` fresh each render
+  // (a cheap, try/catch-guarded localStorage read - reconnect.ts) rather than
+  // caching it in state, so a handle cleared elsewhere (a deliberate leave via
+  // clearRoom, or story 09's rejoin() discarding a rejected one) is picked up
+  // on the very next render with no extra effect/subscription of its own.
+  const resumePending = shouldHoldLiveRouteForResume({
+    status,
+    isRejoining,
+    hasReconnectHandle: loadReconnectHandle() !== null,
+  });
 
   // group-play/04: whether THIS client is viewing the Round Complete recap (a
   // client-local step shown after the reveal, before the next round; AC-01). Set
@@ -715,6 +868,8 @@ export default function App() {
               notice={roundNotice}
               onDismissNotice={dismissRoundNotice}
             />
+          ) : resumePending ? (
+            <ResumingLiveScreen onGoHome={handleGoHome} />
           ) : (
             <Navigate to="/" replace />
           )
@@ -741,6 +896,8 @@ export default function App() {
               familySafe={lastFamilySafe}
               onLeave={handleGoHome}
             />
+          ) : resumePending ? (
+            <ResumingLiveScreen onGoHome={handleGoHome} />
           ) : (
             <Navigate to="/" replace />
           )
@@ -769,6 +926,8 @@ export default function App() {
               onPlayAgain={() => setShowRoundComplete(true)}
               onHome={handleGoHome}
             />
+          ) : resumePending ? (
+            <ResumingLiveScreen onGoHome={handleGoHome} />
           ) : (
             <Navigate to="/" replace />
           )

@@ -394,6 +394,17 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // the length of a play session and expire when idle (AC-05).
 builder.Services.AddSingleton<RoomRegistry>();
 
+// session-engine/07 (hold the seat): the ONE scheduled timer in the app. A dropped
+// connection no longer evicts its seat on the spot - GameHub.OnDisconnected holds the
+// seat and hands this singleton a one-shot timer that runs the eventual eviction ONLY
+// if the grace window elapses with no reconnect (AC-03). A SINGLETON (like the
+// RoomRegistry it works with) so the timer never lives on the per-invocation hub, and
+// it uses IHubContext<GameHub> to broadcast the grace-expiry epilogue after the
+// originating invocation has ended. The 30-second window is a single named constant
+// (SeatGraceService.DefaultGraceWindow) for easy tuning. No-ops for a connection that
+// was never seated; story 08's Rejoin cancels a pending timer to keep the seat.
+builder.Services.AddSingleton<SeatGraceService>();
+
 // ai-cost-gate/02 (entitlement at session-creation, #121): the thin, #70-shaped,
 // DEFAULT-UNLOCKED entitlement seam. Registered here beside the room/session
 // domain services (NOT in the AI-cost-gate/01 pipeline block above, to keep this

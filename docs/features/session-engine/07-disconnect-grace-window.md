@@ -1,6 +1,6 @@
 # Story: Hold the seat - a disconnect grace window
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #141
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #141
 
 ## Context
 Today a dropped connection is treated as a *leave*: `GameHub.OnDisconnectedAsync`
@@ -19,34 +19,34 @@ today. See [feature.md](./feature.md) (Decisions log) and `docs/ROADMAP.md`
 ("Don't Lose the Room - reconnect + rejoin").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a player is seated in a live room and their connection drops
+- [x] AC-01: Given a player is seated in a live room and their connection drops
       abnormally (`OnDisconnectedAsync` fires - not a deliberate `LeaveRoom`), when
       the drop is detected, then the seat is marked disconnected rather than
       removed - the roster still reports the seat present (now flagged
       not-connected) and the room's player count is unchanged.
-- [ ] AC-02: Given the disconnected seat is holding and the room's current round is
+- [x] AC-02: Given the disconnected seat is holding and the room's current round is
       "prompting", then the round is NOT aborted while the grace window is running -
       the other seated players keep collecting words normally, and the disconnected
       seat's still-outstanding blanks simply remain unsubmitted for now.
-- [ ] AC-03: Given the grace window elapses with no reconnect for that seat, then
+- [x] AC-03: Given the grace window elapses with no reconnect for that seat, then
       the seat is evicted exactly as it was before this story (the roster drops it,
       `RosterChanged` broadcasts the trimmed roster), and if the round is still
       "prompting" at that point, it aborts with the existing friendly `RoundAborted`
       notice - i.e. the eventual end state matches today's behavior, only deferred by
       the grace window.
-- [ ] AC-04: Given a player deliberately leaves (`LeaveRoom`), then their seat is
+- [x] AC-04: Given a player deliberately leaves (`LeaveRoom`), then their seat is
       evicted immediately with no grace window - grace applies only to an unplanned
       drop, never an intentional leave.
-- [ ] AC-05: Given every seated player's grace has expired (or they left
+- [x] AC-05: Given every seated player's grace has expired (or they left
       deliberately) and the roster is empty, then the room is freed exactly as
       today - a pending grace timer never keeps an abandoned room alive past that.
-- [ ] AC-06 (child safety / seat-hijack guard): Given a seat is created
+- [x] AC-06 (child safety / seat-hijack guard): Given a seat is created
       (`CreateRoom` or `JoinRoom`), then the server mints an opaque,
       cryptographically random reconnect token for that seat and returns it ONLY to
       the owning connection in that call's own result envelope - it is NEVER
       included in the roster shape (`RoomStateDto`/`PlayerDto`) broadcast to the
       whole room, so no other player can ever see or use it to hijack the seat.
-- [ ] AC-07 (child safety / no PII): the reconnect token carries no nickname, no
+- [x] AC-07 (child safety / no PII): the reconnect token carries no nickname, no
       device fingerprint, and no cross-room identity - it is a random opaque value
       scoped to exactly one seat in one ephemeral room, discarded when that seat is
       gone (evicted, or the room expires), and is never used to correlate a player

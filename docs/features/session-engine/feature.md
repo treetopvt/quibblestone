@@ -28,10 +28,10 @@ reconnect + rejoin" (Open/near-done).
 | 04 | #23 | Copy and share the room code from the Lobby | Complete |
 | 05 | #24 | Guardian avatar selection at join | Complete |
 | 06 | #115 | Share a join link to the room (deep-link share) | Complete |
-| 07 | #141 | Hold the seat: a disconnect grace window | Not Started |
-| 08 | #142 | Rejoin: reclaim your seat and resume the round | Not Started |
-| 09 | #143 | Web: remember this seat and rejoin automatically | Not Started |
-| 10 | #144 | Web: resume the live screen, don't bounce Home | Not Started |
+| 07 | #141 | Hold the seat: a disconnect grace window | Complete |
+| 08 | #142 | Rejoin: reclaim your seat and resume the round | Complete |
+| 09 | #143 | Web: remember this seat and rejoin automatically | Complete |
+| 10 | #144 | Web: resume the live screen, don't bounce Home | Complete |
 
 ## Dependencies
 - platform-devops (the real-time backbone must be deployable and reachable).

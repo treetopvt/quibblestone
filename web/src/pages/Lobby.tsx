@@ -21,6 +21,13 @@
 //      stone tile (theme rosterTile tokens) with their Guardian, name, and a
 //      role chip: host = gold "HOST" chip + crown badge + a pulsing gold RING;
 //      everyone else = teal "READY" chip (AC-01). New tiles scale-pop in (AC-02).
+//      session-engine/10 (AC-04): a seat held through a disconnect grace window
+//      (`player.connected === false`, mirroring the hub's `PlayerDto.Connected`
+//      from session-engine/07) renders instead as a DIMMED tile with a pulsing
+//      DASHED ring (reusing EmptySlot's own `borderPulse` keyframe below - not a
+//      new visual system) and a muted "reconnecting..." chip in place of
+//      READY/HOST, so the room understands why the round is paused on them
+//      rather than the tile silently vanishing and reappearing.
 //    - Every remaining slot is a dashed circle with 3 pulsing dots + "waiting..."
 //      whose border pulses purple (AC-03).
 //    - A transient dark bottom-center toast "[Name] pulled up a stone" when a new
@@ -181,12 +188,24 @@ const toastIn = keyframes`
   100% { transform: translateY(-8px); opacity: 0; }
 `;
 
-/** One present player's tile: Guardian in a carved stone circle, name, role chip. */
+/**
+ * One present player's tile: Guardian in a carved stone circle, name, role chip.
+ * session-engine/10 (AC-04): `player.connected === false` (a seat held through
+ * a disconnect grace window) swaps the solid border + boxShadow for a dimmed,
+ * pulsing DASHED ring - reusing EmptySlot's `borderPulse` keyframe below, the
+ * SAME "held seat" language already established on this screen rather than a
+ * new visual system - and the role chip for a muted "reconnecting..." one. The
+ * host's gold presence ring is suppressed while disconnected (the dashed pulse
+ * already signals motion; two competing rings read as noisy) but the crown
+ * badge stays - identity ("who this seat belongs to") persists, only presence
+ * dims.
+ */
 function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
   const theme = useTheme();
   // The variant is a free string on the wire; the server normalizes it to one of
   // the six known values, so treat it as a GuardianVariant for the avatar.
   const variant = toGuardianVariant(player.variant);
+  const connected = player.connected;
 
   return (
     <Stack
@@ -204,16 +223,29 @@ function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
           height: 74,
           borderRadius: '50%',
           bgcolor: 'rosterTile.fill',
-          border: `2.5px solid ${theme.palette.rosterTile.border}`,
-          boxShadow: `0 8px 16px -10px ${alpha(theme.palette.stoneEdge.main, 0.7)}`,
+          // A steady dimmed opacity while disconnected (not an entrance/exit
+          // animation on a list item - the Waiting screen's own done/writing
+          // dim uses the same static-opacity posture, Waiting.tsx).
+          opacity: connected ? 1 : 0.55,
+          boxShadow: connected
+            ? `0 8px 16px -10px ${alpha(theme.palette.stoneEdge.main, 0.7)}`
+            : 'none',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          ...(connected
+            ? { border: `2.5px solid ${theme.palette.rosterTile.border}` }
+            : {
+                border: '2.5px dashed',
+                '--qs-pulse-from': alpha(theme.palette.stoneEdge.main, 0.4),
+                '--qs-pulse-to': alpha(theme.palette.primary.main, 0.5),
+                animation: `${borderPulse} 2.6s ease-in-out infinite`,
+              }),
         }}
       >
         <Guardian variant={variant} size={52} crowned={crowned} />
 
-        {player.isHost && (
+        {player.isHost && connected && (
           <>
             {/* Pulsing gold presence ring (AC-01) - box-shadow, not opacity. */}
             <Box
@@ -229,22 +261,26 @@ function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
                 animation: `${ring} 2.4s ease-in-out infinite`,
               }}
             />
-            {/* Crown badge above the avatar (AC-01). */}
-            <Box
-              aria-hidden
-              sx={{
-                position: 'absolute',
-                top: -13,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                color: 'gold.main',
-                fontSize: 20,
-                display: 'flex',
-              }}
-            >
-              <FontAwesomeIcon icon="crown" />
-            </Box>
           </>
+        )}
+        {player.isHost && (
+          // Crown badge above the avatar (AC-01) - persists through a
+          // disconnect: identity stays, only the presence ring dims (AC-04).
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              top: -13,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              color: 'gold.main',
+              fontSize: 20,
+              display: 'flex',
+              opacity: connected ? 1 : 0.55,
+            }}
+          >
+            <FontAwesomeIcon icon="crown" />
+          </Box>
         )}
       </Box>
 
@@ -260,7 +296,7 @@ function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
         >
           {player.nickname}
         </Typography>
-        {player.isHost ? <HostChip /> : <ReadyChip />}
+        {!connected ? <ReconnectingChip /> : player.isHost ? <HostChip /> : <ReadyChip />}
       </Box>
     </Stack>
   );
@@ -318,6 +354,51 @@ function ReadyChip() {
         sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: 'teal.main' }}
       />
       READY
+    </Box>
+  );
+}
+
+/**
+ * Muted "reconnecting..." chip (session-engine/10, AC-04, AC-06): a calm,
+ * plain-language stand-in for READY/HOST while a seat's `connected` flag is
+ * false. Reuses the SAME pulsing-dots keyframe (`dots`, below) EmptySlot's
+ * "waiting..." caption already uses, rather than a new affordance - and the
+ * SAME muted stone tone, so it visually reads as "this seat's dashed pulse
+ * above" rather than a competing alarm color (never coral/red - AC-06, this is
+ * "hang tight," not an error).
+ */
+function ReconnectingChip() {
+  const theme = useTheme();
+  return (
+    <Box
+      component="span"
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.75,
+        mt: 1,
+        px: 1.25,
+        py: 0.25,
+        bgcolor: alpha(theme.palette.stoneEdge.main, 0.22),
+        borderRadius: 999,
+        fontFamily: '"Nunito", sans-serif',
+        fontSize: 10.5,
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        color: 'text.secondary',
+      }}
+    >
+      <Box
+        component="span"
+        sx={{
+          width: 5,
+          height: 5,
+          borderRadius: '50%',
+          bgcolor: alpha(theme.palette.stoneEdge.main, 0.85),
+          animation: `${dots} 1.4s ease-in-out infinite`,
+        }}
+      />
+      reconnecting...
     </Box>
   );
 }

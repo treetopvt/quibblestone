@@ -1,6 +1,6 @@
 # Story: Web - remember this seat and rejoin automatically
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #143
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #143
 
 ## Context
 Story 08 gives the server a way to reclaim a held seat; the web client needs to
@@ -16,31 +16,31 @@ nickname/variant. See [feature.md](./feature.md) and
 `08-rejoin-and-resume.md` (the hub method this consumes).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a player successfully creates or joins a room, then the device
+- [x] AC-01: Given a player successfully creates or joins a room, then the device
       stores its `{room code, reconnect token}` pair in a NEW, versioned,
       device-local module (mirroring `identity.ts`'s shape/robustness posture),
       overwriting whatever was stored before - a device holds at most one "current
       seat" handle at a time.
-- [ ] AC-02: Given the SAME open tab's SignalR connection drops and its automatic
+- [x] AC-02: Given the SAME open tab's SignalR connection drops and its automatic
       reconnect succeeds (`onreconnected` fires), when a stored handle exists, then
       the hook automatically invokes `Rejoin(code, token)` on the new connection -
       no user action required - and applies the returned state (room, host flag,
       round phase, remaining blanks, progress, or reveal) into the SAME hook state
       the normal join/round flow already populates.
-- [ ] AC-03: Given the app (re)mounts with NO in-memory room but a stored reconnect
+- [x] AC-03: Given the app (re)mounts with NO in-memory room but a stored reconnect
       handle exists (a full page reload or app relaunch during a live game), then,
       once the connection reaches `connected`, the hook attempts the SAME `Rejoin`
       automatically - covering "the app was killed and reopened," not just a
       same-tab network blip.
-- [ ] AC-04: Given a `Rejoin` attempt fails (unknown/expired token, an evicted
+- [x] AC-04: Given a `Rejoin` attempt fails (unknown/expired token, an evicted
       seat), then the stored handle is discarded immediately (so a later
       successful create/join is never haunted by a stale token), and the client
       falls back to whatever the app already does with no room (story 10 owns the
       exact resulting screen).
-- [ ] AC-05: Given a player deliberately leaves a room (`LeaveRoom`/`clearRoom`) or
+- [x] AC-05: Given a player deliberately leaves a room (`LeaveRoom`/`clearRoom`) or
       returns Home, then the stored reconnect handle is cleared immediately - a
       deliberate exit must never auto-resume later.
-- [ ] AC-06 (child safety / no PII): the stored handle is exactly `{code, token}` -
+- [x] AC-06 (child safety / no PII): the stored handle is exactly `{code, token}` -
       two opaque strings, no nickname, no name, no cross-room history - matching
       `identity.ts`'s "device-local convenience, never an account" posture; it
       never leaves the device except as the `Rejoin` invoke's own arguments.

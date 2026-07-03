@@ -1,6 +1,6 @@
 # Story: Web - resume the live screen, don't bounce Home
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #144
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #144
 
 ## Context
 Today, a live-game URL opened with no room in state redirects Home (`App.tsx`'s
@@ -15,32 +15,32 @@ surviving a dropped phone. See [feature.md](./feature.md) and
 `09-web-remember-and-rejoin.md` (the trigger this story reacts to).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a stored reconnect handle exists and a rejoin attempt is in
+- [x] AC-01: Given a stored reconnect handle exists and a rejoin attempt is in
       flight (story 09), then the live-route guards (`/lobby`, `/round`,
       `/reveal`) do NOT redirect Home while that attempt is pending - they show a
       brief, friendly "reconnecting your game..." beat instead of flashing Home
       first.
-- [ ] AC-02: Given the rejoin succeeds, then the player lands on the SAME live
+- [x] AC-02: Given the rejoin succeeds, then the player lands on the SAME live
       screen the room/round/reveal state implies (reusing the existing routing
       effect's precedence: recap > reveal > round > lobby) with no further action -
       their own outstanding blanks (if any) are exactly what `Rejoin` returned,
       never a stale or duplicate prompt.
-- [ ] AC-03: Given the rejoin fails (no stored handle, or story 09's failure path
+- [x] AC-03: Given the rejoin fails (no stored handle, or story 09's failure path
       already cleared it), then the existing refresh-safety redirect to Home still
       applies - this story narrows WHEN that redirect fires, it does not remove
       it.
-- [ ] AC-04: Given another player's seat is within its grace window (disconnected
+- [x] AC-04: Given another player's seat is within its grace window (disconnected
       but held, per stories 07/08's `Connected` flag on the roster), then their
       roster tile visibly differs from a normal "READY" tile (a dimmed/pulsing
       "reconnecting..." treatment) so the room understands why the round is
       paused on them, rather than the tile just vanishing and silently
       reappearing.
-- [ ] AC-05: Given a player deliberately leaves or returns Home, then no stale
+- [x] AC-05: Given a player deliberately leaves or returns Home, then no stale
       "reconnecting" affordance lingers and no further auto-rejoin is attempted
       for that seat (covered mechanically by story 09's clear-on-leave; this
       story confirms the UI never shows a phantom "reconnecting" tile after a
       real departure).
-- [ ] AC-06 (family-friendly UX, README section 10): the "reconnecting..."
+- [x] AC-06 (family-friendly UX, README section 10): the "reconnecting..."
       messaging is calm and reassuring (kid-readable, no technical jargon, no
       alarming language) - a brief blip should read as "hang tight," not as an
       error state.
