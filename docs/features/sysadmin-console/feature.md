@@ -41,9 +41,9 @@ monetization seam). Full rationale + the load-bearing invariant:
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Timing | Status |
 |---|---|---|---|---|
-| [01](./01-operator-login-and-admin-boundary.md) | #135 | Operator login and admin boundary (separate surface) | foundation - build first | Not Started |
-| [02](./02-operator-grant-revoke-entitlement.md) | #136 | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | Not Started |
-| [03](./03-report-and-takedown-public-tale.md) | #137 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | Not Started |
+| [01](./01-operator-login-and-admin-boundary.md) | #135 | Operator login and admin boundary (separate surface) | foundation - build first | In Progress |
+| [02](./02-operator-grant-revoke-entitlement.md) | #136 | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | Blocked (needs billing-entitlements/01 #70) |
+| [03](./03-report-and-takedown-public-tale.md) | #137 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | In Progress |
 
 Recorded on purpose, and deliberately NOT stories in this feature (feature.md's job is as much to say
 what is NOT this feature as what is):

@@ -1,6 +1,6 @@
 # Story: Report -> auto-hide-after-N -> operator review of a public tale
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #137
+**Feature:** Sys-Admin Console  ·  **Status:** In Progress  ·  **Issue:** #137
 
 ## Context
 Public keepsake tales (`keepsake-gallery/04`, already shipped) have no report or takedown path
@@ -16,16 +16,16 @@ rate-limit posture; it does not reimplement either, and it never touches the ano
 operates on published *content* only. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a visitor viewing a public tale page (`GET /t/{slug}`, keepsake-gallery/04), when
+- [x] AC-01: Given a visitor viewing a public tale page (`GET /t/{slug}`, keepsake-gallery/04), when
       they use a "report this tale" control, then a report is recorded against that tale's slug -
       no sign-in, account, or PII is required or collected from the reporter (consistent with the
       public tale page's existing no-account posture).
-- [ ] AC-02: Given a tale accumulates reports, when the count reaches a small configured threshold N
+- [x] AC-02: Given a tale accumulates reports, when the count reaches a small configured threshold N
       (a config constant, per feature.md's Open decisions - pick a small starting value, e.g. 3, and
       make it easy to tune), then the tale auto-hides: `GET /t/{slug}` stops serving the tale content
       (a neutral "under review" page, not the 404 "expired/unshared" page, so a legitimate host is
       not confused with a revoked-by-them tale) pending operator review.
-- [ ] AC-03: Given an auto-hidden tale, when a signed-in operator (story 01's boundary) opens the
+- [x] AC-03: Given an auto-hidden tale, when a signed-in operator (story 01's boundary) opens the
       back office's review queue, then they see the tale's content, its report count, and two
       actions - confirm-hidden (the tale stays hidden / is deleted) or restore (the tale resumes
       serving normally at its slug, and its report count resets so it is not immediately re-hidden
@@ -35,7 +35,7 @@ operates on published *content* only. See [feature.md](./feature.md).
       human viewer, evaluated by an operator, not a second automated content check. The existing
       publish-time re-vet (keepsake-gallery/04 AC-03) is untouched and remains the authoritative
       pre-display gate; this story is what happens *after* publish, on a report.
-- [ ] AC-05 (anti-abuse, reuse the publish-endpoint posture): Given the report endpoint is public and
+- [x] AC-05 (anti-abuse, reuse the publish-endpoint posture): Given the report endpoint is public and
       anonymous (no account, by design), then it is rate-limited per client IP (the same
       `X-Forwarded-For`-aware posture `PublishTalesRateLimit` already establishes for `POST
       /api/tales`) so a single actor cannot flood reports to force-hide a tale beyond what the
@@ -46,7 +46,7 @@ operates on published *content* only. See [feature.md](./feature.md).
       reviews/restores content, never a person; there is no path from a report back to a player
       nickname, room, or session (the same firewall ADR 0002 defines for `CreateRoom` applies here
       to moderation).
-- [ ] AC-07: Given a tale has never been reported, then nothing about its behavior changes - the
+- [x] AC-07: Given a tale has never been reported, then nothing about its behavior changes - the
       report/takedown machinery is additive to keepsake-gallery/04's existing publish/serve/revoke
       flow, verified by re-running its existing coverage with zero regressions.
 
@@ -102,11 +102,11 @@ operates on published *content* only. See [feature.md](./feature.md).
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/PublishedTales/ReportTaleTests.cs (to be created): reporting a slug with no account/session data succeeds and records a report.` |
-| AC-02 | `api/tests/PublishedTales/ReportTaleTests.cs: N reports against one slug flips it to hidden; GET /t/{slug} then serves the under-review page, not the tale.` |
-| AC-03 | `api/tests/Admin/ReportedTalesControllerTests.cs (to be created): the review queue lists a hidden tale with its report count; confirm keeps it hidden, restore resumes normal serving and resets the report count.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/PublishedTales/ReportTaleTests.cs: reporting a slug with no account/session data succeeds and records a report.` |
+| AC-02 | `tests/QuibbleStone.Api.Tests/PublishedTales/ReportTaleTests.cs: N reports against one slug flips it to hidden; GET /t/{slug} then serves the under-review page, not the tale (distinct from the 404 expired/revoked page).` |
+| AC-03 | `tests/QuibbleStone.Api.Tests/Admin/ReportedTalesControllerTests.cs: the review queue lists a hidden tale with its report count; confirm keeps it hidden, restore resumes normal serving and resets the report count.` |
 | AC-04 | `manual: code review - confirm no new IContentSafetyFilter logic is added; the existing publish-time re-vet path is untouched.` |
-| AC-05 | `api/tests/PublishedTales/ReportRateLimitTests.cs (to be created, mirrors PublishTalesRateLimitTests): per-IP partitioning on the report endpoint; fails closed to a shared bucket when no IP is available.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/PublishedTales/ReportRateLimitTests.cs (mirrors PublishTalesRateLimitTests): per-IP partitioning on the report endpoint; fails closed to a shared bucket when no IP is available.` |
 | AC-06 | `manual: code review - confirm no report/review code path ever queries or displays a player nickname, room, or session id.` |
 | AC-07 | `existing keepsake-gallery/04 test suite (PublishedTalesControllerTests, publishTale.test.ts) re-run as regression: zero behavior change for a never-reported tale.` |
 
