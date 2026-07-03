@@ -6,9 +6,10 @@
 //  WHAT THIS IS: the transport proxy. When the API needs AI-generated text, it
 //  calls THIS interface - never an AI SDK directly, and NEVER from the browser.
 //  Because every AI call is ours to see, it becomes ours to meter (stories 03/04)
-//  and moderate (story 05). It wraps Azure AI Foundry (Azure OpenAI, gpt-4o-mini
-//  per ADR 0001) but the SEAM is provider-agnostic: the model/provider is a
-//  swappable config value (AiOptions), not baked into any caller.
+//  and moderate (story 05). It wraps Azure AI Foundry (Azure OpenAI, gpt-5-mini -
+//  ADR 0001 picked gpt-4o-mini, superseded by availability) but the SEAM is
+//  provider-agnostic: the model/provider is a swappable config value (AiOptions),
+//  not baked into any caller.
 //
 //  WHY SERVER-SIDE (AC-01, non-negotiable, CLAUDE.md section 4): the provider key
 //  lives in Key Vault or the App Service managed identity. NOTHING in web/ ever
@@ -98,7 +99,7 @@ public sealed record AiCompletionRequest(
 /// <param name="Text">The generated text. Empty string when <see cref="IsAvailable"/> is false.</param>
 /// <param name="InputTokens">Prompt (input) token count reported by the provider. 0 when unavailable.</param>
 /// <param name="OutputTokens">Completion (output) token count reported by the provider. 0 when unavailable.</param>
-/// <param name="ModelId">The model / deployment that served the call (e.g. "gpt-4o-mini"). Empty when unavailable.</param>
+/// <param name="ModelId">The model / deployment that served the call (e.g. "gpt-5-mini"). Empty when unavailable.</param>
 /// <param name="IsAvailable">True only when a real completion came back; false on no-op or any soft failure (AC-06).</param>
 public sealed record AiCompletionResult(
     string Text,

@@ -5,7 +5,8 @@
 //  (appsettings / env / user-secrets / Key Vault-backed App Service settings).
 //  It is where the model id AND the per-model $-per-1M-token rate constants live
 //  TOGETHER so that swapping the deployed model is a ONE-PLACE config change
-//  (ADR 0001 decision A: gpt-4o-mini now, swappable to gpt-4.1-nano later). The
+//  (ADR 0001 picked gpt-4o-mini; gpt-5-mini deployed after that pick was superseded
+//  by availability - the model id is config, so this stays a one-place change). The
 //  spend circuit-breaker (story 04) reads InputCostPerMillion / OutputCostPer
 //  Million from here to estimate $ per call from story 01's returned token usage;
 //  this story just defines WHERE those rates live.
@@ -47,11 +48,14 @@ public sealed class AiOptions
     public string? Endpoint { get; set; }
 
     /// <summary>
-    /// The deployed model / deployment name, e.g. <c>gpt-4o-mini</c> (ADR 0001
-    /// decision A). Non-secret. Also surfaced back on <see cref="AiCompletionResult.ModelId"/>
-    /// so cost attribution (story 04) records which model a call used.
+    /// The deployed model / deployment name, e.g. <c>gpt-5-mini</c> (ADR 0001
+    /// picked gpt-4o-mini; superseded by availability at deploy time - the gpt-4o /
+    /// gpt-4.1 mini family is Deprecating and the nano variants have 0 real-time
+    /// quota, so gpt-5-mini was deployed. See the ADR Update note). Non-secret.
+    /// Also surfaced back on <see cref="AiCompletionResult.ModelId"/> so cost
+    /// attribution (story 04) records which model a call used.
     /// </summary>
-    public string Deployment { get; set; } = "gpt-4o-mini";
+    public string Deployment { get; set; } = "gpt-5-mini";
 
     /// <summary>
     /// OPTIONAL provider API key (AC-03). A SECRET - supplied from user-secrets /
@@ -71,16 +75,16 @@ public sealed class AiOptions
     public int TimeoutSeconds { get; set; } = 15;
 
     /// <summary>
-    /// Input token price in USD per 1,000,000 tokens for the deployed model (ADR
-    /// 0001: gpt-4o-mini = 0.15). Story 04's estimator reads this beside
-    /// <see cref="OutputCostPerMillion"/>; kept next to <see cref="Deployment"/> so
-    /// a model swap updates the id AND its rates in one place.
+    /// Input token price in USD per 1,000,000 tokens for the deployed model
+    /// (gpt-5-mini = 0.25; gpt-4o-mini was 0.15). Story 04's estimator reads this
+    /// beside <see cref="OutputCostPerMillion"/>; kept next to <see cref="Deployment"/>
+    /// so a model swap updates the id AND its rates in one place.
     /// </summary>
-    public decimal InputCostPerMillion { get; set; } = 0.15m;
+    public decimal InputCostPerMillion { get; set; } = 0.25m;
 
     /// <summary>
-    /// Output token price in USD per 1,000,000 tokens for the deployed model (ADR
-    /// 0001: gpt-4o-mini = 0.60). See <see cref="InputCostPerMillion"/>.
+    /// Output token price in USD per 1,000,000 tokens for the deployed model
+    /// (gpt-5-mini = 2.00; gpt-4o-mini was 0.60). See <see cref="InputCostPerMillion"/>.
     /// </summary>
-    public decimal OutputCostPerMillion { get; set; } = 0.60m;
+    public decimal OutputCostPerMillion { get; set; } = 2.00m;
 }

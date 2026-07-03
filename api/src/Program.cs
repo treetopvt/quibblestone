@@ -139,7 +139,8 @@ else
 // ITelemetrySink config-presence idiom above. WITH an endpoint (supplied per-
 // environment; the optional key is Key Vault-backed, NEVER a committed literal and
 // NEVER a VITE_* var, AC-03), the Foundry-backed client talks to Azure OpenAI
-// (gpt-4o-mini, ADR 0001) using the App Service managed identity (preferred) or the
+// (gpt-5-mini; ADR 0001 picked gpt-4o-mini, superseded by availability) using the
+// App Service managed identity (preferred) or the
 // key fallback. WITHOUT one (local dev, CI, a fresh clone, before provisioning), it
 // degrades to the no-op client that reports "AI unavailable" cleanly, so the app
 // builds + runs with ZERO AI config and every consumer falls back deterministically
