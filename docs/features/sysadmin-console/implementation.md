@@ -2,8 +2,9 @@
   Implementation plan for the sysadmin-console feature. Bridges feature.md + stories to orchestration.
   Written now that ADR 0002 Decisions A-F are resolved and the three candidate stories are decomposed into
   full story files. Two of this feature's dependency seams (billing-entitlements/01's IEntitlementService,
-  accounts-identity/02's magic-link plumbing) are themselves currently unbuilt - see each story's "dependency
-  reality" note and the Cross-cutting concerns below. Use hyphens/colons/parentheses, never em dashes.
+  accounts-identity/02's magic-link plumbing) are still unbuilt, even though the IEntitlementService interface it
+  consumes already shipped (ai-cost-gate/02 #121 / PR #132) - see each story's "dependency reality" note and the
+  Cross-cutting concerns below. Use hyphens/colons/parentheses, never em dashes.
 -->
 
 # Implementation Plan: Sys-Admin Console
@@ -18,7 +19,8 @@
 |---|---|---|
 | Magic-link one-time-token issue/verify plumbing | `accounts-identity/02`'s token issuer/verifier (or story 01's thin contract-compatible stand-in, if #68 has not landed) | `api/src/Accounts/` (that feature) |
 | Purchaser identity lookup by email | `IAccountStore` | `api/src/Accounts/IAccountStore.cs` (accounts-identity/02) |
-| Entitlement seam (evaluate/grant/revoke) | `IEntitlementService`, the lease-shaped `EntitlementGrant` (`validThrough` + `source`) | `api/src/Entitlements/` (billing-entitlements/01, or story 02's thin contract-compatible stand-in if #70 has not landed) |
+| Entitlement seam (evaluate) | `IEntitlementService` + `SessionEntitlements` - ALREADY SHIPPED (thin, default-unlocked), captured at `GameHub.CreateRoom` | `api/src/Entitlements/IEntitlementService.cs` (ai-cost-gate/02 #121) |
+| Entitlement grant store (grant/revoke writes) | the lease-shaped `EntitlementGrant` (`validThrough` + `source`) - NOT yet built | `api/src/Entitlements/` (billing-entitlements/01 #70; or story 02's contract-compatible stand-in) |
 | Capability-key catalog | the shared string catalog (`library.full`, `play.remote`, `play.largeGroup`, `ai.*`, `pack.<id>`) | `api/src/Entitlements/CapabilityKey.cs` (billing-entitlements/01) |
 | Public tale storage + serving | `IPublishedTaleStore`, `PublishedTalesController`, `SlugGenerator` | `api/src/PublishedTales/` (keepsake-gallery/04) |
 | Per-IP anonymous-endpoint rate limiting | `PublishTalesRateLimit`'s fixed-window-per-IP pattern + `ForwardedHeaders` wiring | `api/src/PublishedTales/PublishTalesRateLimit.cs`, `api/src/Program.cs` |
@@ -126,11 +128,14 @@ add a "which sessions did this purchaser's household create" convenience view; t
   reads from or writes through - never a parallel implementation, per feature.md's "what is NOT this feature"
   table (cost/abuse oversight stays on App Insights + Cost Management; content vetting stays the
   content-factory queue; refunds stay Stripe's dashboard).
-- **Two of this feature's dependency seams are themselves unbuilt today.** `billing-entitlements/01` (#70) and
-  `accounts-identity/02` (#68) are both Status: Not Started (ADR 0002 "State of the tree"). Each affected story
-  (01 for the token plumbing, 02 for the entitlement store) names its own thin, contract-compatible fallback so
-  this feature is not hard-blocked on either landing first - but the public shape of each seam is the OTHER
-  feature's contract, never re-derived here.
+- **The entitlement interface is shipped; the paid-tier seams it extends are not.** `IEntitlementService` +
+  `SessionEntitlements` + the `GameHub.CreateRoom` capture already ship (ai-cost-gate/02 #121 / PR #132) as a
+  thin, default-unlocked, read-only stand-in. Still unbuilt: `billing-entitlements/01`'s grant store + full
+  catalog (#70) that story 02 WRITES to, and `accounts-identity/02`'s magic-link + purchaser account (#68, no
+  `api/src/Accounts/`) that stories 01 and 02 reuse. Each affected story (01 for the token plumbing, 02 for the
+  grant store + account lookup) names its own thin, contract-compatible fallback so this feature is not
+  hard-blocked on either landing first - but the public shape of each seam is the OTHER feature's contract,
+  never re-derived here.
 - **Operator, not audit ceremony.** This is a toy, not a system of record (CLAUDE.md preamble) - resist growing
   any of these three stories into role hierarchies, audit trails, or approval workflows. Minimal operator
   convenience is the whole brief.

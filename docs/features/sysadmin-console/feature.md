@@ -22,10 +22,12 @@ decomposed the same day into three full story files plus an implementation.md.
 
 > **Decomposed.** ADR 0002 Open Decisions A-F are all resolved (see its Decision section), and this
 > feature is fully specified: three story files (`01-03`) plus `implementation.md` (reuse map + Wave
-> Plan) exist alongside this feature.md. Two of its dependency seams
-> (`billing-entitlements/01`'s `IEntitlementService`, `accounts-identity/02`'s magic-link plumbing)
-> are themselves currently unbuilt - see each story's "dependency reality" note. Issue numbers are
-> TBD (no GitHub issues created yet for this look-ahead feature).
+> Plan) exist alongside this feature.md. The entitlement *interface* it consumes is already shipped
+> (`IEntitlementService`, captured at `GameHub.CreateRoom`, ai-cost-gate/02 #121 / PR #132), but the
+> two seams the paid-tier work extends are still unbuilt: `billing-entitlements/01`'s grant store +
+> full catalog (#70) and `accounts-identity/02`'s magic-link + purchaser account (#68, no
+> `api/src/Accounts/` yet). See each story's "dependency reality" note. Issue numbers are TBD (no
+> GitHub issues created yet for this look-ahead feature).
 
 ## README reference
 README section 3 (Monetization - the tiered identity model and "only the purchaser gets a
@@ -58,9 +60,10 @@ already exist; story 02 (grant/revoke) lands alongside real charging, when a stu
 actually possible. See `implementation.md` for the DAG-ready Wave Plan.
 
 ## Dependencies
-- `billing-entitlements/01` (#70) - the `IEntitlementService` seam + capability catalog that story
-  02 (grant/revoke) reads and writes grants against. (Currently unbuilt - see ADR 0002 "State of
-  the tree".)
+- `billing-entitlements/01` (#70) - the grant store + full capability catalog that story 02
+  (grant/revoke) writes to. The `IEntitlementService` interface + its `CreateRoom` capture already
+  ship (ai-cost-gate/02 #121 / PR #132); still unbuilt is #70's stored-value side - the
+  `EntitlementGrant` store and the catalog beyond `ai.onDemand` (see ADR 0002 "State of the tree").
 - `accounts-identity/02` (#68) - the purchaser account that story 02 looks a customer up by.
 - `keepsake-gallery` - the public tale link (already shipped) that story 03 moderates.
 - `platform-devops/04` (#106, App Insights) + ADR 0001 (Cost Management budget) - the cost/abuse
@@ -129,8 +132,10 @@ open item is a story-level detail, not a blocker:
   boundary.md`, `02-operator-grant-revoke-entitlement.md`, `03-report-and-takedown-public-tale.md`)
   plus `implementation.md` (reuse map + Wave Plan). Story 01 is the foundation wave; 02 and 03 land
   in the same wave since neither blocks the other technically - each depends only on its own
-  external seam (`billing-entitlements/01` for 02, nothing new beyond the already-shipped
-  `keepsake-gallery/04` for 03). Both `billing-entitlements/01` (#70) and `accounts-identity/02`
-  (#68) remain unbuilt as of this decomposition; stories 01 and 02 each name a thin, contract-
-  compatible fallback so this feature is not hard-blocked on either landing first (mirroring
+  external seam (#70's grant store for 02, nothing new beyond the already-shipped
+  `keepsake-gallery/04` for 03). The `IEntitlementService` interface + its `CreateRoom` capture are
+  already shipped (ai-cost-gate/02 #121 / PR #132); what stories 01 and 02 wait on is still unbuilt -
+  `accounts-identity/02`'s magic-link + purchaser account (#68, no `api/src/Accounts/`) and
+  `billing-entitlements/01`'s grant store + full catalog (#70). Each of 01 and 02 names a thin,
+  contract-compatible fallback so this feature is not hard-blocked on either landing first (mirroring
   `ai-cost-gate/02`'s handling of the same seam).

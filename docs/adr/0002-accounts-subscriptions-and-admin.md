@@ -37,8 +37,8 @@ account whose entitlements unlock content and features for their sessions.** Two
 anonymous play plane and a single purchaser-identity plane - that must meet at exactly one point
 without the identity plane ever touching a player.
 
-Most of the machinery for this is already *designed* (though not yet built - see "State of the
-tree" below):
+Most of the machinery for this is already *designed*, and the entitlement seam itself is already
+*built* in thin form (see "State of the tree" below):
 
 - `accounts-identity` - the tiered identity model as three stories: anonymous-forever contract
   (#67), a lightweight purchaser account created only at purchase (#68, email OR a single OAuth
@@ -59,19 +59,27 @@ billing stories name but do not decompose. This ADR covers all three: (a) the pu
 login, (b) the sys-admin surface, (c) how a family subscription unlocks capabilities through the
 existing seam.
 
-### State of the tree (an honest correction)
+### State of the tree
 
-The framing that prompted this exploration described `IEntitlementService` as already shipped
-(`api/src/Entitlements/`, async `ValueTask`, default-unlocked, captured at `GameHub.CreateRoom`).
-**It is not in the tree yet.** Both `billing-entitlements/01` (#70) and `ai-cost-gate/02` (#121)
-are Status: Not Started; there is no `api/src/Entitlements/` or `api/src/Accounts/` folder, and
-`GameHub.CreateRoom` currently makes no entitlement call. What *did* ship for the cost gate is the
-AI-provider **infrastructure** (Bicep, PR #131) and the ADR-0001 decisions - not the C# seam. This
-matters for slice planning: the entitlement seam is a **specified contract with an agreed call site
-(`CreateRoom`)**, not running code. This ADR assumes it lands as `billing-entitlements/01`
-specifies and deliberately does **not** reopen its shape (`EvaluateForSession(purchaser?) ->
-SessionEntitlements`, default-unlocked). Everything below is designed to consume that contract, so
-that whether #70 lands before or alongside this work, the consumers do not change.
+The entitlement seam is **already shipped** in the thin form the framing described. `ai-cost-gate/02`
+(#121, PR #132) landed `api/src/Entitlements/IEntitlementService.cs`: the exact
+`ValueTask<SessionEntitlements> EvaluateForSession(string? purchaserIdentity = null, ...)` contract,
+a default-unlocked stand-in (`DefaultUnlockedEntitlementService`), and a thin `EntitlementCatalog`
+(only `ai.onDemand` reserved so far). `GameHub.CreateRoom` calls it exactly once and captures the
+result on the room via `Room.CaptureEntitlements(...)`, which stores **only** the `SessionEntitlements`
+capability set - never a purchaser id. In other words, **the load-bearing invariant below is already
+realized in code**: identity is resolved (to null, in alpha) and only capabilities land on `Room`.
+There are `EntitlementServiceTests` + `GameHubEntitlementTests` covering it.
+
+What is **still unbuilt** is the rest of `billing-entitlements/01` (#70) that this ADR leans on:
+the **full capability catalog** (`library.full`, `play.remote`, `play.largeGroup`, `pack.<id>` -
+today only `ai.onDemand` exists), the **grant store** (EntitlementGrant rows in Table Storage), and
+**purchaser-identity resolution** - plus the entire `accounts-identity` chain (there is no
+`api/src/Accounts/` folder yet, so magic-link + the purchaser account are unbuilt). So the seam's
+*interface and its CreateRoom capture are real running code*; what a subscription/admin build adds is
+the stored-value side (#70) and the purchaser identity (#68) behind that same, unchanged contract.
+This ADR does not reopen the contract shape - `#70` subsumes `DefaultUnlockedEntitlementService`
+without any consumer refactor.
 
 ## The load-bearing invariant (what resolves the tension)
 
@@ -206,11 +214,12 @@ the whole room, never per-request, never per-player.
 Slice discipline (CLAUDE.md section 7) says: build none of this as a standalone "site" for alpha,
 and let each admin capability be minted by the feature that creates its need.
 
-1. **Foundation is the seam, not the site.** The first thing to land is `billing-entitlements/01`
-   (#70) - the `IEntitlementService` seam + capability catalog, default-unlocked, captured at
-   `CreateRoom` - because `ai-cost-gate/02` already needs it and accounts + subscriptions consume
-   it. This changes zero observed behavior and unblocks everything else. (It is currently unbuilt;
-   see "State of the tree.")
+1. **Foundation is the seam, not the site - and its interface already exists.** The
+   `IEntitlementService` seam (default-unlocked, captured at `CreateRoom`) already shipped thin via
+   `ai-cost-gate/02` (#121). What still needs to land is `billing-entitlements/01` (#70) - the full
+   capability catalog + the stored-value grant store behind that same interface - because accounts +
+   subscriptions consume it. #70 subsumes the thin stand-in with zero consumer change; see "State of
+   the tree."
 2. **Purchaser account + subscription** ride the existing `accounts-identity` + `billing-entitlements`
    stories, adding only: the lease-shaped grant (`validThrough` + `source`), the subscription
    webhook cases, and the family-plan capability bundle. No new feature folder needed for this leg.
@@ -322,5 +331,6 @@ seam contract; decomposition into stories follows.
   identity resolves to capabilities *before* touching `Room`") becomes the thing every account /
   subscription / admin story must be reviewed against, exactly as "meter compute per session, not
   identity" already is for the cost gate.
-- Nothing here is built yet: this is a written exploration that surfaces the decisions in Open
-  Decisions for the owner. Decomposition into build stories follows once A-F are resolved.
+- No `sysadmin-console` code is built yet: this ADR + the decomposed `sysadmin-console` stories are
+  the plan. The entitlement *interface* they build on already exists (thin, ai-cost-gate/02); the
+  paid-tier seams (#70 grant store + catalog, #68 accounts) are the next code to land.

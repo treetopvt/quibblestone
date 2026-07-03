@@ -61,14 +61,19 @@ protected endpoints plus a minimal internal page, not a full admin app. See
 - Role-based access among multiple operators - Parked in feature.md; alpha has one operator.
 
 ## Technical Notes
-- **Dependency reality: `billing-entitlements/01` (#70) is currently unbuilt** (ADR 0002 "State of
-  the tree" - no `api/src/Entitlements/` folder yet, `IEntitlementService` is a specified contract,
-  not running code). Mirror `ai-cost-gate/02`'s handling: either (a) serialize this story after #70
-  lands, or (b) build against the exact `EvaluateForSession(purchaserIdentity?) -> SessionEntitlements`
-  contract and the lease-shaped `EntitlementGrant` (`validThrough` + `source`) #70/ADR-0002-Decision-C
-  already specify, so that whichever lands first, the other's write/read shape does not change. Given
-  this story's own timing note (pairs with real charging, `billing-entitlements/03-04`), prefer (a):
-  by the time an operator needs to unstick a paying customer, #70 and #72 should already exist.
+- **Dependency reality: the entitlement *interface* is shipped, but the *grant store* this story
+  writes to is not.** `IEntitlementService` + `SessionEntitlements` + the `EvaluateForSession`
+  contract are already in `api/src/Entitlements/` (ai-cost-gate/02, #121, PR #132) and captured at
+  `GameHub.CreateRoom` - but that is a thin, default-unlocked, read-only stand-in
+  (`DefaultUnlockedEntitlementService`); it has no capability catalog beyond `ai.onDemand` and **no
+  grant store to write to**. Grant/revoke needs `billing-entitlements/01` (#70) to add the
+  lease-shaped `EntitlementGrant` store (`validThrough` + `source`) + the full catalog, and
+  `accounts-identity/02` (#68) to add the by-email purchaser lookup - both still unbuilt (no
+  `api/src/Accounts/`; catalog is `ai.*`-only). Mirror `ai-cost-gate/02`'s handling: either (a)
+  serialize this story after #70 + #68 land, or (b) build against the exact `EntitlementGrant`
+  (`validThrough` + `source`) and `IAccountStore` shapes those stories specify. Given this story's
+  timing (pairs with real charging, `billing-entitlements/03-04`), prefer (a): by the time an operator
+  needs to unstick a paying customer, #70 + #72 already exist.
 - New `api/src/Admin/` additions (alongside story 01's operator-auth pieces): an
   `AdminEntitlementsController` (or minimal-API routes) with two actions - `GET
   /admin/purchasers/{email}` (lookup) and `POST /admin/purchasers/{email}/entitlements` (grant) /
