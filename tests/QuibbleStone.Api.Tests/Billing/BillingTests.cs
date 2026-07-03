@@ -169,6 +169,19 @@ public class BillingTests
         Assert.Null(result.Url);
     }
 
+    [Fact]
+    public async Task Tip_when_billing_disabled_returns_not_enabled()
+    {
+        var controller = NewController(new DisabledStripeCheckoutService());
+
+        var action = await controller.Tip(new TipRequestBody(null), CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(action);
+        var result = Assert.IsType<CheckoutStartResult>(ok.Value);
+        Assert.False(result.Enabled);
+        Assert.Null(result.Url);
+    }
+
     // ---- helpers ----------------------------------------------------------------
 
     private static BillingController NewController(IStripeCheckoutService checkout, IContentSafetyFilter? safety = null)

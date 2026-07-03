@@ -119,8 +119,10 @@ export async function startCheckout(productId: string, purchaserEmail?: string):
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ productId, purchaserEmail: purchaserEmail ?? null }),
     });
-    if (!response.ok) return UNAVAILABLE;
-    return asCheckoutStartResult(await response.json()) ?? UNAVAILABLE;
+    // Parse the body even on a non-OK status (e.g. a 404 for an unknown product) so
+    // the server's friendly message is surfaced rather than swallowed (review WARN-001);
+    // fall back to the generic not-enabled result if the body is missing/unparseable.
+    return asCheckoutStartResult(await response.json().catch(() => null)) ?? UNAVAILABLE;
   } catch {
     return UNAVAILABLE;
   }
