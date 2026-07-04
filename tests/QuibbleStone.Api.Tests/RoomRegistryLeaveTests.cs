@@ -94,6 +94,92 @@ public class RoomRegistryLeaveTests
         Assert.True(room.IsEmpty);
     }
 
+    // --- room-start-duplicate-members: host migration (the creator leaves) -------
+
+    [Fact]
+    public void RemoveConnection_of_the_host_migrates_the_flag_to_the_survivor_and_reports_it()
+    {
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        // The HOST (creator) leaves - the "pressed back" case that used to strand the room.
+        var affected = registry.RemoveConnection("conn-host", out var promoted);
+
+        Assert.NotNull(affected);
+        // The lone remaining seat inherited the host flag, so the room stays startable...
+        var survivor = Assert.Single(affected!.SnapshotPlayers());
+        Assert.Equal("conn-joiner", survivor.ConnectionId);
+        Assert.True(survivor.IsHost);
+        Assert.True(affected.HasHost);
+        // ...and the promoted connection is reported so the hub can nudge exactly it.
+        Assert.Equal("conn-joiner", promoted);
+    }
+
+    [Fact]
+    public void RemoveConnection_of_a_non_host_leaves_the_host_unchanged_and_reports_no_promotion()
+    {
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var affected = registry.RemoveConnection("conn-joiner", out var promoted);
+
+        Assert.NotNull(affected);
+        var host = Assert.Single(affected!.SnapshotPlayers());
+        Assert.Equal("conn-host", host.ConnectionId);
+        Assert.True(host.IsHost);  // still the original host
+        Assert.Null(promoted);     // nobody promoted -> no nudge
+    }
+
+    [Fact]
+    public void TryReleaseSeat_of_the_host_migrates_the_flag_and_reports_the_promotion()
+    {
+        // The grace-expiry twin: a host that DROPS (held for grace) and never returns must
+        // migrate the host flag on eviction, exactly like the immediate-leave path.
+        var room = Room.CreateHosted("MOSS", "conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Wren", "teal", "conn-wren"));
+        var ticket = room.MarkDisconnected("conn-host");
+        Assert.NotNull(ticket);
+
+        Assert.True(room.TryReleaseSeat("conn-host", ticket!.Episode, out var promoted));
+
+        var survivor = Assert.Single(room.SnapshotPlayers());
+        Assert.Equal("conn-wren", survivor.ConnectionId);
+        Assert.True(survivor.IsHost);
+        Assert.Equal("conn-wren", promoted);
+    }
+
+    [Fact]
+    public void Host_migration_prefers_a_connected_seat_over_an_earlier_mid_grace_one()
+    {
+        var room = Room.CreateHosted("MOSS", "conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Wren", "teal", "conn-wren")); // earliest joiner
+        Assert.True(room.TryAddPlayer("Fern", "rose", "conn-fern")); // later joiner
+        // Wren (the earliest remaining seat) is mid-grace; Fern is still connected.
+        Assert.NotNull(room.MarkDisconnected("conn-wren"));
+
+        Assert.True(room.RemovePlayer("conn-host", out var promoted));
+
+        // The connected seat inherits the flag, not the earlier disconnected one, so the
+        // nudge lands on a live client rather than a ghost seat.
+        Assert.Equal("conn-fern", promoted);
+        Assert.True(Assert.Single(room.SnapshotPlayers(), p => p.ConnectionId == "conn-fern").IsHost);
+        Assert.False(Assert.Single(room.SnapshotPlayers(), p => p.ConnectionId == "conn-wren").IsHost);
+    }
+
+    [Fact]
+    public void RemoveConnection_of_the_last_player_reports_no_promotion()
+    {
+        var registry = new RoomRegistry();
+        registry.CreateRoom("conn-host", "Mossy", "teal"); // host is the only player
+
+        var affected = registry.RemoveConnection("conn-host", out var promoted);
+
+        Assert.Null(affected);   // room emptied and dropped
+        Assert.Null(promoted);   // no survivor to promote
+    }
+
     // --- session-engine/07: the room-model grace primitives (AC-01/AC-03) --------
 
     [Fact]
