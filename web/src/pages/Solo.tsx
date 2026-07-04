@@ -272,7 +272,9 @@ function SoloSetup({
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        maxWidth: 430,
+        // Tablet / desktop: a wider column than the 430 phone width (viewport
+        // pass) so a bigger screen does not strand this in a phone-width strip.
+        maxWidth: { xs: 430, sm: 560 },
         mx: 'auto',
       }}
     >

@@ -2,13 +2,10 @@
 //  Home - the welcome / entry screen (session-engine/01, design screen 1).
 //
 //  FIT-TO-VIEWPORT DE-CLUTTER (design-handoff, 2026-07): this screen was
-//  rebuilt to fit ONE phone viewport (~390x844) with NO page scroll. The
+//  rebuilt to fit ONE phone viewport (~390x844) without a stray gap. The
 //  previous composition (kicker pill + hero + tagline paragraph + four
 //  stacked text links) overflowed a real phone. The fix is structural, not
 //  cosmetic:
-//    - The root is a FIXED-HEIGHT flex column (`height: 100dvh`, `overflow:
-//      hidden`) instead of a scrolling `minHeight: 100vh` stack. Every child
-//      is sized to fit; nothing here should ever need to scroll.
 //    - The kicker chip ("Family Word Quest") and the two-line tagline
 //      paragraph are GONE - the stone-tablet hero is now the only product
 //      pitch, and carries more visual weight (it is deliberately the biggest
@@ -22,10 +19,28 @@
 //      tint). Both now open real destinations (billing-entitlements shipped
 //      `/get-more` and `/support`) and render as fully-enabled, tappable
 //      chips - same affordance as the other three.
-//    - Vertical rhythm is distributed with flex (`justifyContent:
-//      'space-between'` on the outer column, `mt: 'auto'` on the action
-//      block) so the hero can be generous while the CTAs + utility bar still
-//      land inside the viewport without a stray gap.
+//
+//  VIEWPORT-RESILIENCE PASS (2026-07): the original de-clutter pinned the root
+//  to a FIXED height (`height: 100dvh`, `overflow: hidden`) with a
+//  `justifyContent: space-between` spread. That fit portrait phones but broke
+//  everywhere else, so this pass replaces the fixed frame with a centered,
+//  scroll-safe, responsive one:
+//    - The root is now `minHeight: 100dvh` (NOT a clipped `height`) with
+//      `justifyContent: center`. On a SHORT viewport (a landscape phone) the
+//      column grows past the viewport and the PAGE scrolls, so nothing is ever
+//      clipped - previously the CTAs, the "play solo" pill and the whole
+//      utility bar were cut off in landscape and the game could not be
+//      started at all. On a TALL viewport (a tablet held portrait) the column
+//      centers as a block instead of flinging the hero to the top and the CTAs
+//      to the bottom with a dead gap between them (the old space-between). This
+//      is the same content-with-inner/page-scroll posture Solo / Lobby /
+//      Reveal already use for their 100dvh screens.
+//    - The layout scales UP on larger devices (tablet / desktop) via `md`
+//      breakpoints rather than staying a lonely 430px phone strip: a wider
+//      column, a bigger stone tablet, a larger wordmark and a larger mascot.
+//      It stays a single centered column (not a bespoke multi-column desktop
+//      layout - that is a separate, larger piece of work) but finally uses the
+//      room instead of marooning a phone-sized card in a sea of parchment.
 //
 //  What's still here from the original build, unchanged in spirit:
 //    - the stone-tablet hero panel (arched, glowing carved rim) with the
@@ -69,7 +84,7 @@
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
-import { Box, Button, Stack, Typography } from '@mui/material';
+import { Box, Button, Stack, Typography, useMediaQuery } from '@mui/material';
 import { HeroGuardian } from '../components';
 
 export interface HomeProps {
@@ -203,153 +218,188 @@ export function Home({
   disabled = false,
 }: HomeProps) {
   const theme = useTheme();
+  // P3 (tablet / desktop): scale the hero up on md+ rather than leaving a
+  // phone-sized card marooned in a wide viewport. A boolean media-query drives
+  // the one prop that is a raw number (HeroGuardian's width); everything else
+  // scales via responsive sx breakpoint objects below.
+  const mdUp = useMediaQuery(theme.breakpoints.up('md'));
 
   return (
     <Stack
       alignItems="center"
       sx={{
         position: 'relative',
-        height: '100dvh',
-        overflow: 'hidden',
+        // P1: minHeight (NOT a clipped fixed `height`) so a SHORT viewport (a
+        // landscape phone) grows the column past the fold and the PAGE scrolls -
+        // the CTAs / play-solo pill / utility bar are never cropped off-screen
+        // as they were under the old `height: 100dvh; overflow: hidden`.
+        minHeight: '100dvh',
+        // Clip the ambient glow horizontally: it is intentionally wider than a
+        // narrow phone (430px vs a ~390/360px viewport) and would otherwise
+        // overhang each edge and add a stray horizontal page-scroll. Safe here
+        // because the column is `minHeight` (content-driven height, never a fixed
+        // height), so `overflow-x: hidden` clips only the x-overhang and never
+        // turns this into a vertical-scroll container that could clip the top.
+        overflowX: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: 'space-between',
-        // Screen content horizontal padding (design: 26px on Home) via the
-        // theme spacing scale (1 = 4px).
+        // P2: center the column as a block. On a TALL viewport (a tablet held
+        // portrait) this centers the whole card rather than flinging the hero to
+        // the top and the CTAs to the bottom with a dead gap (the old
+        // space-between). When content is taller than the viewport there is no
+        // free space to distribute, so children stack from the top and the page
+        // scrolls - centering never clips.
+        justifyContent: 'center',
+        // Screen content horizontal padding (design: 26px on Home) via the theme
+        // spacing scale (1 = 4px); roomier vertical breathing space on md+.
         px: 6.5,
-        pt: 2,
-        pb: 3,
+        py: { xs: 3, md: 5 },
         mx: 'auto',
-        maxWidth: 430,
+        // P3: a wider column on tablet / desktop, instead of a lonely 430px phone
+        // strip stranded in a sea of parchment.
+        maxWidth: { xs: 430, md: 500 },
       }}
     >
-      {/* Ambient magic glow behind the hero (purple -> gold radial). */}
-      <Box
-        aria-hidden
-        sx={{
-          position: 'absolute',
-          top: theme.spacing(-11),
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: 430,
-          height: 430,
-          borderRadius: '50%',
-          pointerEvents: 'none',
-          background: `radial-gradient(circle, ${alpha(theme.palette.primary.main, 0.3)} 0%, ${alpha(
-            theme.palette.gold.main,
-            0.14,
-          )} 42%, ${alpha(theme.palette.parchment.mid, 0)} 70%)`,
-        }}
-      />
-
-      {/* STONE-TABLET HERO: the sole product pitch now (kicker pill + tagline
-          paragraph were removed). Generous, fills the upper portion of the
-          screen - the brand centerpiece. Arched panel, glowing carved rim,
-          wordmark + mascot, unchanged from the previous build. */}
-      <Box
-        sx={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: 296,
-          px: 6.5,
-          pt: 6,
-          pb: 4.5,
-          borderRadius: '96px 96px 30px 30px',
-          background: theme.palette.tablet.gradient,
-          boxShadow: `0 26px 50px -22px ${alpha(theme.palette.primary.main, 0.55)}, inset 0 3px 0 ${alpha(
-            theme.palette.common.white,
-            0.55,
-          )}, inset 0 -5px 14px ${alpha(theme.palette.stoneEdge.main, 0.4)}, 0 0 0 6px ${alpha(
-            theme.palette.common.white,
-            0.3,
-          )}`,
-        }}
-      >
-        {/* Glowing carved rim (absolutely-positioned inset border + inner glow). */}
+      {/* HERO GROUP: the stone tablet plus its ambient glow, wrapped together so
+          the glow tracks the hero once the column is vertically centered. Before
+          the viewport-resilience pass the glow was pinned to the ROOT's top edge,
+          which detached it from the (now centered) hero on tall viewports. */}
+      <Box sx={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
+        {/* Ambient magic glow behind the hero (purple -> gold radial), centered on
+            the tablet; grows a touch on md+ with the larger hero. */}
         <Box
           aria-hidden
           sx={{
             position: 'absolute',
-            inset: '9px',
-            borderRadius: '84px 84px 22px 22px',
-            border: `2.5px solid ${alpha(theme.palette.stoneEdge.main, 0.5)}`,
-            boxShadow: `inset 0 0 18px ${alpha(theme.palette.gold.main, 0.3)}`,
+            top: '46%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: { xs: 430, md: 500 },
+            height: { xs: 430, md: 500 },
+            borderRadius: '50%',
             pointerEvents: 'none',
+            zIndex: 0,
+            background: `radial-gradient(circle, ${alpha(theme.palette.primary.main, 0.3)} 0%, ${alpha(
+              theme.palette.gold.main,
+              0.14,
+            )} 42%, ${alpha(theme.palette.parchment.mid, 0)} 70%)`,
           }}
         />
 
-        {/* Top rune inscription. */}
+        {/* STONE-TABLET HERO: the sole product pitch (kicker pill + tagline
+            paragraph were removed). The brand centerpiece: arched panel, glowing
+            carved rim, wordmark + mascot. */}
         <Box
-          aria-hidden
           sx={{
-            display: 'flex',
-            justifyContent: 'center',
-            gap: 2.75,
-            mb: 1.5,
-            fontFamily: '"Fredoka", sans-serif',
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        >
-          <Box component="span" sx={{ color: alpha(theme.palette.primary.main, 0.55) }}>
-            &#10022;
-          </Box>
-          <Box
-            component="span"
-            sx={{
-              color: alpha(theme.palette.gold.main, 0.85),
-              textShadow: `0 0 8px ${alpha(theme.palette.gold.main, 0.6)}`,
-            }}
-          >
-            &#9672;
-          </Box>
-          <Box component="span" sx={{ color: alpha(theme.palette.primary.main, 0.55) }}>
-            &#10022;
-          </Box>
-        </Box>
-
-        {/* Wordmark: "Quibble" purple + "Stone" gold, carved emboss. */}
-        <Typography
-          component="h1"
-          sx={{
-            textAlign: 'center',
-            fontFamily: '"Fredoka", sans-serif',
-            fontWeight: 700,
-            fontSize: 42,
-            lineHeight: 0.98,
-            letterSpacing: '0.5px',
-            textShadow: `0 2px 0 ${alpha(theme.palette.common.white, 0.45)}, 0 3px 6px ${alpha(
-              theme.palette.stoneEdge.main,
-              0.35,
+            position: 'relative',
+            zIndex: 1,
+            width: '100%',
+            // Widened from 296 -> 336 (xs) so the 42px "QuibbleStone" wordmark
+            // (~279px of glyphs) fits INSIDE the 26px rim padding on both sides
+            // instead of bleeding into the carved rim (inner = 336 - 52 = 284px).
+            // On md+ the tablet and wordmark grow together (384 / 46px), holding
+            // the same "fits with clearance" relationship on larger devices.
+            maxWidth: { xs: 336, md: 384 },
+            px: 6.5,
+            pt: 6,
+            pb: 4.5,
+            borderRadius: '96px 96px 30px 30px',
+            background: theme.palette.tablet.gradient,
+            boxShadow: `0 26px 50px -22px ${alpha(theme.palette.primary.main, 0.55)}, inset 0 3px 0 ${alpha(
+              theme.palette.common.white,
+              0.55,
+            )}, inset 0 -5px 14px ${alpha(theme.palette.stoneEdge.main, 0.4)}, 0 0 0 6px ${alpha(
+              theme.palette.common.white,
+              0.3,
             )}`,
           }}
         >
-          <Box component="span" sx={{ color: 'primary.main' }}>
-            Quibble
-          </Box>
-          <Box component="span" sx={{ color: 'gold.main' }}>
-            Stone
-          </Box>
-        </Typography>
+          {/* Glowing carved rim (absolutely-positioned inset border + inner glow). */}
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              inset: '9px',
+              borderRadius: '84px 84px 22px 22px',
+              border: `2.5px solid ${alpha(theme.palette.stoneEdge.main, 0.5)}`,
+              boxShadow: `inset 0 0 18px ${alpha(theme.palette.gold.main, 0.3)}`,
+              pointerEvents: 'none',
+            }}
+          />
 
-        <Typography
-          sx={{
-            textAlign: 'center',
-            mt: 1,
-            fontFamily: '"Nunito", sans-serif',
-            fontSize: 12,
-            fontWeight: 700,
-            letterSpacing: '2px',
-            textTransform: 'uppercase',
-            color: 'text.secondary',
-          }}
-        >
-          Carve a silly tale
-        </Typography>
+          {/* Top rune inscription. */}
+          <Box
+            aria-hidden
+            sx={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: 2.75,
+              mb: 1.5,
+              fontFamily: '"Fredoka", sans-serif',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            <Box component="span" sx={{ color: alpha(theme.palette.primary.main, 0.55) }}>
+              &#10022;
+            </Box>
+            <Box
+              component="span"
+              sx={{
+                color: alpha(theme.palette.gold.main, 0.85),
+                textShadow: `0 0 8px ${alpha(theme.palette.gold.main, 0.6)}`,
+              }}
+            >
+              &#9672;
+            </Box>
+            <Box component="span" sx={{ color: alpha(theme.palette.primary.main, 0.55) }}>
+              &#10022;
+            </Box>
+          </Box>
 
-        {/* Hero mascot (owns its own idle bob). */}
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2.25 }}>
-          <HeroGuardian width={158} />
+          {/* Wordmark: "Quibble" purple + "Stone" gold, carved emboss. */}
+          <Typography
+            component="h1"
+            sx={{
+              textAlign: 'center',
+              fontFamily: '"Fredoka", sans-serif',
+              fontWeight: 700,
+              fontSize: { xs: 42, md: 46 },
+              lineHeight: 0.98,
+              letterSpacing: '0.5px',
+              textShadow: `0 2px 0 ${alpha(theme.palette.common.white, 0.45)}, 0 3px 6px ${alpha(
+                theme.palette.stoneEdge.main,
+                0.35,
+              )}`,
+            }}
+          >
+            <Box component="span" sx={{ color: 'primary.main' }}>
+              Quibble
+            </Box>
+            <Box component="span" sx={{ color: 'gold.main' }}>
+              Stone
+            </Box>
+          </Typography>
+
+          <Typography
+            sx={{
+              textAlign: 'center',
+              mt: 1,
+              fontFamily: '"Nunito", sans-serif',
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              color: 'text.secondary',
+            }}
+          >
+            Carve a silly tale
+          </Typography>
+
+          {/* Hero mascot (owns its own idle bob); grows on md+ (188 vs 158). */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2.25 }}>
+            <HeroGuardian width={mdUp ? 188 : 158} />
+          </Box>
         </Box>
       </Box>
 
@@ -360,7 +410,7 @@ export function Home({
           mt: 2,
           textAlign: 'center',
           fontFamily: '"Nunito", sans-serif',
-          fontSize: 16.5,
+          fontSize: { xs: 16.5, md: 18 },
           lineHeight: 1.3,
           fontWeight: 600,
           color: 'text.secondary',
@@ -369,10 +419,10 @@ export function Home({
         Fill in the blanks together and watch a wild tale get carved into stone.
       </Typography>
 
-      {/* Primary actions + reassurance + play-solo path. Sits below the hero
-          and tagline; `mt: 'auto'` lets it absorb any remaining space so the
-          bar below stays pinned near the bottom without overflowing. */}
-      <Stack spacing={2} sx={{ width: '100%', mt: 'auto', pt: 3 }}>
+      {/* Primary actions + reassurance + play-solo path, below the hero + tagline.
+          (The old `mt: 'auto'` bottom-pin is gone now that the whole column is
+          vertically centered rather than spread with space-between.) */}
+      <Stack spacing={2} sx={{ width: '100%', pt: 3 }}>
         <Button
           variant="contained"
           fullWidth
