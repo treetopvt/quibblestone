@@ -917,9 +917,10 @@ public sealed class GameHub : Hub
                 "We couldn't find a game with that code - double-check and try again.");
         }
 
-        // 2. Server-enforced host check (AC-03): only the connection that owns the
-        //    room's host player may start a round. This is authoritative even
-        //    though the client also hides the CTA from non-hosts.
+        // 2. Server-enforced host check (AC-03): while the room HAS a host, only the
+        //    connection that owns that host player may start a round (the one exception
+        //    is the hostless case below). This is authoritative even though the client
+        //    also hides the CTA from non-hosts.
         //
         //    room-start-duplicate-members (belt-and-suspenders): host migration keeps a
         //    non-empty room always hosted, so this normally rejects every non-host. The

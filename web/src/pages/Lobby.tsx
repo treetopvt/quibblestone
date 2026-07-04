@@ -1049,13 +1049,15 @@ export function Lobby({
         </Box>
       )}
 
-      {/* Pinned gold Start CTA (group-play/01, AC-05): host-only, always visible.
+      {/* Pinned gold Start CTA (group-play/01, AC-05): shown to the host, and - via the
+          `noHostPresent` escape hatch (room-start-duplicate-members) - to everyone when the
+          roster somehow carries no host, so a hostless room stays startable. Normally that
+          is host-only, since a populated room always has a host.
           The round-setup controls (family-safe, length, mode) now live in the
           settings sheet (opened via the collapsed row above) so the bar holds
           only the action it is designed for - the fixed spacer reserves exactly
           this button's height. onStart carries the host's family-safe + length +
-          mode to the hub's startRound (server-authoritative). The `noHostPresent`
-          escape hatch keeps a hostless room startable (room-start-duplicate-members). */}
+          mode to the hub's startRound (server-authoritative). */}
       {(isHost || noHostPresent) && (
         <BottomActionBar>
           <Button variant="contained" fullWidth onClick={() => onStart(familySafe, lengthPref, mode.config.id)}>
