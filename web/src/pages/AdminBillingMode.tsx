@@ -30,17 +30,25 @@
 //  than switching to Test - "go live" is the deliberate direction, never the
 //  accidental one.
 //
-//  Styling: theme tokens only (web/src/theme.ts) - no hardcoded colors or
-//  pixel spacing, no bespoke admin design language (AC-06); this reuses the
-//  same shared AppBar / Button family / big-tap-target posture as every other
-//  screen. Icons are FontAwesome only (registered in web/src/fontawesome.ts).
+//  STYLING - DELIBERATELY DECOUPLED FROM THE PLAYER APP (operator direction,
+//  2026-07): this is a DESKTOP-FIRST operator console, not a family word game,
+//  so it nests its OWN MUI theme (../admin/adminTheme) rather than the bright,
+//  chunky, parchment-warm player theme. That neutral theme owns the palette
+//  (slate/blue, standard error/success/warning), a system font stack, tighter
+//  radii and flat buttons; this screen only uses standard MUI slots (no
+//  parchment / gold / teal / coral / stoneEdge / tablet / card tokens). It also
+//  drops the shared player AppBar for a plain operator header. Its own
+//  full-viewport background paints over the app's parchment body. The two design
+//  languages now evolve independently - a change here can never regress a player
+//  screen, and vice versa. (This reverses the story-06 note that mandated
+//  player-theme reuse; see adminTheme's header for the rationale.)
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useState, type FormEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha, useTheme, ThemeProvider } from '@mui/material/styles';
 import {
   Box,
   Button,
@@ -52,7 +60,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { AppBar } from '../components';
+import { adminTheme } from '../admin/adminTheme';
 import {
   fetchStripeMode,
   setStripeMode,
@@ -61,7 +69,7 @@ import {
 } from '../billing/stripeModeClient';
 
 export interface AdminBillingModeProps {
-  /** Return wherever the operator came from (the shared app-bar back action). */
+  /** Return wherever the operator came from (the plain operator header back action). */
   onBack: () => void;
 }
 
@@ -80,7 +88,9 @@ function formatChangedAt(iso: string): string {
 /**
  * The confirmation dialog (AC-02/AC-03): always names both the current and
  * target mode explicitly, and shows a materially stronger warning when the
- * target is Live - never equal friction both ways.
+ * target is Live - never equal friction both ways. Rendered inside the admin
+ * ThemeProvider, so it reads from adminTheme (standard error/warning slots), not
+ * the player palette.
  */
 interface ConfirmSwitchDialogProps {
   open: boolean;
@@ -97,7 +107,7 @@ function ConfirmSwitchDialog({ open, currentMode, targetMode, busy, onCancel, on
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onCancel} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 700, fontSize: 20 }}>
+      <DialogTitle sx={{ fontWeight: 700, fontSize: 20 }}>
         Switch from {modeLabel(currentMode)} to {modeLabel(targetMode)}?
       </DialogTitle>
       <DialogContent>
@@ -109,25 +119,26 @@ function ConfirmSwitchDialog({ open, currentMode, targetMode, busy, onCancel, on
               spacing={1.5}
               sx={{
                 p: 2,
-                borderRadius: '14px',
-                bgcolor: alpha(theme.palette.coral.main, 0.12),
+                borderRadius: 1,
+                bgcolor: alpha(theme.palette.error.main, 0.1),
+                border: `1px solid ${alpha(theme.palette.error.main, 0.3)}`,
                 alignItems: 'flex-start',
               }}
             >
-              <Box sx={{ color: 'coral.main', fontSize: 18, display: 'flex', mt: 0.25 }}>
+              <Box sx={{ color: 'error.main', fontSize: 18, display: 'flex', mt: 0.25 }}>
                 <FontAwesomeIcon icon="circle-info" />
               </Box>
-              <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'text.primary' }}>
+              <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.primary' }}>
                 Real cards will be charged. Every checkout from this moment uses live Stripe
                 credentials - this is not a drill.
               </Typography>
             </Stack>
           ) : (
-            <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.secondary' }}>
+            <Typography sx={{ fontSize: 14, fontWeight: 500, color: 'text.secondary' }}>
               Test mode uses Stripe&apos;s test credentials - no real card is ever charged.
             </Typography>
           )}
-          <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: 'text.secondary' }}>
+          <Typography sx={{ fontSize: 13.5, fontWeight: 500, color: 'text.secondary' }}>
             This affects the whole app immediately - every player on quibblestone.com.
           </Typography>
         </Stack>
@@ -150,7 +161,12 @@ function ConfirmSwitchDialog({ open, currentMode, targetMode, busy, onCancel, on
   );
 }
 
-export function AdminBillingMode({ onBack }: AdminBillingModeProps) {
+/**
+ * The operator console body. Split out from the exported wrapper so it renders
+ * INSIDE the admin ThemeProvider (below), meaning every `useTheme()` here - and
+ * in ConfirmSwitchDialog - resolves to adminTheme, not the player theme.
+ */
+function AdminBillingModeInner({ onBack }: AdminBillingModeProps) {
   const theme = useTheme();
 
   // The operator secret: held ONLY in this component's memory for the session,
@@ -203,167 +219,193 @@ export function AdminBillingMode({ onBack }: AdminBillingModeProps) {
   }, [confirmTarget, secret, status]);
 
   return (
-    <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto' }}>
-      <AppBar title="Billing mode" leftAction={{ icon: 'arrow-left', label: 'Back', onClick: onBack }} />
-
-      <Stack spacing={4} sx={{ px: 5.5, pt: 3, pb: 6 }}>
-        {/* Marked plainly as a temporary operator surface (interim gate, no polish
-            beyond its purpose) so nobody mistakes this for a permanent design. */}
-        <Stack
-          direction="row"
-          spacing={1.5}
-          sx={{ p: 2, borderRadius: '14px', bgcolor: alpha(theme.palette.gold.main, 0.14), alignItems: 'flex-start' }}
+    <Box sx={{ minHeight: '100dvh', bgcolor: 'background.default', color: 'text.primary' }}>
+      {/* Plain operator header (replaces the playful player AppBar). */}
+      <Box
+        component="header"
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          px: { xs: 2, md: 4 },
+          py: 1.5,
+          bgcolor: 'background.paper',
+          borderBottom: `1px solid ${theme.palette.divider}`,
+        }}
+      >
+        <Button
+          onClick={onBack}
+          startIcon={<FontAwesomeIcon icon="arrow-left" />}
+          sx={{ color: 'text.secondary' }}
         >
-          <Box sx={{ color: 'gold.dark', fontSize: 16, display: 'flex', mt: 0.25 }}>
-            <FontAwesomeIcon icon="gear" />
-          </Box>
-          <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary' }}>
-            Operator-only, interim surface: a shared secret gates this screen until real operator
-            sign-in ships. Nothing here is reachable from player screens.
-          </Typography>
-        </Stack>
+          Back
+        </Button>
+        <Typography component="h1" sx={{ fontWeight: 700, fontSize: 16 }}>
+          Billing mode
+        </Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'text.secondary', letterSpacing: 0.5 }}>
+          OPERATOR CONSOLE
+        </Typography>
+      </Box>
 
-        {!secretSubmitted && (
-          <Box component="form" onSubmit={onSubmitSecret} noValidate>
-            <Stack spacing={3}>
-              <Stack spacing={1} sx={{ textAlign: 'center' }}>
-                <Typography sx={{ fontWeight: 800, fontSize: 18, color: 'text.primary' }}>
-                  Enter the operator secret
-                </Typography>
-                <Typography sx={{ fontWeight: 600, fontSize: 13.5, color: 'text.secondary' }}>
-                  Nothing loads until you submit it. Not saved anywhere - you will enter it again
-                  next visit.
-                </Typography>
+      {/* Desktop-first content column: centered, roomy, capped for readability. */}
+      <Box sx={{ maxWidth: 760, mx: 'auto', px: { xs: 2, md: 4 }, py: { xs: 3, md: 5 } }}>
+        <Stack spacing={4}>
+          {/* Marked plainly as a temporary operator surface (interim gate). */}
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{
+              p: 2,
+              borderRadius: 1,
+              bgcolor: alpha(theme.palette.warning.main, 0.12),
+              border: `1px solid ${alpha(theme.palette.warning.main, 0.3)}`,
+              alignItems: 'flex-start',
+            }}
+          >
+            <Box sx={{ color: 'warning.dark', fontSize: 16, display: 'flex', mt: 0.25 }}>
+              <FontAwesomeIcon icon="gear" />
+            </Box>
+            <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'text.secondary' }}>
+              Operator-only, interim surface: a shared secret gates this screen until real operator
+              sign-in ships. Nothing here is reachable from player screens.
+            </Typography>
+          </Stack>
+
+          {!secretSubmitted && (
+            <Box component="form" onSubmit={onSubmitSecret} noValidate>
+              <Stack spacing={3} sx={{ maxWidth: 420 }}>
+                <Stack spacing={1}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 18 }}>Enter the operator secret</Typography>
+                  <Typography sx={{ fontWeight: 500, fontSize: 13.5, color: 'text.secondary' }}>
+                    Nothing loads until you submit it. Not saved anywhere - you will enter it again
+                    next visit.
+                  </Typography>
+                </Stack>
+                <TextField
+                  type="password"
+                  fullWidth
+                  label="Operator secret"
+                  value={secret}
+                  onChange={(event) => setSecret(event.target.value)}
+                  autoComplete="off"
+                />
+                <Button type="submit" variant="contained" disabled={!secret.trim()} sx={{ alignSelf: 'flex-start' }}>
+                  Continue
+                </Button>
               </Stack>
-              <TextField
-                type="password"
-                fullWidth
-                label="Operator secret"
-                value={secret}
-                onChange={(event) => setSecret(event.target.value)}
-                autoComplete="off"
-              />
-              <Button type="submit" variant="contained" fullWidth disabled={!secret.trim()}>
-                Continue
-              </Button>
-            </Stack>
-          </Box>
-        )}
-
-        {secretSubmitted && loading && (
-          <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
-            Loading the current mode...
-          </Typography>
-        )}
-
-        {secretSubmitted && !loading && status?.outcome === 'unauthorized' && (
-          <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center' }}>
-            <Box sx={{ color: 'coral.main', fontSize: 26, display: 'flex' }}>
-              <FontAwesomeIcon icon="circle-xmark" />
             </Box>
-            <Typography sx={{ fontWeight: 800, fontSize: 16, color: 'text.primary' }}>
-              That secret was not accepted
-            </Typography>
-            <Button
-              variant="outlined"
-              onClick={() => {
-                setSecretSubmitted(false);
-                setStatus(null);
-              }}
-            >
-              Try a different secret
-            </Button>
-          </Stack>
-        )}
+          )}
 
-        {/* AC-01: a failed read is an explicit error state - never a blank or a
-            guessed mode. */}
-        {secretSubmitted && !loading && status?.outcome === 'error' && (
-          <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center' }}>
-            <Box sx={{ color: 'coral.main', fontSize: 26, display: 'flex' }}>
-              <FontAwesomeIcon icon="circle-xmark" />
-            </Box>
-            <Typography sx={{ fontWeight: 800, fontSize: 16, color: 'text.primary' }}>
-              Could not load the current mode
+          {secretSubmitted && loading && (
+            <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.secondary' }}>
+              Loading the current mode...
             </Typography>
-            <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: 'text.secondary' }}>
-              {status.message}
-            </Typography>
-            <Button variant="outlined" onClick={() => void loadStatus(secret)}>
-              Try again
-            </Button>
-          </Stack>
-        )}
+          )}
 
-        {secretSubmitted && !loading && status?.outcome === 'ok' && status.activeMode && (
-          <Stack spacing={4}>
-            {/* AC-01: the active mode, displayed prominently and unambiguously. */}
-            <Stack
-              spacing={1.5}
-              alignItems="center"
-              sx={{
-                p: 4,
-                borderRadius: '24px',
-                bgcolor: 'card.main',
-                boxShadow: `0 10px 24px -16px ${alpha(theme.palette.stoneEdge.main, 0.6)}`,
-                textAlign: 'center',
-              }}
-            >
-              <Typography sx={{ fontSize: 13, fontWeight: 800, color: 'text.secondary', letterSpacing: 1 }}>
-                CURRENTLY ACTIVE
-              </Typography>
-              <Typography
-                sx={{
-                  fontFamily: '"Fredoka", sans-serif',
-                  fontWeight: 700,
-                  fontSize: 34,
-                  color: status.activeMode === 'live' ? 'coral.main' : 'teal.main',
-                }}
-              >
-                {modeLabel(status.activeMode)}
-              </Typography>
-              {/* AC-04: when the mode last changed. */}
-              <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary' }}>
-                {status.lastChangedUtc
-                  ? `Last changed ${formatChangedAt(status.lastChangedUtc)}`
-                  : 'Never changed since this environment was set up'}
-              </Typography>
-              {status.enabled === false && (
-                <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary' }}>
-                  Billing is not configured server-side yet.
-                </Typography>
-              )}
-            </Stack>
-
-            {/* AC-02: initiating a switch always opens the confirmation dialog -
-                there is no single-click, no-confirmation path. */}
-            <Stack spacing={2}>
+          {secretSubmitted && !loading && status?.outcome === 'unauthorized' && (
+            <Stack spacing={2} alignItems="flex-start">
+              <Box sx={{ color: 'error.main', fontSize: 26, display: 'flex' }}>
+                <FontAwesomeIcon icon="circle-xmark" />
+              </Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 16 }}>That secret was not accepted</Typography>
               <Button
                 variant="outlined"
-                fullWidth
-                disabled={status.activeMode === 'test'}
-                onClick={() => setConfirmTarget('test')}
+                onClick={() => {
+                  setSecretSubmitted(false);
+                  setStatus(null);
+                }}
               >
-                Switch to Test
+                Try a different secret
               </Button>
-              <Button
-                variant="contained"
-                color="error"
-                fullWidth
-                disabled={status.activeMode === 'live'}
-                onClick={() => setConfirmTarget('live')}
+            </Stack>
+          )}
+
+          {/* AC-01: a failed read is an explicit error state - never a blank or a
+              guessed mode. */}
+          {secretSubmitted && !loading && status?.outcome === 'error' && (
+            <Stack spacing={2} alignItems="flex-start">
+              <Box sx={{ color: 'error.main', fontSize: 26, display: 'flex' }}>
+                <FontAwesomeIcon icon="circle-xmark" />
+              </Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 16 }}>Could not load the current mode</Typography>
+              <Typography sx={{ fontSize: 13.5, fontWeight: 500, color: 'text.secondary' }}>
+                {status.message}
+              </Typography>
+              <Button variant="outlined" onClick={() => void loadStatus(secret)}>
+                Try again
+              </Button>
+            </Stack>
+          )}
+
+          {secretSubmitted && !loading && status?.outcome === 'ok' && status.activeMode && (
+            <Stack spacing={4}>
+              {/* AC-01: the active mode, displayed prominently and unambiguously. */}
+              <Box
+                sx={{
+                  p: 3,
+                  borderRadius: 2,
+                  bgcolor: 'background.paper',
+                  border: `1px solid ${theme.palette.divider}`,
+                  boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
+                  maxWidth: 420,
+                }}
               >
-                Switch to Live
-              </Button>
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', letterSpacing: 1 }}>
+                  CURRENTLY ACTIVE
+                </Typography>
+                <Typography
+                  sx={{
+                    fontWeight: 700,
+                    fontSize: 34,
+                    mt: 0.5,
+                    color: status.activeMode === 'live' ? 'error.main' : 'success.main',
+                  }}
+                >
+                  {modeLabel(status.activeMode)}
+                </Typography>
+                {/* AC-04: when the mode last changed. */}
+                <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'text.secondary', mt: 0.5 }}>
+                  {status.lastChangedUtc
+                    ? `Last changed ${formatChangedAt(status.lastChangedUtc)}`
+                    : 'Never changed since this environment was set up'}
+                </Typography>
+                {status.enabled === false && (
+                  <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: 'text.secondary', mt: 1 }}>
+                    Billing is not configured server-side yet.
+                  </Typography>
+                )}
+              </Box>
+
+              {/* AC-02: initiating a switch always opens the confirmation dialog -
+                  there is no single-click, no-confirmation path. */}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ maxWidth: 420 }}>
+                <Button
+                  variant="outlined"
+                  disabled={status.activeMode === 'test'}
+                  onClick={() => setConfirmTarget('test')}
+                >
+                  Switch to Test
+                </Button>
+                <Button
+                  variant="contained"
+                  color="error"
+                  disabled={status.activeMode === 'live'}
+                  onClick={() => setConfirmTarget('live')}
+                >
+                  Switch to Live
+                </Button>
+              </Stack>
               {switchError && (
-                <Typography role="status" sx={{ fontSize: 13, fontWeight: 700, color: 'error.main', textAlign: 'center' }}>
+                <Typography role="status" sx={{ fontSize: 13, fontWeight: 600, color: 'error.main' }}>
                   {switchError}
                 </Typography>
               )}
             </Stack>
-          </Stack>
-        )}
-      </Stack>
+          )}
+        </Stack>
+      </Box>
 
       {status?.outcome === 'ok' && status.activeMode && confirmTarget && (
         <ConfirmSwitchDialog
@@ -376,5 +418,18 @@ export function AdminBillingMode({ onBack }: AdminBillingModeProps) {
         />
       )}
     </Box>
+  );
+}
+
+/**
+ * Exported wrapper: nests the operator-only adminTheme so this whole subtree -
+ * including its Dialog portal - is decoupled from the player theme (see the file
+ * header). Everything below reads adminTheme via useTheme().
+ */
+export function AdminBillingMode({ onBack }: AdminBillingModeProps) {
+  return (
+    <ThemeProvider theme={adminTheme}>
+      <AdminBillingModeInner onBack={onBack} />
+    </ThemeProvider>
   );
 }
