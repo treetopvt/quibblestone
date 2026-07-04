@@ -26,15 +26,20 @@
 //      round-trip.
 //
 //  Host-driven, matching group-play/01 (Slice 1 keeps the host as the single
-//  decision-maker): ONLY the host sees the gold "Play another round" CTA and the
-//  outlined-purple "Back to lobby" button. Non-hosts see the same recap plus a calm
-//  passive note ("Waiting for the host to pick what's next") and NO action buttons -
-//  they are moved when the host acts (the server broadcasts RoundStarted for a new
-//  round, or a bare "BackToLobby" to return everyone to the Lobby). "Play another
-//  round" reuses the SAME room + players (no re-join, AC-04); "Back to lobby"
-//  returns ALL players to the still-live Lobby (same code, AC-05). Whether Back to
-//  lobby should stay host-only is a product call - it moves everyone, so for Slice 1
-//  the host owns it (see openQuestions); non-hosts follow.
+//  decision-maker): ONLY the host sees the gold "Play another round" CTA, the
+//  outlined-purple "Back to lobby" button, and (replay-remix/01, issue #60) a
+//  third, lower-emphasis text action "Carve it again" that replays the EXACT
+//  template just finished (same room + players, brand-new blanks - no template
+//  picker). Non-hosts see the same recap plus a calm passive note ("Waiting for
+//  the host to pick what's next") and NO action buttons - they are moved when the
+//  host acts (the server broadcasts RoundStarted for a new round, or a bare
+//  "BackToLobby" to return everyone to the Lobby). "Play another round" and
+//  "Carve it again" both reuse the SAME room + players (no re-join, AC-04) - the
+//  only difference is whether App.tsx pins the just-finished templateId on the
+//  startRound call; "Back to lobby" returns ALL players to the still-live Lobby
+//  (same code, AC-05). Whether Back to lobby should stay host-only is a product
+//  call - it moves everyone, so for Slice 1 the host owns it (see openQuestions);
+//  non-hosts follow.
 //
 //  Child safety (AC-06): every crew name shown here was safety-filtered at join
 //  (session-engine/02) and no PII is carried (nickname + Guardian variant only - the
@@ -102,6 +107,15 @@ export interface RoundCompleteProps {
   playAgainError?: string | null;
   /** Host-only: begin a NEW round for the same group (same room + players, no re-join, AC-04). */
   onPlayAgain: () => void;
+  /**
+   * Host-only (replay-remix/01, AC-01/AC-05): replay the SAME tale just finished
+   * (same room + players + template id, fresh blanks) - a faster "again!" reflex
+   * than "Play another round"'s new-template pick. Deliberately the lower-emphasis
+   * action beside the gold primary CTA (a text-variant tertiary action, matching
+   * the "Leave the game" pattern in Waiting.tsx) so it never outranks "Play
+   * another round".
+   */
+  onCarveItAgain: () => void;
   /** Host-only: return ALL players to the still-live Lobby (same code, AC-05). */
   onBackToLobby: () => void;
   /** The app-bar exit / leave action (drops the room and returns Home). */
@@ -301,6 +315,7 @@ export function RoundComplete({
   canPlayAgain,
   playAgainError,
   onPlayAgain,
+  onCarveItAgain,
   onBackToLobby,
   onLeave,
   templateId,
@@ -462,6 +477,21 @@ export function RoundComplete({
           >
             Back to lobby
           </Button>
+          {/* Carve it again (replay-remix/01, AC-01): the lower-emphasis, tertiary
+              replay action - same room + template, fresh blanks. A text-variant
+              button (mirrors Waiting.tsx's "Leave the game" pattern) so it never
+              outranks the gold "Play another round" CTA above. */}
+          <Box sx={{ textAlign: 'center' }}>
+            <Button
+              variant="text"
+              disabled={!canPlayAgain}
+              onClick={onCarveItAgain}
+              startIcon={<FontAwesomeIcon icon="pen-ruler" style={{ width: 15, height: 15 }} />}
+              sx={{ fontSize: 14, fontWeight: 700, color: 'primary.main' }}
+            >
+              Carve "{title}" again
+            </Button>
+          </Box>
         </BottomActionBar>
       ) : (
         <BottomActionBar>
