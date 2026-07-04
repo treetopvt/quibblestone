@@ -114,6 +114,8 @@ import {
 import { loadReconnectHandle } from './reconnect';
 import { seedLibrary } from './content/seedLibrary';
 import { assemble, type SubmittedWord } from './engine/assemble';
+import { getBlanks } from './engine/template';
+import { listRemixableBlanks } from './engine/remixHelpers';
 import { Home } from './pages/Home';
 import { Join, type JoinProps } from './pages/Join';
 import { HostSetup } from './pages/HostSetup';
@@ -221,6 +223,7 @@ function GroupReveal({
   goldenGuardianWinningBlankId,
   onCastGoldenGuardianVote,
   onCloseGoldenGuardianVoting,
+  onRemixWord,
   onPlayAgain,
   onHome,
 }: {
@@ -235,6 +238,13 @@ function GroupReveal({
   goldenGuardianWinningBlankId: string | null;
   onCastGoldenGuardianVote: (blankId: string) => void;
   onCloseGoldenGuardianVoting: () => void;
+  /**
+   * replay-remix/02 (AC-04/AC-06/AC-07): the hub's `remixWord` invoke, keyed by
+   * blank INDEX (the same body-order convention `submitWord` and Golden
+   * Guardian's vote token use) - GroupReveal below resolves the blank-id the
+   * Reveal picker hands back to its body-order index before calling this.
+   */
+  onRemixWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   onPlayAgain: () => void;
   onHome: () => void;
 }) {
@@ -332,6 +342,28 @@ function GroupReveal({
   // Progressive Story reveal surface and never crashes.
   const revealSurfaces = findGroupMode(mode).revealSurfaces({ template, assembled });
 
+  // replay-remix/02 (AC-02/AC-04/AC-06/AC-07): the "Remix a word" slot. `blanks`
+  // is the SAME pure picker list (engine/remixHelpers.ts) solo uses, built from
+  // THIS render's `assembled` + `template`. `onSubmit` resolves the picker's
+  // blankId back to its body-order INDEX (the wire convention `onRemixWord` /
+  // the hub's RemixWord expect - the same one `submitWord` and Golden Guardian's
+  // vote token already use) and forwards to the hub invoke. The server re-vets
+  // the word (AC-06) and re-broadcasts "RevealReady" (AC-07); this component
+  // needs NO extra state of its own - the SAME `reveal` prop feeding `assembled`
+  // above updates from that broadcast and this whole function re-renders with
+  // the swapped word, exactly like any other RevealReady update.
+  const templateBlanks = getBlanks(template);
+  const remix = {
+    blanks: listRemixableBlanks(assembled, template),
+    onSubmit: async (blankId: string, word: string) => {
+      const blankIndex = templateBlanks.findIndex((b) => b.id === blankId);
+      if (blankIndex < 0) {
+        return { accepted: false, message: 'Something went off - please try again.' };
+      }
+      return onRemixWord(blankIndex, word);
+    },
+  };
+
   return (
     <Reveal
       assembled={assembled}
@@ -344,6 +376,7 @@ function GroupReveal({
       wordAttribution={wordAttribution}
       saveImageByline={saveImageByline}
       publicShare={publicShare}
+      remix={remix}
       // reveal-delight/01 (AC-04) + reactions v2: counts are server-authoritative
       // (from the hub's ReactionCountsChanged broadcast, where the server de-dupes
       // ONE PER USER) and a tap fires the hub's React invoke, so every player sees
@@ -535,6 +568,7 @@ export default function App() {
     castGoldenGuardianVote,
     closeGoldenGuardianVoting,
     submitWord,
+    remixWord,
     createRoom,
     joinRoom,
     startRound,
@@ -985,6 +1019,7 @@ export default function App() {
               goldenGuardianWinningBlankId={goldenGuardianWinningBlankId}
               onCastGoldenGuardianVote={castGoldenGuardianVote}
               onCloseGoldenGuardianVoting={closeGoldenGuardianVoting}
+              onRemixWord={remixWord}
               onPlayAgain={() => setShowRoundComplete(true)}
               onHome={handleGoHome}
             />

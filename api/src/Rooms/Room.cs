@@ -1821,4 +1821,85 @@ public sealed class Room
             return words;
         }
     }
+
+    /// <summary>
+    /// The outcome of <see cref="RemixSubmission"/> (replay-remix/02). Mirrors
+    /// <see cref="SubmitOutcome"/>'s friendly-envelope posture: an EXPECTED
+    /// rejection (not in the reveal, or an out-of-range blank index) never throws.
+    /// </summary>
+    public enum RemixOutcome
+    {
+        /// <summary>No round, the round is not in the "reveal" phase (mid-collection or lobby), or the blank index is out of range.</summary>
+        NotFound,
+
+        /// <summary>The caller is not a live, seated member of this room.</summary>
+        NotAMember,
+
+        /// <summary>Recorded: the ONE blank's word was swapped.</summary>
+        Recorded,
+    }
+
+    /// <summary>
+    /// Records a ONE-BLANK remix of an ALREADY-REVEALED round (replay-remix/02,
+    /// AC-04/AC-07): swaps exactly one blank index's stored <see cref="Submission"/>
+    /// for a NEW word, attributed to the REMIXING player (their own nickname +
+    /// variant, so "carved by" attribution follows whoever actually chose the new
+    /// word - reveal-delight/04's existing attribution model, unmodified).
+    ///
+    /// Per the settled Decisions-log call (2026-07-04): ANY live room member may
+    /// remix, NOT host-only - so this checks membership only, no host guard (unlike
+    /// <see cref="RecordSubmission"/>'s "must own this blank" rule, which does not
+    /// apply here: a remix is a deliberate, opt-in re-pick of ANY blank, not a
+    /// normal per-player assignment).
+    ///
+    /// Requires the round to be in the "reveal" phase (AC's "not mid-collection"
+    /// rule) - a round still "prompting" has nothing finished to remix, and once a
+    /// round returns to the lobby there is no round at all. Word content itself is
+    /// NOT vetted here: the caller (GameHub.RemixWord) runs the SAME server-side
+    /// safety check every other submission uses, BEFORE calling this method - this
+    /// method only handles the authoritative swap + membership/phase guards, under
+    /// the room lock.
+    /// </summary>
+    /// <param name="connectionId">The remixing connection - must be a live, seated room member.</param>
+    /// <param name="blankIndex">The blank index (into the round's ordered blanks) to swap.</param>
+    /// <param name="word">The already-safety-vetted new word for that one blank.</param>
+    /// <returns>Whether the remix was rejected (no reveal / bad index), rejected (not a member), or recorded.</returns>
+    public RemixOutcome RemixSubmission(string connectionId, int blankIndex, string word)
+    {
+        lock (_gate)
+        {
+            if (_round is null || !string.Equals(_round.Phase, "reveal", StringComparison.Ordinal))
+            {
+                // Mid-collection or no round at all - nothing finished to remix.
+                return RemixOutcome.NotFound;
+            }
+
+            var blankCount = _round.Assignments.Sum(a => a.BlankIndices.Count);
+            if (blankIndex < 0 || blankIndex >= blankCount)
+            {
+                return RemixOutcome.NotFound;
+            }
+
+            // ANY live room member may remix (2026-07-04 Decisions log) - a simple
+            // membership check, deliberately NOT the host-only pattern StartRound /
+            // BackToLobby use elsewhere in this file.
+            var remixer = _players.FirstOrDefault(p => p.ConnectionId == connectionId);
+            if (remixer is null)
+            {
+                return RemixOutcome.NotAMember;
+            }
+
+            // Swap the ONE blank's stored submission, attributed to the remixer -
+            // mutate a fresh dictionary and swap it in (matches RecordSubmission's
+            // own "never mutate the live dictionary in place" posture).
+            var next = new Dictionary<int, Submission>(_round.Submissions)
+            {
+                [blankIndex] = new Submission(word, remixer.Nickname, remixer.Variant),
+            };
+            _round.Submissions = next;
+            LastActiveUtc = DateTimeOffset.UtcNow;
+
+            return RemixOutcome.Recorded;
+        }
+    }
 }

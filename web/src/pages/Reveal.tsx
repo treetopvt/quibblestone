@@ -133,11 +133,13 @@ import { Box, Button, Link, Stack, Typography } from '@mui/material';
 import { AppBar, FavoriteStarButton, Guardian, TaleFeedback } from '../components';
 import type { GuardianVariant } from '../components';
 import type { AssembledStory } from '../engine/assemble';
-import type { Template } from '../engine/template';
+import { getBlanks, type Template } from '../engine/template';
+import type { RemixableBlank } from '../engine/remixHelpers';
 import { renderTabletImage } from '../gallery/renderTablet';
 import { saveTale } from '../gallery/localGallery';
 import { shareImageFile, slugifyTitle } from '../gallery/shareImageFile';
 import { buildRevealParts } from './revealParts';
+import { FillBlank } from './FillBlank';
 
 export interface RevealProps {
   /** The assembled story to render (title, storyText, per-blank filled words). */
@@ -286,6 +288,43 @@ export interface RevealProps {
    * affordance is then simply absent, so publishing is never automatic (AC-03).
    */
   publicShare?: PublicShare;
+  /**
+   * Optional "Remix a word" slot (replay-remix/02, AC-01/AC-02/AC-03/AC-04/AC-05):
+   * a LOW-EMPHASIS secondary action rendered in the bottom cluster, deliberately
+   * NOT competing with the gold "Play another round" CTA above it (AC-01). Tapping
+   * it shows the blank picker (`blanks` - category label + current word, AC-02),
+   * then a SINGLE `<FillBlank>` re-entry step (the SAME stone-tablet prompt card
+   * every normal round already uses - AC-03, never a new UI pattern) for the one
+   * chosen blank. Submitting calls `onSubmit(blankId, word)`, which the CALLER
+   * resolves to a fresh `collectWord` + `assembleStory` pass (solo) or a hub
+   * round-trip (group) - Reveal itself holds NO collection state and never calls
+   * the engine directly; it only forwards the tap. Once assembly re-runs, the
+   * CALLER re-renders this SAME `<Reveal>` with the new `assembled` prop, so the
+   * coral highlight body above (AC-05) picks up the remixed word through its
+   * existing, unmodified rendering path - this overlay never forks or duplicates
+   * that render. Omitted entirely when the caller has nothing to remix into
+   * (there is always at least one blank for a real round, so this is really "the
+   * caller has not wired remix yet", not a real empty-state).
+   */
+  remix?: RemixSlot;
+}
+
+/**
+ * The "Remix a word" slot on the Reveal (replay-remix/02). See RevealProps.remix.
+ */
+export interface RemixSlot {
+  /** The remixable blanks (category label + current word), from engine/remixHelpers.ts's `listRemixableBlanks`. */
+  blanks: readonly RemixableBlank[];
+  /**
+   * Submits a new word for exactly ONE blank (AC-04/AC-06). The caller runs the
+   * SAME safety check every other submission uses (solo: the engine-boundary
+   * `SafetyCheck` hook via `collectWord`; group: the server-side `_safety.CheckAsync`
+   * via the hub's `RemixWord`) and resolves with the same `{ accepted, message }`
+   * shape `FillBlank`'s `onSubmitWord` already expects - a rejected word shows the
+   * SAME friendly retry message inline and the player can try again without losing
+   * their place in the remix step.
+   */
+  onSubmit: (blankId: string, word: string) => Promise<{ accepted: boolean; message?: string }>;
 }
 
 /**
@@ -504,6 +543,109 @@ function CelebrationHeader() {
   );
 }
 
+/**
+ * replay-remix/02 (AC-02): the "which blank could I remix?" picker - one
+ * tappable row per remixable blank, showing its category label + the word
+ * currently sitting there, so the player picks exactly ONE to re-fill. A
+ * "Cancel remix" app-bar exit mirrors FillBlank's own leave affordance
+ * (`onExit`) rather than inventing a new escape gesture. Rendered full-screen
+ * as an overlay OVER the (still-mounted, unmodified) Reveal body below it -
+ * this never forks Reveal's own rendering, it just sits on top of it.
+ */
+function RemixPicker({
+  blanks,
+  onPick,
+  onCancel,
+}: {
+  blanks: readonly RemixableBlank[];
+  onPick: (blankId: string) => void;
+  onCancel: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        height: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        maxWidth: 430,
+        mx: 'auto',
+        overflow: 'hidden',
+      }}
+    >
+      <AppBar title="Remix a word" leftAction={{ icon: 'xmark', label: 'Cancel remix', onClick: onCancel }} />
+      <Stack sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 5, pt: 2, pb: 3 }} spacing={1.5}>
+        <Typography
+          sx={{
+            fontFamily: '"Nunito", sans-serif',
+            fontWeight: 700,
+            fontSize: 14,
+            color: 'text.secondary',
+            mb: 0.5,
+          }}
+        >
+          Pick ONE word to swap - the rest of the tale stays just as it was.
+        </Typography>
+        {blanks.map((entry) => (
+          <Box
+            key={entry.blankId}
+            component="button"
+            type="button"
+            onClick={() => onPick(entry.blankId)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 2,
+              minHeight: 56,
+              px: 3,
+              py: 1.5,
+              border: 'none',
+              borderRadius: '18px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              bgcolor: alpha(theme.palette.primary.main, 0.08),
+              '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.14) },
+              '&:active': { transform: 'scale(0.98)' },
+            }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
+                sx={{
+                  fontFamily: '"Nunito", sans-serif',
+                  fontWeight: 800,
+                  fontSize: 11.5,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: 'primary.main',
+                }}
+              >
+                {entry.categoryLabel}
+              </Typography>
+              <Typography
+                noWrap
+                sx={{
+                  fontFamily: '"Fredoka", sans-serif',
+                  fontWeight: 600,
+                  fontSize: 18,
+                  color: 'text.primary',
+                }}
+              >
+                {entry.word !== '' ? entry.word : '(skipped)'}
+              </Typography>
+            </Box>
+            <Box sx={{ color: 'primary.main', flexShrink: 0, display: 'flex' }}>
+              <FontAwesomeIcon icon="shuffle" style={{ width: 16, height: 16 }} />
+            </Box>
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
 /** The narration bar: play/pause, waveform, label - RENDERED but INACTIVE (AC-07). */
 function NarrationBar({ title }: { title: string }) {
   const theme = useTheme();
@@ -591,6 +733,7 @@ export function Reveal({
   favorite,
   saveImageByline,
   publicShare,
+  remix,
 }: RevealProps) {
   const theme = useTheme();
   const parts = buildRevealParts(template, assembled);
@@ -843,6 +986,24 @@ export function Reveal({
     }
   };
 
+  // replay-remix/02 (AC-01/AC-02/AC-03): the client-local remix overlay step -
+  // 'closed' (default), 'picker' (choosing which blank), or 'prompt' (re-entering
+  // the chosen blank's word via the SAME reused <FillBlank> chrome). Reveal holds
+  // NO collection state of its own here - `remix.onSubmit` is the one path back
+  // to the caller's engine/hub call (AC-04); a successful submit just closes the
+  // overlay, and the caller re-rendering THIS component with a fresh `assembled`
+  // is what actually shows the remixed word (AC-05).
+  const [remixStep, setRemixStep] = useState<'closed' | 'picker' | 'prompt'>('closed');
+  const [remixBlankId, setRemixBlankId] = useState<string | null>(null);
+
+  const closeRemix = () => {
+    setRemixStep('closed');
+    setRemixBlankId(null);
+  };
+
+  const remixBlank =
+    remixBlankId !== null ? getBlanks(template).find((b) => b.id === remixBlankId) : undefined;
+
   return (
     <Box
       sx={{
@@ -872,6 +1033,52 @@ export function Reveal({
       }}
     >
       <Confetti />
+
+      {/* replay-remix/02 (AC-01/AC-02/AC-03): the remix overlay sits ON TOP of
+          this same screen (`position: fixed`, above everything else) rather than
+          replacing any of the rendering below - the story body, header, and
+          bottom cluster stay mounted and unmodified underneath. Closing the
+          overlay (cancel, skip, or a successful submit) just returns to this
+          same Reveal, already showing whatever `assembled` the caller passed. */}
+      {remix && remixStep !== 'closed' && (
+        <Box
+          sx={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 30,
+            bgcolor: 'background.default',
+          }}
+        >
+          {remixStep === 'picker' ? (
+            <RemixPicker
+              blanks={remix.blanks}
+              onPick={(blankId) => {
+                setRemixBlankId(blankId);
+                setRemixStep('prompt');
+              }}
+              onCancel={closeRemix}
+            />
+          ) : (
+            remixBlank && (
+              <FillBlank
+                key={remixBlank.id}
+                subject={assembled.title}
+                blank={remixBlank}
+                wordNumber={1}
+                totalWords={1}
+                onExit={closeRemix}
+                exitLabel="Cancel remix"
+                onSkip={closeRemix}
+                onSubmitWord={async (word) => {
+                  const result = await remix.onSubmit(remixBlank.id, word);
+                  if (result.accepted) closeRemix();
+                  return result;
+                }}
+              />
+            )
+          )}
+        </Box>
+      )}
 
       {/* App bar + trimmed celebratory header: the fixed-height top band of the
           flex column (flexShrink:0 so it never gives up height to the story).
@@ -1485,6 +1692,33 @@ export function Reveal({
             ));
           })()}
         </Stack>
+        {/* "Remix a word" (replay-remix/02, AC-01): a LOW-EMPHASIS secondary action -
+            plain secondary-text weight, deliberately quieter than even the purple
+            pills above it, so it never competes with the gold "Play another round"
+            CTA. Opens the blank picker overlay on tap; omitted entirely when the
+            caller has not wired `remix`. */}
+        {remix && (
+          <Box sx={{ textAlign: 'center' }}>
+            <Link
+              component="button"
+              type="button"
+              onClick={() => setRemixStep('picker')}
+              underline="none"
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 1,
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 13,
+                color: 'text.secondary',
+              }}
+            >
+              <FontAwesomeIcon icon="shuffle" style={{ width: 13, height: 13 }} />
+              Remix a word
+            </Link>
+          </Box>
+        )}
         {/* Share a public link (keepsake-gallery/04, AC-01/AC-03/AC-07): a low-key,
             HOST-ONLY, OPT-IN affordance - only rendered when the caller supplies
             `publicShare` (host in group play), so publishing is never automatic.
