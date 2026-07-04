@@ -106,13 +106,17 @@ public sealed class ActiveStripeContext : IActiveStripeContext
     /// <inheritdoc />
     public async Task SetModeAsync(StripeMode mode, CancellationToken ct = default)
     {
-        await _store.SetAsync(mode, DateTimeOffset.UtcNow, ct);
+        // Capture the change instant ONCE so the persisted timestamp and the cached one
+        // are identical - otherwise the operator-facing last-changed display would shift
+        // slightly when the cache expires and re-reads from the store (Copilot review).
+        var changedAt = DateTimeOffset.UtcNow;
+        await _store.SetAsync(mode, changedAt, ct);
         // Write through the cache so the flipping node reflects it immediately; other
         // nodes (if scaled out) pick it up within the short TTL.
         lock (_gate)
         {
-            _cached = new StripeModeState(mode, DateTimeOffset.UtcNow);
-            _cachedAtUtc = DateTime.UtcNow;
+            _cached = new StripeModeState(mode, changedAt);
+            _cachedAtUtc = changedAt.UtcDateTime;
         }
     }
 }
