@@ -570,7 +570,8 @@ function RemixPicker({
         height: '100dvh',
         display: 'flex',
         flexDirection: 'column',
-        maxWidth: 430,
+        // Tablet / desktop: a wider column than the 430 phone width (viewport pass).
+        maxWidth: { xs: 430, sm: 560 },
         mx: 'auto',
         overflow: 'hidden',
       }}
@@ -1015,7 +1016,8 @@ export function Reveal({
         height: '100dvh',
         display: 'flex',
         flexDirection: 'column',
-        maxWidth: 430,
+        // Tablet / desktop: a wider column than the 430 phone width (viewport pass).
+        maxWidth: { xs: 430, sm: 560 },
         mx: 'auto',
         overflow: 'hidden',
         // Landscape (design-system/03): a handed-off phone that auto-rotates

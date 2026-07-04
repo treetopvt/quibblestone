@@ -472,7 +472,8 @@ export function FillBlank({
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        maxWidth: 430,
+        // Tablet / desktop: a wider column than the 430 phone width (viewport pass).
+        maxWidth: { xs: 430, sm: 560 },
         mx: 'auto',
       }}
     >
