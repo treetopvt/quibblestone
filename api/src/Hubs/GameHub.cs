@@ -38,6 +38,14 @@
 //                    round/reveal locally and lands back on the Lobby (AC-05). The
 //                    replay counterpart is just StartRound again (same room, no
 //                    re-join) - the Room increments the round number for the badge.
+//    - PassHost    : replay-remix/03. HOST-ONLY (server-enforced, the SAME
+//                    IsHost check StartRound/BackToLobby use) handoff of the host
+//                    role to another roster player, BETWEEN ROUNDS only (rejected
+//                    while the room's round phase is "prompting", AC-05). Flips
+//                    IsHost on the room's player records (Room.PassHost, under the
+//                    room lock) and broadcasts the EXISTING "RosterChanged" event -
+//                    no new broadcast event type, since IsHost already rides on
+//                    every PlayerDto - so the crown moves live for everyone.
 //
 //  Room state lives in the RoomRegistry singleton (injected below), NOT in this
 //  hub instance - SignalR builds a fresh hub per invocation, so per-hub fields
@@ -1278,6 +1286,83 @@ public sealed class GameHub : Hub
     }
 
     /// <summary>
+    /// replay-remix/03: the HOST hands the host role to another roster player,
+    /// BETWEEN ROUNDS only ("Pass the chisel", AC-01/AC-02).
+    ///
+    /// HOST-ONLY and SERVER-ENFORCED, reusing the EXACT SAME authorization check
+    /// <see cref="StartRound"/>/<see cref="BackToLobby"/> already perform
+    /// (<see cref="Room.IsHost"/>) - not a second authorization mechanism (AC-04).
+    /// Reuses the friendly <see cref="StartRoundResultDto"/> envelope, exactly as
+    /// <see cref="BackToLobby"/> does, rather than a throw:
+    ///
+    ///   1. Unknown / expired code -> friendly fail (nothing to hand off).
+    ///   2. Caller is not the host -> reject (AC-04). Server-authoritative even
+    ///      though the client only shows the action to the host.
+    ///   3. The room is mid-round (a live round whose phase is "prompting") ->
+    ///      reject (AC-05) - a handoff is deliberately between-rounds only. A
+    ///      "reveal" phase round (Round Complete's underlying phase) and the
+    ///      lobby (no round at all) are both allowed.
+    ///   4. <see cref="Room.PassHost"/> flips the flag under the room lock,
+    ///      re-verifying the host check atomically and requiring the target to be
+    ///      a live roster member; a false result (a race, or an unknown/departed
+    ///      target) is a friendly fail.
+    ///
+    /// On success it broadcasts the EXISTING "RosterChanged" event with the
+    /// updated roster (no new broadcast event type, AC-02/AC-03) - the moved
+    /// IsHost flag already rides on every PlayerDto, so every client (the new
+    /// host, the outgoing host, and everyone else) sees the crown move live.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="targetNickname">The roster member (by nickname) to become the new host.</param>
+    public async Task<StartRoundResultDto> PassHost(string code, string targetNickname)
+    {
+        // 1. Look up the room first (an unknown / expired code has nothing to hand off).
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new StartRoundResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
+        }
+
+        // 2. Server-enforced host check (AC-04): only the connection that owns the
+        //    room's host player may hand it off. Authoritative even though the
+        //    client only shows "Pass the chisel" to the host.
+        if (!room.IsHost(Context.ConnectionId))
+        {
+            return new StartRoundResultDto(
+                false,
+                "Only the host can pass the chisel.");
+        }
+
+        // 3. Between-rounds only (AC-05): a live round still in "prompting" blocks
+        //    the handoff. No round (lobby) or a "reveal" round (Round Complete's
+        //    underlying phase) are both fine.
+        var round = room.CurrentRound;
+        if (round is not null && string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
+        {
+            return new StartRoundResultDto(
+                false,
+                "The chisel can only pass between rounds, not mid-round.");
+        }
+
+        // 4. Flip the flag under the room lock (re-verifies the host + target
+        //    atomically). A false result is a race or an unknown/departed target.
+        if (!room.PassHost(Context.ConnectionId, targetNickname))
+        {
+            return new StartRoundResultDto(
+                false,
+                "That player isn't available to become host right now.");
+        }
+
+        // 5. Broadcast the EXISTING RosterChanged event so every client's roster -
+        //    including the crown - updates live (AC-02/AC-03). No new event type.
+        await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+
+        return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
     /// reveal-delight/01 + reactions v2: a player reacts on the reveal (AC-04).
     ///
     /// The lightest-weight room-wide real-time surface: a player taps one of the
@@ -1554,6 +1639,91 @@ public sealed class GameHub : Hub
             var durationMs = (DateTimeOffset.UtcNow - round.StartedUtc).TotalMilliseconds;
             TrackUsageRoundCompleted(round, durationMs);
         }
+
+        return new SubmitWordResultDto(true, null);
+    }
+
+    /// <summary>
+    /// replay-remix/02: re-reveal the SAME finished tale with ONE blank re-collected
+    /// (issue #61, "One-blank remix of a finished tale"), then broadcast the freshly
+    /// re-assembled reveal to EVERYONE (AC-07, a shared moment - not a private edit
+    /// only the remixer sees). This is a thin SIBLING of <see cref="SubmitWord"/>,
+    /// reusing the SAME two-step shape (safety check, then an authoritative room
+    /// mutation) rather than a new subsystem:
+    ///
+    ///   1. SAFETY FILTER FIRST (AC-06), exactly like <see cref="SubmitWord"/>: a
+    ///      blocked word never gets recorded or shown, and the caller gets the
+    ///      filter's friendly retry message back.
+    ///   2. <see cref="Room.RemixSubmission"/> is the ONE authoritative mutation:
+    ///      it validates the round is in the "reveal" phase (not mid-collection),
+    ///      that <paramref name="blankIndex"/> is in range, and that the caller is a
+    ///      LIVE ROOM MEMBER - deliberately NO host guard here (2026-07-04
+    ///      Decisions-log call: ANY player may remix, since the whole point is
+    ///      "swap the one word that made YOU laugh").
+    ///   3. On success, rebuild the ORDERED reveal payload (the SAME
+    ///      <see cref="Room.BuildReveal"/> projection <see cref="SubmitWord"/>
+    ///      already uses) and re-broadcast the EXISTING "RevealReady" event - every
+    ///      client's already-wired RevealReady handler updates its `reveal` state
+    ///      and re-renders through the SAME unmodified Reveal screen, no new client
+    ///      event needed.
+    ///
+    /// Never changes the round's template, blank count, or phase - a remix is a
+    /// same-tale, one-word swap only.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="blankIndex">The blank index (into the template's ordered blanks) to remix.</param>
+    /// <param name="word">The new free-text word for that one blank; vetted server-side before recording.</param>
+    public async Task<SubmitWordResultDto> RemixWord(string code, int blankIndex, string word)
+    {
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new SubmitWordResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
+        }
+
+        // SAFETY FILTER FIRST (AC-06), exactly like SubmitWord: a blocked word is
+        // never recorded or shown, regardless of who is remixing.
+        var candidate = word ?? string.Empty;
+        var verdict = await _safety.CheckAsync(candidate, Context.ConnectionAborted);
+        if (!verdict.IsAllowed)
+        {
+            return new SubmitWordResultDto(false, verdict.Message);
+        }
+
+        var outcome = room.RemixSubmission(Context.ConnectionId, blankIndex, candidate);
+        if (outcome != Room.RemixOutcome.Recorded)
+        {
+            // Both expected-rejection cases (no live reveal to remix into, or a
+            // caller who is not a seated room member) get the same friendly retry
+            // message - neither leaks which case it was, mirroring the other hub
+            // envelopes' posture of not distinguishing "why" beyond kid-readable copy.
+            return new SubmitWordResultDto(
+                false,
+                "That word can't be remixed right now - please try again.");
+        }
+
+        // Rebuild + re-broadcast the SAME "RevealReady" event SubmitWord uses (AC-07):
+        // every client's already-wired handler updates `reveal` and re-renders through
+        // the unmodified Reveal screen - no new client event, no second broadcast type.
+        var round = room.CurrentRound;
+        if (round is null)
+        {
+            // Defensive: RemixSubmission only recorded because a "reveal"-phase round
+            // existed a moment ago under the same lock, but re-read it fresh here in
+            // case something raced it away (e.g. BackToLobby) between the two calls.
+            return new SubmitWordResultDto(
+                false,
+                "That word can't be remixed right now - please try again.");
+        }
+
+        var words = room.BuildReveal()
+            .Select(w => new RevealWordDto(w.Word, w.Nickname, w.Variant))
+            .ToArray();
+        await Clients.Group(room.Code).SendAsync(
+            "RevealReady",
+            new RevealReadyDto(round.TemplateId, words));
 
         return new SubmitWordResultDto(true, null);
     }

@@ -1,6 +1,6 @@
 # Story: One-blank remix of a finished tale
 
-**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** #61
+**Feature:** Replay & Remix  ·  **Status:** Complete  ·  **Issue:** #61
 
 ## Context
 A tiny change to a tale that already got a big laugh is an instant second laugh
@@ -13,30 +13,30 @@ onto the Reveal screen. See [feature.md](./feature.md) and
 `docs/features/the-reveal/01-text-reveal.md`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the Reveal screen for a completed tale, then I see a
+- [x] AC-01: Given the Reveal screen for a completed tale, then I see a
       low-emphasis "Remix a word" action (secondary weight, not competing with
       the existing gold "Play another round" CTA) that lets me pick ONE blank
       from the just-revealed story to re-fill.
-- [ ] AC-02: Given I tap "Remix a word", then I see the list of blanks from the
+- [x] AC-02: Given I tap "Remix a word", then I see the list of blanks from the
       finished tale (e.g. by their category label and current word, such as
       "adjective: squishy"), and I choose exactly one to remix.
-- [ ] AC-03: Given I choose a blank to remix, then I am prompted for a new word
+- [x] AC-03: Given I choose a blank to remix, then I am prompted for a new word
       for that blank only, using the same FillBlank-style prompt card the
       engine already uses for normal collection - not a new UI pattern.
-- [ ] AC-04: Given I submit the new word for the remixed blank, when assembly
+- [x] AC-04: Given I submit the new word for the remixed blank, when assembly
       re-runs, then the story is deterministically re-assembled with every
       OTHER blank's word unchanged and only the remixed blank's word swapped -
       calling the same `collectWord` + `assembleStory` pair the engine already
       uses for normal rounds, not a parallel re-implementation.
-- [ ] AC-05: Given the remixed story is assembled, then the Reveal screen
+- [x] AC-05: Given the remixed story is assembled, then the Reveal screen
       re-renders it the same way it renders any assembled story (coral
       highlight on every filled word, including the newly remixed one) - this
       story does not fork or duplicate `Reveal.tsx`'s rendering path.
-- [ ] AC-06: Given the new word submitted for the remixed blank, then it passes
+- [x] AC-06: Given the new word submitted for the remixed blank, then it passes
       the safety filter before it is recorded or shown, exactly like any other
       free-text submission (solo: the engine-boundary check; group: the
       server-side check).
-- [ ] AC-07: Given group play, when one player remixes a blank, then every
+- [x] AC-07: Given group play, when one player remixes a blank, then every
       player in the room sees the re-assembled story update together in
       near-real-time over the one SignalR connection - the remix is a shared
       moment, not a private edit only the remixer sees.
@@ -85,6 +85,12 @@ onto the Reveal screen. See [feature.md](./feature.md) and
 - The blank-picker list (AC-02) reads from `assembled.filledWords` (already
   has blankId + word + attribution) joined against `template.body` for the
   category label - no new data model.
+- Attribution side effect (by design): remixing a blank re-attributes that word
+  to the remixer (nickname + variant), following reveal-delight/04's "carved by"
+  model - so remixing someone else's blank moves that word's attribution, and its
+  count in the Round Complete recap, to the remixer. This is the intended
+  consequence of an any-player remix (you become the author of the word you
+  swapped), not a bug.
 
 ## Tests
 | AC | Test |

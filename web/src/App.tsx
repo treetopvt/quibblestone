@@ -121,6 +121,8 @@ import {
 import { loadReconnectHandle } from './reconnect';
 import { seedLibrary } from './content/seedLibrary';
 import { assemble, type SubmittedWord } from './engine/assemble';
+import { getBlanks } from './engine/template';
+import { listRemixableBlanks } from './engine/remixHelpers';
 import { Home } from './pages/Home';
 import { Join, type JoinProps } from './pages/Join';
 import { HostSetup } from './pages/HostSetup';
@@ -158,12 +160,19 @@ import { loadIdentity, saveIdentity } from './identity';
  * it has no owner, so it is skipped entirely (no PII, no phantom crew member) - the
  * total blanks reported to RoundComplete matches the words that actually have an
  * owner. Crew members come out in first-appearance (reveal) order.
+ *
+ * replay-remix/03: deliberately does NOT set `isHost` - the reveal payload
+ * carries no host flag (only nickname + variant per blank), so this stays a
+ * pure function of the reveal, matching its existing contract. The recap call
+ * site enriches the returned crew with `isHost`, cross-referenced from the
+ * LIVE roster (`room.players`) by nickname, right before handing it to
+ * RoundComplete.
  */
 function buildCrew(words: RevealInfo['words']): {
-  crew: RoundCompleteCrewMember[];
+  crew: Omit<RoundCompleteCrewMember, 'isHost'>[];
   totalWords: number;
 } {
-  const byNickname = new Map<string, RoundCompleteCrewMember>();
+  const byNickname = new Map<string, Omit<RoundCompleteCrewMember, 'isHost'>>();
   let totalWords = 0;
   for (const w of words) {
     // Skip an unfilled blank (a disconnected player left it empty): no owner, no PII.
@@ -229,6 +238,7 @@ function GroupReveal({
   goldenGuardianWinningBlankId,
   onCastGoldenGuardianVote,
   onCloseGoldenGuardianVoting,
+  onRemixWord,
   onPlayAgain,
   onHome,
 }: {
@@ -243,6 +253,13 @@ function GroupReveal({
   goldenGuardianWinningBlankId: string | null;
   onCastGoldenGuardianVote: (blankId: string) => void;
   onCloseGoldenGuardianVoting: () => void;
+  /**
+   * replay-remix/02 (AC-04/AC-06/AC-07): the hub's `remixWord` invoke, keyed by
+   * blank INDEX (the same body-order convention `submitWord` and Golden
+   * Guardian's vote token use) - GroupReveal below resolves the blank-id the
+   * Reveal picker hands back to its body-order index before calling this.
+   */
+  onRemixWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   onPlayAgain: () => void;
   onHome: () => void;
 }) {
@@ -340,6 +357,28 @@ function GroupReveal({
   // Progressive Story reveal surface and never crashes.
   const revealSurfaces = findGroupMode(mode).revealSurfaces({ template, assembled });
 
+  // replay-remix/02 (AC-02/AC-04/AC-06/AC-07): the "Remix a word" slot. `blanks`
+  // is the SAME pure picker list (engine/remixHelpers.ts) solo uses, built from
+  // THIS render's `assembled` + `template`. `onSubmit` resolves the picker's
+  // blankId back to its body-order INDEX (the wire convention `onRemixWord` /
+  // the hub's RemixWord expect - the same one `submitWord` and Golden Guardian's
+  // vote token already use) and forwards to the hub invoke. The server re-vets
+  // the word (AC-06) and re-broadcasts "RevealReady" (AC-07); this component
+  // needs NO extra state of its own - the SAME `reveal` prop feeding `assembled`
+  // above updates from that broadcast and this whole function re-renders with
+  // the swapped word, exactly like any other RevealReady update.
+  const templateBlanks = getBlanks(template);
+  const remix = {
+    blanks: listRemixableBlanks(assembled, template),
+    onSubmit: async (blankId: string, word: string) => {
+      const blankIndex = templateBlanks.findIndex((b) => b.id === blankId);
+      if (blankIndex < 0) {
+        return { accepted: false, message: 'Something went off - please try again.' };
+      }
+      return onRemixWord(blankIndex, word);
+    },
+  };
+
   return (
     <Reveal
       assembled={assembled}
@@ -352,6 +391,7 @@ function GroupReveal({
       wordAttribution={wordAttribution}
       saveImageByline={saveImageByline}
       publicShare={publicShare}
+      remix={remix}
       // reveal-delight/01 (AC-04) + reactions v2: counts are server-authoritative
       // (from the hub's ReactionCountsChanged broadcast, where the server de-dupes
       // ONE PER USER) and a tap fires the hub's React invoke, so every player sees
@@ -543,10 +583,12 @@ export default function App() {
     castGoldenGuardianVote,
     closeGoldenGuardianVoting,
     submitWord,
+    remixWord,
     createRoom,
     joinRoom,
     startRound,
     backToLobby,
+    passHost,
     roundNotice,
     dismissRoundNotice,
     clearRoom,
@@ -679,6 +721,26 @@ export default function App() {
       setPlayAgainError(result.error ?? 'Could not start another round - please try again.');
     }
   }, [startRound, lastFamilySafe, lastLengthPref, lastModeId]);
+
+  // replay-remix/01 (AC-01/AC-02/AC-04): "Carve it again" from the Round Complete
+  // recap (host). Same seam as handlePlayAnotherRound above, but pins the just-
+  // finished template id (reveal.templateId) instead of leaving it undefined - the
+  // server then plays that EXACT tale again (host-checked and family-safe-gated
+  // exactly like handlePlayFavorite's explicit pick above) rather than a new
+  // random/host pick. Reuses the SAME sticky family-safe + mode the host is
+  // already playing with, so no new picker is shown (AC-02 out-of-scope). On
+  // success the server's RoundStarted broadcast clears reveal and routes EVERYONE
+  // into the new round together (AC-04) - this handler never sets round locally.
+  const handleCarveItAgain = useCallback(async () => {
+    if (!reveal) {
+      return;
+    }
+    setPlayAgainError(null);
+    const result = await startRound(lastFamilySafe, lastLengthPref, lastModeId, reveal.templateId);
+    if (!result.ok) {
+      setPlayAgainError(result.error ?? 'Could not start another round - please try again.');
+    }
+  }, [startRound, lastFamilySafe, lastLengthPref, lastModeId, reveal]);
 
   // group-play/04: "Back to lobby" from the Round Complete recap (host). The hub's
   // bare "BackToLobby" broadcast clears round/reveal for EVERYONE so all players land
@@ -822,20 +884,49 @@ export default function App() {
       (() => {
         const template = seedLibrary.find((t) => t.id === reveal.templateId);
         const { crew, totalWords } = buildCrew(reveal.words);
+        // replay-remix/03 (AC-03): enrich the reveal-derived crew with `isHost`,
+        // cross-referenced from the LIVE roster by nickname (the reveal payload
+        // itself carries no host flag) - so the crew row's crown moves live on a
+        // "Pass the chisel" handoff, exactly like Lobby's roster tiles.
+        const host = room.players.find((p) => p.isHost);
+        const hostNickname = host?.nickname;
+        const crewWithHost = crew.map((member) => ({
+          ...member,
+          isHost: member.nickname === hostNickname,
+        }));
+        // replay-remix/03 (AC-03): the host can be ABSENT from the reveal-derived
+        // crew when they carved 0 words this round (fewer blanks than players, or
+        // a handoff to someone who did not submit) - buildCrew only lists players
+        // who own a filled blank. Ensure the host always has a tile (wordCount 0)
+        // so the crown - and the host-only "Pass the chisel" affordance - has a
+        // home on the recap, not only in the Lobby. Nickname match stays exact:
+        // both strings are the SAME stored player nickname, and join uniqueness is
+        // not case-folded, so a case-insensitive compare could crown the wrong
+        // same-spelling player.
+        if (host && !crewWithHost.some((member) => member.isHost)) {
+          crewWithHost.push({
+            nickname: host.nickname,
+            variant: toGuardianVariant(host.variant),
+            wordCount: 0,
+            isHost: true,
+          });
+        }
         return (
           <RoundComplete
             roundNumber={round.roundNumber}
             title={template ? template.title : 'Your tale'}
-            crew={crew}
+            crew={crewWithHost}
             totalWords={totalWords}
             crownedNickname={crownedNickname}
             isHost={isHost}
             canPlayAgain={room.players.length >= 2}
             playAgainError={playAgainError}
             onPlayAgain={() => void handlePlayAnotherRound()}
+            onCarveItAgain={() => void handleCarveItAgain()}
             onBackToLobby={handleBackToLobby}
             onLeave={handleGoHome}
             templateId={reveal.templateId}
+            onPassHost={passHost}
           />
         );
       })()
@@ -914,6 +1005,7 @@ export default function App() {
               onLeave={handleGoHome}
               onStart={handleStartRound}
               onPlayFavorite={handlePlayFavorite}
+              onPassHost={passHost}
               notice={roundNotice}
               onDismissNotice={dismissRoundNotice}
             />
@@ -972,6 +1064,7 @@ export default function App() {
               goldenGuardianWinningBlankId={goldenGuardianWinningBlankId}
               onCastGoldenGuardianVote={castGoldenGuardianVote}
               onCloseGoldenGuardianVoting={closeGoldenGuardianVoting}
+              onRemixWord={remixWord}
               onPlayAgain={() => setShowRoundComplete(true)}
               onHome={handleGoHome}
             />

@@ -1093,6 +1093,68 @@ public sealed class Room
     }
 
     /// <summary>
+    /// replay-remix/03 (AC-02/AC-06): move the room's HOST flag from the connection
+    /// that currently holds it to another roster member by NICKNAME ("Pass the
+    /// chisel"). Nickname is the only identity the caller (the hub) has for the
+    /// target - connectionId is a server-side handle never sent to a client
+    /// (no PII) - and nicknames are unique within a room, case-insensitively,
+    /// enforced at join (session-engine/02, AC-06), so matching by nickname is
+    /// unambiguous here.
+    ///
+    /// The hub is responsible for the phase gate (AC-05, "between rounds only")
+    /// and for the initial host-authorization check (AC-04, mirroring
+    /// <see cref="IsHost"/>'s use in <see cref="StartRound"/>/<see cref="BackToLobby"/>)
+    /// BEFORE calling this - this method re-verifies the caller still owns the host
+    /// player UNDER THE LOCK (so a race between the hub's check and this call cannot
+    /// flip a stale host), then looks up the target by nickname and flips both
+    /// records atomically. No new player field is added (AC-06) - IsHost simply
+    /// moves from one existing, already-anonymous <see cref="Player"/> record to
+    /// another via the same immutable with-expression swap every other roster
+    /// mutation here uses.
+    ///
+    /// Returns false (a no-op - nothing is mutated) when: the caller no longer owns
+    /// the host player, the target nickname does not match a CURRENT roster member
+    /// (Out of Scope: passing to someone not in the room), or the target IS the
+    /// current host (passing to yourself is a no-op, not an error worth a distinct
+    /// message). Returns true once the flip is recorded.
+    /// </summary>
+    /// <param name="callerConnectionId">The calling connection, expected to own the host player.</param>
+    /// <param name="targetNickname">The roster member (by nickname, case-insensitive) to become the new host.</param>
+    /// <returns>True if the host flag moved; false if nothing matched or there was nothing to do.</returns>
+    public bool PassHost(string callerConnectionId, string targetNickname)
+    {
+        if (string.IsNullOrEmpty(callerConnectionId) || string.IsNullOrWhiteSpace(targetNickname))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            var hostIndex = _players.FindIndex(p => p.IsHost && p.ConnectionId == callerConnectionId);
+            if (hostIndex < 0)
+            {
+                // The caller no longer owns the host player (a race, or a crafted
+                // client) - nothing to hand off (AC-04).
+                return false;
+            }
+
+            var targetIndex = _players.FindIndex(p =>
+                string.Equals(p.Nickname, targetNickname, StringComparison.OrdinalIgnoreCase));
+            if (targetIndex < 0 || targetIndex == hostIndex)
+            {
+                // Unknown/departed target, or a "pass to myself" no-op (Out of
+                // Scope: the target must be a live roster member).
+                return false;
+            }
+
+            _players[hostIndex] = _players[hostIndex] with { IsHost = false };
+            _players[targetIndex] = _players[targetIndex] with { IsHost = true };
+            LastActiveUtc = DateTimeOffset.UtcNow;
+            return true;
+        }
+    }
+
+    /// <summary>
     /// room-start-duplicate-members: whether ANY seat currently holds the host flag.
     /// With host migration (<see cref="EnsureHostLocked"/>) a non-empty room is always
     /// hosted, so this is a belt-and-suspenders read - the hub's StartRound lets any
@@ -1910,6 +1972,87 @@ public sealed class Room
             }
 
             return words;
+        }
+    }
+
+    /// <summary>
+    /// The outcome of <see cref="RemixSubmission"/> (replay-remix/02). Mirrors
+    /// <see cref="SubmitOutcome"/>'s friendly-envelope posture: an EXPECTED
+    /// rejection (not in the reveal, or an out-of-range blank index) never throws.
+    /// </summary>
+    public enum RemixOutcome
+    {
+        /// <summary>No round, the round is not in the "reveal" phase (mid-collection or lobby), or the blank index is out of range.</summary>
+        NotFound,
+
+        /// <summary>The caller is not a live, seated member of this room.</summary>
+        NotAMember,
+
+        /// <summary>Recorded: the ONE blank's word was swapped.</summary>
+        Recorded,
+    }
+
+    /// <summary>
+    /// Records a ONE-BLANK remix of an ALREADY-REVEALED round (replay-remix/02,
+    /// AC-04/AC-07): swaps exactly one blank index's stored <see cref="Submission"/>
+    /// for a NEW word, attributed to the REMIXING player (their own nickname +
+    /// variant, so "carved by" attribution follows whoever actually chose the new
+    /// word - reveal-delight/04's existing attribution model, unmodified).
+    ///
+    /// Per the settled Decisions-log call (2026-07-04): ANY live room member may
+    /// remix, NOT host-only - so this checks membership only, no host guard (unlike
+    /// <see cref="RecordSubmission"/>'s "must own this blank" rule, which does not
+    /// apply here: a remix is a deliberate, opt-in re-pick of ANY blank, not a
+    /// normal per-player assignment).
+    ///
+    /// Requires the round to be in the "reveal" phase (AC's "not mid-collection"
+    /// rule) - a round still "prompting" has nothing finished to remix, and once a
+    /// round returns to the lobby there is no round at all. Word content itself is
+    /// NOT vetted here: the caller (GameHub.RemixWord) runs the SAME server-side
+    /// safety check every other submission uses, BEFORE calling this method - this
+    /// method only handles the authoritative swap + membership/phase guards, under
+    /// the room lock.
+    /// </summary>
+    /// <param name="connectionId">The remixing connection - must be a live, seated room member.</param>
+    /// <param name="blankIndex">The blank index (into the round's ordered blanks) to swap.</param>
+    /// <param name="word">The already-safety-vetted new word for that one blank.</param>
+    /// <returns>Whether the remix was rejected (no reveal / bad index), rejected (not a member), or recorded.</returns>
+    public RemixOutcome RemixSubmission(string connectionId, int blankIndex, string word)
+    {
+        lock (_gate)
+        {
+            if (_round is null || !string.Equals(_round.Phase, "reveal", StringComparison.Ordinal))
+            {
+                // Mid-collection or no round at all - nothing finished to remix.
+                return RemixOutcome.NotFound;
+            }
+
+            var blankCount = _round.Assignments.Sum(a => a.BlankIndices.Count);
+            if (blankIndex < 0 || blankIndex >= blankCount)
+            {
+                return RemixOutcome.NotFound;
+            }
+
+            // ANY live room member may remix (2026-07-04 Decisions log) - a simple
+            // membership check, deliberately NOT the host-only pattern StartRound /
+            // BackToLobby use elsewhere in this file.
+            var remixer = _players.FirstOrDefault(p => p.ConnectionId == connectionId);
+            if (remixer is null)
+            {
+                return RemixOutcome.NotAMember;
+            }
+
+            // Swap the ONE blank's stored submission, attributed to the remixer -
+            // mutate a fresh dictionary and swap it in (matches RecordSubmission's
+            // own "never mutate the live dictionary in place" posture).
+            var next = new Dictionary<int, Submission>(_round.Submissions)
+            {
+                [blankIndex] = new Submission(word, remixer.Nickname, remixer.Variant),
+            };
+            _round.Submissions = next;
+            LastActiveUtc = DateTimeOffset.UtcNow;
+
+            return RemixOutcome.Recorded;
         }
     }
 }
