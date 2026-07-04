@@ -115,6 +115,25 @@
 //  `../reconnect.ts`'s `loadReconnectHandle()` in `App.tsx` to decide whether a
 //  live-route guard should show a calm "reconnecting..." beat instead of
 //  bouncing Home - see App.tsx's `shouldHoldLiveRouteForResume`.
+//
+//  replay-remix/03 adds `passHost` (a host-only, phase-gated invoke - "Pass the
+//  chisel" - that the SERVER rejects for a non-host caller or a mid-round
+//  "prompting" phase, mirroring startRound's posture) on the SAME connection. It
+//  reuses the EXISTING "RosterChanged" handler for its live effect (no new event
+//  type - the moved IsHost flag already rides on every PlayerDto), but that
+//  exposed the ONE nuance this story had to close: `isHost` was, until now, set
+//  ONLY from this client's OWN createRoom/joinRoom action (see the comment on
+//  `isHost` below) - so a client that RECEIVES a handoff (or loses the role) had
+//  no path to learn it. `handleRosterChanged` now ALSO re-derives `isHost` for
+//  THIS client by matching the incoming roster against `myNicknameRef` - the one
+//  identity handle this client already holds locally (the nickname it created/
+//  joined the room with). Nicknames are enforced unique within a room, case-
+//  insensitively, at join (session-engine/02, AC-06) and never change after, so
+//  this match stays valid for the room's whole lifetime. This IS a slightly
+//  fragile handle (a wire-level connection/session id would be more robust, but
+//  that would mean putting connection identity on PlayerDto, which the file's
+//  own existing comment on `isHost` explains we deliberately do NOT do, for no-
+//  PII reasons) - flagged here rather than inventing a new wire field.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -387,7 +406,12 @@ export interface UseGameHub {
    * cleared when it leaves. The Lobby gates the host-only "Start game" CTA on
    * this (AC-05). It is tracked from the caller's own action rather than read
    * off the roster, because IsHost on a PlayerDto is not tied to a connection
-   * on the wire (no PII), so a client cannot tell which roster row is "me".
+   * on the wire (no PII), so a client cannot tell which roster row is "me" -
+   * EXCEPT that replay-remix/03's "Pass the chisel" ALSO re-derives it from an
+   * incoming "RosterChanged" broadcast, by matching the roster against the
+   * nickname this client created/joined with (`myNicknameRef`) - the one
+   * additional path a handoff needs, since a client can become (or stop being)
+   * host without ever calling createRoom/joinRoom/startRound itself.
    */
   isHost: boolean;
   /**
@@ -550,6 +574,20 @@ export interface UseGameHub {
    * roster preserved. Returns a not-connected failure if the hub is not ready.
    */
   backToLobby: () => Promise<{ ok: boolean; error: string | null }>;
+  /**
+   * replay-remix/03 (AC-01/AC-02/AC-04/AC-05): host-only, phase-gated "Pass the
+   * chisel" - hand the host role to another roster player, BY NICKNAME, between
+   * rounds only. Invokes the hub's PassHost with the current room code (from
+   * roomCodeRef) and the target's nickname; the SERVER re-enforces the host
+   * check and rejects a mid-round ("prompting") attempt (authoritative, same
+   * posture as startRound/backToLobby). Resolves with { ok, error } (a friendly,
+   * kid-readable message on an expected rejection). Does NOT flip `isHost`
+   * itself on success - the server's reused "RosterChanged" broadcast carries
+   * the moved flag to EVERY client (including this one), and the handler above
+   * re-derives `isHost` from it. Returns a not-connected failure if the hub is
+   * not ready.
+   */
+  passHost: (targetNickname: string) => Promise<{ ok: boolean; error: string | null }>;
   /** A friendly notice to show on the lobby when a round was reset (a player left mid-round), or null. */
   roundNotice: string | null;
   /** Dismiss the round-aborted lobby notice. */
@@ -638,6 +676,15 @@ export function useGameHub(): UseGameHub {
   // player has already gone Home (the post-leave re-entry bug).
   const inRoomRef = useRef(false);
   const roomCodeRef = useRef<string | null>(null);
+  // replay-remix/03: the ONE identity handle this client holds for "which roster
+  // row is me" - the (trimmed) nickname it created/joined the room with. Set on a
+  // successful createRoom/joinRoom, cleared on clearRoom. Nicknames are unique
+  // within a room, case-insensitively, at join (session-engine/02, AC-06) and
+  // never change afterward, so matching by it stays valid for the room's life.
+  // Used ONLY by handleRosterChanged below to re-derive `isHost` when a "Pass the
+  // chisel" handoff makes/unmakes this client the host without it calling
+  // createRoom/joinRoom/startRound itself.
+  const myNicknameRef = useRef<string | null>(null);
   // session-engine/09: whether an auto-rejoin attempt is currently in flight.
   // `rejoiningRef` is the synchronous double-fire guard `rejoin()` checks
   // FIRST (so the two triggers, AC-02's onreconnected and AC-03's mount-time
@@ -711,6 +758,21 @@ export function useGameHub(): UseGameHub {
         roomCodeRef.current = handle.code;
         if (result.room) setRoom(result.room);
         setIsHost(result.isHost);
+        // replay-remix/03: myNicknameRef is normally set by createRoom/joinRoom in
+        // THIS tab session; a rejoin after a full reload/relaunch starts it null
+        // (a fresh component mount). It can only be safely recovered here for the
+        // HOST case - a room has exactly one host, so a rejoin landing as host can
+        // match that one roster entry. A non-host rejoin has no reliable way to
+        // tell which roster row is "me" from this envelope alone (the nickname
+        // handle's known fragility - see the file header and openQuestions), so
+        // myNicknameRef stays null for that case until this client's own
+        // createRoom/joinRoom next runs.
+        if (result.isHost && result.room) {
+          const hostEntry = result.room.players.find((p) => p.isHost);
+          if (hostEntry) {
+            myNicknameRef.current = hostEntry.nickname;
+          }
+        }
         setRound(result.round);
         setAssignedBlankIndices(result.yourBlanks ? result.yourBlanks.blankIndices : null);
         setCollectProgress(result.progress);
@@ -769,6 +831,22 @@ export function useGameHub(): UseGameHub {
       // state and bounce a player who just went Home back into the lobby.
       if (cancelled || !inRoomRef.current) return;
       setRoom(state);
+      // replay-remix/03 (AC-02/AC-03): re-derive OUR OWN host flag from the
+      // incoming roster. A "Pass the chisel" handoff can make (or unmake) this
+      // client the host WITHOUT it having called createRoom/joinRoom/startRound
+      // itself, so `isHost` must also flip here, live, for both the newly-made
+      // host AND the outgoing one. Matched by the one identity handle this
+      // client holds - the nickname it created/joined with (see myNicknameRef's
+      // own comment for why nickname, not a wire identity field).
+      const myNickname = myNicknameRef.current;
+      if (myNickname) {
+        const mine = state.players.find(
+          (p) => p.nickname.toLowerCase() === myNickname.toLowerCase(),
+        );
+        if (mine) {
+          setIsHost(mine.isHost);
+        }
+      }
     };
     connection.on('RosterChanged', handleRosterChanged);
 
@@ -990,6 +1068,10 @@ export function useGameHub(): UseGameHub {
         if (result.ok && result.room) {
           inRoomRef.current = true;
           roomCodeRef.current = result.room.code;
+          // replay-remix/03: remember the nickname we created with - the identity
+          // handle handleRosterChanged needs to re-derive `isHost` if a later
+          // "Pass the chisel" handoff moves the role off this client.
+          myNicknameRef.current = displayName.trim();
           setRoom(result.room);
           setIsHost(true); // the creator is the host (AC-05)
           // session-engine/09 (AC-01): remember this seat's {code, token} handle
@@ -1031,6 +1113,10 @@ export function useGameHub(): UseGameHub {
         if (result.ok && result.room) {
           inRoomRef.current = true;
           roomCodeRef.current = result.room.code;
+          // replay-remix/03: remember the nickname we joined with - the identity
+          // handle handleRosterChanged needs to re-derive `isHost` if a later
+          // "Pass the chisel" handoff makes this client the new host.
+          myNicknameRef.current = displayName.trim();
           setRoom(result.room);
           setIsHost(false); // a joiner is never the host (AC-05)
           // session-engine/09 (AC-01): remember this seat's {code, token} handle
@@ -1125,6 +1211,38 @@ export function useGameHub(): UseGameHub {
       // together, with the code + roster preserved.
       try {
         return await connection.invoke<{ ok: boolean; error: string | null }>('BackToLobby', code);
+      } catch {
+        // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
+        return { ok: false, error: "Something went off - give it a moment and try again." };
+      }
+    },
+    [],
+  );
+
+  const passHost = useCallback(
+    async (targetNickname: string): Promise<{ ok: boolean; error: string | null }> => {
+      const connection = connectionRef.current;
+      const code = roomCodeRef.current;
+      if (
+        !connection ||
+        connection.state !== HubConnectionState.Connected ||
+        !code
+      ) {
+        return {
+          ok: false,
+          error: "We're not connected yet - give it a moment and try again.",
+        };
+      }
+      // The SERVER enforces the host check + the between-rounds phase gate
+      // (replay-remix/03, AC-04/AC-05) - we never set `isHost` here on success;
+      // the reused "RosterChanged" broadcast (handled above) carries the moved
+      // flag to EVERY client, including this one.
+      try {
+        return await connection.invoke<{ ok: boolean; error: string | null }>(
+          'PassHost',
+          code,
+          targetNickname,
+        );
       } catch {
         // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
         return { ok: false, error: "Something went off - give it a moment and try again." };
@@ -1244,6 +1362,7 @@ export function useGameHub(): UseGameHub {
     // Mark "left" BEFORE anything else so an in-flight RosterChanged is ignored.
     inRoomRef.current = false;
     roomCodeRef.current = null;
+    myNicknameRef.current = null; // replay-remix/03: forget our identity handle on leave.
     setRoom(null);
     setIsHost(false);
     setRound(null); // group-play/01: drop any in-progress round on leave.
@@ -1292,6 +1411,7 @@ export function useGameHub(): UseGameHub {
     joinRoom,
     startRound,
     backToLobby,
+    passHost,
     roundNotice,
     dismissRoundNotice,
     clearRoom,

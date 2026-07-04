@@ -105,6 +105,16 @@
 //      under the current toggle) shows a friendly inline message, mirroring
 //      RoundComplete's playAgainError.
 //
+//  replay-remix/03 ("Pass the chisel", AC-01/AC-02/AC-04/AC-05): the Lobby is
+//  always "between rounds" (there is no live round here), so a host-only "Pass"
+//  pill (PassHostPill, below) appears on every OTHER present player's tile
+//  whenever this client is host - tapping it calls onPassHost with that tile's
+//  nickname. The SERVER re-enforces the host check + the between-rounds phase
+//  gate authoritatively (AC-04/AC-05); a rejection (a rare race) surfaces as a
+//  transient inline message. On success the reused "RosterChanged" broadcast
+//  moves the crown for everyone live (AC-02/AC-03) - this screen adds no new
+//  broadcast handling of its own.
+//
 //  Child safety (AC-06): names arrive already vetted by the join-time safety
 //  filter (session-engine/02); this screen renders them verbatim and never takes
 //  free text of its own, so no unfiltered name is ever shown. The length choice
@@ -190,6 +200,16 @@ export interface LobbyProps {
    */
   onPlayFavorite: (templateId: string, familySafe: boolean, modeId: string) => Promise<StartRoundResult>;
   /**
+   * replay-remix/03 (AC-01/AC-02): host-only "Pass the chisel" - hand the host
+   * role to another present roster player, by nickname. The Lobby is always
+   * "between rounds" (there is no live round here), so the action shows on
+   * every OTHER present player's tile whenever THIS client is host (AC-01);
+   * App wires this to the hub's host-only passHost invoke - the SERVER
+   * re-enforces the host check (AC-04). Omitted renders no handoff affordance
+   * (defensive default - e.g. a screen reused before this story wires it up).
+   */
+  onPassHost?: (targetNickname: string) => Promise<{ ok: boolean; error: string | null }>;
+  /**
    * Optional notice shown at the top of the lobby - e.g. "a carver left, so the
    * round was reset" when the hub aborts a round mid-collection (group-play
    * recovery). Omitted/null renders nothing.
@@ -253,8 +273,24 @@ const toastIn = keyframes`
  * disconnected (the dashed pulse already signals motion; two competing rings
  * read as noisy) but the crown badge stays - identity ("who this seat belongs
  * to") persists, only presence dims.
+ *
+ * replay-remix/03 (AC-01): `onPassHost`, when supplied, renders a small "Pass"
+ * pill (reusing the app's carving/chisel glyph, faHammer - already registered
+ * for the Waiting screen's progress row and RoundBadge's "ROUND N CARVED" - not
+ * a new icon) beneath the name so the HOST can hand this OTHER player the role
+ * with one tap. The caller (Lobby) only ever supplies this to tiles that are
+ * NOT the current host's own.
  */
-function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
+function PlayerTile({
+  player,
+  crowned,
+  onPassHost,
+}: {
+  player: Player;
+  crowned: boolean;
+  /** replay-remix/03 (AC-01): pass the host role to THIS tile's player. Present only for host-viewable, non-host tiles. */
+  onPassHost?: () => void;
+}) {
   const theme = useTheme();
   // The variant is a free string on the wire; the server normalizes it to one of
   // the six known values, so treat it as a GuardianVariant for the avatar.
@@ -361,7 +397,51 @@ function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
           could read as "still empty", so the plain-language chip stays to
           explain WHY the round is paused on this seat. */}
       {!connected && <ReconnectingChip />}
+      {/* replay-remix/03 (AC-01): host-only "Pass the chisel" - a small tappable
+          pill so the host can hand this OTHER player the role with one tap. The
+          caller only supplies onPassHost for a non-host tile when THIS client is
+          host, so no extra gating is needed here. */}
+      {onPassHost && <PassHostPill onPassHost={onPassHost} nickname={player.nickname} />}
     </Stack>
+  );
+}
+
+/**
+ * replay-remix/03 (AC-01): the "Pass the chisel" pill - a small, tappable,
+ * host-only affordance rendered beneath a roster tile's name, reusing the
+ * app's carving/chisel glyph (faHammer, already registered for the Waiting
+ * screen's progress row and RoundBadge). Kept compact to match the tile's own
+ * ~60px footprint (the reconnecting chip beside it uses the same scale).
+ */
+function PassHostPill({ onPassHost, nickname }: { onPassHost: () => void; nickname: string }) {
+  const theme = useTheme();
+  return (
+    <Box
+      component="button"
+      type="button"
+      onClick={onPassHost}
+      aria-label={`Pass the chisel to ${nickname}`}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.5,
+        mt: 0.75,
+        px: 1.25,
+        py: 0.5,
+        border: 'none',
+        borderRadius: 999,
+        bgcolor: alpha(theme.palette.primary.main, 0.14),
+        color: theme.palette.primary.main,
+        fontFamily: '"Nunito", sans-serif',
+        fontWeight: 800,
+        fontSize: 10.5,
+        cursor: 'pointer',
+        '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+      }}
+    >
+      <FontAwesomeIcon icon="hammer" style={{ width: 10, height: 10 }} />
+      Pass
+    </Box>
   );
 }
 
@@ -651,11 +731,30 @@ export function Lobby({
   onLeave,
   onStart,
   onPlayFavorite,
+  onPassHost,
   notice,
   onDismissNotice,
 }: LobbyProps) {
   const theme = useTheme();
   const players = room.players;
+
+  // replay-remix/03: a friendly, transient message when a "Pass the chisel"
+  // attempt is rejected server-side (a race with the room dropping out of
+  // "between rounds", or the target having just left). Mirrors the join
+  // toast's own transient-timer pattern below.
+  const [passHostError, setPassHostError] = useState<string | null>(null);
+  const passHostErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handlePassHost = async (targetNickname: string) => {
+    if (!onPassHost) return;
+    setPassHostError(null);
+    const result = await onPassHost(targetNickname);
+    if (!result.ok) {
+      setPassHostError(result.error ?? "Couldn't pass the chisel - please try again.");
+      if (passHostErrorTimer.current) clearTimeout(passHostErrorTimer.current);
+      passHostErrorTimer.current = setTimeout(() => setPassHostError(null), TOAST_DURATION_MS);
+    }
+  };
 
   // Host-only "Game settings" bottom sheet (fit-to-viewport redesign): whether
   // the sheet holding the family-safe toggle / length choice / mode picker /
@@ -751,10 +850,12 @@ export function Lobby({
     seenNames.current = current;
   }, [players]);
 
-  // Clear a pending toast timer on unmount so it never fires after leaving.
+  // Clear pending toast / pass-host-error timers on unmount so neither fires
+  // after leaving.
   useEffect(() => {
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
+      if (passHostErrorTimer.current) clearTimeout(passHostErrorTimer.current);
     };
   }, []);
 
@@ -898,10 +999,38 @@ export function Lobby({
                 key={player.nickname}
                 player={player}
                 crowned={!!crownedNickname && player.nickname === crownedNickname}
+                // replay-remix/03 (AC-01/AC-04/AC-05): the Lobby is always
+                // "between rounds", so the only gate here is "I am host" and
+                // "this tile is not my own" - the SERVER re-enforces both the
+                // host check and the phase gate authoritatively either way.
+                onPassHost={
+                  isHost && !player.isHost && onPassHost
+                    ? () => void handlePassHost(player.nickname)
+                    : undefined
+                }
               />
             ))}
             <InviteSlot code={room.code} />
           </Stack>
+          {/* replay-remix/03: a transient, friendly rejection message (mirrors
+              favoriteError's inline posture below) - most taps succeed instantly
+              via the reused RosterChanged broadcast, so this only shows on the
+              rare server-side reject (a race with the phase gate, or a target
+              that just left). */}
+          {passHostError && (
+            <Typography
+              sx={{
+                mt: 1,
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 12,
+                color: 'coral.main',
+                textAlign: 'center',
+              }}
+            >
+              {passHostError}
+            </Typography>
+          )}
         </Box>
 
         {/* Host-only collapsed "Game settings" row (fit-to-viewport redesign):

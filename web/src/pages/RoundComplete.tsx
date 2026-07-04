@@ -41,6 +41,17 @@
 //  call - it moves everyone, so for Slice 1 the host owns it (see openQuestions);
 //  non-hosts follow.
 //
+//  replay-remix/03 ("Pass the chisel", AC-01/AC-02/AC-04/AC-05): Round Complete's
+//  underlying round phase is "reveal" - between rounds, exactly like Lobby - so
+//  a host-only "Pass" pill appears on every OTHER crew tile whenever this client
+//  is host, and the crew row now shows a gold crown badge on whichever tile is
+//  the CURRENT host (a new addition here - previously this screen carried no
+//  host indicator at all). Tapping "Pass" calls onPassHost with that member's
+//  nickname; the SERVER re-enforces the host check + phase gate (AC-04/AC-05).
+//  On success the crown moves live via the reused "RosterChanged" broadcast -
+//  App re-derives each crew member's `isHost` from the live roster by nickname,
+//  since the reveal payload itself carries no host flag.
+//
 //  Child safety (AC-06): every crew name shown here was safety-filtered at join
 //  (session-engine/02) and no PII is carried (nickname + Guardian variant only - the
 //  connectionId stays server-side). This screen introduces NO new free-text surface.
@@ -53,6 +64,7 @@
 //  kid-readable. No em dashes in any prose / strings.
 // ----------------------------------------------------------------------------
 
+import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
@@ -67,6 +79,14 @@ export interface RoundCompleteCrewMember {
   variant: GuardianVariant;
   /** How many of the template's blanks this player carved (sums across the crew to totalWords). */
   wordCount: number;
+  /**
+   * replay-remix/03 (AC-03): whether this crew member currently holds the
+   * room's HOST role (cross-referenced from the live roster by nickname - the
+   * reveal payload itself carries no host flag). Drives the crown badge on this
+   * tile, mirroring Lobby's PlayerTile, so the host indicator (and its live
+   * movement on a "Pass the chisel" handoff) shows here too, not just in Lobby.
+   */
+  isHost: boolean;
 }
 
 export interface RoundCompleteProps {
@@ -120,6 +140,16 @@ export interface RoundCompleteProps {
   onBackToLobby: () => void;
   /** The app-bar exit / leave action (drops the room and returns Home). */
   onLeave: () => void;
+  /**
+   * replay-remix/03 (AC-01/AC-02): host-only "Pass the chisel" - hand the host
+   * role to another crew member, by nickname. Round Complete's underlying round
+   * phase is "reveal" (a between-rounds surface, like Lobby), so the action
+   * shows on every OTHER crew tile whenever THIS client is host (AC-01); App
+   * wires this to the hub's host-only passHost invoke - the SERVER re-enforces
+   * the host check + phase gate (AC-04/AC-05). Omitted renders no handoff
+   * affordance (defensive default).
+   */
+  onPassHost?: (targetNickname: string) => Promise<{ ok: boolean; error: string | null }>;
 }
 
 // CSS-only confetti fall+spin (mirrors Reveal.tsx's confettiFall - no canvas, no
@@ -252,8 +282,28 @@ function StatPill({ icon, label }: { icon: 'pen-nib' | 'users'; label: string })
   );
 }
 
-/** One crew member's recap tile: 56px Guardian + name + teal word-count caption (AC-03). */
-function CrewTile({ member, crowned }: { member: RoundCompleteCrewMember; crowned: boolean }) {
+/**
+ * One crew member's recap tile: 56px Guardian + name + teal word-count caption
+ * (AC-03).
+ *
+ * replay-remix/03: adds the SAME gold crown badge Lobby's PlayerTile renders
+ * for the room's host (AC-03 - the crown must move here too, not just in
+ * Lobby), and, host-viewer-only, a "Pass" pill (mirroring Lobby's
+ * PassHostPill) so the host can hand this OTHER crew member the role without
+ * leaving Round Complete (AC-01/AC-02). Note this crown is the HOST indicator,
+ * distinct from `crowned` (the Golden Guardian funniest-word winner overlay,
+ * reveal-delight/03) - both can appear on the same tile.
+ */
+function CrewTile({
+  member,
+  crowned,
+  onPassHost,
+}: {
+  member: RoundCompleteCrewMember;
+  crowned: boolean;
+  /** replay-remix/03 (AC-01): pass the host role to THIS tile's member. Present only for host-viewable, non-host tiles. */
+  onPassHost?: () => void;
+}) {
   const theme = useTheme();
   // "1 word" vs "N words" - a tiny plural so the caption reads naturally (AC-03).
   const wordLabel = `${member.wordCount} ${member.wordCount === 1 ? 'word' : 'words'}`;
@@ -262,6 +312,7 @@ function CrewTile({ member, crowned }: { member: RoundCompleteCrewMember; crowne
     <Stack alignItems="center" spacing={1} sx={{ width: 84 }}>
       <Box
         sx={{
+          position: 'relative',
           width: 74,
           height: 74,
           borderRadius: '50%',
@@ -274,6 +325,25 @@ function CrewTile({ member, crowned }: { member: RoundCompleteCrewMember; crowne
         }}
       >
         <Guardian variant={member.variant} size={56} crowned={crowned} />
+        {member.isHost && (
+          // The HOST crown badge (replay-remix/03, AC-03) - the SAME visual as
+          // Lobby's PlayerTile (gold, above the avatar), just repositioned for
+          // this tile's larger 74px circle.
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              top: -13,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              color: 'gold.main',
+              fontSize: 18,
+              display: 'flex',
+            }}
+          >
+            <FontAwesomeIcon icon="crown" />
+          </Box>
+        )}
       </Box>
       <Typography
         sx={{
@@ -301,6 +371,35 @@ function CrewTile({ member, crowned }: { member: RoundCompleteCrewMember; crowne
       >
         {wordLabel}
       </Typography>
+      {/* replay-remix/03 (AC-01): host-only "Pass the chisel", mirroring
+          Lobby's PassHostPill exactly (same visual language, not new chrome). */}
+      {onPassHost && (
+        <Box
+          component="button"
+          type="button"
+          onClick={onPassHost}
+          aria-label={`Pass the chisel to ${member.nickname}`}
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 0.5,
+            px: 1.25,
+            py: 0.5,
+            border: 'none',
+            borderRadius: 999,
+            bgcolor: alpha(theme.palette.primary.main, 0.14),
+            color: theme.palette.primary.main,
+            fontFamily: '"Nunito", sans-serif',
+            fontWeight: 800,
+            fontSize: 10.5,
+            cursor: 'pointer',
+            '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+          }}
+        >
+          <FontAwesomeIcon icon="hammer" style={{ width: 10, height: 10 }} />
+          Pass
+        </Box>
+      )}
     </Stack>
   );
 }
@@ -319,11 +418,33 @@ export function RoundComplete({
   onBackToLobby,
   onLeave,
   templateId,
+  onPassHost,
 }: RoundCompleteProps) {
   const theme = useTheme();
   const crewCount = crew.length;
   const wordsLabel = `${totalWords} ${totalWords === 1 ? 'word' : 'words'}`;
   const carversLabel = `${crewCount} ${crewCount === 1 ? 'carver' : 'carvers'}`;
+
+  // replay-remix/03: a friendly, transient rejection message for a "Pass the
+  // chisel" attempt (mirrors Lobby's own passHostError posture).
+  const [passHostError, setPassHostError] = useState<string | null>(null);
+  const passHostErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (passHostErrorTimer.current) clearTimeout(passHostErrorTimer.current);
+    };
+  }, []);
+
+  const handlePassHost = async (targetNickname: string) => {
+    if (!onPassHost) return;
+    setPassHostError(null);
+    const result = await onPassHost(targetNickname);
+    if (!result.ok) {
+      setPassHostError(result.error ?? "Couldn't pass the chisel - please try again.");
+      if (passHostErrorTimer.current) clearTimeout(passHostErrorTimer.current);
+      passHostErrorTimer.current = setTimeout(() => setPassHostError(null), 2600);
+    }
+  };
 
   return (
     <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto', overflow: 'hidden' }}>
@@ -429,9 +550,34 @@ export function RoundComplete({
                 key={member.nickname}
                 member={member}
                 crowned={!!crownedNickname && member.nickname === crownedNickname}
+                // replay-remix/03 (AC-01/AC-04/AC-05): Round Complete's underlying
+                // round phase is "reveal" (between rounds, like Lobby), so the
+                // only gate here is "I am host" and "this tile is not my own" -
+                // the SERVER re-enforces both the host check and phase gate.
+                onPassHost={
+                  isHost && !member.isHost && onPassHost
+                    ? () => void handlePassHost(member.nickname)
+                    : undefined
+                }
               />
             ))}
           </Stack>
+          {/* replay-remix/03: a transient, friendly rejection message (mirrors
+              Lobby's own passHostError posture). */}
+          {passHostError && (
+            <Typography
+              sx={{
+                mt: 1.5,
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 12,
+                color: 'coral.main',
+                textAlign: 'center',
+              }}
+            >
+              {passHostError}
+            </Typography>
+          )}
         </Box>
 
         {/* Quiet per-tale curation vote (story-selection/05, AC-01): sits below

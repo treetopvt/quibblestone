@@ -1057,6 +1057,68 @@ public sealed class Room
     }
 
     /// <summary>
+    /// replay-remix/03 (AC-02/AC-06): move the room's HOST flag from the connection
+    /// that currently holds it to another roster member by NICKNAME ("Pass the
+    /// chisel"). Nickname is the only identity the caller (the hub) has for the
+    /// target - connectionId is a server-side handle never sent to a client
+    /// (no PII) - and nicknames are unique within a room, case-insensitively,
+    /// enforced at join (session-engine/02, AC-06), so matching by nickname is
+    /// unambiguous here.
+    ///
+    /// The hub is responsible for the phase gate (AC-05, "between rounds only")
+    /// and for the initial host-authorization check (AC-04, mirroring
+    /// <see cref="IsHost"/>'s use in <see cref="StartRound"/>/<see cref="BackToLobby"/>)
+    /// BEFORE calling this - this method re-verifies the caller still owns the host
+    /// player UNDER THE LOCK (so a race between the hub's check and this call cannot
+    /// flip a stale host), then looks up the target by nickname and flips both
+    /// records atomically. No new player field is added (AC-06) - IsHost simply
+    /// moves from one existing, already-anonymous <see cref="Player"/> record to
+    /// another via the same immutable with-expression swap every other roster
+    /// mutation here uses.
+    ///
+    /// Returns false (a no-op - nothing is mutated) when: the caller no longer owns
+    /// the host player, the target nickname does not match a CURRENT roster member
+    /// (Out of Scope: passing to someone not in the room), or the target IS the
+    /// current host (passing to yourself is a no-op, not an error worth a distinct
+    /// message). Returns true once the flip is recorded.
+    /// </summary>
+    /// <param name="callerConnectionId">The calling connection, expected to own the host player.</param>
+    /// <param name="targetNickname">The roster member (by nickname, case-insensitive) to become the new host.</param>
+    /// <returns>True if the host flag moved; false if nothing matched or there was nothing to do.</returns>
+    public bool PassHost(string callerConnectionId, string targetNickname)
+    {
+        if (string.IsNullOrEmpty(callerConnectionId) || string.IsNullOrWhiteSpace(targetNickname))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            var hostIndex = _players.FindIndex(p => p.IsHost && p.ConnectionId == callerConnectionId);
+            if (hostIndex < 0)
+            {
+                // The caller no longer owns the host player (a race, or a crafted
+                // client) - nothing to hand off (AC-04).
+                return false;
+            }
+
+            var targetIndex = _players.FindIndex(p =>
+                string.Equals(p.Nickname, targetNickname, StringComparison.OrdinalIgnoreCase));
+            if (targetIndex < 0 || targetIndex == hostIndex)
+            {
+                // Unknown/departed target, or a "pass to myself" no-op (Out of
+                // Scope: the target must be a live roster member).
+                return false;
+            }
+
+            _players[hostIndex] = _players[hostIndex] with { IsHost = false };
+            _players[targetIndex] = _players[targetIndex] with { IsHost = true };
+            LastActiveUtc = DateTimeOffset.UtcNow;
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Opens a new round on this room (group-play/01 + /02). Sets the round state
     /// (round number, selected template id, mode, the "prompting" phase, and the
     /// per-player round-robin blank assignment) under the room lock so a concurrent
