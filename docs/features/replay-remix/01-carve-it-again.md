@@ -1,6 +1,6 @@
 # Story: Carve it again: same-crew, same-template replay
 
-**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** #60
+**Feature:** Replay & Remix  ·  **Status:** Complete  ·  **Issue:** #60
 
 ## Context
 The Round Complete screen already offers "Play another round" (`group-play/04`),
@@ -12,30 +12,30 @@ It is the "again!" reflex a kid has half a second after the laugh lands. See
 [feature.md](./feature.md) and `docs/features/group-play/04-round-complete.md`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the Round Complete screen, when I am the host, then I see a
+- [x] AC-01: Given the Round Complete screen, when I am the host, then I see a
       second, lower-emphasis action alongside the existing gold "Play another
       round" and outlined-purple "Back to lobby": an option to replay the exact
       same template just played (e.g. "Carve it again" with the same story
       title shown). It does not outrank the primary "Play another round" CTA -
       it reads as a secondary/tertiary affordance per the existing button
       hierarchy (gold primary, outlined-purple secondary).
-- [ ] AC-02: Given I tap "Carve it again", then a new round starts in the same
+- [x] AC-02: Given I tap "Carve it again", then a new round starts in the same
       room with the same players and the same template id as the round that
       just finished - no re-join, no code re-entry, and no template picker is
       shown.
-- [ ] AC-03: Given the same template is replayed, then every blank is
+- [x] AC-03: Given the same template is replayed, then every blank is
       re-collected fresh (new prompts, new submissions) - the previous round's
       words are not pre-filled or reused; the new round is entirely new
       content on the same skeleton.
-- [ ] AC-04: Given "Carve it again" starts a new round, then the round number
+- [x] AC-04: Given "Carve it again" starts a new round, then the round number
       increments (same as any other new round) and all players transition
       together into word collection in near-real-time over the one SignalR
       connection - I do not need to refresh.
-- [ ] AC-05: Given I am not the host, then I cannot trigger "Carve it again";
+- [x] AC-05: Given I am not the host, then I cannot trigger "Carve it again";
       only the host sees and can use this action, consistent with how
       `group-play/01`'s "Start game" and `group-play/04`'s "Play another round"
       are host-only and server-enforced.
-- [ ] AC-06: Given every word submitted in the replayed round, then it passes
+- [x] AC-06: Given every word submitted in the replayed round, then it passes
       the same server-side safety filter as any other round; no unfiltered
       free text is ever recorded or shown.
 

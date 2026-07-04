@@ -18,9 +18,9 @@ round" / "Back to lobby").
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #60 | Carve it again: same-crew, same-template replay | Not Started |
-| 02 | #61 | One-blank remix of a finished tale | Not Started |
-| 03 | #62 | Rotating host ("Pass the chisel") | Not Started |
+| 01 | #60 | Carve it again: same-crew, same-template replay | Complete |
+| 02 | #61 | One-blank remix of a finished tale | Complete |
+| 03 | #62 | Rotating host ("Pass the chisel") | Complete |
 
 ## Dependencies
 - group-play (the round lifecycle and the Round Complete replay loop this
@@ -91,3 +91,17 @@ round" / "Back to lobby").
   is unchanged (Wave 1 = {01, 02} parallel, Wave 2 = {03}); the serialization
   reasons shift: 01 and 03 now serialize on `RoundComplete.tsx`/`App.tsx`, and
   02 and 03 serialize on `GameHub.cs`/`useGameHub.ts`.
+- 2026-07-04: Remix mechanic confirmed as "cherry-pick one blank, submit a new
+  word, re-reveal with only that word swapped" (story 02 as built). A one-tap
+  "shuffle the existing words into other slots" variant was considered and
+  dropped (not parked) - the targeted single-word remix is coherent
+  (category-preserving), already verified, and the "jumble" name is reserved for
+  the planned AI Fresh Runes feature.
+- 2026-07-04: All three stories built via the orchestration playbook (one
+  builder per story on isolated worktrees, serial gated integration onto the
+  `claude/orchestrate-replay-remix-w1efcd` umbrella). Wave 1 = {01, 02} parallel,
+  Wave 2 = {03}. Gate 2 green (API build 0/0, 323 web unit tests incl. the new
+  `remixHelpers.test.ts`, web build clean). Verified in two browser contexts:
+  carve-it-again restarts both devices on the pinned template (host-only); a
+  remix syncs joiner -> host live (AC-07); pass-the-chisel moves the crown + host
+  controls live and is host-only + server-enforced.
