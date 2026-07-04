@@ -25,9 +25,11 @@
 // ----------------------------------------------------------------------------
 
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Accounts;
+using QuibbleStone.Api.Admin;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Billing;
 using QuibbleStone.Api.Ai.Jumble;
@@ -330,6 +332,24 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             }));
 
+    // sysadmin-console/03 (#137): the OPEN, anonymous "report this tale" endpoint's
+    // per-IP guard - a SIBLING of the PublishTalesRateLimit policy above for the new
+    // report surface, in this SAME registration. Only POST /api/tales/{slug}/report
+    // opts in (via [EnableRateLimiting(ReportTalesRateLimit.PolicyName)]); the rest of
+    // the API (publish, hub, health, moderation) is untouched. It stops one actor from
+    // flooding reports to force-hide a legitimate tale past the threshold or bloating
+    // storage (AC-05). Per-IP behind App Service is honored by ForwardedHeaders below.
+    // 429 on reject.
+    options.AddPolicy(ReportTalesRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ReportTalesRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = ReportTalesRateLimit.PermitLimit,
+                Window = ReportTalesRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
     // accounts-identity/03 (review W-001): the OPEN, unauthenticated magic-link
     // request endpoint's per-IP guard, in this SAME registration alongside the two
     // policies above. Only POST /api/accounts/signin/request opts in (via
@@ -359,6 +379,23 @@ builder.Services.AddRateLimiter(options =>
             {
                 PermitLimit = CloudGalleryRateLimit.PermitLimit,
                 Window = CloudGalleryRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
+    // sysadmin-console/01 (#135): the OPEN, unauthenticated operator-login request
+    // endpoint's per-IP guard - a SIBLING of the SignInRateLimit policy above for the
+    // SEPARATE operator surface, in this SAME registration. Only POST
+    // /api/admin/login/request opts in (via [EnableRateLimiting(OperatorLoginRateLimit.PolicyName)]);
+    // verify is bounded by the single-use nonce + short expiry, and the game / purchaser
+    // paths are untouched. Stops an email-bomb / token-mint flood on the admin request
+    // endpoint before an email provider ships. 429 on reject.
+    options.AddPolicy(OperatorLoginRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: OperatorLoginRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = OperatorLoginRateLimit.PermitLimit,
+                Window = OperatorLoginRateLimit.Window,
                 QueueLimit = 0,
             }));
 });
@@ -643,6 +680,42 @@ builder.Services.AddDataProtection();
 // reuse the guard, do not write a second auth check). A singleton over the protector.
 builder.Services.AddSingleton<PurchaserCredentialService>();
 
+// sysadmin-console/01 (#135): the SEPARATE, auth-gated operator back office.
+// Every edit in this block is ADDITIVE and localized here (a parallel feature,
+// billing-entitlements, edits Program.cs in the entitlement-registration region -
+// keep this seam small). This wires: (1) the config-backed operator allowlist, and
+// (2) the FIRST AddAuthentication / AddAuthorization in this app.
+//
+// THE LOAD-BEARING BOUNDARY (AC-03): the "Operator" authorization policy binds ONLY
+// to the "Operator" authentication scheme, whose handler authenticates a request
+// ONLY when it presents a credential that unprotects under the DEDICATED operator
+// Data Protection purpose (distinct from the purchaser purpose) AND carries an
+// allowlisted email. A purchaser credential fails the unprotect by construction, so
+// "signed in as some purchaser" can NEVER satisfy an admin endpoint. There is NO
+// default scheme, so no player-facing / purchaser endpoint (none carry [Authorize])
+// is affected - the game path stays 100% auth-free.
+//
+// The allowlist is operator-only configuration (Operator:AllowedEmails), Key
+// Vault-backed when deployed - NEVER a VITE_* var, never committed, never inferred
+// from player / purchaser data (AC-05). Singleton: it holds only IConfiguration and
+// reads the list live so an operator add / remove is a config change (AC-05).
+builder.Services.AddSingleton<IOperatorAllowlist, ConfigurationOperatorAllowlist>();
+builder.Services.AddAuthentication()
+    .AddScheme<AuthenticationSchemeOptions, OperatorAuthenticationHandler>(
+        OperatorSession.AuthenticationScheme, configureOptions: null);
+builder.Services.AddAuthorization(options =>
+{
+    // NEVER a bare RequireAuthenticatedUser over the default scheme - the policy
+    // pins the Operator scheme explicitly so only an operator credential (not any
+    // future authenticated principal) can satisfy it (AC-03). Admin endpoints
+    // authorize via [Authorize(Policy = OperatorSession.PolicyName)].
+    options.AddPolicy(OperatorSession.PolicyName, policy =>
+    {
+        policy.AddAuthenticationSchemes(OperatorSession.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+    });
+});
+
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
 //       .AddAzureSignalR(builder.Configuration["AzureSignalR:ConnectionString"]);
@@ -685,6 +758,14 @@ var app = builder.Build();
 app.UseForwardedHeaders();
 
 app.UseCors(webClientCorsPolicy);
+
+// sysadmin-console/01 (#135): authenticate then authorize, in that order, before the
+// endpoints run. Added here (after UseCors, before the endpoints) as the FIRST auth
+// middleware in this app. Both are INERT for every current REST / hub route (none
+// carry [Authorize]); they only engage where an endpoint opts in - today just the
+// operator console's [Authorize(Policy = "Operator")] session echo (AC-03/AC-06).
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Activate the rate-limiter middleware for BOTH named policies registered above
 // (ai-cost-gate/03's per-IP AI guard + keepsake-gallery/04's publish guard). It is

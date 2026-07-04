@@ -91,6 +91,14 @@ public sealed class PublishedTalesController : ControllerBase
     // share while guaranteeing tales do not accumulate unbounded.
     public static readonly TimeSpan TaleTtl = TimeSpan.FromDays(30);
 
+    // Auto-hide threshold (sysadmin-console/03, AC-02): the number of anonymous
+    // reports that pushes a public tale into the neutral "under review" state until
+    // an operator reviews it. Deliberately SMALL - a keepsake is a toy, and a couple
+    // of "hey, this looks off" taps should quiet a tale quickly (fail toward safety),
+    // with the per-IP report rate limit stopping one actor from reaching it alone. A
+    // tunable starting point - raise / lower it from real signal once we have any.
+    public const int AutoHideThreshold = 3;
+
     // Anti-abuse caps for an open, anonymous write endpoint. Generous for a real
     // family tale, tight enough to reject a payload built to bloat storage.
     private const int MaxTitleLength = 200;
@@ -265,11 +273,36 @@ public sealed class PublishedTalesController : ControllerBase
     }
 
     /// <summary>
+    /// POST /api/tales/{slug}/report -> a neutral "thanks, we will take a look"
+    /// acknowledgement (sysadmin-console/03, AC-01). Records ONE anonymous report
+    /// against the slug (no sign-in, no account, no reporter PII, AC-01/AC-06) and, on
+    /// reaching the small threshold N (AutoHideThreshold), auto-hides the tale (AC-02).
+    /// A report is a HUMAN signal reviewed by an operator - it NEVER re-runs the
+    /// content-safety filter (AC-04). Rate-limited per client IP so one actor cannot
+    /// flood reports to force-hide a legitimate tale or bloat storage (AC-05). The
+    /// response is deliberately the SAME whether or not the slug exists (no oracle).
+    /// </summary>
+    [HttpPost("{slug}/report")]
+    [EnableRateLimiting(ReportTalesRateLimit.PolicyName)]
+    public async Task<IActionResult> Report(string slug, CancellationToken cancellationToken)
+    {
+        // Record the report (a no-op for an unknown / expired slug). The outcome is
+        // never echoed - the reporter always gets the same neutral acknowledgement, so
+        // the endpoint is not an existence / hidden-state oracle and leaks nothing.
+        await _store.ReportAsync(slug, AutoHideThreshold, cancellationToken);
+        return Ok(new { message = "Thanks - we will take a look." });
+    }
+
+    /// <summary>
     /// GET /t/{slug} -> server-rendered HTML tale page (AC-02/AC-03). The PUBLIC,
     /// read-only page: no app install, no account, no login. Renders the carved
     /// stone-tablet from the stored parts (coral player-words), the "carved by
-    /// [names]" byline, and the gold "Play QuibbleStone" CTA. Missing / expired ->
-    /// a friendly 404 page. Always sent noindex, nofollow (header + meta).
+    /// [names]" byline, the gold "Play QuibbleStone" CTA, and (sysadmin-console/03)
+    /// the "report this tale" control. Three DISTINCT outcomes (AC-02): a served tale
+    /// (200), a HIDDEN tale under review (200, a NEUTRAL "under review" page - NOT the
+    /// 404, so a legitimate host who revoked their own tale never reads as a moderated
+    /// bad actor), and a missing / expired / revoked tale (the friendly 404 page).
+    /// Always sent noindex, nofollow (header + meta).
     /// </summary>
     [HttpGet("/t/{slug}")]
     public async Task<IActionResult> Page(string slug, CancellationToken cancellationToken)
@@ -281,11 +314,30 @@ public sealed class PublishedTalesController : ControllerBase
         var tale = await _store.GetAsync(slug, cancellationToken);
         if (tale is null)
         {
+            // Missing / expired / revoked: the friendly "drifted away" 404. This is a
+            // DISTINCT state from "under review" below (AC-02) - a host who revoked or
+            // let their tale expire is simply gone, not moderated.
             return new ContentResult
             {
                 Content = RenderNotFoundPage(_webAppBaseUrl),
                 ContentType = "text/html; charset=utf-8",
                 StatusCode = StatusCodes.Status404NotFound,
+            };
+        }
+
+        // The tale body still exists - but if the crowd reported it past the threshold
+        // it is auto-hidden (AC-02). Serve the NEUTRAL "under review" page instead of
+        // the tale, and NOT the 404 (the load-bearing distinction). Moderation state is
+        // a companion signal, separate from expiry - a never-reported tale reads
+        // exactly as before (AC-07).
+        var moderation = await _store.GetModerationAsync(slug, cancellationToken);
+        if (moderation.IsHidden)
+        {
+            return new ContentResult
+            {
+                Content = RenderUnderReviewPage(_webAppBaseUrl),
+                ContentType = "text/html; charset=utf-8",
+                StatusCode = StatusCodes.Status200OK,
             };
         }
 
@@ -323,6 +375,11 @@ public sealed class PublishedTalesController : ControllerBase
 
         var home = WebUtility.HtmlEncode(webAppBaseUrl);
         var host = WebUtility.HtmlEncode($"{webAppBaseUrl}/host");
+        // The slug is minted from SlugGenerator's alphanumeric alphabet, but it is
+        // still HTML-encoded into the data attribute (defense in depth on a public
+        // surface). The report control POSTs to THIS app's own report endpoint (same
+        // origin as this page), so no cross-origin config is needed.
+        var slugAttr = WebUtility.HtmlEncode(tale.Slug);
 
         return $$"""
             <!doctype html>
@@ -385,6 +442,13 @@ public sealed class PublishedTalesController : ControllerBase
                   color: var(--purple); background: transparent; border: 2px solid var(--purple);
                 }
                 .foot { text-align: center; font-size: 12.5px; color: rgba(43,38,34,.5); margin-top: 8px; }
+                .report {
+                  display: block; width: 100%; margin: 4px 0 14px; padding: 12px;
+                  background: none; border: none; cursor: pointer; text-align: center;
+                  font-family: "Nunito", system-ui, sans-serif; font-weight: 700;
+                  font-size: 13px; color: rgba(43,38,34,.55); text-decoration: underline;
+                }
+                .report:disabled { cursor: default; text-decoration: none; color: rgba(43,38,34,.5); }
               </style>
             </head>
             <body>
@@ -397,8 +461,76 @@ public sealed class PublishedTalesController : ControllerBase
                 </div>
                 <a class="cta cta-play" href="{{home}}">Play QuibbleStone</a>
                 <a class="cta cta-start" href="{{host}}">Start your own tale</a>
+                <!--
+                  sysadmin-console/03 (#137): the "report this tale" control. Plain
+                  server-rendered HTML + a tiny same-origin fetch (this page does NOT
+                  load the React SPA). Anonymous - no sign-in, no account, no reporter
+                  PII (AC-01). On success it swaps to a neutral thanks; failures fail
+                  quietly so the page never shows a raw error.
+                -->
+                <button class="report" type="button" id="reportBtn" data-slug="{{slugAttr}}">
+                  Report this tale
+                </button>
                 <p class="foot">A fill-in-the-blank word game for hilarity and easy fun.</p>
               </div>
+              <script>
+                (function () {
+                  var btn = document.getElementById('reportBtn');
+                  if (!btn) return;
+                  btn.addEventListener('click', function () {
+                    var slug = btn.getAttribute('data-slug') || '';
+                    btn.disabled = true;
+                    fetch('/api/tales/' + encodeURIComponent(slug) + '/report', { method: 'POST' })
+                      .then(function () { btn.textContent = 'Thanks - we will take a look.'; })
+                      .catch(function () { btn.textContent = 'Thanks - we will take a look.'; });
+                  });
+                })();
+              </script>
+            </body>
+            </html>
+            """;
+    }
+
+    // The NEUTRAL "under review" page (sysadmin-console/03, AC-02). Served for a tale
+    // that has been auto-hidden after reaching the report threshold. It reads
+    // DELIBERATELY DIFFERENTLY from the "drifted away" 404 (RenderNotFoundPage): a
+    // tale here is temporarily paused for a look, NOT gone / expired / revoked - so a
+    // legitimate host who revoked their own tale (a 404) is never confused with a
+    // moderated one (this page). It shows no tale content and no report control.
+    private static string RenderUnderReviewPage(string webAppBaseUrl)
+    {
+        var home = WebUtility.HtmlEncode(webAppBaseUrl);
+        return $$"""
+            <!doctype html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <meta name="robots" content="noindex, nofollow" />
+              <title>This tale is under review - QuibbleStone</title>
+              <style>
+                * { box-sizing: border-box; }
+                body {
+                  margin: 0; min-height: 100vh; padding: 40px 20px;
+                  font-family: "Nunito", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+                  color: #2B2622;
+                  background: linear-gradient(180deg, #F8F1E2 0%, #F0E6D0 100%);
+                  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+                }
+                h1 { font-family: "Fredoka", system-ui, sans-serif; color: #6C4BD8; font-size: 26px; margin: 0 0 12px; }
+                p { font-size: 16px; color: rgba(43,38,34,.7); max-width: 360px; margin: 0 0 24px; }
+                a {
+                  text-decoration: none; padding: 18px 28px; border-radius: 18px;
+                  font-family: "Fredoka", system-ui, sans-serif; font-weight: 700; font-size: 18px; color: #2B2622;
+                  background: linear-gradient(180deg, #FFB22E 0%, #E89A12 100%);
+                  box-shadow: 0 10px 22px -10px rgba(232,154,18,.8);
+                }
+              </style>
+            </head>
+            <body>
+              <h1>This tale is taking a little break</h1>
+              <p>A few visitors flagged this tale, so it is paused while we take a quick look. Nothing to do - check back soon, or carve a fresh one of your own.</p>
+              <a href="{{home}}">Play QuibbleStone</a>
             </body>
             </html>
             """;
