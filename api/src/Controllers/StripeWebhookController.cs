@@ -12,8 +12,15 @@
 //  SIGNATURE FIRST (AC-03): the raw request body is verified against the Stripe
 //  signing secret (Key Vault-backed, AC-01) via Stripe's EventUtility BEFORE any
 //  processing. An invalid/absent signature is a 400 and NOTHING is applied. When
-//  billing is not configured (no signing secret), the endpoint returns 503 - it is
-//  never reached in a config-off environment (Stripe is not wired to call it).
+//  billing is not configured (no signing secret in EITHER mode), the endpoint returns
+//  503 - it is never reached in a config-off environment (Stripe is not wired to call it).
+//
+//  DUAL-MODE VERIFY (billing-entitlements/06 AC-04): live and test are separate Stripe
+//  webhook endpoints that POST to this SAME URL, each event signed with its own mode's
+//  signing secret. We cannot know a priori which mode an event came from, and we must
+//  NOT branch on the currently-ACTIVE mode - a mode flip mid-flight must not orphan an
+//  in-progress checkout's webhook. So we try each configured mode's signing secret and
+//  accept the event if EITHER verifies; only reject (400) if BOTH fail.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -55,10 +62,16 @@ public sealed class StripeWebhookController : ControllerBase
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_options.WebhookSigningSecret))
+        // Each configured mode's signing secret, distinct + non-empty (AC-04). The flat
+        // fallback means an old single-mode wiring collapses to one secret. No secret in
+        // any mode => billing is not configured; this path is not reached in practice
+        // (Stripe is not wired to call an unconfigured app).
+        var signingSecrets = new[] { _options.ForMode(StripeMode.Test).WebhookSigningSecret, _options.ForMode(StripeMode.Live).WebhookSigningSecret }
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (signingSecrets.Length == 0)
         {
-            // Billing is not configured - the webhook cannot verify anything. This path
-            // is not reached in practice (Stripe is not wired to call an unconfigured app).
             return StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
@@ -67,27 +80,37 @@ public sealed class StripeWebhookController : ControllerBase
         var payload = await reader.ReadToEndAsync(cancellationToken);
         var signature = Request.Headers["Stripe-Signature"].ToString();
 
-        Event stripeEvent;
-        try
+        // Verify against each mode's secret, accepting on the FIRST that validates (AC-04):
+        // the event is signed by exactly one mode, but we do not know which, and must not
+        // branch on the currently-active mode.
+        //
+        // throwOnApiVersionMismatch: false is REQUIRED, not optional: a webhook event
+        // carries the STRIPE ACCOUNT's API version (e.g. "2020-03-02"), which is
+        // independent of the Stripe.net SDK's pinned version. Leaving the default (true)
+        // makes ConstructEvent throw on every real event whose account version differs
+        // from the SDK's - i.e. it would reject ALL real webhooks. We only need signature
+        // + integrity here; the event shape we read (type + metadata + line period) is
+        // stable across versions. (Caught live during the test-mode end-to-end verification
+        // - the handler unit tests operate on the normalized BillingEvent, downstream of
+        // ConstructEvent, so they could not surface this.)
+        Event? stripeEvent = null;
+        foreach (var secret in signingSecrets)
         {
-            // Verify the signature BEFORE any processing (AC-03). Throws on a
-            // missing/invalid signature.
-            //
-            // throwOnApiVersionMismatch: false is REQUIRED, not optional: a webhook
-            // event carries the STRIPE ACCOUNT's API version (e.g. "2020-03-02"), which
-            // is independent of the Stripe.net SDK's pinned version. Leaving the default
-            // (true) makes ConstructEvent throw on every real event whose account version
-            // differs from the SDK's - i.e. it would reject ALL real webhooks. We only
-            // need signature + integrity here; the event shape we read (type + metadata +
-            // line period) is stable across versions. (Caught live during the test-mode
-            // end-to-end verification - the handler unit tests operate on the normalized
-            // BillingEvent, downstream of ConstructEvent, so they could not surface this.)
-            stripeEvent = EventUtility.ConstructEvent(
-                payload, signature, _options.WebhookSigningSecret, throwOnApiVersionMismatch: false);
+            try
+            {
+                stripeEvent = EventUtility.ConstructEvent(payload, signature, secret, throwOnApiVersionMismatch: false);
+                break;
+            }
+            catch (StripeException)
+            {
+                // This mode's secret did not validate - try the next before rejecting.
+            }
         }
-        catch (StripeException)
+
+        if (stripeEvent is null)
         {
-            // Invalid / missing signature - reject, apply nothing. Do not log the payload/secret.
+            // Invalid / missing signature for EVERY configured mode - reject, apply
+            // nothing. Do not log the payload/secret.
             _logger.LogWarning("Rejected a Stripe webhook with an invalid or missing signature.");
             return BadRequest();
         }

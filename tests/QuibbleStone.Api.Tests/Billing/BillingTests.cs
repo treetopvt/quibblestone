@@ -33,14 +33,24 @@ public class BillingTests
         },
     };
 
+    // The active mode's credential set the mode-aware catalog resolves price ids against
+    // (billing-entitlements/06). ConfiguredOptions wires the flat fields, which ForMode
+    // falls back to for either mode, so the Test default resolves the price ids above.
+    private static StripeModeConfig ConfiguredModeConfig() => ConfiguredOptions().ForMode(StripeMode.Test);
+
+    // A real active-mode context over an in-memory store (defaults to Test) - the price ids
+    // resolve from the flat fallback exactly as they did in the single-mode shape.
+    private static IActiveStripeContext Context(StripeOptions options) =>
+        new ActiveStripeContext(new InMemoryActiveStripeModeStore(), options);
+
     // ---- ProductCatalog: the capability map (AC-01 / story-02 AC-02) ----------
 
     [Fact]
     public void FamilyPlan_maps_to_the_full_bundle_as_a_subscription()
     {
-        var catalog = new ProductCatalog(ConfiguredOptions());
+        var catalog = new ProductCatalog();
 
-        var plan = catalog.Resolve("family-plan");
+        var plan = catalog.Resolve("family-plan", ConfiguredModeConfig());
 
         Assert.NotNull(plan);
         Assert.Equal(CheckoutMode.Subscription, plan!.Mode);
@@ -53,9 +63,9 @@ public class BillingTests
     [Fact]
     public void Pack_maps_to_its_single_capability_key_as_a_one_time_payment()
     {
-        var catalog = new ProductCatalog(ConfiguredOptions());
+        var catalog = new ProductCatalog();
 
-        var pack = catalog.Resolve("pack.spooky");
+        var pack = catalog.Resolve("pack.spooky", ConfiguredModeConfig());
 
         Assert.NotNull(pack);
         Assert.Equal(CheckoutMode.Payment, pack!.Mode);
@@ -65,21 +75,21 @@ public class BillingTests
     [Fact]
     public void Tip_maps_to_no_capabilities_and_is_excluded_from_the_paywall()
     {
-        var catalog = new ProductCatalog(ConfiguredOptions());
+        var catalog = new ProductCatalog();
 
-        var tip = catalog.Resolve(catalog.TipProductId);
+        var tip = catalog.Resolve(catalog.TipProductId, ConfiguredModeConfig());
 
         Assert.NotNull(tip);
         Assert.Empty(tip!.CapabilityKeys); // entitlement-neutral (story 02 AC-02)
-        Assert.DoesNotContain(catalog.PaywallProducts, p => p.ProductId == catalog.TipProductId);
+        Assert.DoesNotContain(catalog.PaywallProducts(ConfiguredModeConfig()), p => p.ProductId == catalog.TipProductId);
     }
 
     [Fact]
     public void Products_are_not_purchasable_without_a_configured_price_id()
     {
-        var catalog = new ProductCatalog(new StripeOptions()); // no price ids
+        var catalog = new ProductCatalog(); // resolve against a mode with no price ids
 
-        Assert.All(catalog.PaywallProducts, p => Assert.False(p.IsPurchasable));
+        Assert.All(catalog.PaywallProducts(new StripeOptions().ForMode(StripeMode.Test)), p => Assert.False(p.IsPurchasable));
     }
 
     // ---- BillingController: checkout resolves capabilities server-side (AC-01) -
@@ -194,7 +204,7 @@ public class BillingTests
     private static BillingController NewController(IStripeCheckoutService checkout, IContentSafetyFilter? safety = null)
     {
         var options = ConfiguredOptions();
-        return new BillingController(checkout, new ProductCatalog(options), safety ?? new AllowAllSafetyFilter(), options);
+        return new BillingController(checkout, new ProductCatalog(), safety ?? new AllowAllSafetyFilter(), Context(options), options);
     }
 
     /// <summary>An enabled checkout that captures the last request instead of calling Stripe.</summary>

@@ -78,25 +78,32 @@ public sealed class BillingController : ControllerBase
     private readonly IStripeCheckoutService _checkout;
     private readonly IProductCatalog _catalog;
     private readonly IContentSafetyFilter _safety;
+    private readonly IActiveStripeContext _context;
     private readonly StripeOptions _options;
 
     public BillingController(
         IStripeCheckoutService checkout,
         IProductCatalog catalog,
         IContentSafetyFilter safety,
+        IActiveStripeContext context,
         StripeOptions options)
     {
         _checkout = checkout;
         _catalog = catalog;
         _safety = safety;
+        _context = context;
         _options = options;
     }
 
     /// <summary>GET /api/billing/products - the paywall products and whether billing is on.</summary>
     [HttpGet("products")]
-    public IActionResult Products()
+    public async Task<IActionResult> Products(CancellationToken ct)
     {
-        var products = _catalog.PaywallProducts
+        // Price ids + purchasability are resolved against the ACTIVE mode
+        // (billing-entitlements/06) - a product with no price id in the active mode is
+        // shown but not buyable.
+        var config = await _context.GetActiveConfigAsync(ct);
+        var products = _catalog.PaywallProducts(config)
             .Select(p => new ProductView(
                 p.ProductId,
                 p.DisplayName,
@@ -116,7 +123,8 @@ public sealed class BillingController : ControllerBase
     [HttpPost("checkout")]
     public async Task<IActionResult> Checkout([FromBody] CheckoutRequestBody? request, CancellationToken ct)
     {
-        var product = string.IsNullOrWhiteSpace(request?.ProductId) ? null : _catalog.Resolve(request.ProductId);
+        var config = await _context.GetActiveConfigAsync(ct);
+        var product = string.IsNullOrWhiteSpace(request?.ProductId) ? null : _catalog.Resolve(request.ProductId, config);
         // A tip must go through the tip endpoint (it safety-filters the message); the
         // paywall checkout only sells paywall products.
         if (product is null || string.Equals(product.ProductId, _catalog.TipProductId, StringComparison.Ordinal))
@@ -149,7 +157,8 @@ public sealed class BillingController : ControllerBase
             }
         }
 
-        var tip = _catalog.Resolve(_catalog.TipProductId);
+        var config = await _context.GetActiveConfigAsync(ct);
+        var tip = _catalog.Resolve(_catalog.TipProductId, config);
         if (tip is null)
         {
             return Ok(new CheckoutStartResult(Enabled: false, Url: null, Message: null));

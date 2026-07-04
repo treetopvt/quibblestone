@@ -501,15 +501,50 @@ else
 var stripeOptions = builder.Configuration.GetSection(StripeOptions.SectionName).Get<StripeOptions>() ?? new StripeOptions();
 builder.Services.AddSingleton(stripeOptions);
 
-// The checkout service, chosen at STARTUP by whether Stripe is configured (the same
-// config-presence idiom as the AI client / stores above). WITH a secret key, the real
-// StripeCheckoutService (both payment + subscription modes through one method, AC-02);
-// WITHOUT one (local dev, CI, a fresh clone), the DISABLED no-op so the app runs with
-// ZERO Stripe setup and the tip jar / paywall show a clean "not available" state.
+// billing-entitlements/06 (live/test mode toggle): the persisted active-mode flag,
+// chosen at STARTUP by whether a storage connection string is configured - EXACTLY the
+// config-presence idiom of the grant store above, and it REUSES the SAME storage account
+// (Entitlements:StorageConnectionString - no new resource). WITH a connection string, the
+// active mode persists to Table Storage (survives a recycle); WITHOUT one (local dev, CI,
+// a fresh clone), the WORKING in-memory store keeps the toggle exercisable with ZERO Azure
+// setup. Either way a fresh store defaults to Test (AC-05). A singleton so the cached
+// context below sees a consistent value.
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IActiveStripeModeStore, InMemoryActiveStripeModeStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IActiveStripeModeStore>(sp =>
+        new TableStorageActiveStripeModeStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageActiveStripeModeStore>>()));
+}
+
+// The single front door every billing consumer uses to get the ACTIVE mode's credentials
+// (billing-entitlements/06). Resolves the active mode (cached briefly for the checkout /
+// products hot paths) and projects StripeOptions.ForMode. A singleton over the store +
+// options so the cache is shared.
+builder.Services.AddSingleton<IActiveStripeContext, ActiveStripeContext>();
+
+// billing-entitlements/06 (AC-06): the INTERIM operator gate for the mode-toggle endpoint
+// - a constant-time compare against a single Key Vault-backed operator secret
+// (Admin:ModeToggleSecret, NEVER a committed literal / VITE_* var). Behind IOperatorGate
+// so swapping to the real sysadmin-console/01 operator session later is a one-file change.
+// No secret configured => the gate denies all, so the toggle endpoint is inert (not open).
+builder.Services.AddSingleton<IOperatorGate>(sp =>
+    new InterimSecretOperatorGate(sp.GetRequiredService<IConfiguration>()[InterimSecretOperatorGate.ConfigKeyName]));
+
+// The checkout service, chosen at STARTUP by whether Stripe is configured in ANY mode (the
+// same config-presence idiom as the AI client / stores above). WITH a secret key, the real
+// StripeCheckoutService resolves the ACTIVE mode's key per call (both payment + subscription
+// modes through one method, AC-02); WITHOUT one (local dev, CI, a fresh clone), the DISABLED
+// no-op so the app runs with ZERO Stripe setup and the tip jar / paywall show a clean "not
+// available" state.
 if (stripeOptions.IsConfigured)
 {
     builder.Services.AddSingleton<IStripeCheckoutService>(sp =>
-        new StripeCheckoutService(stripeOptions, sp.GetRequiredService<ILogger<StripeCheckoutService>>()));
+        new StripeCheckoutService(sp.GetRequiredService<IActiveStripeContext>(), sp.GetRequiredService<ILogger<StripeCheckoutService>>()));
 }
 else
 {
