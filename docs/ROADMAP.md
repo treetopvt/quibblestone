@@ -7,7 +7,7 @@
 
 # QuibbleStone Roadmap
 
-**As of 2026-07-03.** The thin vertical slice is live and playable end to end -
+**As of 2026-07-04.** The thin vertical slice is live and playable end to end -
 so this is no longer "get to playable," it is "what makes an alpha land, and how
 do we bring AI in without a stranger running up the bill." Every path below traces
 to a written story in [`docs/features/`](./features/); this file is the map over
@@ -50,6 +50,13 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   (server-side re-vetted, unguessable slug, noindex, TTL, per-IP rate limited). The
   public tale page stays disabled until Azure Table Storage is provisioned (the code
   ships behind a connection-string flag - see the keepsake-published-tales runbook).
+- **Replay & Remix** - the "again!" reflexes on the same engine, no re-gathering
+  (`replay-remix/01-03`, PR #162): a one-tap same-crew, same-template replay from
+  Round Complete ("Carve it again"), a single-blank remix that re-reveals a finished
+  tale with one word swapped and syncs the swap to the whole room ("Remix a word"),
+  and a between-rounds host handoff ("Pass the chisel") that moves the crown + host
+  controls live, host-only and server-enforced. Additive - no engine change, all on
+  the existing round lifecycle + reveal + one SignalR connection.
 - Profanity filter + family-safe toggle; MUI theme + shared components; Vitest +
   Playwright harness gating CI.
 - **The AI cost gate** (`ai-cost-gate`, all 6 stories - PR #132 app code + #131 IaC).
@@ -107,6 +114,11 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   (PR #130): deep-link join, save/share the tale, device-local gallery, public tale
   page. The public tale page ships disabled until Azure Table Storage is provisioned
   (connection-string flag - see the keepsake-published-tales runbook).
+- **Replay & Remix** (`replay-remix/01-03`) - **DONE** (PR #162): same-crew
+  same-template replay ("Carve it again"), a one-blank remix that re-reveals the tale
+  with one word swapped and syncs to the whole room ("Remix a word"), and a
+  between-rounds host handoff ("Pass the chisel"). Additive on the existing round
+  lifecycle + reveal + one SignalR connection - no engine change.
 
 ### 3. The AI question (explore sooner, gate the cost)
 Prove the AI plumbing ONCE, on the cheapest/safest payload, behind a gate built

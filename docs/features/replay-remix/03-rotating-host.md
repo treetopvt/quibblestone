@@ -1,6 +1,6 @@
 # Story: Rotating host ("Pass the chisel")
 
-**Feature:** Replay & Remix  ·  **Status:** Not Started  ·  **Issue:** #62
+**Feature:** Replay & Remix  ·  **Status:** Complete  ·  **Issue:** #62
 
 ## Context
 Right now one player is always the host - whoever created the room - and the
@@ -13,28 +13,28 @@ extends) and `docs/features/group-play/01-start-round.md` (the host-only
 authorization this story adds a second path to change).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I am the current host and the room is between rounds (Lobby
+- [x] AC-01: Given I am the current host and the room is between rounds (Lobby
       or Round Complete, never mid-collection), then I see an action to pass
       the host role to another player in the roster (e.g. "Pass the chisel" on
       a player's roster tile).
-- [ ] AC-02: Given I choose a player to receive the host role, then the host
+- [x] AC-02: Given I choose a player to receive the host role, then the host
       flag moves from me to that player: they gain the crown badge and the
       host-only "Start game" / "Play another round" / "Carve it again"
       capabilities, and I lose them, immediately and for everyone in the room
       in near-real-time over the one SignalR connection.
-- [ ] AC-03: Given the host role has just passed, then the roster (Lobby,
+- [x] AC-03: Given the host role has just passed, then the roster (Lobby,
       Round Complete crew row) updates for every player to show the crown
       badge on the new host and remove it from the previous host - no refresh
       needed.
-- [ ] AC-04: Given I am NOT the current host, then I cannot pass the chisel;
+- [x] AC-04: Given I am NOT the current host, then I cannot pass the chisel;
       only the current host can trigger a handoff, and this is enforced
       server-side (not just hidden in the UI) - mirroring how `startRound` is
       already host-checked server-side in `group-play/01`.
-- [ ] AC-05: Given the room is mid-round (any phase other than `lobby` or
+- [x] AC-05: Given the room is mid-round (any phase other than `lobby` or
       `roundComplete`), then the "Pass the chisel" action is not available -
       host handoff is deliberately a between-rounds action only, not a live
       mid-collection handoff.
-- [ ] AC-06: Given the host role passes, then no new player data beyond the
+- [x] AC-06: Given the host role passes, then no new player data beyond the
       existing anonymous roster (nickname + Guardian variant) is required or
       collected to receive host status - becoming host carries no PII and no
       account, consistent with every player already being anonymous.
