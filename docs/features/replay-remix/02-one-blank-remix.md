@@ -85,6 +85,12 @@ onto the Reveal screen. See [feature.md](./feature.md) and
 - The blank-picker list (AC-02) reads from `assembled.filledWords` (already
   has blankId + word + attribution) joined against `template.body` for the
   category label - no new data model.
+- Attribution side effect (by design): remixing a blank re-attributes that word
+  to the remixer (nickname + variant), following reveal-delight/04's "carved by"
+  model - so remixing someone else's blank moves that word's attribution, and its
+  count in the Round Complete recap, to the remixer. This is the intended
+  consequence of an any-player remix (you become the author of the word you
+  swapped), not a bug.
 
 ## Tests
 | AC | Test |
