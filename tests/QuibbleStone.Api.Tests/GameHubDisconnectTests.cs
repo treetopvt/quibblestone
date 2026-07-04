@@ -150,6 +150,54 @@ public class GameHubDisconnectTests
     }
 
     [Fact]
+    public async Task LeaveRoom_by_the_host_promotes_a_survivor_and_nudges_them_with_HostGranted()
+    {
+        // room-start-duplicate-members: the exact "creator pressed back" case. The host
+        // leaves a two-person room; the survivor must inherit the host flag (so the room
+        // stays startable) AND be told directly, because the anonymous roster broadcast
+        // cannot tell a specific client "you are the host now".
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var (hub, _, clients) = BuildHub("conn-host", registry); // the HOST leaves
+        await hub.LeaveRoom(room.Code);
+
+        // Server-side: the lone survivor is now the host, so the room is not stranded.
+        var survivor = Assert.Single(registry.TryGet(room.Code)!.SnapshotPlayers());
+        Assert.Equal("conn-joiner", survivor.ConnectionId);
+        Assert.True(survivor.IsHost);
+
+        // Client-side nudge: the LAST send (after the roster refresh) is a "HostGranted"
+        // addressed to exactly the promoted connection - a targeted Client(...) send, never
+        // a group broadcast.
+        Assert.Equal("HostGranted", clients.LastMethod);
+        Assert.Null(clients.LastGroupName);
+        Assert.Equal("conn-joiner", clients.LastClientId);
+    }
+
+    [Fact]
+    public async Task LeaveRoom_by_a_non_host_sends_no_HostGranted_nudge()
+    {
+        // The complement: a NON-host leaving migrates nothing, so no one is nudged - the
+        // last (and only) broadcast is the trimmed roster to the group.
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var (hub, _, clients) = BuildHub("conn-joiner", registry); // a JOINER leaves
+        await hub.LeaveRoom(room.Code);
+
+        Assert.Equal("RosterChanged", clients.LastMethod); // not HostGranted
+        Assert.Equal(room.Code, clients.LastGroupName);
+        Assert.Null(clients.LastClientId);
+        // The original host is untouched.
+        var host = Assert.Single(registry.TryGet(room.Code)!.SnapshotPlayers());
+        Assert.Equal("conn-host", host.ConnectionId);
+        Assert.True(host.IsHost);
+    }
+
+    [Fact]
     public async Task LeaveRoom_during_a_prompting_round_evicts_immediately_and_aborts_no_grace()
     {
         // AC-04: a DELIBERATE leave mid-round is unaffected by the session-engine/07
@@ -270,14 +318,19 @@ public class GameHubDisconnectTests
         public string? LastGroupName { get; private set; }
         public string? LastMethod { get; private set; }
         public object?[]? LastArgs { get; private set; }
+        // room-start-duplicate-members: the connection id of the last targeted Client(...)
+        // send (null for a group broadcast), so a test can assert the "HostGranted" nudge
+        // reached exactly the promoted connection rather than the whole room.
+        public string? LastClientId { get; private set; }
 
-        private IClientProxy MakeProxy(string? groupName) => new RecordingProxy(this, groupName);
+        private IClientProxy MakeProxy(string? groupName, string? clientId = null) =>
+            new RecordingProxy(this, groupName, clientId);
 
         public IClientProxy Group(string groupName) => MakeProxy(groupName);
         public IClientProxy All => MakeProxy(null);
         public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => MakeProxy(null);
         public IClientProxy Caller => MakeProxy(null);
-        public IClientProxy Client(string connectionId) => MakeProxy(null);
+        public IClientProxy Client(string connectionId) => MakeProxy(null, connectionId);
         public IClientProxy Clients(IReadOnlyList<string> connectionIds) => MakeProxy(null);
         public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => MakeProxy(groupName);
         public IClientProxy Groups(IReadOnlyList<string> groupNames) => MakeProxy(null);
@@ -286,11 +339,12 @@ public class GameHubDisconnectTests
         public IClientProxy User(string userId) => MakeProxy(null);
         public IClientProxy Users(IReadOnlyList<string> userIds) => MakeProxy(null);
 
-        private sealed class RecordingProxy(RecordingClients owner, string? groupName) : IClientProxy, ISingleClientProxy
+        private sealed class RecordingProxy(RecordingClients owner, string? groupName, string? clientId) : IClientProxy, ISingleClientProxy
         {
             public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default)
             {
                 owner.LastGroupName = groupName;
+                owner.LastClientId = clientId;
                 owner.LastMethod = method;
                 owner.LastArgs = args;
                 return Task.CompletedTask;
