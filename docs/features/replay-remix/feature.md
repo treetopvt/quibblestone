@@ -76,3 +76,18 @@ round" / "Back to lobby").
   Wave Plan showed 01 and 03 both touch `startRound`/host-authorization in
   `GameHub.cs` (so they must serialize), while 02 is pure engine + Reveal-screen
   wiring with no hub-authorization overlap (so it can run alongside either).
+- 2026-07-04: Story 02 remix permission - open to ANY player in group play (not
+  host-only). Why: the point of a remix is "swap the one word that made *you*
+  laugh," so gating it to the host would kill the spontaneity. Every remixed
+  word still passes the same server-side safety filter as any submission, so
+  open-to-any carries no child-safety cost. Implemented as no host guard on the
+  new remix hub method (only a live-room-member check).
+- 2026-07-04: Orchestration correction to the Wave Plan - Story 01 does NOT edit
+  `GameHub.cs`/`useGameHub.ts` after all: `StartRound(code, familySafe,
+  lengthPref, mode, templateId?)` already accepts an explicit pinned template id
+  (shipped by story-selection/06's favorites path) and the web `startRound`
+  already forwards it, so "Carve it again" is a web-only caller (a secondary
+  action on RoundComplete plus one wiring callback in `App.tsx`). Wave structure
+  is unchanged (Wave 1 = {01, 02} parallel, Wave 2 = {03}); the serialization
+  reasons shift: 01 and 03 now serialize on `RoundComplete.tsx`/`App.tsx`, and
+  02 and 03 serialize on `GameHub.cs`/`useGameHub.ts`.
