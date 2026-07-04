@@ -321,6 +321,7 @@ jobs:
       #   Key Vault secrets (per mode): StripeTestSecretKey / StripeTestWebhookSigningSecret,
       #                                 StripeLiveSecretKey / StripeLiveWebhookSigningSecret
       #   Key Vault secret (toggle gate): OperatorModeToggleSecret
+      #   Key Vault secret (operator allowlist): OperatorAllowedEmails (one delimited value)
       #   vars.STRIPE_ENABLED               = 'true'
       #   vars.STRIPE_TEST_TIP_PRICE_ID     = price_... (test-mode tip)
       #   vars.STRIPE_LIVE_TIP_PRICE_ID     = price_... (live-mode tip)
@@ -355,10 +356,17 @@ jobs:
                       --query "[?status=='Ready'].domainName" -o tsv | head -n1)"
           [ -n "$custom" ] && client_base="https://$custom"
 
-          # Always set: the mode-independent client base + the operator toggle gate secret.
+          # Always set: the mode-independent client base + the operator console gate
+          # secrets. NOTE (sysadmin-console/01): the operator sign-in allowlist rides
+          # this STRIPE_ENABLED-gated step next to the mode-toggle gate. UAT keeps
+          # STRIPE_ENABLED=true so it always applies; if billing is ever gated off,
+          # promote the Operator__AllowedEmails line to an always-run step so operator
+          # login (and content takedown) keeps working. The value is ONE delimited KV
+          # secret (OperatorAllowedEmails); unset => empty allowlist => fail closed.
           settings=(
             "Stripe__ClientBaseUrl=${client_base}"
             "Admin__ModeToggleSecret=$(kv OperatorModeToggleSecret)"
+            "Operator__AllowedEmails=$(kv OperatorAllowedEmails)"
           )
           have_price=0
 
