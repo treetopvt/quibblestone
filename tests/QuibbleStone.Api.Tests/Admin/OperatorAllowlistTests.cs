@@ -85,4 +85,41 @@ public sealed class OperatorAllowlistTests
         Assert.True(allowlist.IsOperator("b@quibblestone.com"));
         Assert.False(allowlist.IsOperator("c@quibblestone.com"));
     }
+
+    // ---- Single delimited-secret shape (one Key Vault secret) ------------------
+    // A KV secret is a single string and its NAME cannot carry the ":" array
+    // indexer, so the whole allowlist can live in ONE secret as a ";" / "," delimited
+    // value. These pin that the allowlist behaves identically read from a scalar as
+    // from an array, and still fails closed.
+
+    private static IOperatorAllowlist BuildScalar(string? value)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            [ConfigurationOperatorAllowlist.ConfigKey] = value,
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        return new ConfigurationOperatorAllowlist(configuration);
+    }
+
+    [Fact]
+    public void A_single_delimited_secret_is_split_into_operators()
+    {
+        // Semicolon- or comma-separated, tolerant of surrounding whitespace and case
+        // (the same normalization the array shape uses).
+        var allowlist = BuildScalar("ops@quibblestone.com; second@quibblestone.com , Third@Quibblestone.com");
+        Assert.True(allowlist.IsOperator("ops@quibblestone.com"));
+        Assert.True(allowlist.IsOperator("second@quibblestone.com"));
+        Assert.True(allowlist.IsOperator("third@quibblestone.com"));
+        Assert.False(allowlist.IsOperator("nope@quibblestone.com"));
+    }
+
+    [Fact]
+    public void A_blank_or_delimiter_only_scalar_authorizes_no_one()
+    {
+        // Empty, whitespace-only, or all-delimiter values fail closed (AC-02).
+        Assert.False(BuildScalar("").IsOperator("ops@quibblestone.com"));
+        Assert.False(BuildScalar("   ").IsOperator("ops@quibblestone.com"));
+        Assert.False(BuildScalar("  ;  , ").IsOperator("ops@quibblestone.com"));
+    }
 }

@@ -3,9 +3,16 @@
 //  (sysadmin-console/01, issue #135).
 //
 //  SOURCE OF TRUTH (AC-05): the operator set is read LIVE from configuration under
-//  the Operator:AllowedEmails key - a string array of operator emails. In a
-//  deployed environment that key is an App Service application setting sourced from
-//  Key Vault (never a committed literal, never a VITE_* var, never inferred from
+//  the Operator:AllowedEmails key, in EITHER of two shapes so one code path serves
+//  local dev, the tests, and a Key Vault-backed deployment:
+//    - an indexed ARRAY (Operator:AllowedEmails:0, :1, ...) - how appsettings.json,
+//      the tests, and per-email App Service settings express it; tried FIRST.
+//    - a single DELIMITED SCALAR (Operator:AllowedEmails = "a@x.com; b@y.com") - the
+//      shape ONE Key Vault secret takes, since a KV secret is a single string whose
+//      NAME cannot carry the ":" / "__" array indexer. Split on ";" or ",". Holding a
+//      handful of operators in one secret is the common case; see ReadConfiguredEmails.
+//  In a deployed environment that key is an App Service application setting sourced
+//  from Key Vault (never a committed literal, never a VITE_* var, never inferred from
 //  player / purchaser data). Reading it live (rather than snapshotting at
 //  construction) means adding or removing an operator is a pure config change that
 //  takes effect on the next request - no code change, no redeploy of source.
@@ -40,9 +47,12 @@ namespace QuibbleStone.Api.Admin;
 public sealed class ConfigurationOperatorAllowlist : IOperatorAllowlist
 {
     /// <summary>
-    /// The configuration key holding the operator email array. Bound as
-    /// Operator:AllowedEmails:0, Operator:AllowedEmails:1, ... in App Service /
-    /// environment config, sourced from Key Vault when deployed (AC-05).
+    /// The configuration key holding the operator emails. Read as EITHER an indexed
+    /// array (Operator:AllowedEmails:0, :1, ... - App Service / environment config) OR
+    /// a single delimited scalar (Operator:AllowedEmails = "a@x.com; b@y.com") - the
+    /// shape ONE Key Vault secret takes, since a KV secret name cannot contain the
+    /// ":" / "__" array indexer. Sourced from Key Vault when deployed (AC-05); see
+    /// <see cref="ReadConfiguredEmails"/>.
     /// </summary>
     public const string ConfigKey = "Operator:AllowedEmails";
 
@@ -68,13 +78,7 @@ public sealed class ConfigurationOperatorAllowlist : IOperatorAllowlist
         // effect without a restart (AC-05). The set is tiny (a handful of
         // operators), so rebuilding it per admin request is negligible - and admin
         // traffic is rare compared with the game path this never touches.
-        var configured = _configuration.GetSection(ConfigKey).Get<string[]>();
-        if (configured is null || configured.Length == 0)
-        {
-            return false;
-        }
-
-        foreach (var entry in configured)
+        foreach (var entry in ReadConfiguredEmails())
         {
             var normalized = Normalize(entry);
             // Drop blank / whitespace-only entries so an empty config slot can never
@@ -87,6 +91,43 @@ public sealed class ConfigurationOperatorAllowlist : IOperatorAllowlist
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Reads the configured operator emails, supporting BOTH config shapes so one
+    /// code path serves local dev, the tests, AND a Key Vault-backed deployment:
+    /// <list type="bullet">
+    /// <item>an indexed ARRAY (<c>Operator:AllowedEmails:0</c>, <c>:1</c>, ...) - how
+    /// appsettings.json and the tests express it, and how per-email App Service
+    /// settings bind; tried FIRST so a real array is used verbatim.</item>
+    /// <item>a single DELIMITED SCALAR (<c>Operator:AllowedEmails = "a@x.com;
+    /// b@y.com"</c>) - the shape ONE Key Vault secret takes, because a KV secret is a
+    /// single string whose NAME cannot carry the ":" / "__" array indexer. Used only
+    /// as a fallback when no array is bound; split on ";" or ",".</item>
+    /// </list>
+    /// Returns an empty sequence when nothing is configured (fail closed, AC-02);
+    /// per-entry blank / whitespace dropping stays in <see cref="IsOperator"/>.
+    /// </summary>
+    private IEnumerable<string> ReadConfiguredEmails()
+    {
+        // Array shape first: a bound, non-empty string[] is used exactly as given.
+        var array = _configuration.GetSection(ConfigKey).Get<string[]>();
+        if (array is { Length: > 0 })
+        {
+            return array;
+        }
+
+        // Fallback: a single delimited scalar (one Key Vault secret). Split on ";" or
+        // "," and trim; an unset / whitespace-only value yields nothing (fail closed).
+        var scalar = _configuration[ConfigKey];
+        if (string.IsNullOrWhiteSpace(scalar))
+        {
+            return [];
+        }
+
+        return scalar.Split(
+            [';', ','],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     /// <summary>
