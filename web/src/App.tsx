@@ -672,6 +672,26 @@ export default function App() {
     }
   }, [startRound, lastFamilySafe, lastLengthPref, lastModeId]);
 
+  // replay-remix/01 (AC-01/AC-02/AC-04): "Carve it again" from the Round Complete
+  // recap (host). Same seam as handlePlayAnotherRound above, but pins the just-
+  // finished template id (reveal.templateId) instead of leaving it undefined - the
+  // server then plays that EXACT tale again (host-checked and family-safe-gated
+  // exactly like handlePlayFavorite's explicit pick above) rather than a new
+  // random/host pick. Reuses the SAME sticky family-safe + mode the host is
+  // already playing with, so no new picker is shown (AC-02 out-of-scope). On
+  // success the server's RoundStarted broadcast clears reveal and routes EVERYONE
+  // into the new round together (AC-04) - this handler never sets round locally.
+  const handleCarveItAgain = useCallback(async () => {
+    if (!reveal) {
+      return;
+    }
+    setPlayAgainError(null);
+    const result = await startRound(lastFamilySafe, lastLengthPref, lastModeId, reveal.templateId);
+    if (!result.ok) {
+      setPlayAgainError(result.error ?? 'Could not start another round - please try again.');
+    }
+  }, [startRound, lastFamilySafe, lastLengthPref, lastModeId, reveal]);
+
   // group-play/04: "Back to lobby" from the Round Complete recap (host). The hub's
   // bare "BackToLobby" broadcast clears round/reveal for EVERYONE so all players land
   // back on the still-live Lobby with the code + roster preserved (AC-05).
@@ -825,6 +845,7 @@ export default function App() {
             canPlayAgain={room.players.length >= 2}
             playAgainError={playAgainError}
             onPlayAgain={() => void handlePlayAnotherRound()}
+            onCarveItAgain={() => void handleCarveItAgain()}
             onBackToLobby={handleBackToLobby}
             onLeave={handleGoHome}
             templateId={reveal.templateId}
