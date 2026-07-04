@@ -152,12 +152,19 @@ import { loadIdentity, saveIdentity } from './identity';
  * it has no owner, so it is skipped entirely (no PII, no phantom crew member) - the
  * total blanks reported to RoundComplete matches the words that actually have an
  * owner. Crew members come out in first-appearance (reveal) order.
+ *
+ * replay-remix/03: deliberately does NOT set `isHost` - the reveal payload
+ * carries no host flag (only nickname + variant per blank), so this stays a
+ * pure function of the reveal, matching its existing contract. The recap call
+ * site enriches the returned crew with `isHost`, cross-referenced from the
+ * LIVE roster (`room.players`) by nickname, right before handing it to
+ * RoundComplete.
  */
 function buildCrew(words: RevealInfo['words']): {
-  crew: RoundCompleteCrewMember[];
+  crew: Omit<RoundCompleteCrewMember, 'isHost'>[];
   totalWords: number;
 } {
-  const byNickname = new Map<string, RoundCompleteCrewMember>();
+  const byNickname = new Map<string, Omit<RoundCompleteCrewMember, 'isHost'>>();
   let totalWords = 0;
   for (const w of words) {
     // Skip an unfilled blank (a disconnected player left it empty): no owner, no PII.
@@ -573,6 +580,7 @@ export default function App() {
     joinRoom,
     startRound,
     backToLobby,
+    passHost,
     roundNotice,
     dismissRoundNotice,
     clearRoom,
@@ -868,11 +876,20 @@ export default function App() {
       (() => {
         const template = seedLibrary.find((t) => t.id === reveal.templateId);
         const { crew, totalWords } = buildCrew(reveal.words);
+        // replay-remix/03 (AC-03): enrich the reveal-derived crew with `isHost`,
+        // cross-referenced from the LIVE roster by nickname (the reveal payload
+        // itself carries no host flag) - so the crew row's crown moves live on a
+        // "Pass the chisel" handoff, exactly like Lobby's roster tiles.
+        const hostNickname = room.players.find((p) => p.isHost)?.nickname;
+        const crewWithHost = crew.map((member) => ({
+          ...member,
+          isHost: member.nickname === hostNickname,
+        }));
         return (
           <RoundComplete
             roundNumber={round.roundNumber}
             title={template ? template.title : 'Your tale'}
-            crew={crew}
+            crew={crewWithHost}
             totalWords={totalWords}
             crownedNickname={crownedNickname}
             isHost={isHost}
@@ -883,6 +900,7 @@ export default function App() {
             onBackToLobby={handleBackToLobby}
             onLeave={handleGoHome}
             templateId={reveal.templateId}
+            onPassHost={passHost}
           />
         );
       })()
@@ -961,6 +979,7 @@ export default function App() {
               onLeave={handleGoHome}
               onStart={handleStartRound}
               onPlayFavorite={handlePlayFavorite}
+              onPassHost={passHost}
               notice={roundNotice}
               onDismissNotice={dismissRoundNotice}
             />

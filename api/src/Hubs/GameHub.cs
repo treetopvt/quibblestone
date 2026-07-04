@@ -38,6 +38,14 @@
 //                    round/reveal locally and lands back on the Lobby (AC-05). The
 //                    replay counterpart is just StartRound again (same room, no
 //                    re-join) - the Room increments the round number for the badge.
+//    - PassHost    : replay-remix/03. HOST-ONLY (server-enforced, the SAME
+//                    IsHost check StartRound/BackToLobby use) handoff of the host
+//                    role to another roster player, BETWEEN ROUNDS only (rejected
+//                    while the room's round phase is "prompting", AC-05). Flips
+//                    IsHost on the room's player records (Room.PassHost, under the
+//                    room lock) and broadcasts the EXISTING "RosterChanged" event -
+//                    no new broadcast event type, since IsHost already rides on
+//                    every PlayerDto - so the crown moves live for everyone.
 //
 //  Room state lives in the RoomRegistry singleton (injected below), NOT in this
 //  hub instance - SignalR builds a fresh hub per invocation, so per-hub fields
@@ -1265,6 +1273,83 @@ public sealed class GameHub : Hub
         //    changed, so there is nothing to carry - the client already holds the
         //    lobby state (RosterChanged keeps it current).
         await Clients.Group(room.Code).SendAsync("BackToLobby");
+
+        return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// replay-remix/03: the HOST hands the host role to another roster player,
+    /// BETWEEN ROUNDS only ("Pass the chisel", AC-01/AC-02).
+    ///
+    /// HOST-ONLY and SERVER-ENFORCED, reusing the EXACT SAME authorization check
+    /// <see cref="StartRound"/>/<see cref="BackToLobby"/> already perform
+    /// (<see cref="Room.IsHost"/>) - not a second authorization mechanism (AC-04).
+    /// Reuses the friendly <see cref="StartRoundResultDto"/> envelope, exactly as
+    /// <see cref="BackToLobby"/> does, rather than a throw:
+    ///
+    ///   1. Unknown / expired code -> friendly fail (nothing to hand off).
+    ///   2. Caller is not the host -> reject (AC-04). Server-authoritative even
+    ///      though the client only shows the action to the host.
+    ///   3. The room is mid-round (a live round whose phase is "prompting") ->
+    ///      reject (AC-05) - a handoff is deliberately between-rounds only. A
+    ///      "reveal" phase round (Round Complete's underlying phase) and the
+    ///      lobby (no round at all) are both allowed.
+    ///   4. <see cref="Room.PassHost"/> flips the flag under the room lock,
+    ///      re-verifying the host check atomically and requiring the target to be
+    ///      a live roster member; a false result (a race, or an unknown/departed
+    ///      target) is a friendly fail.
+    ///
+    /// On success it broadcasts the EXISTING "RosterChanged" event with the
+    /// updated roster (no new broadcast event type, AC-02/AC-03) - the moved
+    /// IsHost flag already rides on every PlayerDto, so every client (the new
+    /// host, the outgoing host, and everyone else) sees the crown move live.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="targetNickname">The roster member (by nickname) to become the new host.</param>
+    public async Task<StartRoundResultDto> PassHost(string code, string targetNickname)
+    {
+        // 1. Look up the room first (an unknown / expired code has nothing to hand off).
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new StartRoundResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
+        }
+
+        // 2. Server-enforced host check (AC-04): only the connection that owns the
+        //    room's host player may hand it off. Authoritative even though the
+        //    client only shows "Pass the chisel" to the host.
+        if (!room.IsHost(Context.ConnectionId))
+        {
+            return new StartRoundResultDto(
+                false,
+                "Only the host can pass the chisel.");
+        }
+
+        // 3. Between-rounds only (AC-05): a live round still in "prompting" blocks
+        //    the handoff. No round (lobby) or a "reveal" round (Round Complete's
+        //    underlying phase) are both fine.
+        var round = room.CurrentRound;
+        if (round is not null && string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
+        {
+            return new StartRoundResultDto(
+                false,
+                "The chisel can only pass between rounds, not mid-round.");
+        }
+
+        // 4. Flip the flag under the room lock (re-verifies the host + target
+        //    atomically). A false result is a race or an unknown/departed target.
+        if (!room.PassHost(Context.ConnectionId, targetNickname))
+        {
+            return new StartRoundResultDto(
+                false,
+                "That player isn't available to become host right now.");
+        }
+
+        // 5. Broadcast the EXISTING RosterChanged event so every client's roster -
+        //    including the crown - updates live (AC-02/AC-03). No new event type.
+        await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
 
         return new StartRoundResultDto(true, null);
     }
