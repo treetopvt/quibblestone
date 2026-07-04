@@ -1551,6 +1551,91 @@ public sealed class GameHub : Hub
     }
 
     /// <summary>
+    /// replay-remix/02: re-reveal the SAME finished tale with ONE blank re-collected
+    /// (issue #61, "One-blank remix of a finished tale"), then broadcast the freshly
+    /// re-assembled reveal to EVERYONE (AC-07, a shared moment - not a private edit
+    /// only the remixer sees). This is a thin SIBLING of <see cref="SubmitWord"/>,
+    /// reusing the SAME two-step shape (safety check, then an authoritative room
+    /// mutation) rather than a new subsystem:
+    ///
+    ///   1. SAFETY FILTER FIRST (AC-06), exactly like <see cref="SubmitWord"/>: a
+    ///      blocked word never gets recorded or shown, and the caller gets the
+    ///      filter's friendly retry message back.
+    ///   2. <see cref="Room.RemixSubmission"/> is the ONE authoritative mutation:
+    ///      it validates the round is in the "reveal" phase (not mid-collection),
+    ///      that <paramref name="blankIndex"/> is in range, and that the caller is a
+    ///      LIVE ROOM MEMBER - deliberately NO host guard here (2026-07-04
+    ///      Decisions-log call: ANY player may remix, since the whole point is
+    ///      "swap the one word that made YOU laugh").
+    ///   3. On success, rebuild the ORDERED reveal payload (the SAME
+    ///      <see cref="Room.BuildReveal"/> projection <see cref="SubmitWord"/>
+    ///      already uses) and re-broadcast the EXISTING "RevealReady" event - every
+    ///      client's already-wired RevealReady handler updates its `reveal` state
+    ///      and re-renders through the SAME unmodified Reveal screen, no new client
+    ///      event needed.
+    ///
+    /// Never changes the round's template, blank count, or phase - a remix is a
+    /// same-tale, one-word swap only.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="blankIndex">The blank index (into the template's ordered blanks) to remix.</param>
+    /// <param name="word">The new free-text word for that one blank; vetted server-side before recording.</param>
+    public async Task<SubmitWordResultDto> RemixWord(string code, int blankIndex, string word)
+    {
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new SubmitWordResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
+        }
+
+        // SAFETY FILTER FIRST (AC-06), exactly like SubmitWord: a blocked word is
+        // never recorded or shown, regardless of who is remixing.
+        var candidate = word ?? string.Empty;
+        var verdict = await _safety.CheckAsync(candidate, Context.ConnectionAborted);
+        if (!verdict.IsAllowed)
+        {
+            return new SubmitWordResultDto(false, verdict.Message);
+        }
+
+        var outcome = room.RemixSubmission(Context.ConnectionId, blankIndex, candidate);
+        if (outcome != Room.RemixOutcome.Recorded)
+        {
+            // Both expected-rejection cases (no live reveal to remix into, or a
+            // caller who is not a seated room member) get the same friendly retry
+            // message - neither leaks which case it was, mirroring the other hub
+            // envelopes' posture of not distinguishing "why" beyond kid-readable copy.
+            return new SubmitWordResultDto(
+                false,
+                "That word can't be remixed right now - please try again.");
+        }
+
+        // Rebuild + re-broadcast the SAME "RevealReady" event SubmitWord uses (AC-07):
+        // every client's already-wired handler updates `reveal` and re-renders through
+        // the unmodified Reveal screen - no new client event, no second broadcast type.
+        var round = room.CurrentRound;
+        if (round is null)
+        {
+            // Defensive: RemixSubmission only recorded because a "reveal"-phase round
+            // existed a moment ago under the same lock, but re-read it fresh here in
+            // case something raced it away (e.g. BackToLobby) between the two calls.
+            return new SubmitWordResultDto(
+                false,
+                "That word can't be remixed right now - please try again.");
+        }
+
+        var words = room.BuildReveal()
+            .Select(w => new RevealWordDto(w.Word, w.Nickname, w.Variant))
+            .ToArray();
+        await Clients.Group(room.Code).SendAsync(
+            "RevealReady",
+            new RevealReadyDto(round.TemplateId, words));
+
+        return new SubmitWordResultDto(true, null);
+    }
+
+    /// <summary>
     /// group-play recovery: shared teardown when a player leaves a room. The
     /// instance wrapper for the LeaveRoom (deliberate) path - it broadcasts through
     /// this invocation's own <see cref="Hub.Clients"/>. A null room (the leaver was

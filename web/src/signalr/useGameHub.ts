@@ -500,6 +500,23 @@ export interface UseGameHub {
    */
   submitWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   /**
+   * replay-remix/02 (AC-04/AC-06/AC-07): remix ONE blank of the just-finished
+   * reveal. Invokes the hub's RemixWord with the current room code (from
+   * roomCodeRef), the blank INDEX (body-order blank position, the same
+   * convention `submitWord` and the Golden Guardian vote token already use),
+   * and the new word; the SERVER runs the safety filter FIRST (same posture as
+   * `submitWord`) and, on success, re-broadcasts "RevealReady" so EVERY player
+   * (including this one) picks up the swapped word through the EXISTING
+   * `reveal` state / RevealReady handler - this invoke does NOT set `reveal`
+   * itself. ANY live room member may call this (no host guard, per the
+   * 2026-07-04 Decisions-log call) - ask the caller UI, not this hook, to gate
+   * who sees the "Remix a word" affordance if that ever changes. Resolves with
+   * { accepted, message } (the same shape `submitWord` returns, matching
+   * `FillBlank`'s `onSubmitWord` contract). Returns a not-connected failure if
+   * the hub is not ready.
+   */
+  remixWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
+  /**
    * Start a round as the host (group-play/01; story-selection/02 adds the
    * length parameter; group-play/05 adds the host's chosen MODE; story-selection/06
    * adds the optional explicit-template parameter). Invokes the hub's host-only
@@ -1147,6 +1164,36 @@ export function useGameHub(): UseGameHub {
     [],
   );
 
+  const remixWord = useCallback(
+    async (blankIndex: number, word: string): Promise<{ accepted: boolean; message?: string }> => {
+      const connection = connectionRef.current;
+      const code = roomCodeRef.current;
+      if (
+        !connection ||
+        connection.state !== HubConnectionState.Connected ||
+        !code
+      ) {
+        return {
+          accepted: false,
+          message: "We're not connected yet - give it a moment and try again.",
+        };
+      }
+      // The SERVER runs the safety filter FIRST and swaps the one blank only on
+      // pass (AC-06); we never set `reveal` here - the re-broadcast "RevealReady"
+      // drives that for everyone (AC-07), reusing the same handler `submitWord`'s
+      // round-complete broadcast already triggers.
+      try {
+        const result = await connection.invoke<SubmitWordResult>('RemixWord', code, blankIndex, word);
+        return result.ok
+          ? { accepted: true }
+          : { accepted: false, message: result.error ?? 'That word is not allowed here. Try another!' };
+      } catch {
+        return { accepted: false, message: 'Something went off - give it a moment and try again.' };
+      }
+    },
+    [],
+  );
+
   const react = useCallback((type: ReactionType) => {
     const connection = connectionRef.current;
     const code = roomCodeRef.current;
@@ -1240,6 +1287,7 @@ export function useGameHub(): UseGameHub {
     castGoldenGuardianVote,
     closeGoldenGuardianVoting,
     submitWord,
+    remixWord,
     createRoom,
     joinRoom,
     startRound,

@@ -138,6 +138,7 @@ import {
   type CollectedWords,
 } from '../engine/engine';
 import { getBlanks, type Template } from '../engine/template';
+import { listRemixableBlanks } from '../engine/remixHelpers';
 import { checkWord } from '../safety/checkWord';
 import { createAiJumbleRequester } from '../ai/jumbleClient';
 import { getOrCreateSessionId, recordSoloServe } from '../telemetry/serveLog';
@@ -424,6 +425,13 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   // instead, matching engine.ts's "mutates and returns `collected`" contract.
   const collectionRef = useRef<CollectedWords>(createCollection());
 
+  // replay-remix/02 (AC-04): `collectionRef` is a REF, so overwriting it via a
+  // second `collectWord` call (the remix) does not by itself trigger a re-render.
+  // This tick is bumped ONLY to force Solo to re-render after a successful remix,
+  // so the `assembled = assembleStory(...)` recompute below (already run fresh on
+  // every render) picks up the swapped word - never a second assembly path.
+  const [, bumpRemixTick] = useState(0);
+
   // platform-devops/05 (AC-02): when the current round OPENED (Date.now() ms), so
   // the anonymous "RoundCompleted" usage beacon can measure this solo session's
   // DURATION (reveal time minus this). A ref, not state - it never drives a render,
@@ -673,6 +681,28 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   // supplies revealPresentation to pace the finished story one word at a time.
   const revealSurfaces = mode.revealSurfaces({ template, assembled });
 
+  // replay-remix/02 (AC-02/AC-04/AC-06): the "Remix a word" slot. `blanks` is the
+  // pure picker list (engine/remixHelpers.ts, unmodified) built from THIS render's
+  // `assembled` + `template` - no second data model. `onSubmit` is 100%
+  // composition over the SAME `collectWord` (engine-boundary safety check, AC-06)
+  // this round already used for every OTHER blank, followed by bumping the local
+  // tick so Solo re-renders with the freshly re-assembled story (AC-05) - never a
+  // parallel engine call.
+  const handleRemixWord = async (blankId: string, word: string) => {
+    const result = await collectWord(
+      collectionRef.current,
+      template,
+      mode.config,
+      blankId,
+      { playerSessionId: SOLO_PLAYER_ID, word },
+      checkWord,
+    );
+    if (result.accepted) {
+      bumpRemixTick((tick) => tick + 1);
+    }
+    return result;
+  };
+
   // keepsake-gallery/02 (PART C wiring): `saveImageByline` is deliberately
   // OMITTED here, not passed as an invented placeholder. Solo has no room, no
   // join flow, and collects no nickname at all - SOLO_PLAYER_ID (see file
@@ -693,6 +723,7 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
       favorite={{ templateId: template.id, title: template.title }}
       revealPresentation={revealSurfaces.revealPresentation}
       reactionRow={<ReactionRow counts={reactions.counts} selected={reactions.mine} onReact={handleReact} />}
+      remix={{ blanks: listRemixableBlanks(assembled, template), onSubmit: handleRemixWord }}
     />
   );
 }
