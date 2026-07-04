@@ -21,6 +21,7 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 | 01 | #67 | Anonymous player, forever | Complete |
 | 02 | #68 | Lightweight purchaser account | Complete |
 | 03 | #69 | Sign-in and restore on a new device | Complete |
+| 04 | #TBD | Magic-link email delivery | Not Started |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:
@@ -116,3 +117,17 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
     `SignInTests.cs`. Verification drove request -> verify (`no-account`),
     single-use replay, and confirmed free play (hub negotiate + the 2-device
     group-mode e2e) is unaffected by the added `/account` route.
+- 2026-07-04: **Email delivery decomposed into story 04 (Not Started).** The
+  magic-link transport was carried as a deferred aside in stories 02/03 and
+  implementation.md ("later, the email-delivery provider's key"), never its own
+  story. It is decomposed now because it is on the critical path: verified on UAT
+  (after `sysadmin-console` #158 shipped) that neither purchaser sign-in nor
+  operator console login can complete in a deployed environment - the API runs as
+  Production (no dev-token echo), no provider is wired, and
+  `Accounts:TokenSigningKey` is unset (ephemeral). Token issuance shipped (02);
+  delivery is the half that stayed unbuilt (ADR 0002 Decision A named both). OPEN
+  decision: provider is Azure Communication Services Email vs SendGrid (story 04
+  Technical Notes) - ACS is Azure-native but adds an Email Communication Service +
+  a verified domain to the footprint; SendGrid avoids the resource but adds a
+  third-party dependency. Story 04 also promotes `Accounts:TokenSigningKey` to a
+  durable Key Vault secret so a delivered link survives an app recycle.
