@@ -34,16 +34,20 @@
 #   vars.AI_LOCATION               - optional; defaults to eastus2
 #   secrets.AI_ALERT_EMAIL         - budget alert recipient (omit -> budget/action group skipped)
 #
-# Optional live Stripe billing (billing-entitlements/03) - wired only when
-# configured, so a repo without billing deploys unchanged. The two Stripe SECRETS
-# live in Key Vault (set once, out of band - never in GitHub) and are wired as KV
-# references; only the (non-secret) price ids and the on/off flag are repo vars.
-# See docs/runbooks/enable-stripe-billing.md:
-#   vars.STRIPE_ENABLED              - 'true' enables the wiring step (default off)
-#   vars.STRIPE_TIP_PRICE_ID         - the goodwill tip price id (required when enabled)
-#   vars.STRIPE_FAMILY_PLAN_PRICE_ID - optional; the paywall subscription price id
-#   vars.STRIPE_PACK_SPOOKY_PRICE_ID - optional; the example add-on pack price id
-#   Key Vault secrets: StripeSecretKey, StripeWebhookSigningSecret
+# Optional Stripe billing (billing-entitlements/03 + /06) - wired only when
+# configured, so a repo without billing deploys unchanged. Mode-aware: the app holds
+# a Live AND a Test credential set and an operator toggle picks the active one. All
+# Stripe SECRETS (per mode) + the toggle gate secret live in Key Vault (set once, out
+# of band - never in GitHub) and are wired as KV references; only the (non-secret)
+# price ids and the on/off flag are repo vars. See docs/runbooks/enable-stripe-billing.md:
+#   vars.STRIPE_ENABLED            - 'true' enables the wiring step (default off)
+#   vars.STRIPE_TEST_TIP_PRICE_ID  - the test-mode goodwill tip price id
+#   vars.STRIPE_LIVE_TIP_PRICE_ID  - the live-mode goodwill tip price id
+#   vars.STRIPE_{TEST,LIVE}_FAMILY_PLAN_PRICE_ID / _PACK_SPOOKY_PRICE_ID - optional paywall
+#   vars.STRIPE_TIP_PRICE_ID (+ _FAMILY_PLAN_ / _PACK_SPOOKY_) - LEGACY single-mode fallback
+#   Key Vault secrets: Stripe{Test,Live}SecretKey, Stripe{Test,Live}WebhookSigningSecret,
+#                      OperatorModeToggleSecret (the toggle gate), and the legacy
+#                      StripeSecretKey / StripeWebhookSigningSecret (flat fallback)
 #
 # Nothing secret is committed, and no secret goes into a VITE_* var: Vite bakes
 # VITE_-prefixed vars into the public bundle, so only the (public) deployed API
@@ -288,32 +292,42 @@ jobs:
 
           echo "CORS origins allowed:"; printf '  %s\n' "${origins[@]}"
 
-      # --- Wire live Stripe billing (optional, repo-variable-gated) -----------
-      # billing-entitlements/03. Same posture as the AI gate above: the whole
-      # billing seam is built and ships DISABLED (empty Stripe__SecretKey => the
+      # --- Wire Stripe billing (optional, repo-variable-gated) ----------------
+      # billing-entitlements/03 + /06. Same posture as the AI gate above: the whole
+      # billing seam is built and ships DISABLED (no secret key in any mode => the
       # no-op checkout service + a 503 webhook), so a repo without this configured
       # deploys exactly as before. This step re-applies the Stripe settings AFTER
       # the "Ensure UAT is provisioned" step (which REPLACES the appSettings array
       # and so drops anything not re-applied - the same reason CORS + AI are
       # re-set here); appsettings set is additive, so it does not disturb them.
+      # Because the provision REPLACES the array first, stale settings from a prior
+      # wiring (e.g. after migrating off the legacy flat vars) self-heal: only what
+      # is currently configured is re-applied.
       #
-      # SKIPPED entirely unless vars.STRIPE_ENABLED == 'true'. The two SECRETS
-      # (secret key + webhook signing secret) are NOT passed through the workflow:
-      # they live in Key Vault (set ONCE, out of band - see the runbook) and are
-      # wired as @Microsoft.KeyVault references, resolved at runtime by the API's
-      # SystemAssigned identity (already granted "Key Vault Secrets User" on the
-      # vault in infra/main.bicep). So no Stripe secret ever touches GitHub, this
-      # file, or a VITE_ var. Price ids are NOT secret (env-specific) and come from
-      # repo variables. ClientBaseUrl is the public web origin (the custom domain
-      # if one is bound, else the SWA default host) so Stripe's success/cancel
-      # redirects land on the real site.
+      # MODE-AWARE (billing-entitlements/06): the app holds a Live AND a Test
+      # credential set at once and an operator toggle picks which is active. Each
+      # mode's SECRETS live in Key Vault (set ONCE, out of band - see the runbook)
+      # and are wired as @Microsoft.KeyVault references, resolved at runtime by the
+      # API's SystemAssigned identity (granted "Key Vault Secrets User" in
+      # infra/main.bicep). So no Stripe secret ever touches GitHub, this file, or a
+      # VITE_ var. Price ids are NOT secret (env-specific) and come from repo vars.
+      # The operator toggle's interim gate secret (Admin__ModeToggleSecret) is a KV
+      # ref too; if that KV secret is unset the gate denies all, so the toggle is
+      # inert rather than open. ClientBaseUrl is the public web origin (custom domain
+      # if bound) so Stripe redirects land on the real site.
       #
-      # One-time setup (see docs/runbooks/enable-stripe-billing.md):
-      #   Key Vault secrets: StripeSecretKey, StripeWebhookSigningSecret
-      #   vars.STRIPE_ENABLED            = 'true'
-      #   vars.STRIPE_TIP_PRICE_ID       = price_...  (the goodwill tip price)
-      #   vars.STRIPE_FAMILY_PLAN_PRICE_ID = price_... (optional; the paywall plan)
-      #   vars.STRIPE_PACK_SPOOKY_PRICE_ID = price_... (optional; the example pack)
+      # SKIPPED entirely unless vars.STRIPE_ENABLED == 'true'. One-time setup (see
+      # docs/runbooks/enable-stripe-billing.md):
+      #   Key Vault secrets (per mode): StripeTestSecretKey / StripeTestWebhookSigningSecret,
+      #                                 StripeLiveSecretKey / StripeLiveWebhookSigningSecret
+      #   Key Vault secret (toggle gate): OperatorModeToggleSecret
+      #   vars.STRIPE_ENABLED               = 'true'
+      #   vars.STRIPE_TEST_TIP_PRICE_ID     = price_... (test-mode tip)
+      #   vars.STRIPE_LIVE_TIP_PRICE_ID     = price_... (live-mode tip)
+      #   vars.STRIPE_{TEST,LIVE}_FAMILY_PLAN_PRICE_ID / _PACK_SPOOKY_PRICE_ID (optional paywall)
+      #   LEGACY (pre-/06 single-mode): Key Vault StripeSecretKey / StripeWebhookSigningSecret
+      #                                 + vars.STRIPE_TIP_PRICE_ID - still honored as the
+      #                                 flat fallback so an existing deployment keeps working.
       - name: Wire Stripe billing (optional)
         if: ${{ vars.STRIPE_ENABLED == 'true' }}
         run: |
@@ -331,11 +345,7 @@ jobs:
             echo "::error::STRIPE_ENABLED is true but no Key Vault was found in '$rg'. Provision must run first."
             exit 1
           fi
-
-          if [ -z "${{ vars.STRIPE_TIP_PRICE_ID }}" ]; then
-            echo "::error::STRIPE_ENABLED is true but STRIPE_TIP_PRICE_ID is not set - the tip jar would have no price to charge."
-            exit 1
-          fi
+          kv() { echo "@Microsoft.KeyVault(VaultName=${vault};SecretName=$1)"; }
 
           # ClientBaseUrl: prefer the first Ready custom domain bound to the SWA (the
           # public face, e.g. quibblestone.com), else the SWA default host - so
@@ -345,22 +355,59 @@ jobs:
                       --query "[?status=='Ready'].domainName" -o tsv | head -n1)"
           [ -n "$custom" ] && client_base="https://$custom"
 
+          # Always set: the mode-independent client base + the operator toggle gate secret.
           settings=(
-            "Stripe__SecretKey=@Microsoft.KeyVault(VaultName=${vault};SecretName=StripeSecretKey)"
-            "Stripe__WebhookSigningSecret=@Microsoft.KeyVault(VaultName=${vault};SecretName=StripeWebhookSigningSecret)"
             "Stripe__ClientBaseUrl=${client_base}"
-            "Stripe__PriceIds__tip=${{ vars.STRIPE_TIP_PRICE_ID }}"
+            "Admin__ModeToggleSecret=$(kv OperatorModeToggleSecret)"
           )
-          # Optional paywall products - wired only when their price ids are configured
-          # (an unset price id just leaves that product not-purchasable, per ProductCatalog).
-          [ -n "${{ vars.STRIPE_FAMILY_PLAN_PRICE_ID }}" ] && \
-            settings+=("Stripe__PriceIds__family-plan=${{ vars.STRIPE_FAMILY_PLAN_PRICE_ID }}")
-          [ -n "${{ vars.STRIPE_PACK_SPOOKY_PRICE_ID }}" ] && \
-            settings+=("Stripe__PriceIds__pack.spooky=${{ vars.STRIPE_PACK_SPOOKY_PRICE_ID }}")
+          have_price=0
+
+          # LEGACY flat wiring (pre-/06 single-mode) - kept for back-compat so an existing
+          # deployment keeps working; ForMode falls back to these when a per-mode section
+          # is unset. Migrate to the per-mode vars below and this block simply stops applying.
+          if [ -n "${{ vars.STRIPE_TIP_PRICE_ID }}" ]; then
+            settings+=(
+              "Stripe__SecretKey=$(kv StripeSecretKey)"
+              "Stripe__WebhookSigningSecret=$(kv StripeWebhookSigningSecret)"
+              "Stripe__PriceIds__tip=${{ vars.STRIPE_TIP_PRICE_ID }}"
+            )
+            [ -n "${{ vars.STRIPE_FAMILY_PLAN_PRICE_ID }}" ] && settings+=("Stripe__PriceIds__family-plan=${{ vars.STRIPE_FAMILY_PLAN_PRICE_ID }}")
+            [ -n "${{ vars.STRIPE_PACK_SPOOKY_PRICE_ID }}" ] && settings+=("Stripe__PriceIds__pack.spooky=${{ vars.STRIPE_PACK_SPOOKY_PRICE_ID }}")
+            have_price=1
+          fi
+
+          # TEST mode (billing-entitlements/06) - wired when its tip price is configured.
+          if [ -n "${{ vars.STRIPE_TEST_TIP_PRICE_ID }}" ]; then
+            settings+=(
+              "Stripe__Test__SecretKey=$(kv StripeTestSecretKey)"
+              "Stripe__Test__WebhookSigningSecret=$(kv StripeTestWebhookSigningSecret)"
+              "Stripe__Test__PriceIds__tip=${{ vars.STRIPE_TEST_TIP_PRICE_ID }}"
+            )
+            [ -n "${{ vars.STRIPE_TEST_FAMILY_PLAN_PRICE_ID }}" ] && settings+=("Stripe__Test__PriceIds__family-plan=${{ vars.STRIPE_TEST_FAMILY_PLAN_PRICE_ID }}")
+            [ -n "${{ vars.STRIPE_TEST_PACK_SPOOKY_PRICE_ID }}" ] && settings+=("Stripe__Test__PriceIds__pack.spooky=${{ vars.STRIPE_TEST_PACK_SPOOKY_PRICE_ID }}")
+            have_price=1
+          fi
+
+          # LIVE mode (billing-entitlements/06) - wired when its tip price is configured.
+          if [ -n "${{ vars.STRIPE_LIVE_TIP_PRICE_ID }}" ]; then
+            settings+=(
+              "Stripe__Live__SecretKey=$(kv StripeLiveSecretKey)"
+              "Stripe__Live__WebhookSigningSecret=$(kv StripeLiveWebhookSigningSecret)"
+              "Stripe__Live__PriceIds__tip=${{ vars.STRIPE_LIVE_TIP_PRICE_ID }}"
+            )
+            [ -n "${{ vars.STRIPE_LIVE_FAMILY_PLAN_PRICE_ID }}" ] && settings+=("Stripe__Live__PriceIds__family-plan=${{ vars.STRIPE_LIVE_FAMILY_PLAN_PRICE_ID }}")
+            [ -n "${{ vars.STRIPE_LIVE_PACK_SPOOKY_PRICE_ID }}" ] && settings+=("Stripe__Live__PriceIds__pack.spooky=${{ vars.STRIPE_LIVE_PACK_SPOOKY_PRICE_ID }}")
+            have_price=1
+          fi
+
+          if [ "$have_price" -eq 0 ]; then
+            echo "::error::STRIPE_ENABLED is true but no price id is configured (set STRIPE_TEST_TIP_PRICE_ID and/or STRIPE_LIVE_TIP_PRICE_ID, or the legacy STRIPE_TIP_PRICE_ID)."
+            exit 1
+          fi
 
           az webapp config appsettings set -g "$rg" -n "$api" \
             --settings "${settings[@]}" --output none
-          echo "Stripe billing wired: ClientBaseUrl=$client_base, tip + $(( ${#settings[@]} - 4 )) optional product(s), secrets via Key Vault '$vault'."
+          echo "Stripe billing wired (${#settings[@]} settings) via Key Vault '$vault'; ClientBaseUrl=$client_base."
 
       # --- Deploy the API (uses the OIDC session, no publish profile) ---------
       - name: Deploy API to App Service

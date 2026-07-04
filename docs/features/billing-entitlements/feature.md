@@ -38,6 +38,8 @@ even if the UI is minimal").
 | 03 | #72 | Stripe integration + entitlement store | Complete |
 | 04 | #73 | Gated purchase flow | Complete |
 | 05 | #74 | Restore / manage entitlements | Complete |
+| 06 | TBD | Live/test Stripe mode - mode-aware config + toggle endpoint | Complete (interim gate) |
+| 07 | TBD | Live/test Stripe mode - operator toggle UI | Complete (interim gate) |
 
 ## Dependencies
 - accounts-identity (a purchase needs the lightweight purchaser account from
@@ -48,6 +50,9 @@ even if the UI is minimal").
   and collects no data on minors).
 - design-system (theme tokens + Button/AppBar contracts for the tip jar and
   purchase UI, kept visually consistent and friendly).
+- sysadmin-console/01 (#135, operator login + admin boundary) - story 07 (the
+  toggle UI) belongs behind real operator auth once it lands; see story 06 and
+  07's Technical Notes for the interim gate used until then.
 
 ## Design notes
 - **The seam is the whole point of Phase 2 (story 01).** A single service/hook
@@ -100,6 +105,19 @@ even if the UI is minimal").
   word entry, reveal never show a price or a lock icon), uses the warm
   stone-tablet/Guardian visual language rather than aggressive upsell styling,
   and never nags. No ads, ever (README section 3).
+- **The live/test mode toggle (stories 06-07) is heavier than the current
+  config-presence idiom on purpose - the owner explicitly chose to build it as
+  a real feature.** Today "on" is one config-presence flip
+  (`STRIPE_ENABLED` + Key Vault secrets, see
+  `docs/runbooks/enable-stripe-billing.md`) requiring a redeploy to change. The
+  toggle instead holds BOTH live and test Stripe credentials at once and lets
+  an operator flip which is ACTIVE at runtime, from a persisted flag (Azure
+  Table Storage - reuse, no new resource) - because the owner wants ongoing
+  operator control to gradually turn paid features on for sale and to exercise
+  both flows against the one public site (`quibblestone.com`). This is a
+  superset of, not a replacement for, the existing runbook: the runbook still
+  covers first-time Stripe dashboard/Key Vault setup for BOTH modes; the
+  toggle only changes which already-configured mode is active.
 
 ## Parked - Phase 3+
 - Gating any AI feature (`ai.illustration`, `ai.voice`, `ai.onDemand`) itself -
@@ -113,6 +131,14 @@ even if the UI is minimal").
   minimal restore/manage view in story 05.
 - Regional pricing, tax handling (e.g. Stripe Tax), and multi-currency.
 - Gift purchases / redeeming a code bought by someone else.
+- More than two Stripe modes, per-region mode routing, or a mode that varies
+  per-request/per-session (stories 06-07: exactly one ACTIVE mode for the
+  whole app at a time, operator-selected).
+- A scheduled/timed mode switch (e.g. "go live at 9am Saturday") - stories
+  06-07 are a manual, confirmation-gated flip only.
+- Multi-operator approval workflow for the switch (e.g. two-person sign-off) -
+  alpha has one operator (sysadmin-console posture); revisit only if the team
+  grows.
 
 ## Decisions
 - 2026-07-01: Scoped story 01 as the load-bearing story of both new features -
@@ -163,3 +189,15 @@ even if the UI is minimal").
   performed (multi-device restore walk; UI audit confirming billing entry
   points appear only on Home/Account and are absent from Join/Lobby/
   FillBlank/Reveal).
+- 2026-07-03: Owner requested an operator-controlled, RUNTIME live/test Stripe
+  mode toggle (no redeploy) - explicitly heavier than the current
+  config-presence approach, and explicitly chosen anyway so the owner can
+  gradually turn paid features on for sale and exercise both flows on the one
+  public site. Added as two new stories (06 server-side mode-aware config +
+  toggle endpoint, 07 the operator UI) rather than folding into story 03,
+  because 03 is already Complete and shipped/verified - reopening it would
+  mix a settled, tested story with new scope. Decomposed into two because the
+  server-side mode plumbing (06) is independently valuable/testable without
+  any UI, and 07's placement depends on `sysadmin-console/01` landing (see
+  06's and 07's Technical Notes "dependency reality" for the interim gate
+  used until real operator auth exists).

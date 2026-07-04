@@ -5,9 +5,11 @@
 //  Stripe mode and whether subscription metadata is attached - not by a second
 //  integration.
 //
-//  SECRETS (AC-01): the secret key comes from StripeOptions (Key Vault-backed config),
-//  used to build a per-instance StripeClient - NOT the global StripeConfiguration.ApiKey
-//  (no shared mutable static). The key is never logged.
+//  SECRETS (AC-01): the secret key comes from the ACTIVE mode's credentials
+//  (IActiveStripeContext, billing-entitlements/06), used to build a per-call StripeClient
+//  - NOT the global StripeConfiguration.ApiKey (no shared mutable static). The key is
+//  never logged. Because the active mode can be flipped at runtime, the client is built
+//  per call from the currently-active secret key rather than captured once at construction.
 //
 //  METADATA SEAM: the capability keys + purchaser email ride into the session's
 //  Metadata (read back on checkout.session.completed) AND, for a subscription, into
@@ -35,14 +37,13 @@ namespace QuibbleStone.Api.Billing;
 /// </summary>
 public sealed class StripeCheckoutService : IStripeCheckoutService
 {
-    private readonly StripeClient _client;
+    private readonly IActiveStripeContext _context;
     private readonly ILogger<StripeCheckoutService> _logger;
 
-    /// <summary>Constructs the service over the configured secret key (Key Vault-backed, AC-01).</summary>
-    public StripeCheckoutService(StripeOptions options, ILogger<StripeCheckoutService> logger)
+    /// <summary>Constructs the service over the active-mode context (billing-entitlements/06).</summary>
+    public StripeCheckoutService(IActiveStripeContext context, ILogger<StripeCheckoutService> logger)
     {
-        // Per-instance client from the configured key - no global mutable ApiKey state.
-        _client = new StripeClient(options.SecretKey);
+        _context = context;
         _logger = logger;
     }
 
@@ -52,8 +53,22 @@ public sealed class StripeCheckoutService : IStripeCheckoutService
     /// <inheritdoc />
     public async Task<CheckoutSessionResult> CreateCheckoutSessionAsync(CheckoutRequest request, CancellationToken ct = default)
     {
+        // Resolve the ACTIVE mode's secret key per call (billing-entitlements/06) - the
+        // mode can be flipped at runtime, so it is never captured at construction.
+        var config = await _context.GetActiveConfigAsync(ct);
+        if (string.IsNullOrWhiteSpace(config.SecretKey))
+        {
+            // Billing is on overall, but the ACTIVE mode has no secret key configured (an
+            // operator misconfig). Degrade to a clean "not available" rather than call
+            // Stripe with an empty key - free play is unaffected either way.
+            _logger.LogWarning("Checkout requested but the active Stripe mode has no secret key configured.");
+            return CheckoutSessionResult.Disabled;
+        }
+
+        // Per-call client from the active mode's key - no global mutable ApiKey state.
+        var client = new StripeClient(config.SecretKey);
         var options = BuildSessionOptions(request);
-        var service = new SessionService(_client);
+        var service = new SessionService(client);
         var session = await service.CreateAsync(options, cancellationToken: ct);
         // Never log the session URL/id at Information (it is a redirect a user follows);
         // Debug only, no secret, no PII.

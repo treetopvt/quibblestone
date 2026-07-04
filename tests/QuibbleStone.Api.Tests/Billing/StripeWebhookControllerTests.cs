@@ -40,9 +40,11 @@ public class StripeWebhookControllerTests
         "\"object\":\"checkout.session\",\"mode\":\"payment\",\"customer_email\":\"" + Purchaser + "\"," +
         "\"metadata\":{\"qs_capabilities\":\"library.full,play.remote\",\"qs_purchaser\":\"" + Purchaser + "\"}}}}";
 
-    private static string Sign(string payload, long timestamp)
+    private static string Sign(string payload, long timestamp) => SignWith(payload, timestamp, Secret);
+
+    private static string SignWith(string payload, long timestamp, string secret)
     {
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(Secret));
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
         var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{timestamp}.{payload}"));
         return Convert.ToHexStringLower(hash);
     }
@@ -82,6 +84,35 @@ public class StripeWebhookControllerTests
         var held = await grants.GetGrantsAsync(Purchaser);
         Assert.Contains(held, g => g.CapabilityKey == EntitlementCatalog.LibraryFull);
         Assert.Contains(held, g => g.CapabilityKey == EntitlementCatalog.PlayRemote);
+    }
+
+    // AC-04 (billing-entitlements/06): with BOTH modes' signing secrets configured, an
+    // event signed with the LIVE secret is accepted even though Test is the active mode -
+    // the controller tries each mode's secret, so a mode flip cannot orphan an in-flight
+    // webhook signed under the other mode.
+    [Fact]
+    public async Task Event_signed_with_the_live_secret_is_accepted_while_test_is_active()
+    {
+        const string liveSecret = "whsec_live_9876543210fedcba";
+        var grants = new InMemoryEntitlementGrantStore();
+        var options = new StripeOptions
+        {
+            Test = new StripeModeConfig { SecretKey = "sk_test_x", WebhookSigningSecret = Secret },
+            Live = new StripeModeConfig { SecretKey = "sk_live_x", WebhookSigningSecret = liveSecret },
+        };
+        var handler = new StripeWebhookHandler(grants, new InMemoryAccountStore(), new InMemoryProcessedEventStore(), options);
+        var controller = new StripeWebhookController(handler, options, NullLogger<StripeWebhookController>.Instance);
+
+        var payload = EventPayload();
+        var t = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        SetRequest(controller, payload, $"t={t},v1={SignWith(payload, t, liveSecret)}");
+
+        var action = await controller.Webhook(CancellationToken.None);
+
+        // Accepted despite Test being the active mode (the default) - verified against the live secret.
+        Assert.IsType<OkObjectResult>(action);
+        var held = await grants.GetGrantsAsync(Purchaser);
+        Assert.Contains(held, g => g.CapabilityKey == EntitlementCatalog.LibraryFull);
     }
 
     [Fact]

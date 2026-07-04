@@ -57,7 +57,60 @@ deploy, gated on `vars.STRIPE_ENABLED == 'true'`.
 Leave `STRIPE_ENABLED` unset and everything above is skipped - billing stays cleanly
 off. That is the only master switch.
 
-## What you need to set (one time)
+## Current model: both modes at once + a runtime toggle (billing-entitlements/06)
+
+The app now holds a **Live and a Test credential set simultaneously**, and an
+operator flips which one is **active** at runtime from an admin screen - no redeploy,
+no secret-swap. This supersedes the "two-pass, swap the secret" flow described in
+Parts 1-4 below (those still work as a single-mode **legacy fallback**, but prefer the
+dual-mode wiring here).
+
+**Key Vault secrets (set once, out of band - per mode + the toggle gate):**
+```powershell
+$vault = "quibblestone-uat-7achtfu"   # az keyvault list -g quibblestone-uat-rg --query "[0].name" -o tsv
+# Test mode
+az keyvault secret set --vault-name $vault --name StripeTestSecretKey            --value 'sk_test_...'
+az keyvault secret set --vault-name $vault --name StripeTestWebhookSigningSecret --value 'whsec_...'   # from the TEST-mode webhook
+# Live mode
+az keyvault secret set --vault-name $vault --name StripeLiveSecretKey            --value 'sk_live_...'
+az keyvault secret set --vault-name $vault --name StripeLiveWebhookSigningSecret --value 'whsec_...'   # from the LIVE-mode webhook
+# The operator toggle gate (a strong random string YOU choose - this is what the
+# /admin/billing-mode screen asks for). Unset => the toggle endpoint denies all (inert).
+az keyvault secret set --vault-name $vault --name OperatorModeToggleSecret       --value '<a long random secret>'
+```
+
+**Repo variables (per-mode price ids + the master switch):**
+```bash
+gh variable set STRIPE_ENABLED --body true
+gh variable set STRIPE_TEST_TIP_PRICE_ID --body 'price_...'   # the TEST tip price
+gh variable set STRIPE_LIVE_TIP_PRICE_ID --body 'price_...'   # the LIVE tip price
+# optional paywall, per mode: STRIPE_{TEST,LIVE}_FAMILY_PLAN_PRICE_ID / _PACK_SPOOKY_PRICE_ID
+```
+
+You still create the products + a **webhook per mode** in the Stripe dashboard (Parts
+1 and the webhook step below) - one set in Test mode, one in Live mode - both webhooks
+pointing at the SAME `.../api/stripe/webhook` URL. The app verifies an incoming event
+against *both* modes' signing secrets, so a webhook for a checkout started under the
+other mode is never spuriously rejected.
+
+**Using the toggle:** browse to `https://quibblestone.com/admin/billing-mode` (no link
+points here - operator-only, by URL). Enter the `OperatorModeToggleSecret`, and you
+see the current active mode + when it last changed. Switching **to Live** carries a
+stronger confirmation ("real cards will be charged") than switching to Test. The
+**safe default is Test** - a fresh environment can never take a real charge until an
+operator deliberately flips to Live. The flip takes effect immediately on UAT
+(single-instance); if the App Service is ever scaled out to multiple instances, a flip
+converges on sibling instances within a few seconds (the active mode is cached briefly
+per instance), so do not expect instant global effect under scale-out.
+
+**Migrating from the current flat setup:** UAT is wired the legacy flat way today
+(`StripeSecretKey` + `STRIPE_TIP_PRICE_ID`, resolving as Test). To move to dual-mode,
+set the per-mode Key Vault secrets + repo vars above, then remove the legacy
+`STRIPE_TIP_PRICE_ID` var (the next deploy's provision drops the stale flat settings
+and re-applies only the per-mode ones). The legacy `Stripe*` KV secrets can stay -
+they are inert once the per-mode sections are configured.
+
+## Legacy single-mode setup (fallback) - what you need to set (one time)
 
 ### Part 1 - Stripe dashboard (in the mode for this pass: Test first, then Live)
 
