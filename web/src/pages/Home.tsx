@@ -234,6 +234,13 @@ export function Home({
         // the CTAs / play-solo pill / utility bar are never cropped off-screen
         // as they were under the old `height: 100dvh; overflow: hidden`.
         minHeight: '100dvh',
+        // Clip the ambient glow horizontally: it is intentionally wider than a
+        // narrow phone (430px vs a ~390/360px viewport) and would otherwise
+        // overhang each edge and add a stray horizontal page-scroll. Safe here
+        // because the column is `minHeight` (content-driven height, never a fixed
+        // height), so `overflow-x: hidden` clips only the x-overhang and never
+        // turns this into a vertical-scroll container that could clip the top.
+        overflowX: 'hidden',
         display: 'flex',
         flexDirection: 'column',
         // P2: center the column as a block. On a TALL viewport (a tablet held
