@@ -250,7 +250,14 @@ export function Home({
         sx={{
           position: 'relative',
           width: '100%',
-          maxWidth: 296,
+          // Widened from 296 -> 336 so the 42px "QuibbleStone" wordmark (~279px
+          // of glyphs) fits INSIDE the 26px rim padding on both sides instead of
+          // bleeding into the carved rim. Inner content width becomes 336 - 52 =
+          // 284px, so the wordmark centers with clearance rather than overflowing
+          // right. The wordmark font size stays put; the stone tablet grows to
+          // fit it. Still inside the outer column on a ~390px phone (390 - 52px
+          // screen padding = 338px available).
+          maxWidth: 336,
           px: 6.5,
           pt: 6,
           pb: 4.5,
