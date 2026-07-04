@@ -880,11 +880,29 @@ export default function App() {
         // cross-referenced from the LIVE roster by nickname (the reveal payload
         // itself carries no host flag) - so the crew row's crown moves live on a
         // "Pass the chisel" handoff, exactly like Lobby's roster tiles.
-        const hostNickname = room.players.find((p) => p.isHost)?.nickname;
+        const host = room.players.find((p) => p.isHost);
+        const hostNickname = host?.nickname;
         const crewWithHost = crew.map((member) => ({
           ...member,
           isHost: member.nickname === hostNickname,
         }));
+        // replay-remix/03 (AC-03): the host can be ABSENT from the reveal-derived
+        // crew when they carved 0 words this round (fewer blanks than players, or
+        // a handoff to someone who did not submit) - buildCrew only lists players
+        // who own a filled blank. Ensure the host always has a tile (wordCount 0)
+        // so the crown - and the host-only "Pass the chisel" affordance - has a
+        // home on the recap, not only in the Lobby. Nickname match stays exact:
+        // both strings are the SAME stored player nickname, and join uniqueness is
+        // not case-folded, so a case-insensitive compare could crown the wrong
+        // same-spelling player.
+        if (host && !crewWithHost.some((member) => member.isHost)) {
+          crewWithHost.push({
+            nickname: host.nickname,
+            variant: toGuardianVariant(host.variant),
+            wordCount: 0,
+            isHost: true,
+          });
+        }
         return (
           <RoundComplete
             roundNumber={round.roundNumber}

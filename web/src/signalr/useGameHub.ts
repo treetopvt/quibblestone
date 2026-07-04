@@ -1069,7 +1069,7 @@ export function useGameHub(): UseGameHub {
           inRoomRef.current = true;
           roomCodeRef.current = result.room.code;
           // replay-remix/03: remember the nickname we created with - the identity
-          // handle handleRosterChanged needs to re-derive `isHost` if a later
+          // handle that handleRosterChanged needs to re-derive `isHost` if a later
           // "Pass the chisel" handoff moves the role off this client.
           myNicknameRef.current = displayName.trim();
           setRoom(result.room);
@@ -1114,7 +1114,7 @@ export function useGameHub(): UseGameHub {
           inRoomRef.current = true;
           roomCodeRef.current = result.room.code;
           // replay-remix/03: remember the nickname we joined with - the identity
-          // handle handleRosterChanged needs to re-derive `isHost` if a later
+          // handle that handleRosterChanged needs to re-derive `isHost` if a later
           // "Pass the chisel" handoff makes this client the new host.
           myNicknameRef.current = displayName.trim();
           setRoom(result.room);
