@@ -638,8 +638,21 @@ public sealed class Room
     /// </summary>
     /// <param name="connectionId">The SignalR connection that dropped.</param>
     /// <returns>True if a player was removed; false if the connection was not seated here.</returns>
-    public bool RemovePlayer(string connectionId)
+    public bool RemovePlayer(string connectionId) => RemovePlayer(connectionId, out _);
+
+    /// <summary>
+    /// room-start-duplicate-members: the same removal as <see cref="RemovePlayer(string)"/>,
+    /// additionally reporting whether the removal handed the host flag to a remaining seat
+    /// (host migration). The hub uses <paramref name="promotedHostConnectionId"/> to send
+    /// exactly that connection the targeted "HostGranted" nudge - null (a non-host left, or
+    /// the room emptied) means nobody was promoted and no nudge is sent.
+    /// </summary>
+    /// <param name="connectionId">The SignalR connection that dropped.</param>
+    /// <param name="promotedHostConnectionId">Out: the connection promoted to host by this removal, or null when none was.</param>
+    /// <returns>True if a player was removed; false if the connection was not seated here.</returns>
+    public bool RemovePlayer(string connectionId, out string? promotedHostConnectionId)
     {
+        promotedHostConnectionId = null;
         lock (_gate)
         {
             var removed = _players.RemoveAll(p => p.ConnectionId == connectionId);
@@ -658,6 +671,11 @@ public sealed class Room
             // reactions v2 (one-per-user): forget any reaction this leaving connection
             // held so its count does not linger in the current reveal's tally.
             ClearReactionLocked(connectionId);
+
+            // room-start-duplicate-members: if the seat just removed was the host, hand
+            // the host flag to a remaining seat so the room never sits hostless (and thus
+            // unstartable) after the creator leaves - see EnsureHostLocked.
+            promotedHostConnectionId = EnsureHostLocked();
 
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
@@ -797,8 +815,22 @@ public sealed class Room
     /// <param name="connectionId">The held (dropped) connection to evict.</param>
     /// <param name="episode">The disconnect episode the expiring timer was started for.</param>
     /// <returns>True if the seat was evicted; false if the hold was cancelled or superseded.</returns>
-    public bool TryReleaseSeat(string connectionId, Guid episode)
+    public bool TryReleaseSeat(string connectionId, Guid episode) =>
+        TryReleaseSeat(connectionId, episode, out _);
+
+    /// <summary>
+    /// room-start-duplicate-members: the same deferred eviction as
+    /// <see cref="TryReleaseSeat(string, Guid)"/>, additionally reporting whether it handed
+    /// the host flag to a remaining seat (host migration), so the grace-expiry epilogue can
+    /// nudge that connection with "HostGranted". Null means nobody was promoted.
+    /// </summary>
+    /// <param name="connectionId">The held (dropped) connection to evict.</param>
+    /// <param name="episode">The disconnect episode the expiring timer was started for.</param>
+    /// <param name="promotedHostConnectionId">Out: the connection promoted to host by this eviction, or null when none was.</param>
+    /// <returns>True if the seat was evicted; false if the hold was cancelled or superseded.</returns>
+    public bool TryReleaseSeat(string connectionId, Guid episode, out string? promotedHostConnectionId)
     {
+        promotedHostConnectionId = null;
         if (string.IsNullOrEmpty(connectionId))
         {
             return false;
@@ -818,6 +850,10 @@ public sealed class Room
             // reactions v2 (one-per-user): forget any reaction this evicted seat held
             // so its count does not linger in the current reveal's tally.
             ClearReactionLocked(connectionId);
+            // room-start-duplicate-members: a host whose grace window expired is gone for
+            // good, so migrate the host flag to a remaining seat here too (same guarantee
+            // the deliberate-leave RemovePlayer path makes) - see EnsureHostLocked.
+            promotedHostConnectionId = EnsureHostLocked();
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
         }
@@ -1116,6 +1152,61 @@ public sealed class Room
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
         }
+    }
+
+    /// <summary>
+    /// room-start-duplicate-members: whether ANY seat currently holds the host flag.
+    /// With host migration (<see cref="EnsureHostLocked"/>) a non-empty room is always
+    /// hosted, so this is a belt-and-suspenders read - the hub's StartRound lets any
+    /// remaining player start a room that has somehow ended up hostless rather than
+    /// leaving it permanently unstartable. Read under the lock.
+    /// </summary>
+    public bool HasHost
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _players.Any(p => p.IsHost);
+            }
+        }
+    }
+
+    /// <summary>
+    /// room-start-duplicate-members: keep a non-empty room ALWAYS hosted. Called under
+    /// <see cref="_gate"/> immediately after a seat is removed - the deliberate-leave
+    /// path (<see cref="RemovePlayer"/>) and the grace-window eviction path
+    /// (<see cref="TryReleaseSeat"/>). If the departed seat was the host, the room is
+    /// left with no IsHost seat and its Start CTA vanishes for everyone: the exact
+    /// "creator pressed back, rejoined by code, now nobody can start" dead-end this
+    /// story fixes. Promote the EARLIEST-joined still-CONNECTED seat to host (falling
+    /// back to the earliest seat of any state when every remaining seat is mid-grace),
+    /// so exactly one host always exists. A no-op when a host is still seated (the
+    /// common case - a non-host left) or the room is now empty.
+    ///
+    /// The original creator does NOT get the host flag back if they later rejoin by
+    /// code (that is a fresh non-host seat); whoever stayed inherits it. That is the
+    /// intended toy-scale behavior - the point is that SOMEONE can always start.
+    /// </summary>
+    /// <returns>The connection id of the seat just promoted to host, or null when no promotion was needed (a host is still seated, or the room is now empty).</returns>
+    private string? EnsureHostLocked()
+    {
+        if (_players.Count == 0 || _players.Any(p => p.IsHost))
+        {
+            return null;
+        }
+
+        var index = _players.FindIndex(p => p.Connected);
+        if (index < 0)
+        {
+            // Every remaining seat is mid-grace (disconnected); promote the earliest
+            // anyway so the flag exists - it lands on a real seat once that seat
+            // reconnects, and travels through ReclaimSeat's IsHost on a Rejoin.
+            index = 0;
+        }
+
+        _players[index] = _players[index] with { IsHost = true };
+        return _players[index].ConnectionId;
     }
 
     /// <summary>

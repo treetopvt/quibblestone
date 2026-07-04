@@ -864,8 +864,8 @@ public sealed class GameHub : Hub
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, code);
         }
 
-        var room = _rooms.RemoveConnection(Context.ConnectionId);
-        await HandlePlayerLeftAsync(room);
+        var room = _rooms.RemoveConnection(Context.ConnectionId, out var promotedHostConnectionId);
+        await HandlePlayerLeftAsync(room, promotedHostConnectionId);
     }
 
     /// <summary>
@@ -925,10 +925,18 @@ public sealed class GameHub : Hub
                 "We couldn't find a game with that code - double-check and try again.");
         }
 
-        // 2. Server-enforced host check (AC-03): only the connection that owns the
-        //    room's host player may start a round. This is authoritative even
-        //    though the client also hides the CTA from non-hosts.
-        if (!room.IsHost(Context.ConnectionId))
+        // 2. Server-enforced host check (AC-03): while the room HAS a host, only the
+        //    connection that owns that host player may start a round (the one exception
+        //    is the hostless case below). This is authoritative even though the client
+        //    also hides the CTA from non-hosts.
+        //
+        //    room-start-duplicate-members (belt-and-suspenders): host migration keeps a
+        //    non-empty room always hosted, so this normally rejects every non-host. The
+        //    `room.HasHost` guard only relaxes it if a room ever ends up with NO host at
+        //    all - then any remaining player may start it rather than the room being
+        //    permanently unstartable. Mirrors the client CTA, which likewise shows Start
+        //    to everyone when the roster carries no host.
+        if (!room.IsHost(Context.ConnectionId) && room.HasHost)
         {
             return new StartRoundResultDto(
                 false,
@@ -1726,8 +1734,8 @@ public sealed class GameHub : Hub
     /// this invocation's own <see cref="Hub.Clients"/>. A null room (the leaver was
     /// not seated, or leaving emptied and dropped the room) is a no-op.
     /// </summary>
-    private Task HandlePlayerLeftAsync(Room? room) =>
-        room is null ? Task.CompletedTask : BroadcastPlayerLeftAsync(Clients, room);
+    private Task HandlePlayerLeftAsync(Room? room, string? promotedHostConnectionId = null) =>
+        room is null ? Task.CompletedTask : BroadcastPlayerLeftAsync(Clients, room, promotedHostConnectionId);
 
     /// <summary>
     /// group-play recovery: the SHARED player-left epilogue, broadcast to
@@ -1744,10 +1752,18 @@ public sealed class GameHub : Hub
     /// this invocation's <c>Clients</c>) AND the session-engine/07 grace-expiry path
     /// (passing <c>IHubContext&lt;GameHub&gt;.Clients</c>, since the originating hub
     /// invocation has long since ended) run the EXACT same eviction epilogue - no
-    /// forked, mode-specific reconnect logic ("one engine, many thin modes"). Host
-    /// migration (if the HOST leaves) is still parked.
+    /// forked, mode-specific reconnect logic ("one engine, many thin modes").
+    ///
+    /// room-start-duplicate-members: host migration now runs INSIDE the seat removal
+    /// (Room.EnsureHostLocked, on both the RemovePlayer and TryReleaseSeat paths that
+    /// feed this epilogue), so if the departing seat was the host a remaining seat has
+    /// already inherited the flag by the time we broadcast. The targeted "HostGranted"
+    /// below tells that promoted connection so its client can start.
     /// </summary>
-    internal static async Task BroadcastPlayerLeftAsync(IHubClients<IClientProxy> clients, Room room)
+    internal static async Task BroadcastPlayerLeftAsync(
+        IHubClients<IClientProxy> clients,
+        Room room,
+        string? promotedHostConnectionId = null)
     {
         var round = room.CurrentRound;
         if (round is not null && string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
@@ -1759,6 +1775,19 @@ public sealed class GameHub : Hub
         }
 
         await clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+
+        // room-start-duplicate-members: if this leave migrated the host flag to a remaining
+        // seat (Room.EnsureHostLocked runs inside the seat removal on BOTH the deliberate-
+        // leave and grace-eviction paths that land here), nudge ONLY that promoted
+        // connection so its client flips its host-only Start CTA on. The roster DTO is
+        // anonymous - it carries no connection identity - so it can never tell a specific
+        // client "you are the host"; without this targeted message the promoted player
+        // would sit in a hosted room with no way to start (the dead-end this story fixes).
+        // Null (a non-host left, so the host is unchanged) sends nothing.
+        if (promotedHostConnectionId is not null)
+        {
+            await clients.Client(promotedHostConnectionId).SendAsync("HostGranted");
+        }
     }
 
     /// <summary>

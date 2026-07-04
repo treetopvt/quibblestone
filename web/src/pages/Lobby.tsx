@@ -756,6 +756,13 @@ export function Lobby({
     }
   };
 
+  // room-start-duplicate-members (belt-and-suspenders): the server migrates the host
+  // flag whenever the host leaves, so a populated room is normally always hosted. If a
+  // roster ever arrives with NO host at all, surface the Start CTA to everyone rather
+  // than leaving the room unstartable - the hub's StartRound matches this, accepting a
+  // start from any player when the room has no host. Under normal play this is false.
+  const noHostPresent = players.length > 0 && !players.some((p) => p.isHost);
+
   // Host-only "Game settings" bottom sheet (fit-to-viewport redesign): whether
   // the sheet holding the family-safe toggle / length choice / mode picker /
   // favorites panel is open. Purely local UI state - it never affects what
@@ -1171,13 +1178,16 @@ export function Lobby({
         </Box>
       )}
 
-      {/* Pinned gold Start CTA (group-play/01, AC-05): host-only, always visible.
+      {/* Pinned gold Start CTA (group-play/01, AC-05): shown to the host, and - via the
+          `noHostPresent` escape hatch (room-start-duplicate-members) - to everyone when the
+          roster somehow carries no host, so a hostless room stays startable. Normally that
+          is host-only, since a populated room always has a host.
           The round-setup controls (family-safe, length, mode) now live in the
           settings sheet (opened via the collapsed row above) so the bar holds
           only the action it is designed for - the fixed spacer reserves exactly
           this button's height. onStart carries the host's family-safe + length +
           mode to the hub's startRound (server-authoritative). */}
-      {isHost && (
+      {(isHost || noHostPresent) && (
         <BottomActionBar>
           <Button variant="contained" fullWidth onClick={() => onStart(familySafe, lengthPref, mode.config.id)}>
             <FontAwesomeIcon icon="play" style={{ width: 22, height: 22 }} />

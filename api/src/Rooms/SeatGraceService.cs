@@ -132,11 +132,14 @@ public sealed class SeatGraceService
             // The window elapsed with no reconnect. Release the seat ONLY if this same
             // disconnect episode is still pending (re-checked under the room lock), then
             // re-broadcast to the survivors. A reconnect / newer drop makes this a no-op.
-            var stillActive = _rooms.ReleaseGraceSeat(handle.Room, handle.ConnectionId, handle.Episode);
+            var stillActive = _rooms.ReleaseGraceSeat(
+                handle.Room, handle.ConnectionId, handle.Episode, out var promotedHostConnectionId);
             TryTrack("HubGraceExpired");
             if (stillActive is not null)
             {
-                await GameHub.BroadcastPlayerLeftAsync(_hub.Clients, stillActive);
+                // room-start-duplicate-members: pass the promoted-host connection (if the
+                // evicted seat was the host) so the epilogue nudges it with "HostGranted".
+                await GameHub.BroadcastPlayerLeftAsync(_hub.Clients, stillActive, promotedHostConnectionId);
             }
         }
         catch (Exception ex)

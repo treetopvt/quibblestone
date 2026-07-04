@@ -685,6 +685,13 @@ export function useGameHub(): UseGameHub {
   // chisel" handoff makes/unmakes this client the host without it calling
   // createRoom/joinRoom/startRound itself.
   const myNicknameRef = useRef<string | null>(null);
+  // room-start-duplicate-members: the latest `isHost` mirrored into a ref so the stable
+  // "HostGranted" handler (registered once, below) reads the current value without
+  // re-binding, and shows the "you're the host now" notice only on a genuine false->true
+  // handover (never twice if a duplicate message ever arrived). Kept in sync with the
+  // state by the effect just below, so every setIsHost site (create/join/rejoin/clear/
+  // promote) flows through it.
+  const isHostRef = useRef(false);
   // session-engine/09: whether an auto-rejoin attempt is currently in flight.
   // `rejoiningRef` is the synchronous double-fire guard `rejoin()` checks
   // FIRST (so the two triggers, AC-02's onreconnected and AC-03's mount-time
@@ -693,6 +700,12 @@ export function useGameHub(): UseGameHub {
   // open while it is true).
   const rejoiningRef = useRef(false);
   const [isRejoining, setIsRejoining] = useState(false);
+
+  // room-start-duplicate-members: keep isHostRef in lockstep with the isHost state so the
+  // once-registered "HostGranted" handler always reads the current value.
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
 
   /**
    * session-engine/09: attempt to reclaim a previously-held seat on THIS
@@ -849,6 +862,21 @@ export function useGameHub(): UseGameHub {
       }
     };
     connection.on('RosterChanged', handleRosterChanged);
+
+    // Host handover (room-start-duplicate-members): the server sends this ONLY to the
+    // connection it just promoted to host after another player left (Room.EnsureHostLocked),
+    // so the promoted client can turn its host-only Start CTA on - the room is otherwise
+    // hosted but this client has no way to know it (the roster DTO carries no identity).
+    // Guarded by inRoomRef so a message racing our own leave cannot revive host state after
+    // we have gone Home, and by isHostRef so the friendly notice fires only on a genuine
+    // false->true handover (a no-op if we somehow already hold the flag).
+    const handleHostGranted = () => {
+      if (cancelled || !inRoomRef.current || isHostRef.current) return;
+      isHostRef.current = true;
+      setIsHost(true);
+      setRoundNotice("You're the host now - tap Start game when your crew's ready.");
+    };
+    connection.on('HostGranted', handleHostGranted);
 
     // Round start (group-play/01): the hub broadcasts "RoundStarted" to the whole
     // room group when the host starts a round, so every player - host and joiners
@@ -1020,6 +1048,7 @@ export function useGameHub(): UseGameHub {
     return () => {
       cancelled = true;
       connection.off('RosterChanged', handleRosterChanged);
+      connection.off('HostGranted', handleHostGranted);
       connection.off('RoundStarted', handleRoundStarted);
       connection.off('YourBlanks', handleYourBlanks);
       connection.off('CollectProgress', handleCollectProgress);
