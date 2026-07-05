@@ -47,11 +47,14 @@ issuance + email delivery"); issuance shipped, delivery did not. See
       without leaking existence (the purchaser request still never reads the
       account store; the operator allowlist is still checked only at verify), and
       a delivery failure never becomes an existence oracle.
-- [ ] AC-05 (secret in Key Vault, never `VITE_*`): Given the provider needs a key
-      / connection string, then it is supplied per-environment from Azure Key
-      Vault via an App Service app setting (the same pattern as the Stripe keys
-      and the magic-link signing key) - never committed, never a `VITE_*` var,
-      never logged.
+- [ ] AC-05 (no provider secret in the browser or the repo): Given the RECOMMENDED
+      ACS path, then it authenticates keyless via the App Service managed identity -
+      there is NO provider secret to store (only the non-secret sender from-address
+      is app config). Given instead a provider that needs a key / connection string
+      (SendGrid, or an ACS connection-string fallback), then that secret is supplied
+      per-environment from Azure Key Vault via an App Service app setting (the same
+      pattern as the Stripe keys / the magic-link signing key) - never committed,
+      never a `VITE_*` var, never logged.
 - [ ] AC-06 (minimal content / minimal PII): Given a delivered email, then it
       carries only the one-time sign-in link and minimal transactional copy - no
       player nickname, room code, session id, or anything beyond the recipient's
@@ -104,7 +107,10 @@ issuance + email delivery"); issuance shipped, delivery did not. See
   domain to `infra/main.bicep` - a deliberate addition to the five-resource
   footprint (README section 9), justified because magic-link is now load-bearing;
   SendGrid keeps the footprint but adds a third-party dependency. The seam is
-  provider-agnostic, so the choice is one registration.
+  provider-agnostic, so the choice is one registration. The only always-required
+  config is the non-secret sender from-address; a provider SECRET exists ONLY on
+  the SendGrid / ACS-connection-string path, and is then Key Vault-backed (AC-05) -
+  the recommended keyless ACS path stores no provider secret at all.
 - **Reuses (do not reimplement):** `IMagicLinkTokenService` (issuer, unchanged),
   the per-IP rate-limit policies (`SignInRateLimit`, `OperatorLoginRateLimit`,
   unchanged), the Key Vault + App Service app-setting pattern (Stripe / Accounts
@@ -114,15 +120,18 @@ issuance + email delivery"); issuance shipped, delivery did not. See
   an app-setting reference (mirror how `Admin__ModeToggleSecret` / the operator
   allowlist are wired in `.github/workflows/deploy.yml`). Today it is unset on UAT
   (ephemeral), so even a delivered link would break on the next recycle.
-- **Deploy wiring:** the provider key + the sender from-address are app settings
-  the deploy step re-applies after the always-provision replaces the array (mirror
-  the `Stripe__*` / `Admin__ModeToggleSecret` wiring in `deploy.yml`).
+- **Deploy wiring:** the sender from-address (always) and, on a keyed provider, the
+  Key Vault-backed key / connection string are app settings the deploy step
+  re-applies after the always-provision replaces the array (mirror the `Stripe__*` /
+  `Admin__ModeToggleSecret` wiring in `deploy.yml`). The keyless ACS path needs no
+  secret app-setting - only the from-address.
 - **Files:** new `api/src/Accounts/IEmailSender.cs` + a real sender (e.g.
   `AcsEmailSender.cs`) + a `NoOpEmailSender.cs` (dev / log sender); `Program.cs`
   (one config-presence block); `AccountsController` + `OperatorLoginController`
   (inject + call the sender); `appsettings.json` (a commented, empty `Email`
   section like the existing `Stripe` / `Accounts` sections); `infra/main.bicep`
-  (provider resource + KV secret, if ACS); `.github/workflows/deploy.yml`
+  (the ACS Email resource + verified domain if ACS; a KV secret only for a keyed
+  provider); `.github/workflows/deploy.yml`
   (app-setting wiring). No `api/src/Rooms/` or hub changes.
 
 ## Tests

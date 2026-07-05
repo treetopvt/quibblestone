@@ -45,7 +45,7 @@ mostly-serial chain (account exists before you can sign into it) with no meaning
 | 01 anonymous-player-forever | #67 | header-comment hardening on `api/src/Rooms/Room.cs` pointing at the already-shipped `Room.Entitlements`/`Room.CaptureEntitlements`; no new files | session-engine/02, child-safety/01 | - (do first, it is a near-zero-diff contract pass) | 1 | low |
 | 02 lightweight-purchaser-account | #68 | `api/src/Accounts/Account.cs`, `IAccountStore.cs`, `AccountStore.cs`, the magic-link one-time-token issuer/verifier; `Program.cs` (one DI line) | 01, infra (Table Storage) | - | 2 | medium |
 | 03 sign-in-and-restore | #69 | `api/src/Controllers/AccountsController.cs` (or similar); `web/src/pages/Account.tsx` | 02 | - | 3 | medium |
-| 04 magic-link-email-delivery | #167 | new `api/src/Accounts/IEmailSender.cs` + a real sender (e.g. `AcsEmailSender.cs`) + `NoOpEmailSender.cs`; `Program.cs` (one config-presence block); inject into `AccountsController` + `Admin/OperatorLoginController`; `appsettings.json` (`Email` section); `infra/main.bicep` (provider resource + KV secret, if ACS) + `.github/workflows/deploy.yml` (app-setting wiring) | 02, 03, sysadmin-console/01 | - | 4 | medium |
+| 04 magic-link-email-delivery | #167 | new `api/src/Accounts/IEmailSender.cs` + a real sender (e.g. `AcsEmailSender.cs`) + `NoOpEmailSender.cs`; `Program.cs` (one config-presence block); inject into `AccountsController` + `OperatorLoginController` (api/src/Admin/); `appsettings.json` (`Email` section); `infra/main.bicep` (ACS Email resource + verified domain if ACS; a KV secret only for a keyed provider) + `.github/workflows/deploy.yml` (app-setting wiring) | 02, 03, sysadmin-console/01 | - | 4 | medium |
 
 **Concurrency per wave:** Wave 1 = 1 (01, low-effort contract pass - unblocks nothing else technically but should
 land first so its guarantee is verifiable before 02 is built). Wave 2 = 1 (02, the account record + store). Wave 3
@@ -106,7 +106,7 @@ identity briefly to look up capabilities and discards it, never storing it on `R
 AI client / published-tale store use in `Program.cs`: unconfigured => a no-op / dev sender that preserves today's
 `Development` token echo and a neutral no-op elsewhere; configured => a real provider-backed sender (Azure
 Communication Services Email or SendGrid - OPEN, see feature.md / the story). Inject it into
-`AccountsController.RequestLink` and `Admin/OperatorLoginController.RequestLink`, calling it right after
+`AccountsController.RequestLink` and `OperatorLoginController.RequestLink` (api/src/Admin/), calling it right after
 `IMagicLinkTokenService.Issue(...)`. Also promote `Accounts:TokenSigningKey` to a durable Key Vault secret so a
 delivered link survives an app recycle (today it is the ephemeral per-process fallback on UAT). **Exports:** the
 delivery transport that makes purchaser sign-in (03) and operator login (sysadmin-console/01) completable in a
