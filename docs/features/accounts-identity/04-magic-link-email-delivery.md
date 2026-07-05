@@ -1,6 +1,6 @@
 # Story: Magic-link email delivery
 
-**Feature:** Accounts & Identity  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #167
+**Feature:** Accounts & Identity  ·  **Status:** In Review  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #167
 
 ## Context
 The magic-link flow is built, but nothing delivers the link. accounts-identity/02
