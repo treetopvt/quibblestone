@@ -1,6 +1,6 @@
 # Story: Magic-link email delivery
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #TBD
+**Feature:** Accounts & Identity  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #167
 
 ## Context
 The magic-link flow is built, but nothing delivers the link. accounts-identity/02
@@ -96,10 +96,11 @@ issuance + email delivery"); issuance shipped, delivery did not. See
   no-op elsewhere); present => register the real provider-backed sender. Both
   `AccountsController.RequestLink` and `OperatorLoginController.RequestLink` inject
   it and call it after `IMagicLinkTokenService.Issue(...)`.
-- **Provider (OPEN decision - see feature.md):** Azure Communication Services
-  Email (Azure-native, fits the footprint; keyless via managed identity or a
-  KV-backed connection string) vs SendGrid (no Azure resource, external SaaS +
-  API key). ACS Email adds an Email Communication Service resource + a verified
+- **Provider (RECOMMENDED: Azure Communication Services Email; OPEN - see
+  feature.md):** the recommendation is Azure Communication Services Email
+  (Azure-native, fits the footprint; keyless via the App Service managed identity
+  the app already uses for Key Vault / Stripe, so no new secret custody) - vs
+  SendGrid (no Azure resource, external SaaS + API key). ACS Email adds an Email Communication Service resource + a verified
   domain to `infra/main.bicep` - a deliberate addition to the five-resource
   footprint (README section 9), justified because magic-link is now load-bearing;
   SendGrid keeps the footprint but adds a third-party dependency. The seam is

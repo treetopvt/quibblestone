@@ -21,7 +21,7 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 | 01 | #67 | Anonymous player, forever | Complete |
 | 02 | #68 | Lightweight purchaser account | Complete |
 | 03 | #69 | Sign-in and restore on a new device | Complete |
-| 04 | #TBD | Magic-link email delivery | Not Started |
+| 04 | #167 | Magic-link email delivery | Not Started |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:
@@ -126,7 +126,7 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   Production (no dev-token echo), no provider is wired, and
   `Accounts:TokenSigningKey` is unset (ephemeral). Token issuance shipped (02);
   delivery is the half that stayed unbuilt (ADR 0002 Decision A named both). OPEN
-  decision: provider is Azure Communication Services Email vs SendGrid (story 04
+  decision: provider is Azure Communication Services Email (RECOMMENDED) vs SendGrid (story 04
   Technical Notes) - ACS is Azure-native but adds an Email Communication Service +
   a verified domain to the footprint; SendGrid avoids the resource but adds a
   third-party dependency. Story 04 also promotes `Accounts:TokenSigningKey` to a
