@@ -13,7 +13,7 @@ this is intentionally not gold-plated.
 | 4 | Storage Account | `Microsoft.Storage/storageAccounts` | Table: `StoryServes` / `StoryFeedback` (telemetry) + `PublishedTales` (keepsake-gallery/04 public tale links); Blob (AI images, later) |
 | 5 | Key Vault | `Microsoft.KeyVault/vaults` | Secrets (Stripe, AI provider keys); now also holds the App Insights connection string |
 | 6 | Application Insights (+ Log Analytics workspace) | `Microsoft.Insights/components` (+ `Microsoft.OperationalInsights/workspaces`) | Operational telemetry for the API (exceptions, failed requests, latency, dependencies) - `platform-devops/04` |
-| 7 | ACS Email (**optional**, `enableEmail`) | `Microsoft.Communication/emailServices` (+ `/domains` + `/domains/senderUsernames`) and `Microsoft.Communication/communicationServices` | Magic-link sign-in / operator-login email delivery - `accounts-identity/04`. **OFF by default** (the core footprint is unchanged); provisioned only when `enableEmail=true` (the deploy flips this from `vars.EMAIL_ENABLED`) |
+| 7 | ACS Email (**optional**, `enableEmail`) | `Microsoft.Communication/emailServices` (+ `/domains`) and `Microsoft.Communication/communicationServices` | Magic-link sign-in / operator-login email delivery - `accounts-identity/04`. **OFF by default** (the core footprint is unchanged); provisioned only when `enableEmail=true` (the deploy flips this from `vars.EMAIL_ENABLED`) |
 
 The App Service Plan is part of resource #2 (App Service cannot run without a
 plan). Application Insights is workspace-based, so it needs the Log Analytics
@@ -138,8 +138,11 @@ see `api/src/Accounts/AcsEmailSender.cs`). The footprint is **gated behind
 
 - **What `enableEmail=true` provisions.** An Email Communication Service, an
   **Azure-managed domain** (a `*.azurecomm.net` sender Azure creates and verifies for
-  you - **no SPF/DKIM DNS work**), a `no-reply` sender username, and the Communication
-  Services resource the app's `EmailClient` targets (linked to the domain). This is a
+  you - **no SPF/DKIM DNS work**), and the Communication Services resource the app's
+  `EmailClient` targets (linked to the domain). The managed-domain sender is Azure's
+  **fixed `DoNotReply@<generated>.azurecomm.net`** - managed domains do not allow custom
+  sender usernames, so a friendly `no-reply@…` needs the custom-domain upgrade below.
+  This is a
   deliberate addition to the core footprint (README section 9), justified because
   magic-link is now load-bearing - and it stays out of the footprint entirely until
   you opt in.

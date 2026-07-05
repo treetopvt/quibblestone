@@ -344,8 +344,10 @@ resource apiKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04
 // (README section 9) and this whole block simply does not exist until email is
 // turned on. When on it provisions a fully KEYLESS, ZERO-DNS email path:
 //   - an Email Communication Service + an AZURE-MANAGED domain (a *.azurecomm.net
-//     sender Azure creates and verifies for you - no SPF/DKIM records to add) + a
-//     'no-reply' sender username;
+//     sender Azure creates and verifies for you - no SPF/DKIM records to add). The
+//     managed-domain sender is FIXED at DoNotReply@<generated>.azurecomm.net: Azure
+//     does NOT allow custom sender usernames (e.g. no-reply) on a managed domain -
+//     a friendly no-reply@quibblestone.com needs the custom-domain upgrade below;
 //   - the Communication Services resource the app's EmailClient targets, linked to
 //     that domain so it can send from it.
 // The app authenticates KEYLESS via its existing SystemAssigned managed identity
@@ -388,18 +390,7 @@ resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' 
   }
 }
 
-// 7c. The 'no-reply' sender username, so the from-address is
-//     no-reply@<managed-domain> rather than the default DoNotReply@...
-resource emailSender 'Microsoft.Communication/emailServices/domains/senderUsernames@2023-04-01' = if (enableEmail) {
-  parent: emailDomain
-  name: 'no-reply'
-  properties: {
-    username: 'no-reply'
-    displayName: 'QuibbleStone'
-  }
-}
-
-// 7d. The Communication Services resource the app's EmailClient talks to (keyless via
+// 7c. The Communication Services resource the app's EmailClient talks to (keyless via
 //     the API managed identity). linkedDomains binds the managed domain so this
 //     resource is allowed to send from it. hostName (output below) is the endpoint the
 //     API reads as Email:Endpoint.
@@ -430,9 +421,10 @@ output logAnalyticsWorkspaceName string = logAnalytics.name
 // Magic-link email (accounts-identity/04). Empty strings when enableEmail is false, so
 // the deploy workflow's email-wiring step is a clean no-op unless email is turned on.
 // emailAcsEndpoint -> the API's Email:Endpoint (keyless send target). emailSenderAddress
-// -> the API's Email:FromAddress on the Azure-managed domain (no-reply@<*.azurecomm.net>),
-// which a custom-domain operator override (vars.EMAIL_FROM_ADDRESS) supersedes.
+// -> the API's Email:FromAddress: the Azure-managed domain's FIXED DoNotReply sender
+// (DoNotReply@<*.azurecomm.net>), which a custom-domain operator override
+// (vars.EMAIL_FROM_ADDRESS) supersedes for a friendly no-reply@quibblestone.com.
 output emailEnabled bool = enableEmail
 output emailAcsEndpoint string = enableEmail ? 'https://${communicationService!.properties.hostName}' : ''
-output emailSenderAddress string = enableEmail ? '${emailSender!.properties.username}@${emailDomain!.properties.fromSenderDomain}' : ''
+output emailSenderAddress string = enableEmail ? 'DoNotReply@${emailDomain!.properties.fromSenderDomain}' : ''
 output communicationServiceName string = enableEmail ? communicationService!.name : ''

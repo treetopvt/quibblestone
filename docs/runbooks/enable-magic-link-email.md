@@ -39,9 +39,11 @@ delivery.
   idiom.
 - **Infrastructure, in Bicep (behind `enableEmail`).** `infra/main.bicep` provisions the
   ACS Email footprint - an Email Communication Service, an **Azure-managed domain** (a
-  `*.azurecomm.net` sender Azure verifies for you, no DNS work), a `no-reply` sender, and
-  the Communication Services resource - only when `enableEmail=true`. The deploy sets that
-  from `vars.EMAIL_ENABLED`, so the same switch provisions AND wires.
+  `*.azurecomm.net` sender Azure verifies for you, no DNS work), and the Communication
+  Services resource - only when `enableEmail=true`. The deploy sets that from
+  `vars.EMAIL_ENABLED`, so the same switch provisions AND wires. The managed-domain sender
+  is Azure's fixed `DoNotReply@<generated>.azurecomm.net` (managed domains do not allow
+  custom sender usernames - a friendly `no-reply@…` is the custom-domain upgrade, Part 2).
 - **Keyless, no secret.** The deploy grants the API's managed identity the
   **Communication and Email Service Owner** role on the ACS resource, so the app sends
   keyless (AC-05) - there is no provider secret to custody on the recommended path.
@@ -67,10 +69,11 @@ cleanly off.
 | **Keyed (fallback / external ACS)** | `Email__ConnectionString` from Key Vault (contains an access key), with `EMAIL_ENDPOINT` left unset | Yes - one Key Vault secret, never committed / never a `VITE_*` var |
 
 Both send from a **verified sender from-address**. On the keyless auto-provisioned path
-the deploy derives the from-address from the Azure-managed domain
-(`no-reply@<...>.azurecomm.net`); override it with `EMAIL_FROM_ADDRESS` once you move to a
-verified custom domain. The link points at the public web origin automatically
-(`Email__LinkBaseUrl`, the bound custom domain if there is one).
+the deploy derives the from-address from the Azure-managed domain - Azure's fixed
+`DoNotReply@<...>.azurecomm.net` (managed domains do not allow a custom sender username);
+override it with `EMAIL_FROM_ADDRESS` once you move to a verified custom domain (where a
+`no-reply@quibblestone.com` sender is allowed, Part 2). The link points at the public web
+origin automatically (`Email__LinkBaseUrl`, the bound custom domain if there is one).
 
 ## Part 1 - Turn it on (the fast path)
 
