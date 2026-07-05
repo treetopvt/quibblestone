@@ -650,6 +650,31 @@ else
 builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
     new MagicLinkTokenService(sp.GetRequiredService<IConfiguration>()[MagicLinkTokenService.ConfigKeyName]));
 
+// accounts-identity/04 (magic-link email delivery, #167): the ONE email transport
+// seam both request endpoints deliver through (AC-02), chosen at STARTUP by whether
+// an email provider is configured - EXACTLY the ITelemetrySink / IAiCompletionClient
+// / IPublishedTaleStore config-presence idiom above. WITH a provider configured
+// (EmailOptions.IsConfigured: a verified from-address PLUS an ACS endpoint for the
+// keyless managed-identity path, or a Key Vault-backed connection string), the real
+// AcsEmailSender emails the already-minted magic link. WITHOUT one (local dev, CI, a
+// fresh clone, today's deployed footprint), it degrades to the NoOpEmailSender so the
+// app builds + runs with ZERO email setup and the controllers' Development-only
+// dev-token echo keeps local walkthroughs working unchanged (AC-03). A singleton
+// either way - the sender is stateless after construction (holds an EmailClient or a
+// logger). The provider secret (only on the connection-string fallback) is Key
+// Vault-backed via an app setting, NEVER committed and NEVER a VITE_* var (AC-05).
+var emailOptions = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>() ?? new EmailOptions();
+builder.Services.AddSingleton(emailOptions);
+if (!emailOptions.IsConfigured)
+{
+    builder.Services.AddSingleton<IEmailSender, NoOpEmailSender>();
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender>(sp =>
+        new AcsEmailSender(emailOptions, sp.GetRequiredService<ILogger<AcsEmailSender>>()));
+}
+
 // accounts-identity/03 (sign-in / restore on a new device, #69): ASP.NET Core
 // Data Protection, used by AccountsController to mint the SHORT-LIVED, purchaser-
 // scoped sign-in credential (a time-limited protector under a dedicated purpose

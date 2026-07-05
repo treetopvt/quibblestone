@@ -1,6 +1,6 @@
 # Story: Magic-link email delivery
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #167
+**Feature:** Accounts & Identity  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #167
 
 ## Context
 The magic-link flow is built, but nothing delivers the link. accounts-identity/02
@@ -137,7 +137,7 @@ issuance + email delivery"); issuance shipped, delivery did not. See
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `tests/QuibbleStone.Api.Tests/Accounts/EmailSenderTests.cs (to be created): a configured sender is invoked with the requester's email + issued link for BOTH the purchaser and operator request paths; plus manual: end-to-end on a configured env - request -> receive email -> follow link -> signed-in.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Accounts/EmailSenderTests.cs: a configured sender is invoked with the requester's email + issued link for BOTH the purchaser and operator request paths; plus manual: end-to-end on a configured env - request -> receive email -> follow link -> signed-in.` |
 | AC-02 | `manual: code read - both RequestLink actions depend on the ONE IEmailSender; no second transport exists.` |
 | AC-03 | `tests/QuibbleStone.Api.Tests/Accounts/EmailSenderTests.cs: with no provider configured the NoOp/dev sender is registered, RequestLink still returns the neutral result, and the Development echo path is unchanged; app builds/runs with zero email config.` |
 | AC-04 | `tests/QuibbleStone.Api.Tests/... : the request response is identical for a known vs unknown email and for a sender success vs a thrown failure (no enumeration, no failure oracle).` |

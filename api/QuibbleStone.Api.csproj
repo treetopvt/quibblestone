@@ -99,4 +99,21 @@
     <PackageReference Include="Azure.Identity" Version="1.13.2" />
   </ItemGroup>
 
+  <!--
+    accounts-identity/04 (magic-link email delivery, #167): the Azure Communication
+    Services Email SDK - the transport for the ONE server-side email seam
+    (api/src/Accounts/IEmailSender). It is Azure-native (NOT on CLAUDE.md's
+    deliberately-excluded list; NO Azure Functions - delivery is a call from the
+    request controller), and restores with NO auth token. Validated to restore +
+    build cleanly on net10.0 (0 warnings) with the keyless DefaultAzureCredential
+    path AND the connection-string fallback (Azure.Identity above supplies the
+    credential). With no `Email:*` provider configured (local dev, CI, a fresh clone,
+    today's deployed footprint) the app registers the NoOpEmailSender and NEVER
+    constructs the ACS client (see Program.cs, AC-03), so this reference adds a
+    dependency but no runtime coupling until email is configured.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Azure.Communication.Email" Version="1.1.0" />
+  </ItemGroup>
+
 </Project>

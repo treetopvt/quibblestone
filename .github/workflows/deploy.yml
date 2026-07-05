@@ -417,6 +417,77 @@ jobs:
             --settings "${settings[@]}" --output none
           echo "Stripe billing wired (${#settings[@]} settings) via Key Vault '$vault'; ClientBaseUrl=$client_base."
 
+      # --- Wire magic-link email delivery (optional, repo-variable-gated) ------
+      # accounts-identity/04 (#167). Same posture as the AI gate + Stripe above: the
+      # email seam is BUILT and ships DISABLED (no Email:* provider => the
+      # NoOpEmailSender, so a deployed env behaves EXACTLY as before, AC-03). This step
+      # re-applies the Email settings AFTER the provision step replaces the appSettings
+      # array (the reason CORS / AI / Stripe are all re-applied here). It is SKIPPED
+      # entirely unless vars.EMAIL_ENABLED == 'true', so a repo without this configured
+      # deploys exactly as before - the story is safe to merge inert.
+      #
+      # RECOMMENDED keyless path (AC-05): set vars.EMAIL_ENDPOINT (+ FROM_ADDRESS) - the
+      # API's managed identity authenticates to ACS, so there is NO provider secret to
+      # store. Grant that identity the ACS "send email" role out of band (runbook).
+      # FALLBACK keyed path: leave EMAIL_ENDPOINT unset and supply the ACS connection
+      # string from Key Vault (EmailConnectionString) instead - the only secret.
+      #
+      # AC-07: also wires a DURABLE Accounts__TokenSigningKey from Key Vault, so a
+      # delivered link keeps verifying across an app recycle / scale-out (today's
+      # ephemeral per-process key would silently invalidate it). Ships WITH delivery.
+      #
+      # One-time setup (see docs/runbooks/enable-magic-link-email.md):
+      #   Key Vault secret (durable signing key): AccountsTokenSigningKey
+      #   Key Vault secret (ONLY on the keyed fallback): EmailConnectionString
+      #   vars.EMAIL_ENABLED       = 'true'
+      #   vars.EMAIL_ENDPOINT      = https://<acs>.communication.azure.com  (keyless path)
+      #   vars.EMAIL_FROM_ADDRESS  = no-reply@quibblestone.com  (a verified sender domain)
+      - name: Wire magic-link email delivery (optional)
+        if: ${{ vars.EMAIL_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          api="${{ steps.discover.outputs.api_name }}"
+          web="${{ steps.discover.outputs.web_name }}"
+
+          vault="$(az keyvault list -g "$rg" --query "[0].name" -o tsv)"
+          if [ -z "$vault" ]; then
+            echo "::error::EMAIL_ENABLED is true but no Key Vault was found in '$rg'. Provision must run first."
+            exit 1
+          fi
+          kv() { echo "@Microsoft.KeyVault(VaultName=${vault};SecretName=$1)"; }
+
+          # LinkBaseUrl: the public web origin (first Ready custom domain if bound, else
+          # the SWA default host) so the emailed link points at the real site.
+          link_base="${{ steps.discover.outputs.web_origin }}"
+          custom="$(az staticwebapp hostname list -g "$rg" -n "$web" \
+                      --query "[?status=='Ready'].domainName" -o tsv | head -n1)"
+          [ -n "$custom" ] && link_base="https://$custom"
+
+          if [ -z "${{ vars.EMAIL_FROM_ADDRESS }}" ]; then
+            echo "::error::EMAIL_ENABLED is true but EMAIL_FROM_ADDRESS is unset (a verified sender is required)."
+            exit 1
+          fi
+
+          # AC-07: a durable, Key Vault-backed magic-link signing key (survives recycle),
+          # plus the always-required non-secret from-address + link base.
+          settings=(
+            "Accounts__TokenSigningKey=$(kv AccountsTokenSigningKey)"
+            "Email__FromAddress=${{ vars.EMAIL_FROM_ADDRESS }}"
+            "Email__LinkBaseUrl=${link_base}"
+          )
+          # Keyless (recommended, no secret): the ACS endpoint + the managed identity.
+          if [ -n "${{ vars.EMAIL_ENDPOINT }}" ]; then
+            settings+=("Email__Endpoint=${{ vars.EMAIL_ENDPOINT }}")
+          else
+            # Keyed fallback: the Key Vault-backed ACS connection string (the only secret).
+            settings+=("Email__ConnectionString=$(kv EmailConnectionString)")
+          fi
+
+          az webapp config appsettings set -g "$rg" -n "$api" \
+            --settings "${settings[@]}" --output none
+          echo "Magic-link email wired (${#settings[@]} settings) via Key Vault '$vault'; LinkBaseUrl=$link_base."
+
       # --- Deploy the API (uses the OIDC session, no publish profile) ---------
       - name: Deploy API to App Service
         uses: azure/webapps-deploy@v3
