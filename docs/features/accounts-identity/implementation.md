@@ -45,10 +45,13 @@ mostly-serial chain (account exists before you can sign into it) with no meaning
 | 01 anonymous-player-forever | #67 | header-comment hardening on `api/src/Rooms/Room.cs` pointing at the already-shipped `Room.Entitlements`/`Room.CaptureEntitlements`; no new files | session-engine/02, child-safety/01 | - (do first, it is a near-zero-diff contract pass) | 1 | low |
 | 02 lightweight-purchaser-account | #68 | `api/src/Accounts/Account.cs`, `IAccountStore.cs`, `AccountStore.cs`, the magic-link one-time-token issuer/verifier; `Program.cs` (one DI line) | 01, infra (Table Storage) | - | 2 | medium |
 | 03 sign-in-and-restore | #69 | `api/src/Controllers/AccountsController.cs` (or similar); `web/src/pages/Account.tsx` | 02 | - | 3 | medium |
+| 04 magic-link-email-delivery | #167 | new `api/src/Accounts/IEmailSender.cs` + a real sender (e.g. `AcsEmailSender.cs`) + `NoOpEmailSender.cs`; `Program.cs` (one config-presence block); inject into `AccountsController` + `OperatorLoginController` (api/src/Admin/); `appsettings.json` (`Email` section); `infra/main.bicep` (ACS Email resource + verified domain if ACS; a KV secret only for a keyed provider) + `.github/workflows/deploy.yml` (app-setting wiring) | 02, 03, sysadmin-console/01 | - | 4 | medium |
 
 **Concurrency per wave:** Wave 1 = 1 (01, low-effort contract pass - unblocks nothing else technically but should
 land first so its guarantee is verifiable before 02 is built). Wave 2 = 1 (02, the account record + store). Wave 3
-= 1 (03, the sign-in surface + endpoint, consumes 02's store). No wave has genuine parallelism: this is a short
+= 1 (03, the sign-in surface + endpoint, consumes 02's store). Wave 4 = 1 (04, the email-delivery transport - it
+consumes 02's issuer + the request endpoints and makes 03's purchaser sign-in and sysadmin-console/01's operator
+login actually completable in a deployed/Production environment). No wave has genuine parallelism: this is a short
 serial chain because each story's output is the next story's input, not a fan-out.
 
 **Cross-feature order:** story 02 (magic-link + `IAccountStore`) is upstream of `billing-entitlements/01`'s (#70)
@@ -97,6 +100,20 @@ connection supplies via `accessTokenFactory` so `GameHub.CreateRoom` can resolve
 **Gotcha:** this credential must never be required by, or even checked in, `GameHub.cs` or any player-facing
 endpoint - keep the auth boundary strictly on the purchaser side of the app; `CreateRoom` reads the resolved
 identity briefly to look up capabilities and discards it, never storing it on `Room`.
+
+### 04 - Magic-link email delivery
+**Approach:** add ONE `IEmailSender` seam and register it with the same config-presence idiom the telemetry sink /
+AI client / published-tale store use in `Program.cs`: unconfigured => a no-op / dev sender that preserves today's
+`Development` token echo and a neutral no-op elsewhere; configured => a real provider-backed sender (Azure
+Communication Services Email or SendGrid - OPEN, see feature.md / the story). Inject it into
+`AccountsController.RequestLink` and `OperatorLoginController.RequestLink` (api/src/Admin/), calling it right after
+`IMagicLinkTokenService.Issue(...)`. Also promote `Accounts:TokenSigningKey` to a durable Key Vault secret so a
+delivered link survives an app recycle (today it is the ephemeral per-process fallback on UAT). **Exports:** the
+delivery transport that makes purchaser sign-in (03) and operator login (sysadmin-console/01) completable in a
+deployed environment - nothing else consumes it. **Gotcha:** delivery must NOT change the neutral, no-enumeration
+response (identical shape/timing whether an account/operator exists and whether the send succeeds); a provider
+failure returns the neutral 200 and is logged without the token / link / secret. Keep the `IsDevelopment()` echo so
+local walkthroughs still run with zero email config.
 
 ## Cross-cutting concerns
 
