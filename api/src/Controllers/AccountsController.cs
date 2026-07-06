@@ -328,7 +328,10 @@ public sealed class AccountsController : ControllerBase
         try
         {
             var link = BuildMagicLink(token);
-            await _email.SendMagicLinkAsync(email, link, MagicLinkPurpose.PurchaserSignIn);
+            // Flow the request-aborted token so a client disconnect or graceful shutdown
+            // cancels the outbound send; the catch below still swallows the cancellation
+            // into the SAME neutral acknowledgement (AC-08), so behavior is unchanged.
+            await _email.SendMagicLinkAsync(email, link, MagicLinkPurpose.PurchaserSignIn, HttpContext.RequestAborted);
         }
         catch (Exception ex)
         {

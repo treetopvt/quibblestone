@@ -110,11 +110,27 @@ public class EmailSenderTests
     }
 
     [Fact]
-    public async Task NoOpSender_NeverThrows_AndSendsNothing()
+    public async Task NoOpSender_NeverThrows_AndLogsNoRecipientLinkOrToken()
     {
-        IEmailSender noOp = new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance);
+        // Capture the no-op sender's OWN logs: its contract is to send nothing AND to
+        // log ONLY the purpose - never the recipient, link, or token (AC-08). Distinctive
+        // values so the assertions cannot pass by coincidence.
+        var logger = new CapturingLogger<NoOpEmailSender>();
+        IEmailSender noOp = new NoOpEmailSender(logger);
+
         // A plain call completes without throwing (it simply does not send).
-        await noOp.SendMagicLinkAsync("anyone@example.com", "https://x/y?token=abc", MagicLinkPurpose.PurchaserSignIn);
+        await noOp.SendMagicLinkAsync(
+            "anyone@example.com",
+            "https://x/y?token=SECRET-TOKEN-DO-NOT-LOG",
+            MagicLinkPurpose.PurchaserSignIn);
+
+        // It logged its single purpose-only breadcrumb (so the checks below are not
+        // vacuous), and that log carries NO recipient / link / token (AC-08).
+        Assert.NotEmpty(logger.Messages);
+        var everythingLogged = string.Join("\n", logger.Messages);
+        Assert.DoesNotContain("anyone@example.com", everythingLogged);
+        Assert.DoesNotContain("https://x/y?token=SECRET-TOKEN-DO-NOT-LOG", everythingLogged);
+        Assert.DoesNotContain("SECRET-TOKEN-DO-NOT-LOG", everythingLogged);
     }
 
     // ---- AC-04: identical response, known vs unknown AND success vs throw ---------
