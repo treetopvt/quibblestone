@@ -21,7 +21,7 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Box, CircularProgress, CssBaseline, Stack, Tab, Tabs, ThemeProvider } from '@mui/material';
 import { AdminLogin } from './AdminLogin';
@@ -48,22 +48,23 @@ function AdminShell() {
   const [operatorEmail, setOperatorEmail] = useState<string>('');
   const [tab, setTab] = useState<AdminTab>('review');
 
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      const session = await getOperatorSession();
-      if (!active) return;
-      if (session.signedIn && session.email) {
-        setOperatorEmail(session.email);
-        setPhase('signed-in');
-      } else {
-        setPhase('signed-out');
-      }
-    })();
-    return () => {
-      active = false;
-    };
+  // Fetch the operator session and route to the console (signed-in) or the login
+  // gate (signed-out). Runs on load AND after a magic-link verify establishes the
+  // session cookie (AdminLogin's onAuthenticated) - so a followed link lands the
+  // operator IN the console, not on a dead-end "signed in" panel.
+  const refreshSession = useCallback(async () => {
+    const session = await getOperatorSession();
+    if (session.signedIn && session.email) {
+      setOperatorEmail(session.email);
+      setPhase('signed-in');
+    } else {
+      setPhase('signed-out');
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshSession();
+  }, [refreshSession]);
 
   if (phase === 'checking') {
     return (
@@ -97,7 +98,16 @@ function AdminShell() {
     );
   }
 
-  return <AdminLogin />;
+  // The login gate re-checks the session after a magic-link verify (onAuthenticated),
+  // so a followed operator link lands in the console rather than a dead-end panel.
+  return (
+    <AdminLogin
+      onAuthenticated={() => {
+        setPhase('checking');
+        void refreshSession();
+      }}
+    />
+  );
 }
 
 const rootElement = document.getElementById('root');

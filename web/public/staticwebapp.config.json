@@ -1,5 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/staticwebapp.config.json",
+  "routes": [
+    { "route": "/admin", "rewrite": "/admin.html" },
+    { "route": "/admin/*", "rewrite": "/admin.html" }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [

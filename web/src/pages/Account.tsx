@@ -42,7 +42,8 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Controller, useForm } from 'react-hook-form';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -210,6 +211,14 @@ export function Account({ onBack }: AccountProps) {
   // sign-in. Still in-memory only (never persisted), and consumed only by this
   // purchaser surface (auth boundary).
   const session = usePurchaserSession();
+  // The magic-link token carried by a followed email link (`/account?token=...`).
+  // When present we auto-complete sign-in on mount (below) - this is the DEPLOYED
+  // path (the dev-token echo only exists locally). Read from the router's query.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlToken = searchParams.get('token');
+  // Guards the one-time URL-token verify against StrictMode's dev double-invoke
+  // (and the re-render after we strip the token from the URL).
+  const verifiedFromUrl = useRef(false);
   // If already signed in this session, land straight on the signed-in state rather
   // than the email form (the fix for re-entering the email on every visit).
   const [phase, setPhase] = useState<Phase>(session.isSignedIn ? 'signed-in' : 'form');
@@ -217,7 +226,9 @@ export function Account({ onBack }: AccountProps) {
   const [message, setMessage] = useState<string>('');
   // DEV ONLY: the echoed magic-link token, enabling the local "Continue" affordance.
   const [devToken, setDevToken] = useState<string | null>(null);
-  const [verifying, setVerifying] = useState(false);
+  // True while a verify is in flight - initialized true when we arrive with a URL
+  // token so the first paint shows "signing you in", not a flash of the email form.
+  const [verifying, setVerifying] = useState<boolean>(Boolean(urlToken) && !session.isSignedIn);
   // keepsake-gallery/05: whether the signed-in purchaser has opened their cloud
   // gallery. Deliberately behind a tap (not shown by default) so opening it is a
   // purchaser-consented action, and so it is impossible for an anonymous player
@@ -239,12 +250,12 @@ export function Account({ onBack }: AccountProps) {
     setPhase(result.ok ? 'sent' : 'form');
   });
 
-  // DEV walkability only: follow the echoed token to complete sign-in locally.
-  const handleContinueWithDevToken = async () => {
-    if (!devToken || verifying) return;
+  // Complete sign-in from a magic-link token (the ONE verify path, shared by the
+  // followed-email-link flow below and the Development dev-token button).
+  const verifyToken = async (token: string) => {
     setVerifying(true);
     try {
-      const result = await verifySignIn(devToken);
+      const result = await verifySignIn(token);
       if (result.outcome === 'signed-in' && result.credential) {
         // Record the sign-in in the app-wide session so it survives navigation.
         session.signIn(result.credential, result.email ?? '');
@@ -265,12 +276,48 @@ export function Account({ onBack }: AccountProps) {
     }
   };
 
+  // DEPLOYED path: a purchaser who followed the emailed link lands here with a
+  // `?token=` in the URL. Verify it once on mount to complete sign-in, then strip
+  // the one-time token from the address bar (so it is not left visible or re-run on
+  // refresh). The dev-token echo below is the local-only equivalent.
+  useEffect(() => {
+    // Skip when already signed in this session, so landing with a stale token cannot
+    // flip a signed-in purchaser to a "link invalid" state.
+    if (verifiedFromUrl.current || !urlToken || session.isSignedIn) return;
+    verifiedFromUrl.current = true;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('token');
+        return next;
+      },
+      { replace: true },
+    );
+    void verifyToken(urlToken);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlToken]);
+
+  // DEV walkability only: follow the echoed token to complete sign-in locally.
+  const handleContinueWithDevToken = async () => {
+    if (!devToken || verifying) return;
+    await verifyToken(devToken);
+  };
+
   return (
     <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto' }}>
       <AppBar title="Account" leftAction={{ icon: 'arrow-left', label: 'Back to home', onClick: onBack }} />
 
       <Stack spacing={4} sx={{ px: 5.5, pt: 3, pb: 6 }}>
-        {phase === 'form' && (
+        {phase === 'form' && verifying && (
+          <Stack spacing={2} alignItems="center" sx={{ py: 6 }}>
+            <CircularProgress />
+            <Typography sx={{ fontWeight: 700, fontSize: 14, color: 'text.secondary' }}>
+              Signing you in...
+            </Typography>
+          </Stack>
+        )}
+
+        {phase === 'form' && !verifying && (
           <>
             <Stack spacing={1.5} sx={{ textAlign: 'center' }}>
               <Typography sx={{ fontWeight: 800, fontSize: 18, color: 'text.primary' }}>
