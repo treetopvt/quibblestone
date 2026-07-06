@@ -27,7 +27,7 @@ import { Box, CircularProgress, CssBaseline, Stack, Tab, Tabs, ThemeProvider } f
 import { AdminLogin } from './AdminLogin';
 import { ReviewQueue } from './ReviewQueue';
 import { PurchaserEntitlements } from './PurchaserEntitlements';
-import { getOperatorSession } from './operatorClient';
+import { getOperatorSession, type OperatorSessionResult } from './operatorClient';
 import { theme } from '../theme';
 import './fontawesome';
 
@@ -48,12 +48,9 @@ function AdminShell() {
   const [operatorEmail, setOperatorEmail] = useState<string>('');
   const [tab, setTab] = useState<AdminTab>('review');
 
-  // Fetch the operator session and route to the console (signed-in) or the login
-  // gate (signed-out). Runs on load AND after a magic-link verify establishes the
-  // session cookie (AdminLogin's onAuthenticated) - so a followed link lands the
-  // operator IN the console, not on a dead-end "signed in" panel.
-  const refreshSession = useCallback(async () => {
-    const session = await getOperatorSession();
+  // Apply a fetched session: route to the console (signed-in) or the login gate
+  // (signed-out).
+  const applySession = useCallback((session: OperatorSessionResult) => {
     if (session.signedIn && session.email) {
       setOperatorEmail(session.email);
       setPhase('signed-in');
@@ -62,9 +59,26 @@ function AdminShell() {
     }
   }, []);
 
+  // Re-fetch + apply the session. Used after a magic-link verify establishes the
+  // cookie (AdminLogin's onAuthenticated) - so a followed link lands the operator IN
+  // the console, not on a dead-end panel. The shell is mounted when the operator
+  // triggers this, so no unmount guard is needed on this caller.
+  const refreshSession = useCallback(async () => {
+    applySession(await getOperatorSession());
+  }, [applySession]);
+
+  // Initial session check, guarded so a resolve after unmount does not setState
+  // (StrictMode's mount/unmount/mount, or navigating away mid-fetch).
   useEffect(() => {
-    void refreshSession();
-  }, [refreshSession]);
+    let active = true;
+    void (async () => {
+      const session = await getOperatorSession();
+      if (active) applySession(session);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [applySession]);
 
   if (phase === 'checking') {
     return (

@@ -157,16 +157,20 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps = {}) {
   // notify the shell to re-check and switch to the console.
   const verifyToken = async (token: string) => {
     setVerifying(true);
+    let signedIn = false;
     try {
       const result = await verifyOperatorLink(token);
       setMessage(result.message);
       setOperatorEmail(result.email ?? null);
       setPhase(result.outcome);
-      if (result.outcome === 'signed-in') {
-        onAuthenticated?.();
-      }
+      signedIn = result.outcome === 'signed-in';
     } finally {
       setVerifying(false);
+    }
+    // Notify the shell LAST, after this component's own state is settled: it may
+    // unmount this component to switch to the console, so nothing must setState after.
+    if (signedIn) {
+      onAuthenticated?.();
     }
   };
 
