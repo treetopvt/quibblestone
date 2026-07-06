@@ -95,21 +95,38 @@ public sealed class OperatorLoginController : ControllerBase
     /// </summary>
     public const int MaxTokenLength = 1024;
 
+    /// <summary>
+    /// The web route the emailed magic link lands on for an operator (the admin
+    /// login surface). The link is {LinkBaseUrl}{path}?token=... and the (future)
+    /// deep-link handler on that page verifies the token. Kept as a const so the
+    /// delivered link and the web route stay in one place.
+    /// </summary>
+    public const string MagicLinkPath = "/admin/login";
+
     private readonly IMagicLinkTokenService _tokens;
     private readonly IOperatorAllowlist _allowlist;
     private readonly IDataProtectionProvider _dataProtection;
+    private readonly IEmailSender _email;
+    private readonly EmailOptions _emailOptions;
     private readonly IWebHostEnvironment _environment;
+    private readonly ILogger<OperatorLoginController> _logger;
 
     public OperatorLoginController(
         IMagicLinkTokenService tokens,
         IOperatorAllowlist allowlist,
         IDataProtectionProvider dataProtection,
-        IWebHostEnvironment environment)
+        IEmailSender email,
+        EmailOptions emailOptions,
+        IWebHostEnvironment environment,
+        ILogger<OperatorLoginController> logger)
     {
         _tokens = tokens;
         _allowlist = allowlist;
         _dataProtection = dataProtection;
+        _email = email;
+        _emailOptions = emailOptions;
         _environment = environment;
+        _logger = logger;
     }
 
     /// <summary>
@@ -127,7 +144,7 @@ public sealed class OperatorLoginController : ControllerBase
     [AllowAnonymous]
     [HttpPost("login/request")]
     [EnableRateLimiting(OperatorLoginRateLimit.PolicyName)]
-    public IActionResult RequestLink([FromBody] OperatorLoginRequestBody? request)
+    public async Task<IActionResult> RequestLink([FromBody] OperatorLoginRequestBody? request)
     {
         // The one neutral acknowledgement, identical for an operator and a
         // non-operator email (AC-02). It intentionally does not confirm operator
@@ -149,9 +166,16 @@ public sealed class OperatorLoginController : ControllerBase
         // status (AC-02). The token is never logged (AC-05).
         var token = _tokens.Issue(email);
 
+        // accounts-identity/04: deliver the link through the SAME one email seam the
+        // purchaser flow uses (AC-02), right after issuing the token. The send happens
+        // WITHOUT consulting the allowlist (issue is allowlist-blind), so it reveals
+        // nothing about operator status and never becomes an oracle (AC-04). With no
+        // provider configured this is the NoOpEmailSender (AC-03).
+        await DeliverMagicLinkAsync(email, token);
+
         // Development ONLY: echo the token + a follow path so the flow is walkable
         // locally with no email provider. In any non-dev environment the token is
-        // delivered by email (a later story) and NEVER returned here.
+        // delivered by email and NEVER returned here.
         if (_environment.IsDevelopment())
         {
             return Ok(new OperatorLoginRequestResult(
@@ -247,5 +271,44 @@ public sealed class OperatorLoginController : ControllerBase
         // credential + re-validated against the allowlist. Nothing else is exposed.
         var email = User.Identity?.Name ?? string.Empty;
         return Ok(new OperatorSessionResult(email));
+    }
+
+    /// <summary>
+    /// Builds the clickable operator magic link and delivers it through the ONE email
+    /// seam (accounts-identity/04, AC-02 - the SAME seam the purchaser flow uses, only
+    /// the copy / link differ). FAIL-SAFE (AC-08): a provider error is caught, logged
+    /// WITHOUT the token / link / email / secret, and swallowed - the caller still
+    /// returns the SAME neutral acknowledgement, so a delivery failure never becomes a
+    /// 500 and never an existence oracle. The link points at the public web origin
+    /// (EmailOptions.LinkBaseUrl), falling back to the request's own origin when unset.
+    /// </summary>
+    private async Task DeliverMagicLinkAsync(string email, string token)
+    {
+        try
+        {
+            var link = BuildMagicLink(token);
+            // Flow the request-aborted token so a client disconnect or graceful shutdown
+            // cancels the outbound send; the catch below still swallows the cancellation
+            // into the SAME neutral acknowledgement (AC-08), so behavior is unchanged.
+            await _email.SendMagicLinkAsync(email, link, MagicLinkPurpose.OperatorLogin, HttpContext.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            // AC-08: never surface the failure to the caller. Log the exception only
+            // (no token / link / email / secret) and fall through to the neutral 200.
+            _logger.LogWarning(ex, "Magic-link email delivery failed for an operator login request; returning the neutral acknowledgement.");
+        }
+    }
+
+    /// <summary>Builds {LinkBaseUrl-or-request-origin}{MagicLinkPath}?token=... (the token is URL-escaped).</summary>
+    private string BuildMagicLink(string token)
+    {
+        var linkBase = (_emailOptions.LinkBaseUrl ?? string.Empty).Trim();
+        if (linkBase.Length == 0)
+        {
+            linkBase = $"{Request.Scheme}://{Request.Host}";
+        }
+
+        return $"{linkBase.TrimEnd('/')}{MagicLinkPath}?token={Uri.EscapeDataString(token)}";
     }
 }

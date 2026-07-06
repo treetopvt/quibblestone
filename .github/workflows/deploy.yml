@@ -141,6 +141,7 @@ jobs:
       # fine here because the "Set API CORS origins" step below runs AFTER this and
       # re-applies them; keep that ordering.
       - name: Ensure UAT is provisioned
+        id: provision
         run: |
           set -euo pipefail
           rg="$AZURE_RESOURCE_GROUP"
@@ -149,8 +150,18 @@ jobs:
           current_sku="$(az appservice plan list -g "$rg" --query "[?contains(name, 'quibblestone')] | [0].sku.name" -o tsv 2>/dev/null || true)"
           sku="${current_sku:-$PROVISION_SKU}"
 
-          echo "Provisioning footprint from infra/main.bicep (SKU $sku, $PROVISION_LOCATION)..."
-          az deployment group create \
+          # enableEmail (accounts-identity/04): provision the managed-domain ACS Email
+          # footprint only when email is on (vars.EMAIL_ENABLED) AND no external ACS is
+          # supplied. If vars.EMAIL_ENDPOINT is set (a bring-your-own ACS - e.g. one on a
+          # verified custom domain like no-reply@mail.<domain>), Bicep does NOT provision
+          # its own footprint: the wire step below points the app at EMAIL_ENDPOINT
+          # instead, so we avoid a duplicate ACS in the group. With no EMAIL_ENDPOINT
+          # override, Bicep provisions the zero-config Azure-managed domain and OUTPUTS
+          # its endpoint + sender address, captured below for the wiring step.
+          enable_email=${{ vars.EMAIL_ENABLED == 'true' && vars.EMAIL_ENDPOINT == '' }}
+
+          echo "Provisioning footprint from infra/main.bicep (SKU $sku, $PROVISION_LOCATION; email=$enable_email)..."
+          outputs="$(az deployment group create \
             -g "$rg" \
             -n "provision-${{ github.run_number }}" \
             -f infra/main.bicep \
@@ -158,7 +169,17 @@ jobs:
                environmentName=uat \
                appServicePlanSku="$sku" \
                location="$PROVISION_LOCATION" \
-            --output none
+               enableEmail="$enable_email" \
+            --query properties.outputs -o json)"
+
+          # Surface the email outputs (empty strings unless enableEmail) for the wiring
+          # step below. jq is already used by the AI provision step on this runner.
+          email_ep="$(echo "$outputs" | jq -r '.emailAcsEndpoint.value // empty')"
+          email_from="$(echo "$outputs" | jq -r '.emailSenderAddress.value // empty')"
+          {
+            echo "email_acs_endpoint=$email_ep"
+            echo "email_sender_address=$email_from"
+          } >> "$GITHUB_OUTPUT"
           echo "Provisioned (SKU $sku)."
 
       # --- Discover the resources in the group (names carry a unique suffix) ---
@@ -416,6 +437,123 @@ jobs:
           az webapp config appsettings set -g "$rg" -n "$api" \
             --settings "${settings[@]}" --output none
           echo "Stripe billing wired (${#settings[@]} settings) via Key Vault '$vault'; ClientBaseUrl=$client_base."
+
+      # --- Wire magic-link email delivery (optional, repo-variable-gated) ------
+      # accounts-identity/04 (#167). Same posture as the AI gate + Stripe above: the
+      # email seam is BUILT and ships DISABLED (no Email:* provider => the
+      # NoOpEmailSender, so a deployed env behaves EXACTLY as before, AC-03). SKIPPED
+      # entirely unless vars.EMAIL_ENABLED == 'true', so a repo without this configured
+      # deploys exactly as before - the story is safe to merge inert.
+      #
+      # PROVISIONED BY DEFAULT (infra/main.bicep, enableEmail): with EMAIL_ENABLED=true
+      # the "Ensure UAT is provisioned" step stands up the ACS Email footprint (an
+      # Azure-managed *.azurecomm.net domain + a no-reply sender + the Communication
+      # Services resource) and OUTPUTS the endpoint + sender address, consumed here. So
+      # the recommended KEYLESS path needs NO manual Azure resource creation and NO
+      # hand-set endpoint: this step also grants the API identity the ACS send role
+      # (AC-05, no provider secret). It re-applies the Email settings AFTER the provision
+      # step replaces the appSettings array (the reason CORS / AI / Stripe re-apply too).
+      #
+      # OVERRIDES (optional, for production deliverability): set vars.EMAIL_FROM_ADDRESS
+      # to a verified custom sender (no-reply@quibblestone.com) - it wins over the
+      # Azure-managed address. Set vars.EMAIL_ENDPOINT to a DIFFERENT ACS you manage - it
+      # wins over the provisioned endpoint, and you own that resource's send-role grant
+      # (runbook). Leave the endpoint unset AND supply a Key Vault EmailConnectionString
+      # for the keyed fallback (the only secret path).
+      #
+      # AC-07: also wires a DURABLE Accounts__TokenSigningKey from Key Vault, so a
+      # delivered link keeps verifying across an app recycle / scale-out (today's
+      # ephemeral per-process key would silently invalidate it). Ships WITH delivery.
+      #
+      # One-time setup (see docs/runbooks/enable-magic-link-email.md):
+      #   Key Vault secret (durable signing key): AccountsTokenSigningKey
+      #   Key Vault secret (ONLY on the keyed fallback): EmailConnectionString
+      #   vars.EMAIL_ENABLED       = 'true'   (master switch; also provisions ACS Email)
+      #   vars.EMAIL_ENDPOINT      = https://<acs>.communication.azure.com  (OPTIONAL override)
+      #   vars.EMAIL_FROM_ADDRESS  = no-reply@quibblestone.com              (OPTIONAL override)
+      - name: Wire magic-link email delivery (optional)
+        if: ${{ vars.EMAIL_ENABLED == 'true' }}
+        env:
+          EMAIL_ENDPOINT_OVERRIDE: ${{ vars.EMAIL_ENDPOINT }}
+          EMAIL_FROM_ADDRESS_OVERRIDE: ${{ vars.EMAIL_FROM_ADDRESS }}
+          PROVISIONED_ENDPOINT: ${{ steps.provision.outputs.email_acs_endpoint }}
+          PROVISIONED_FROM_ADDRESS: ${{ steps.provision.outputs.email_sender_address }}
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          api="${{ steps.discover.outputs.api_name }}"
+          web="${{ steps.discover.outputs.web_name }}"
+
+          vault="$(az keyvault list -g "$rg" --query "[0].name" -o tsv)"
+          if [ -z "$vault" ]; then
+            echo "::error::EMAIL_ENABLED is true but no Key Vault was found in '$rg'. Provision must run first."
+            exit 1
+          fi
+          kv() { echo "@Microsoft.KeyVault(VaultName=${vault};SecretName=$1)"; }
+
+          # LinkBaseUrl: the public web origin (first Ready custom domain if bound, else
+          # the SWA default host) so the emailed link points at the real site.
+          link_base="${{ steps.discover.outputs.web_origin }}"
+          custom="$(az staticwebapp hostname list -g "$rg" -n "$web" \
+                      --query "[?status=='Ready'].domainName" -o tsv | head -n1)"
+          [ -n "$custom" ] && link_base="https://$custom"
+
+          # Endpoint + from-address: an explicit repo-var override wins (a custom domain /
+          # an external ACS), else fall back to what infra/main.bicep just provisioned
+          # (the Azure-managed *.azurecomm.net domain, output by the provision step).
+          endpoint="${EMAIL_ENDPOINT_OVERRIDE:-$PROVISIONED_ENDPOINT}"
+          from_address="${EMAIL_FROM_ADDRESS_OVERRIDE:-$PROVISIONED_FROM_ADDRESS}"
+
+          if [ -z "$from_address" ]; then
+            echo "::error::EMAIL_ENABLED is true but no from-address is available (the provision output none and vars.EMAIL_FROM_ADDRESS is unset). Confirm enableEmail provisioned the ACS Email domain, or set EMAIL_FROM_ADDRESS."
+            exit 1
+          fi
+
+          # Keyless send-role grant (recommended path, AC-05): give the API's managed
+          # identity permission to send on the PROVISIONED ACS resource, so no connection
+          # string is needed. Name-resolved role (no GUID to drift here); idempotent
+          # (skipped when already assigned). Only on the provisioned keyless path - an
+          # EMAIL_ENDPOINT override points at an ACS you own and grant out of band.
+          if [ -z "$EMAIL_ENDPOINT_OVERRIDE" ] && [ -n "$endpoint" ]; then
+            acs_id="$(az resource list -g "$rg" \
+                        --resource-type Microsoft.Communication/communicationServices \
+                        --query "[0].id" -o tsv)"
+            if [ -n "$acs_id" ]; then
+              principal="$(az webapp identity show -g "$rg" -n "$api" --query principalId -o tsv)"
+              existing="$(az role assignment list --assignee "$principal" --scope "$acs_id" \
+                            --role "Communication and Email Service Owner" --query "[0].id" -o tsv 2>/dev/null || true)"
+              if [ -z "$existing" ]; then
+                az role assignment create \
+                  --assignee-object-id "$principal" --assignee-principal-type ServicePrincipal \
+                  --role "Communication and Email Service Owner" \
+                  --scope "$acs_id" --output none
+                echo "Granted the API identity 'Communication and Email Service Owner' on the ACS resource."
+              else
+                echo "API identity already holds the ACS send role (idempotent skip)."
+              fi
+            else
+              echo "::warning::EMAIL_ENABLED is true but no Communication Services resource was found to grant the send role on. Confirm the provision step created it (enableEmail)."
+            fi
+          fi
+
+          # AC-07: a durable, Key Vault-backed magic-link signing key (survives recycle),
+          # plus the always-required non-secret from-address + link base.
+          settings=(
+            "Accounts__TokenSigningKey=$(kv AccountsTokenSigningKey)"
+            "Email__FromAddress=${from_address}"
+            "Email__LinkBaseUrl=${link_base}"
+          )
+          # Keyless (recommended, no secret): the ACS endpoint + the managed identity.
+          if [ -n "$endpoint" ]; then
+            settings+=("Email__Endpoint=${endpoint}")
+          else
+            # Keyed fallback: the Key Vault-backed ACS connection string (the only secret).
+            settings+=("Email__ConnectionString=$(kv EmailConnectionString)")
+          fi
+
+          az webapp config appsettings set -g "$rg" -n "$api" \
+            --settings "${settings[@]}" --output none
+          echo "Magic-link email wired (${#settings[@]} settings) via Key Vault '$vault'; from=$from_address; LinkBaseUrl=$link_base; endpoint=${endpoint:-<connection-string fallback>}."
 
       # --- Deploy the API (uses the OIDC session, no publish profile) ---------
       - name: Deploy API to App Service

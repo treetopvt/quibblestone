@@ -128,21 +128,38 @@ public sealed class AccountsController : ControllerBase
     /// </summary>
     public const int MaxTokenLength = 1024;
 
+    /// <summary>
+    /// The web route the emailed magic link lands on for a purchaser (the Account
+    /// page, web/src/App.tsx). The link is {LinkBaseUrl}{path}?token=... and the
+    /// (future) deep-link handler on that page verifies the token. Kept as a const so
+    /// the delivered link and the web route stay in one place.
+    /// </summary>
+    public const string MagicLinkPath = "/account";
+
     private readonly IMagicLinkTokenService _tokens;
     private readonly IAccountStore _accounts;
     private readonly PurchaserCredentialService _credential;
+    private readonly IEmailSender _email;
+    private readonly EmailOptions _emailOptions;
     private readonly IWebHostEnvironment _environment;
+    private readonly ILogger<AccountsController> _logger;
 
     public AccountsController(
         IMagicLinkTokenService tokens,
         IAccountStore accounts,
         PurchaserCredentialService credential,
-        IWebHostEnvironment environment)
+        IEmailSender email,
+        EmailOptions emailOptions,
+        IWebHostEnvironment environment,
+        ILogger<AccountsController> logger)
     {
         _tokens = tokens;
         _accounts = accounts;
         _credential = credential;
+        _email = email;
+        _emailOptions = emailOptions;
         _environment = environment;
+        _logger = logger;
     }
 
     /// <summary>
@@ -159,7 +176,7 @@ public sealed class AccountsController : ControllerBase
     /// </summary>
     [HttpPost("signin/request")]
     [EnableRateLimiting(SignInRateLimit.PolicyName)]
-    public IActionResult RequestLink([FromBody] SignInRequestBody? request)
+    public async Task<IActionResult> RequestLink([FromBody] SignInRequestBody? request)
     {
         // The one neutral acknowledgement, identical for a known and an unknown
         // email (AC-05). It intentionally does not confirm an account exists.
@@ -182,9 +199,16 @@ public sealed class AccountsController : ControllerBase
         // whether an account exists (AC-05). The token is never logged (AC-06).
         var token = _tokens.Issue(email);
 
+        // accounts-identity/04: deliver the link through the ONE email seam (AC-02),
+        // right after issuing the token. With no provider configured this is the
+        // NoOpEmailSender (a no-op, AC-03); with a provider it emails the link. The
+        // send happens for ANY well-formed email regardless of account existence
+        // (the store is never read here), so it is not an enumeration oracle (AC-04).
+        await DeliverMagicLinkAsync(email, token);
+
         // Development ONLY: echo the token + a follow path so the sign-in flow is
         // exercisable locally with no email provider. In any non-dev environment
-        // the token is delivered by email (a later story) and NEVER returned here.
+        // the token is delivered by email and NEVER returned here.
         if (_environment.IsDevelopment())
         {
             return Ok(new SignInRequestResult(
@@ -289,4 +313,43 @@ public sealed class AccountsController : ControllerBase
     /// purpose to recover the purchaser email.
     /// </summary>
     private string ProtectCredential(string purchaserEmail) => _credential.Protect(purchaserEmail);
+
+    /// <summary>
+    /// Builds the clickable magic link and delivers it through the ONE email seam
+    /// (accounts-identity/04, AC-02). FAIL-SAFE (AC-08): a provider error is caught,
+    /// logged WITHOUT the token / link / email / secret, and swallowed - the caller
+    /// still returns the SAME neutral acknowledgement, so a delivery failure never
+    /// becomes a 500 and never an existence oracle. The link points at the public web
+    /// origin (EmailOptions.LinkBaseUrl); when that is unset it falls back to the
+    /// request's own origin (a local dev walkthrough uses the dev-token echo anyway).
+    /// </summary>
+    private async Task DeliverMagicLinkAsync(string email, string token)
+    {
+        try
+        {
+            var link = BuildMagicLink(token);
+            // Flow the request-aborted token so a client disconnect or graceful shutdown
+            // cancels the outbound send; the catch below still swallows the cancellation
+            // into the SAME neutral acknowledgement (AC-08), so behavior is unchanged.
+            await _email.SendMagicLinkAsync(email, link, MagicLinkPurpose.PurchaserSignIn, HttpContext.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            // AC-08: never surface the failure to the caller. Log the exception only
+            // (no token / link / email / secret) and fall through to the neutral 200.
+            _logger.LogWarning(ex, "Magic-link email delivery failed for a purchaser sign-in request; returning the neutral acknowledgement.");
+        }
+    }
+
+    /// <summary>Builds {LinkBaseUrl-or-request-origin}{MagicLinkPath}?token=... (the token is URL-escaped).</summary>
+    private string BuildMagicLink(string token)
+    {
+        var linkBase = (_emailOptions.LinkBaseUrl ?? string.Empty).Trim();
+        if (linkBase.Length == 0)
+        {
+            linkBase = $"{Request.Scheme}://{Request.Host}";
+        }
+
+        return $"{linkBase.TrimEnd('/')}{MagicLinkPath}?token={Uri.EscapeDataString(token)}";
+    }
 }

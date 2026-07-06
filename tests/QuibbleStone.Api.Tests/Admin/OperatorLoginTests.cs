@@ -30,6 +30,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Admin;
 
@@ -51,8 +52,12 @@ public class OperatorLoginTests
         IDataProtectionProvider dataProtection = new EphemeralDataProtectionProvider();
         var allowlist = new FakeOperatorAllowlist(AllowlistedOperator);
         var environment = new FakeWebHostEnvironment(development ? "Development" : "Production");
+        // No email provider configured => the no-op sender (AC-03); these tests do not
+        // assert on delivery (EmailSenderTests covers that seam), only login logic.
+        IEmailSender email = new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance);
 
-        var controller = new OperatorLoginController(tokens, allowlist, dataProtection, environment)
+        var controller = new OperatorLoginController(
+            tokens, allowlist, dataProtection, email, new EmailOptions(), environment, NullLogger<OperatorLoginController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
@@ -120,15 +125,15 @@ public class OperatorLoginTests
     }
 
     [Fact]
-    public void RequestLink_IssuesATokenWithoutConsultingTheAllowlist_NeutralForAnyEmail()
+    public async Task RequestLink_IssuesATokenWithoutConsultingTheAllowlist_NeutralForAnyEmail()
     {
         // Dev env so a token IS echoed - proving a token is minted for a
         // NON-operator email too (the request never consults the allowlist, AC-02),
         // so the response cannot be used to enumerate who is an operator.
         var harness = NewHarness(development: true);
 
-        var operatorResult = RequestLink(harness, AllowlistedOperator);
-        var strangerResult = RequestLink(harness, "not-an-operator@example.com");
+        var operatorResult = await RequestLink(harness, AllowlistedOperator);
+        var strangerResult = await RequestLink(harness, "not-an-operator@example.com");
 
         // Same neutral message for both - no operator-status tell.
         Assert.Equal(operatorResult.Message, strangerResult.Message);
@@ -139,11 +144,11 @@ public class OperatorLoginTests
     }
 
     [Fact]
-    public void RequestLink_InProduction_DoesNotEchoAToken()
+    public async Task RequestLink_InProduction_DoesNotEchoAToken()
     {
         var harness = NewHarness(development: false);
 
-        var result = RequestLink(harness, AllowlistedOperator);
+        var result = await RequestLink(harness, AllowlistedOperator);
 
         // No token leaks outside the Development environment (it is delivered by
         // email in a later story).
@@ -190,9 +195,9 @@ public class OperatorLoginTests
 
     // ---- helpers ----------------------------------------------------------------
 
-    private static OperatorLoginRequestResult RequestLink(Harness harness, string email)
+    private static async Task<OperatorLoginRequestResult> RequestLink(Harness harness, string email)
     {
-        var action = harness.Controller.RequestLink(new OperatorLoginRequestBody(email));
+        var action = await harness.Controller.RequestLink(new OperatorLoginRequestBody(email));
         var ok = Assert.IsType<OkObjectResult>(action);
         return Assert.IsType<OperatorLoginRequestResult>(ok.Value);
     }
