@@ -37,6 +37,11 @@ import {
 interface ReviewQueueProps {
   /** The signed-in operator email (from the session check), shown in the header. */
   operatorEmail: string;
+  /**
+   * The operator credential, presented as a bearer on every admin call (the cross-
+   * origin path). Null on a same-site deployment, where the cookie carries the session.
+   */
+  credential: string | null;
 }
 
 /** The screen's load phase. */
@@ -132,7 +137,7 @@ function TaleCard({ tale, pending, onConfirm, onRestore }: TaleCardProps) {
   );
 }
 
-export function ReviewQueue({ operatorEmail }: ReviewQueueProps) {
+export function ReviewQueue({ operatorEmail, credential }: ReviewQueueProps) {
   const theme = useTheme();
   const [phase, setPhase] = useState<LoadPhase>('loading');
   const [tales, setTales] = useState<ReportedTale[]>([]);
@@ -141,7 +146,7 @@ export function ReviewQueue({ operatorEmail }: ReviewQueueProps) {
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const result = await loadReviewQueue();
+    const result = await loadReviewQueue(credential);
     if (result.ok) {
       setTales(result.tales);
       setPhase('ready');
@@ -150,7 +155,7 @@ export function ReviewQueue({ operatorEmail }: ReviewQueueProps) {
       setPhase('error');
       setMessage(result.message);
     }
-  }, []);
+  }, [credential]);
 
   useEffect(() => {
     void refresh();
@@ -163,7 +168,7 @@ export function ReviewQueue({ operatorEmail }: ReviewQueueProps) {
   const handleConfirm = async (slug: string) => {
     if (pendingSlug) return;
     setPendingSlug(slug);
-    const result = await confirmHiddenTale(slug).finally(() => setPendingSlug(null));
+    const result = await confirmHiddenTale(slug, credential).finally(() => setPendingSlug(null));
     if (result.ok) {
       await refresh();
     } else {
@@ -175,7 +180,7 @@ export function ReviewQueue({ operatorEmail }: ReviewQueueProps) {
   const handleRestore = async (slug: string) => {
     if (pendingSlug) return;
     setPendingSlug(slug);
-    const result = await restoreHiddenTale(slug).finally(() => setPendingSlug(null));
+    const result = await restoreHiddenTale(slug, credential).finally(() => setPendingSlug(null));
     if (result.ok) {
       await refresh();
     } else {

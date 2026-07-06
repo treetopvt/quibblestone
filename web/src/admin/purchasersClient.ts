@@ -10,9 +10,11 @@
 //  and imports NOTHING from the kid app (pages / signalr / gallery / engine /
 //  components), and the kid app imports nothing from here. The API base URL comes
 //  from `import.meta.env.VITE_API_BASE_URL` (never hardcoded, never a secret). Every
-//  call sends credentials so the HttpOnly operator cookie rides along, and FAILS
-//  GRACEFULLY - a network error, non-OK status, or unparseable body resolves to a
-//  friendly result rather than throwing.
+//  call presents the operator credential as `Authorization: Bearer` (the shell holds
+//  it in memory - the PRIMARY path on a cross-ORIGIN deployment, where the HttpOnly
+//  SameSite cookie is never sent) AND keeps `credentials: 'include'` so a same-site
+//  cookie still rides along. Every call FAILS GRACEFULLY - a network error, non-OK
+//  status, or unparseable body resolves to a friendly result rather than throwing.
 //
 //  ANONYMITY FIREWALL (AC-04, non-negotiable): this client speaks SOLELY in purchaser
 //  email + capability keys / leases. It neither requests nor exposes any player
@@ -118,12 +120,17 @@ function purchaserBase(email: string): string {
 /**
  * Looks a purchaser up by email (GET /api/admin/purchasers/{email}). Resolves the
  * account + its grants (or the clear not-found state) on success, or a friendly
- * failure on any transport / auth error - never throws. Sends credentials so the
- * operator cookie is included.
+ * failure on any transport / auth error - never throws. Presents the operator
+ * credential as a bearer (cross-ORIGIN path) when the shell holds one; the cookie
+ * rides along via credentials: 'include'.
  */
-export async function lookupPurchaser(email: string): Promise<PurchaserResult> {
+export async function lookupPurchaser(email: string, credential?: string | null): Promise<PurchaserResult> {
   try {
-    const response = await fetch(purchaserBase(email), { method: 'GET', credentials: 'include' });
+    const response = await fetch(purchaserBase(email), {
+      method: 'GET',
+      headers: credential ? { Authorization: `Bearer ${credential}` } : undefined,
+      credentials: 'include',
+    });
     if (!response.ok) {
       return { ok: false, purchaser: null, message: UNAVAILABLE_MESSAGE };
     }
@@ -148,8 +155,9 @@ export async function grantEntitlement(
   email: string,
   capabilityKey: string,
   validThrough: string | null,
+  credential?: string | null,
 ): Promise<PurchaserResult> {
-  return postAction(`${purchaserBase(email)}/entitlements`, 'POST', { capabilityKey, validThrough });
+  return postAction(`${purchaserBase(email)}/entitlements`, 'POST', { capabilityKey, validThrough }, credential);
 }
 
 /**
@@ -158,11 +166,16 @@ export async function grantEntitlement(
  * reads the capability as locked. Resolves the refreshed purchaser view on success, or
  * a friendly failure - never throws.
  */
-export async function revokeEntitlement(email: string, capabilityKey: string): Promise<PurchaserResult> {
+export async function revokeEntitlement(
+  email: string,
+  capabilityKey: string,
+  credential?: string | null,
+): Promise<PurchaserResult> {
   return postAction(
     `${purchaserBase(email)}/entitlements/${encodeURIComponent(capabilityKey)}`,
     'DELETE',
     undefined,
+    credential,
   );
 }
 
@@ -171,12 +184,16 @@ async function postAction(
   url: string,
   method: 'POST' | 'DELETE',
   body: { capabilityKey: string; validThrough: string | null } | undefined,
+  credential?: string | null,
 ): Promise<PurchaserResult> {
   try {
     const response = await fetch(url, {
       method,
       credentials: 'include',
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(credential ? { Authorization: `Bearer ${credential}` } : {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!response.ok) {

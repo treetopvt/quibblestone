@@ -10,7 +10,12 @@
 // ----------------------------------------------------------------------------
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { requestOperatorLink, verifyOperatorLink } from './operatorClient';
+import { getOperatorSession, requestOperatorLink, verifyOperatorLink } from './operatorClient';
+
+/** Reads the Authorization header off a captured fetch init (headers is a plain object here). */
+function authHeader(init?: RequestInit): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
 
 function mockFetch(impl: (url: string, init?: RequestInit) => Promise<Response>) {
   const fn = vi.fn(impl);
@@ -80,6 +85,15 @@ describe('verifyOperatorLink', () => {
     expect(JSON.parse(String(init?.body)).token).toBe('a-token');
   });
 
+  it('surfaces the operator credential on signed-in (the shell holds it as a bearer)', async () => {
+    mockFetch(() =>
+      okJson({ outcome: 'signed-in', message: 'ok', email: 'ops@quibblestone.com', credential: 'PROTECTED-CRED' }),
+    );
+    const result = await verifyOperatorLink('a-token');
+    expect(result.outcome).toBe('signed-in');
+    expect(result.credential).toBe('PROTECTED-CRED');
+  });
+
   it('surfaces not-authorized for a valid link whose email is not an operator', async () => {
     mockFetch(() => okJson({ outcome: 'not-authorized', message: 'That email is not authorized.' }));
     const result = await verifyOperatorLink('valid-but-not-operator');
@@ -103,5 +117,37 @@ describe('verifyOperatorLink', () => {
     mockFetch(() => Promise.reject(new Error('offline')));
     const result = await verifyOperatorLink('a-token');
     expect(result.outcome).toBe('error');
+  });
+});
+
+describe('getOperatorSession', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('presents the operator credential as a bearer when the shell holds one (cross-origin path)', async () => {
+    const fetchFn = mockFetch(() => okJson({ email: 'ops@quibblestone.com' }));
+
+    const result = await getOperatorSession('PROTECTED-CRED');
+
+    expect(result.signedIn).toBe(true);
+    expect(result.email).toBe('ops@quibblestone.com');
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toMatch(/\/api\/admin\/session$/);
+    expect(init?.method).toBe('GET');
+    expect(init?.credentials).toBe('include');
+    expect(authHeader(init)).toBe('Bearer PROTECTED-CRED');
+  });
+
+  it('sends no Authorization header when no credential is held (same-site cookie path)', async () => {
+    const fetchFn = mockFetch(() => okJson({ email: 'ops@quibblestone.com' }));
+    await getOperatorSession();
+    const [, init] = fetchFn.mock.calls[0];
+    expect(authHeader(init)).toBeUndefined();
+    expect(init?.credentials).toBe('include');
+  });
+
+  it('resolves signedIn=false (never throws) on a 401', async () => {
+    mockFetch(() => Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) } as Response));
+    const result = await getOperatorSession('cred');
+    expect(result.signedIn).toBe(false);
   });
 });

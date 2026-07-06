@@ -10,9 +10,12 @@
 //  and imports NOTHING from the kid app (pages / signalr / gallery / engine /
 //  components), and the kid app imports nothing from here. The API base URL comes
 //  from `import.meta.env.VITE_API_BASE_URL` (never hardcoded, never a secret). Every
-//  call sends credentials so the HttpOnly operator cookie rides along, and FAILS
-//  GRACEFULLY - a network error, non-OK status, or unparseable body resolves to a
-//  friendly result rather than throwing, so the queue never shows a raw error.
+//  call presents the operator credential as `Authorization: Bearer` (the shell holds
+//  it in memory - the PRIMARY path on a cross-ORIGIN deployment, where the HttpOnly
+//  SameSite cookie is never sent) AND keeps `credentials: 'include'` so a same-site
+//  cookie still rides along. Every call FAILS GRACEFULLY - a network error, non-OK
+//  status, or unparseable body resolves to a friendly result rather than throwing,
+//  so the queue never shows a raw error.
 //
 //  ANONYMITY (AC-06): the queue is CONTENT + a count. This client neither requests
 //  nor exposes any reporter identity, player nickname, room, or session.
@@ -96,12 +99,14 @@ function asReportedTale(value: unknown): ReportedTale | null {
 /**
  * Loads the operator review queue (GET /api/admin/reported-tales). Resolves the list
  * of currently-hidden tales on success, or a friendly failure on any transport / auth
- * error - never throws. Sends credentials so the operator cookie is included.
+ * error - never throws. Presents the operator credential as a bearer (cross-ORIGIN
+ * path) when the shell holds one; the cookie rides along via credentials: 'include'.
  */
-export async function loadReviewQueue(): Promise<ReviewQueueResult> {
+export async function loadReviewQueue(credential?: string | null): Promise<ReviewQueueResult> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/admin/reported-tales`, {
       method: 'GET',
+      headers: credential ? { Authorization: `Bearer ${credential}` } : undefined,
       credentials: 'include',
     });
     if (!response.ok) {
@@ -134,11 +139,19 @@ function asActionResult(value: unknown): { applied: boolean; message: string } |
 }
 
 /** Shared POST for the two operator actions (confirm / restore). */
-async function postAction(slug: string, action: 'confirm' | 'restore'): Promise<ReportedTaleActionResult> {
+async function postAction(
+  slug: string,
+  action: 'confirm' | 'restore',
+  credential?: string | null,
+): Promise<ReportedTaleActionResult> {
   try {
     const response = await fetch(
       `${API_BASE_URL}/api/admin/reported-tales/${encodeURIComponent(slug)}/${action}`,
-      { method: 'POST', credentials: 'include' },
+      {
+        method: 'POST',
+        headers: credential ? { Authorization: `Bearer ${credential}` } : undefined,
+        credentials: 'include',
+      },
     );
     if (!response.ok) {
       return { ok: false, applied: false, message: UNAVAILABLE_MESSAGE };
@@ -158,14 +171,14 @@ async function postAction(slug: string, action: 'confirm' | 'restore'): Promise<
  * Confirms a hidden tale stays gone (POST /api/admin/reported-tales/{slug}/confirm).
  * After this the slug never serves again. Never throws.
  */
-export function confirmHiddenTale(slug: string): Promise<ReportedTaleActionResult> {
-  return postAction(slug, 'confirm');
+export function confirmHiddenTale(slug: string, credential?: string | null): Promise<ReportedTaleActionResult> {
+  return postAction(slug, 'confirm', credential);
 }
 
 /**
  * Restores a hidden tale (POST /api/admin/reported-tales/{slug}/restore). It resumes
  * serving normally and its report count is reset. Never throws.
  */
-export function restoreHiddenTale(slug: string): Promise<ReportedTaleActionResult> {
-  return postAction(slug, 'restore');
+export function restoreHiddenTale(slug: string, credential?: string | null): Promise<ReportedTaleActionResult> {
+  return postAction(slug, 'restore', credential);
 }

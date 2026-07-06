@@ -106,12 +106,14 @@ function OutcomePanel({ icon, tint, title, body, children }: OutcomePanelProps) 
 /** Props for {@link AdminLogin}. */
 interface AdminLoginProps {
   /**
-   * Called after a magic link verifies as an ALLOWLISTED operator (the server set
-   * the session cookie). The shell re-checks the session and switches to the
-   * console, so a followed link lands the operator IN the back office rather than
-   * on a dead-end "signed in" panel.
+   * Called after a magic link verifies as an ALLOWLISTED operator, with the short-
+   * lived operator credential the server returned. The shell holds it in memory and
+   * presents it as a bearer on the cross-ORIGIN session echo + admin calls (the
+   * HttpOnly cookie is never sent cross-site), then re-checks the session and switches
+   * to the console - so a followed link lands the operator IN the back office rather
+   * than on a dead-end "signed in" panel.
    */
-  onAuthenticated?: () => void;
+  onAuthenticated?: (credential: string) => void;
 }
 
 export function AdminLogin({ onAuthenticated }: AdminLoginProps = {}) {
@@ -153,24 +155,35 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps = {}) {
 
   // Complete login from a magic-link token (the ONE verify path, shared by the
   // followed-email-link flow below and the Development dev-token button). On an
-  // allowlisted 'signed-in' outcome the server set the operator session cookie, so
-  // notify the shell to re-check and switch to the console.
+  // allowlisted 'signed-in' outcome the server returned the operator credential, so
+  // hand it to the shell to hold (bearer) and switch to the console.
   const verifyToken = async (token: string) => {
     setVerifying(true);
-    let signedIn = false;
+    let signedInCredential: string | null = null;
     try {
       const result = await verifyOperatorLink(token);
-      setMessage(result.message);
-      setOperatorEmail(result.email ?? null);
-      setPhase(result.outcome);
-      signedIn = result.outcome === 'signed-in';
+      if (result.outcome === 'signed-in' && !result.credential) {
+        // A 'signed-in' outcome with NO credential is a malformed response: without it
+        // the shell cannot authenticate the cross-origin session echo or any admin
+        // call, so do NOT enter a dead-end "signed in" state. Guide to a fresh link.
+        setMessage('We could not complete sign-in just now - please request a fresh link and try again.');
+        setPhase('error');
+      } else {
+        setMessage(result.message);
+        setOperatorEmail(result.email ?? null);
+        setPhase(result.outcome);
+        if (result.outcome === 'signed-in' && result.credential) {
+          signedInCredential = result.credential;
+        }
+      }
     } finally {
       setVerifying(false);
     }
     // Notify the shell LAST, after this component's own state is settled: it may
     // unmount this component to switch to the console, so nothing must setState after.
-    if (signedIn) {
-      onAuthenticated?.();
+    // Hand up the credential so the shell presents it as a bearer cross-origin.
+    if (signedInCredential) {
+      onAuthenticated?.(signedInCredential);
     }
   };
 
