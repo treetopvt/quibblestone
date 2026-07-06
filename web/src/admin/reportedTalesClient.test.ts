@@ -18,6 +18,11 @@ function mockFetch(impl: (url: string, init?: RequestInit) => Promise<Response>)
 const okJson = (body: unknown): Promise<Response> =>
   Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
 
+/** Reads the Authorization header off a captured fetch init (headers is a plain object here). */
+function authHeader(init?: RequestInit): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.Authorization;
+}
+
 describe('loadReviewQueue', () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -50,6 +55,14 @@ describe('loadReviewQueue', () => {
     const [url, init] = fetchFn.mock.calls[0];
     expect(url).toMatch(/\/api\/admin\/reported-tales$/);
     expect(init?.method).toBe('GET');
+    expect(init?.credentials).toBe('include');
+  });
+
+  it('attaches the operator credential as a bearer when the shell holds one (cross-origin path)', async () => {
+    const fetchFn = mockFetch(() => okJson({ tales: [] }));
+    await loadReviewQueue('PROTECTED-CRED');
+    const [, init] = fetchFn.mock.calls[0];
+    expect(authHeader(init)).toBe('Bearer PROTECTED-CRED');
     expect(init?.credentials).toBe('include');
   });
 
@@ -117,6 +130,14 @@ describe('confirmHiddenTale / restoreHiddenTale', () => {
     await confirmHiddenTale('a/b');
     const [url] = fetchFn.mock.calls[0];
     expect(url).toContain('a%2Fb');
+  });
+
+  it('attaches the operator credential as a bearer on a confirm action', async () => {
+    const fetchFn = mockFetch(() => okJson({ slug: 'S', applied: true, message: 'ok' }));
+    await confirmHiddenTale('S', 'PROTECTED-CRED');
+    const [, init] = fetchFn.mock.calls[0];
+    expect(authHeader(init)).toBe('Bearer PROTECTED-CRED');
+    expect(init?.credentials).toBe('include');
   });
 
   it('resolves ok=false (never throws) on a network failure', async () => {

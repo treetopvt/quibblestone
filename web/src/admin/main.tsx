@@ -47,6 +47,14 @@ function AdminShell() {
   const [phase, setPhase] = useState<ShellPhase>('checking');
   const [operatorEmail, setOperatorEmail] = useState<string>('');
   const [tab, setTab] = useState<AdminTab>('review');
+  // The short-lived operator credential handed up by AdminLogin's verify, held IN
+  // MEMORY for the shell's lifetime (never persisted - mirrors the purchaser
+  // PurchaserSession). It is the PRIMARY credential on a cross-ORIGIN deployment (web
+  // and API on different sites), where the HttpOnly operator cookie is never sent: the
+  // session echo and both admin screens present it as a bearer. Null until a magic link
+  // verifies (and again after a full reload - re-signing-in is a cheap link); on a
+  // same-site deployment the cookie alone still works with it null.
+  const [credential, setCredential] = useState<string | null>(null);
 
   // Apply a fetched session: route to the console (signed-in) or the login gate
   // (signed-out).
@@ -59,13 +67,18 @@ function AdminShell() {
     }
   }, []);
 
-  // Re-fetch + apply the session. Used after a magic-link verify establishes the
-  // cookie (AdminLogin's onAuthenticated) - so a followed link lands the operator IN
-  // the console, not on a dead-end panel. The shell is mounted when the operator
-  // triggers this, so no unmount guard is needed on this caller.
-  const refreshSession = useCallback(async () => {
-    applySession(await getOperatorSession());
-  }, [applySession]);
+  // Re-fetch + apply the session, presenting the operator credential as a bearer (the
+  // cross-origin path). Used after a magic-link verify (AdminLogin's onAuthenticated) so
+  // a followed link lands the operator IN the console, not on a dead-end panel. The
+  // credential is passed EXPLICITLY (not read from state) so a just-set value is used at
+  // once, before React commits the setCredential update. The shell is mounted when the
+  // operator triggers this, so no unmount guard is needed on this caller.
+  const refreshSession = useCallback(
+    async (cred: string | null) => {
+      applySession(await getOperatorSession(cred));
+    },
+    [applySession],
+  );
 
   // Initial session check, guarded so a resolve after unmount does not setState
   // (StrictMode's mount/unmount/mount, or navigating away mid-fetch).
@@ -104,9 +117,9 @@ function AdminShell() {
           </Tabs>
         </Box>
         {tab === 'review' ? (
-          <ReviewQueue operatorEmail={operatorEmail} />
+          <ReviewQueue operatorEmail={operatorEmail} credential={credential} />
         ) : (
-          <PurchaserEntitlements operatorEmail={operatorEmail} />
+          <PurchaserEntitlements operatorEmail={operatorEmail} credential={credential} />
         )}
       </Stack>
     );
@@ -116,9 +129,10 @@ function AdminShell() {
   // so a followed operator link lands in the console rather than a dead-end panel.
   return (
     <AdminLogin
-      onAuthenticated={() => {
+      onAuthenticated={(cred) => {
+        setCredential(cred);
         setPhase('checking');
-        void refreshSession();
+        void refreshSession(cred);
       }}
     />
   );

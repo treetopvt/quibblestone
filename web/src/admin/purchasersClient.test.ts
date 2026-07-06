@@ -21,6 +21,11 @@ function mockFetch(impl: (url: string, init?: RequestInit) => Promise<Response>)
 const okJson = (body: unknown): Promise<Response> =>
   Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
 
+/** Reads a header off a captured fetch init (headers is a plain object here). */
+function header(init: RequestInit | undefined, name: string): string | undefined {
+  return (init?.headers as Record<string, string> | undefined)?.[name];
+}
+
 const lookupBody = {
   accountExists: true,
   email: 'buyer@example.com',
@@ -52,6 +57,14 @@ describe('lookupPurchaser', () => {
     expect(result.purchaser?.accountExists).toBe(true);
     expect(result.purchaser?.grants[0]?.capabilityKey).toBe('library.full');
     expect(result.purchaser?.grants[0]?.source).toBe('Operator');
+  });
+
+  it('attaches the operator credential as a bearer when the shell holds one (cross-origin path)', async () => {
+    const fetchFn = mockFetch(() => okJson(lookupBody));
+    await lookupPurchaser('buyer@example.com', 'PROTECTED-CRED');
+    const [, init] = fetchFn.mock.calls[0];
+    expect(header(init, 'Authorization')).toBe('Bearer PROTECTED-CRED');
+    expect(init?.credentials).toBe('include');
   });
 
   it('surfaces the clear not-found state (accountExists false) without erroring', async () => {
@@ -94,6 +107,15 @@ describe('grantEntitlement', () => {
     expect(result.ok).toBe(true);
     expect(result.purchaser?.grants[0]?.capabilityKey).toBe('library.full');
     expect(result.message).toContain('Granted');
+  });
+
+  it('attaches the operator credential as a bearer alongside the JSON content type', async () => {
+    const fetchFn = mockFetch(() => okJson({ purchaser: lookupBody, message: 'ok' }));
+    await grantEntitlement('buyer@example.com', 'library.full', null, 'PROTECTED-CRED');
+    const [, init] = fetchFn.mock.calls[0];
+    expect(header(init, 'Authorization')).toBe('Bearer PROTECTED-CRED');
+    expect(header(init, 'Content-Type')).toBe('application/json');
+    expect(init?.credentials).toBe('include');
   });
 });
 

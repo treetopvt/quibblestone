@@ -52,6 +52,11 @@ import {
 interface PurchaserEntitlementsProps {
   /** The signed-in operator email (from the session check), shown in the header. */
   operatorEmail: string;
+  /**
+   * The operator credential, presented as a bearer on every admin call (the cross-
+   * origin path). Null on a same-site deployment, where the cookie carries the session.
+   */
+  credential: string | null;
 }
 
 /** The email-search form shape. */
@@ -141,7 +146,7 @@ function GrantRow({ grant, pending, onRevoke }: GrantRowProps) {
   );
 }
 
-export function PurchaserEntitlements({ operatorEmail }: PurchaserEntitlementsProps) {
+export function PurchaserEntitlements({ operatorEmail, credential }: PurchaserEntitlementsProps) {
   const theme = useTheme();
 
   // The current purchaser view (null until a search resolves) and the email it is for.
@@ -166,7 +171,7 @@ export function PurchaserEntitlements({ operatorEmail }: PurchaserEntitlementsPr
 
   const onSearch = search.handleSubmit(async (values) => {
     const email = values.email.trim();
-    const result = await lookupPurchaser(email);
+    const result = await lookupPurchaser(email, credential);
     setSearchedEmail(email);
     setMessage(result.ok ? '' : result.message);
     setLookup(result.purchaser);
@@ -183,7 +188,7 @@ export function PurchaserEntitlements({ operatorEmail }: PurchaserEntitlementsPr
     const validThrough = values.validThrough
       ? new Date(`${values.validThrough}T23:59:59.999Z`).toISOString()
       : null;
-    const result = await grantEntitlement(searchedEmail, capabilityKey, validThrough);
+    const result = await grantEntitlement(searchedEmail, capabilityKey, validThrough, credential);
     setMessage(result.message);
     if (result.purchaser) setLookup(result.purchaser);
   });
@@ -192,7 +197,7 @@ export function PurchaserEntitlements({ operatorEmail }: PurchaserEntitlementsPr
     if (!searchedEmail || pendingKey) return;
     setPendingKey(capabilityKey);
     try {
-      const result = await revokeEntitlement(searchedEmail, capabilityKey);
+      const result = await revokeEntitlement(searchedEmail, capabilityKey, credential);
       setMessage(result.message);
       if (result.purchaser) setLookup(result.purchaser);
     } finally {

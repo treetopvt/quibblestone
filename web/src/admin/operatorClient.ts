@@ -14,6 +14,17 @@
 //  a network error, non-OK status, or unparseable body resolves to a friendly
 //  result rather than throwing, so the login screen never shows a raw error.
 //
+//  CROSS-ORIGIN SESSION (the PRIMARY path the admin SPA uses): the web app and the
+//  API are DIFFERENT sites in a deployed environment (e.g. quibblestone.com calling
+//  an *.azurewebsites.net App Service), so the server's HttpOnly operator cookie -
+//  SameSite=Strict by design - is NEVER sent on these cross-site XHRs. So verify
+//  RETURNS the short-lived operator credential in the body; the shell holds it in
+//  memory and every admin call presents it as `Authorization: Bearer` (the server's
+//  OperatorAuthenticationHandler reads that header first, the cookie only as a
+//  same-site fallback). `credentials: 'include'` stays on every call so a same-site
+//  deployment's cookie still rides along - belt and suspenders, mirroring the
+//  purchaser flow (../account/PurchaserSession + gallery/cloudGalleryClient).
+//
 //  ALLOWLIST AT VERIFY (AC-02): the request step returns the SAME neutral message
 //  whether or not the email is an operator (the server never consults the allowlist
 //  at issue time). Only after following a real link does an ALLOWLISTED operator get
@@ -47,6 +58,12 @@ export interface OperatorVerifyResult {
   message: string;
   /** The signed-in operator email (present only on 'signed-in'), for the confirmation UI. */
   email?: string;
+  /**
+   * The short-lived operator credential (present only on 'signed-in'). The admin shell
+   * holds it in memory and presents it as a bearer on the session echo + every admin
+   * call - the cross-ORIGIN path, since the HttpOnly cookie is same-site only.
+   */
+  credential?: string;
 }
 
 /** Friendly fallback shown when the login endpoint cannot be reached or parsed. */
@@ -69,14 +86,18 @@ function asRequestResult(value: unknown): { message: string; devToken?: string }
 const KNOWN_OUTCOMES: readonly OperatorOutcome[] = ['signed-in', 'not-authorized', 'link-invalid'];
 
 /** Narrows an unknown parsed body from the verify endpoint. */
-function asVerifyResult(value: unknown): { outcome: OperatorOutcome; message: string; email?: string } | null {
+function asVerifyResult(
+  value: unknown,
+): { outcome: OperatorOutcome; message: string; email?: string; credential?: string } | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.outcome !== 'string' || typeof record.message !== 'string') return null;
   const outcome = KNOWN_OUTCOMES.find((known) => known === record.outcome);
   if (!outcome) return null;
   const email = typeof record.email === 'string' && record.email.length > 0 ? record.email : undefined;
-  return { outcome, message: record.message, email };
+  const credential =
+    typeof record.credential === 'string' && record.credential.length > 0 ? record.credential : undefined;
+  return { outcome, message: record.message, email, credential };
 }
 
 /** Result of checking whether an operator session is currently established. */
@@ -100,13 +121,15 @@ function asSessionResult(value: unknown): { email: string } | null {
  * back office calls this on load to decide between the login screen and the review
  * queue (sysadmin-console/03). A 401 (no session) resolves to `signedIn: false`
  * rather than throwing, and any transport failure is treated the same - the shell
- * simply falls back to the login screen. Sends credentials so the HttpOnly operator
- * cookie is included for a same-origin deployment.
+ * simply falls back to the login screen. Presents the in-memory operator credential
+ * as a bearer (the cross-ORIGIN path) when the shell holds one; `credentials:
+ * 'include'` still rides the HttpOnly cookie along for a same-site deployment.
  */
-export async function getOperatorSession(): Promise<OperatorSessionResult> {
+export async function getOperatorSession(credential?: string | null): Promise<OperatorSessionResult> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/admin/session`, {
       method: 'GET',
+      headers: credential ? { Authorization: `Bearer ${credential}` } : undefined,
       credentials: 'include',
     });
     if (!response.ok) {
@@ -156,8 +179,10 @@ export async function requestOperatorLink(email: string): Promise<OperatorReques
  * Completes operator login by verifying a followed magic-link token (POST
  * /api/admin/login/verify). Resolves one of the server outcomes, or
  * `{ outcome: 'error' }` on any transport failure - never throws. The short-lived
- * operator credential is set by the server (an HttpOnly cookie) and also returned
- * in the body; only allowlisted operators reach the 'signed-in' outcome (AC-02).
+ * operator credential is set by the server (an HttpOnly cookie) AND returned in the
+ * body; this client SURFACES it (with the outcome + email) so the shell can hold it
+ * and present it as a bearer on the cross-ORIGIN admin calls. Only allowlisted
+ * operators reach the 'signed-in' outcome (AC-02).
  */
 export async function verifyOperatorLink(token: string): Promise<OperatorVerifyResult> {
   try {
@@ -165,8 +190,8 @@ export async function verifyOperatorLink(token: string): Promise<OperatorVerifyR
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // Include credentials so the server's HttpOnly operator cookie is stored for a
-      // same-origin deployment; harmless cross-origin in dev (the body is the
-      // primary path there).
+      // same-site deployment; the returned credential (below) is the primary path on
+      // a cross-site one (the cookie is never sent there).
       credentials: 'include',
       body: JSON.stringify({ token }),
     });
@@ -180,7 +205,7 @@ export async function verifyOperatorLink(token: string): Promise<OperatorVerifyR
     if (!parsed) {
       return { outcome: 'error', message: UNAVAILABLE_MESSAGE };
     }
-    return { outcome: parsed.outcome, message: parsed.message, email: parsed.email };
+    return { outcome: parsed.outcome, message: parsed.message, email: parsed.email, credential: parsed.credential };
   } catch {
     return { outcome: 'error', message: UNAVAILABLE_MESSAGE };
   }
