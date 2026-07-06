@@ -150,11 +150,15 @@ jobs:
           current_sku="$(az appservice plan list -g "$rg" --query "[?contains(name, 'quibblestone')] | [0].sku.name" -o tsv 2>/dev/null || true)"
           sku="${current_sku:-$PROVISION_SKU}"
 
-          # enableEmail (accounts-identity/04): provision the ACS Email footprint only
-          # when email is turned on (vars.EMAIL_ENABLED). Off by default, so the core
-          # footprint is unchanged. When on, main.bicep also OUTPUTS the ACS endpoint +
-          # the Azure-managed sender address, captured below for the email-wiring step.
-          enable_email=${{ vars.EMAIL_ENABLED == 'true' }}
+          # enableEmail (accounts-identity/04): provision the managed-domain ACS Email
+          # footprint only when email is on (vars.EMAIL_ENABLED) AND no external ACS is
+          # supplied. If vars.EMAIL_ENDPOINT is set (a bring-your-own ACS - e.g. one on a
+          # verified custom domain like no-reply@mail.<domain>), Bicep does NOT provision
+          # its own footprint: the wire step below points the app at EMAIL_ENDPOINT
+          # instead, so we avoid a duplicate ACS in the group. With no EMAIL_ENDPOINT
+          # override, Bicep provisions the zero-config Azure-managed domain and OUTPUTS
+          # its endpoint + sender address, captured below for the wiring step.
+          enable_email=${{ vars.EMAIL_ENABLED == 'true' && vars.EMAIL_ENDPOINT == '' }}
 
           echo "Provisioning footprint from infra/main.bicep (SKU $sku, $PROVISION_LOCATION; email=$enable_email)..."
           outputs="$(az deployment group create \
