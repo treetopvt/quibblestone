@@ -21,13 +21,13 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Box, CircularProgress, CssBaseline, Stack, Tab, Tabs, ThemeProvider } from '@mui/material';
 import { AdminLogin } from './AdminLogin';
 import { ReviewQueue } from './ReviewQueue';
 import { PurchaserEntitlements } from './PurchaserEntitlements';
-import { getOperatorSession } from './operatorClient';
+import { getOperatorSession, type OperatorSessionResult } from './operatorClient';
 import { theme } from '../theme';
 import './fontawesome';
 
@@ -48,22 +48,37 @@ function AdminShell() {
   const [operatorEmail, setOperatorEmail] = useState<string>('');
   const [tab, setTab] = useState<AdminTab>('review');
 
+  // Apply a fetched session: route to the console (signed-in) or the login gate
+  // (signed-out).
+  const applySession = useCallback((session: OperatorSessionResult) => {
+    if (session.signedIn && session.email) {
+      setOperatorEmail(session.email);
+      setPhase('signed-in');
+    } else {
+      setPhase('signed-out');
+    }
+  }, []);
+
+  // Re-fetch + apply the session. Used after a magic-link verify establishes the
+  // cookie (AdminLogin's onAuthenticated) - so a followed link lands the operator IN
+  // the console, not on a dead-end panel. The shell is mounted when the operator
+  // triggers this, so no unmount guard is needed on this caller.
+  const refreshSession = useCallback(async () => {
+    applySession(await getOperatorSession());
+  }, [applySession]);
+
+  // Initial session check, guarded so a resolve after unmount does not setState
+  // (StrictMode's mount/unmount/mount, or navigating away mid-fetch).
   useEffect(() => {
     let active = true;
     void (async () => {
       const session = await getOperatorSession();
-      if (!active) return;
-      if (session.signedIn && session.email) {
-        setOperatorEmail(session.email);
-        setPhase('signed-in');
-      } else {
-        setPhase('signed-out');
-      }
+      if (active) applySession(session);
     })();
     return () => {
       active = false;
     };
-  }, []);
+  }, [applySession]);
 
   if (phase === 'checking') {
     return (
@@ -97,7 +112,16 @@ function AdminShell() {
     );
   }
 
-  return <AdminLogin />;
+  // The login gate re-checks the session after a magic-link verify (onAuthenticated),
+  // so a followed operator link lands in the console rather than a dead-end panel.
+  return (
+    <AdminLogin
+      onAuthenticated={() => {
+        setPhase('checking');
+        void refreshSession();
+      }}
+    />
+  );
 }
 
 const rootElement = document.getElementById('root');

@@ -33,11 +33,11 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
-import { Box, Button, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, CircularProgress, Stack, TextField, Typography } from '@mui/material';
 import {
   requestOperatorLink,
   verifyOperatorLink,
@@ -103,12 +103,29 @@ function OutcomePanel({ icon, tint, title, body, children }: OutcomePanelProps) 
   );
 }
 
-export function AdminLogin() {
+/** Props for {@link AdminLogin}. */
+interface AdminLoginProps {
+  /**
+   * Called after a magic link verifies as an ALLOWLISTED operator (the server set
+   * the session cookie). The shell re-checks the session and switches to the
+   * console, so a followed link lands the operator IN the back office rather than
+   * on a dead-end "signed in" panel.
+   */
+  onAuthenticated?: () => void;
+}
+
+export function AdminLogin({ onAuthenticated }: AdminLoginProps = {}) {
   const theme = useTheme();
   const { control, handleSubmit, watch, formState } = useForm<AdminLoginForm>({
     defaultValues: { email: '' },
     mode: 'onChange',
   });
+
+  // The magic-link token carried by a followed email link. The admin bundle has no
+  // router, so read it straight from the query. Present => auto-verify on mount.
+  const urlToken = new URLSearchParams(window.location.search).get('token');
+  // Guards the one-time URL-token verify against StrictMode's dev double-invoke.
+  const verifiedFromUrl = useRef(false);
 
   const [phase, setPhase] = useState<Phase>('form');
   // The friendly message from the latest step (neutral confirmation or an outcome).
@@ -117,7 +134,9 @@ export function AdminLogin() {
   const [operatorEmail, setOperatorEmail] = useState<string | null>(null);
   // DEV ONLY: the echoed magic-link token, enabling the local "Continue" affordance.
   const [devToken, setDevToken] = useState<string | null>(null);
-  const [verifying, setVerifying] = useState(false);
+  // True while a verify is in flight - initialized true when we arrive with a URL
+  // token so the first paint shows "signing you in", not a flash of the email form.
+  const [verifying, setVerifying] = useState<boolean>(Boolean(urlToken));
 
   const email = watch('email');
   const canSubmit = !formState.isSubmitting && EMAIL_PATTERN.test(email.trim());
@@ -132,18 +151,51 @@ export function AdminLogin() {
     setPhase(result.ok ? 'sent' : 'form');
   });
 
-  // DEV walkability only: follow the echoed token to complete login locally.
-  const handleContinueWithDevToken = async () => {
-    if (!devToken || verifying) return;
+  // Complete login from a magic-link token (the ONE verify path, shared by the
+  // followed-email-link flow below and the Development dev-token button). On an
+  // allowlisted 'signed-in' outcome the server set the operator session cookie, so
+  // notify the shell to re-check and switch to the console.
+  const verifyToken = async (token: string) => {
     setVerifying(true);
+    let signedIn = false;
     try {
-      const result = await verifyOperatorLink(devToken);
+      const result = await verifyOperatorLink(token);
       setMessage(result.message);
       setOperatorEmail(result.email ?? null);
       setPhase(result.outcome);
+      signedIn = result.outcome === 'signed-in';
     } finally {
       setVerifying(false);
     }
+    // Notify the shell LAST, after this component's own state is settled: it may
+    // unmount this component to switch to the console, so nothing must setState after.
+    if (signedIn) {
+      onAuthenticated?.();
+    }
+  };
+
+  // DEPLOYED path: an operator who followed the emailed link lands here with a
+  // `?token=` in the URL. Verify it once on mount, then strip the one-time token
+  // from the address bar. The dev-token echo below is the local-only equivalent.
+  useEffect(() => {
+    if (verifiedFromUrl.current || !urlToken) return;
+    verifiedFromUrl.current = true;
+    const params = new URLSearchParams(window.location.search);
+    params.delete('token');
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+    );
+    void verifyToken(urlToken);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlToken]);
+
+  // DEV walkability only: follow the echoed token to complete login locally.
+  const handleContinueWithDevToken = async () => {
+    if (!devToken || verifying) return;
+    await verifyToken(devToken);
   };
 
   const resetToForm = () => {
@@ -182,7 +234,16 @@ export function AdminLogin() {
           </Typography>
         </Stack>
 
-        {phase === 'form' && (
+        {phase === 'form' && verifying && (
+          <Stack spacing={2} alignItems="center" sx={{ py: 4 }}>
+            <CircularProgress color="primary" />
+            <Typography sx={{ fontWeight: 700, fontSize: 14, color: 'text.secondary' }}>
+              Signing you in...
+            </Typography>
+          </Stack>
+        )}
+
+        {phase === 'form' && !verifying && (
           <Box component="form" onSubmit={onSubmit} noValidate>
             <Stack spacing={3}>
               <Controller
