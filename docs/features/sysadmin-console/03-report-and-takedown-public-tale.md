@@ -1,6 +1,6 @@
 # Story: Report -> auto-hide-after-N -> operator review of a public tale
 
-**Feature:** Sys-Admin Console  ·  **Status:** In Progress  ·  **Issue:** #137
+**Feature:** Sys-Admin Console  ·  **Status:** Complete  ·  **Issue:** #137
 
 ## Context
 Public keepsake tales (`keepsake-gallery/04`, already shipped) have no report or takedown path
@@ -30,7 +30,7 @@ operates on published *content* only. See [feature.md](./feature.md).
       actions - confirm-hidden (the tale stays hidden / is deleted) or restore (the tale resumes
       serving normally at its slug, and its report count resets so it is not immediately re-hidden
       by the same reports).
-- [ ] AC-04 (reuse, not reimplement, content safety): Given the report/takedown path, then it never
+- [x] AC-04 (reuse, not reimplement, content safety): Given the report/takedown path, then it never
       re-implements or duplicates the `IContentSafetyFilter` logic - a report is a signal from a
       human viewer, evaluated by an operator, not a second automated content check. The existing
       publish-time re-vet (keepsake-gallery/04 AC-03) is untouched and remains the authoritative
@@ -41,7 +41,7 @@ operates on published *content* only. See [feature.md](./feature.md).
       /api/tales`) so a single actor cannot flood reports to force-hide a tale beyond what the
       threshold N and the per-IP cap together allow, and cannot spam the endpoint to exhaust
       storage.
-- [ ] AC-06 (anonymity invariant): Given a report or a review action, then neither ever surfaces or
+- [x] AC-06 (anonymity invariant): Given a report or a review action, then neither ever surfaces or
       requires the anonymous author's identity - a report is filed against a slug, and an operator
       reviews/restores content, never a person; there is no path from a report back to a player
       nickname, room, or session (the same firewall ADR 0002 defines for `CreateRoom` applies here

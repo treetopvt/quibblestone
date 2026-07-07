@@ -37,7 +37,9 @@ the thin vertical slice that gets the family laughing in a car:
 - `design-system/` - MUI theme from brand tokens, AppBar + Button contracts,
   Guardian avatar component; UI prerequisite for all screen stories
 - `session-engine/` - SignalR backbone: create room, join code, roster, copy/share
-  code, Guardian avatar selection at join
+  code, Guardian avatar selection at join; later grew a deep-link join share (06),
+  the "Don't Lose the Room" reconnect/rejoin hardening pass (07-10), and the
+  roster "+ invite" slot wiring (11)
 - `template-model/` - templates, typed blanks, category/prompt/spark model,
   optional word banks
 - `game-modes/` - the "one engine, many thin modes" abstraction + Classic blind
@@ -51,16 +53,22 @@ Each is **now specified** with a `feature.md` and order-prefixed story files -
 this was the separate backlog pass that decomposes one slice at a time. The
 **Next round** section below then runs a deliberate look-ahead pass over the
 Phase 2-4 features so the backlog stays ahead of development; Status fields keep
-the tree honest (Slice 1 is what is ready to build now, look-ahead stories are
-all Not Started).
+the tree honest. (2026-07-07: when this page was written that meant "Slice 1 is
+ready to build now, look-ahead stories are all Not Started" - since then Slice 1
+has shipped and many of the look-ahead features have been decomposed, issued, and
+built; each story file's own Status field is the source of truth, not this
+snapshot.)
 
 ## Next round - post-V1 look-ahead (Phase 2-4)
 
 Slice 1 is about to reach V1, so this round of the backlog runs *ahead* of
 development to carry the product vision (README sections 2-3, 5, 7, 10). These
-features are fully specified (`feature.md` + `implementation.md` + stories) but
-every story is **Status: Not Started, Issue: TBD** - they are the map for what
-comes after V1, not work in flight. Grouped by intent:
+features are fully specified (`feature.md` + `implementation.md` + stories); at
+authoring time every story was **Status: Not Started, Issue: TBD**, the map for
+what comes after V1. (Corrected 2026-07-07: that snapshot is stale - for example
+`story-selection` has shipped, `story-packs` carries filed issues #75-#77 and
+`ai-content-factory` #78-#80, and several other groups below are partly or fully
+built. Check each story file's Status.) Grouped by intent:
 
 **Playability - a funnier payoff (README sections 5, 10)**
 - `game-modes/` (extended) - the remaining modes on the one engine: Progressive
@@ -90,6 +98,11 @@ comes after V1, not work in flight. Grouped by intent:
   and restore/manage.
 - `story-packs/` - the "Guardian's Vault" pack catalog, free-vs-locked gating on
   the seam, and the first hand-curated themed packs.
+- `sysadmin-console/` - the separate, auth-gated operator back office (added
+  2026-07-07 to this listing; see ADR 0002): magic-link operator login against a
+  Key Vault allowlist in its own bundle (never the kid PWA), grant/revoke an
+  entitlement by purchaser email, and report -> auto-hide -> operator review of
+  public tales.
 
 **Content moat (README sections 2, 7)**
 - `ai-content-factory/` - the offline generate -> vet -> publish pipeline (never

@@ -41,9 +41,9 @@ monetization seam). Full rationale + the load-bearing invariant:
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Timing | Status |
 |---|---|---|---|---|
-| [01](./01-operator-login-and-admin-boundary.md) | #135 | Operator login and admin boundary (separate surface) | foundation - build first | In Progress |
-| [02](./02-operator-grant-revoke-entitlement.md) | #136 | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | In Progress |
-| [03](./03-report-and-takedown-public-tale.md) | #137 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | In Progress |
+| [01](./01-operator-login-and-admin-boundary.md) | #135 | Operator login and admin boundary (separate surface) | foundation - build first | Complete |
+| [02](./02-operator-grant-revoke-entitlement.md) | #136 | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | Complete |
+| [03](./03-report-and-takedown-public-tale.md) | #137 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | Complete |
 
 Recorded on purpose, and deliberately NOT stories in this feature (feature.md's job is as much to say
 what is NOT this feature as what is):
@@ -139,3 +139,9 @@ open item is a story-level detail, not a blocker:
   `billing-entitlements/01`'s grant store + full catalog (#70). Each of 01 and 02 names a thin,
   contract-compatible fallback so this feature is not hard-blocked on either landing first (mirroring
   `ai-cost-gate/02`'s handling of the same seam).
+- 2026-07-07: **All three stories shipped via PR #158** (issues #135/#136/#137 closed), with
+  follow-up fixes #163/#164/#170/#171/#172. The seams the 2026-07-03 entries called unbuilt landed
+  first (#68 via PR #147, #70 via PR #152), so the built stories use the real magic-link plumbing
+  and the real grant store - no fallback stand-ins. The one open follow-up: relocate the
+  billing-mode toggle (`billing-entitlements/07`) from the kid bundle's `/admin/billing-mode` route
+  into the operator console behind the Operator scheme.

@@ -1,11 +1,18 @@
 # Story: Deploy to a dev environment
 
-**Feature:** Platform & DevOps  ·  **Status:** Not Started
+**Feature:** Platform & DevOps  ·  **Status:** Dropped (superseded by story 03: the footprint deploys to a single auto-provisioned UAT environment; provision.yml + deploy.yml deliver this story's outcome)
 
 ## Context
 "Deploys cleanly to dev" is the IaC bar (README section 9). The skeleton has the
 Bicep and a deploy workflow; this story actually stands up the dev environment
 and makes the app reachable in the cloud. See [feature.md](./feature.md).
+
+*(Status note 2026-07-07: dropped, not lost - there is no separate cloud dev
+environment. Story 03 shipped continuous delivery of `main` to a single UAT
+environment (`quibblestone-uat-rg`) with first-deploy auto-provision
+(`.github/workflows/deploy.yml`) plus push-button provisioning
+(`.github/workflows/provision.yml`), which delivers this story's outcome; its
+issue #19 is closed. The ACs below are left unchecked for the record.)*
 
 ## Acceptance Criteria
 - [ ] AC-01: Given the Bicep, when it is deployed to a dev resource group, then

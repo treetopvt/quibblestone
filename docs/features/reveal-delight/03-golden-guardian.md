@@ -27,20 +27,20 @@ logic. Coordinate build order if Versus/Duel is un-parked before this story
 ships.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the Reveal screen after the story is fully shown (carving
+- [x] AC-01: Given the Reveal screen after the story is fully shown (carving
       animation complete, or immediately if `reveal-delight/02` is not yet
       built / reduced-motion is on), then every coral filled-in word in the
       story becomes tappable as a "vote for funniest" target - tapping a word
       casts (or changes) my single vote for that word; I can only have one
       active vote at a time and tapping a different word moves it.
-- [ ] AC-02: Given any player casts a vote, then the room sees a live tally
+- [x] AC-02: Given any player casts a vote, then the room sees a live tally
       update in near-real-time over the SAME one SignalR connection the roster
       and reveal already use (`web/src/signalr/useGameHub.ts`) - no second
       connection, no polling. The specific per-word counts do not need to be
       constantly visible to everyone mid-vote (a simple "N of M have voted"
       status is enough), but the FINAL winning word is announced to everyone
       once voting resolves.
-- [ ] AC-03: Given voting resolves (all present players have voted, OR the host
+- [x] AC-03: Given voting resolves (all present players have voted, OR the host
       taps a low-pressure "Reveal the winner" affordance to close voting early
       - mirroring the Waiting screen's "no rush, but the host can move things
       along" posture already established for group play), then the single
@@ -49,22 +49,22 @@ ships.
       `theme.palette.gold.main`) and a short, warm announcement names it (e.g.
       "the funniest word this round: <word>") without naming a "loser" or
       ranking every other word.
-- [ ] AC-04: Given the winning word's contributor, then for the NEXT round
+- [x] AC-04: Given the winning word's contributor, then for the NEXT round
       only, their `<Guardian variant size />` avatar (wherever it renders -
       Lobby roster tile, Waiting row, Round Complete recap) is shown wearing a
       gold crown overlay; the crown is removed automatically once that next
       round ends (it is not re-awarded, re-triggered, or carried into a third
       round unless a NEW Golden Guardian vote happens again).
-- [ ] AC-05: Given the Golden Guardian mechanic across any number of rounds,
+- [x] AC-05: Given the Golden Guardian mechanic across any number of rounds,
       then there is NO cumulative tally, leaderboard, win count, or any UI
       surface that ranks players against each other over time - each round's
       award is entirely self-contained and forgotten once the crown is
       removed (README section 1; see `feature.md`'s Decisions log).
-- [ ] AC-06: Given I am playing solo (no room), then the Golden Guardian vote
+- [x] AC-06: Given I am playing solo (no room), then the Golden Guardian vote
       step is simply not offered (there is no room to vote) - this mechanic is
       inherently group-shaped and does not degrade into a no-op UI on the solo
       Reveal screen; it is absent there entirely.
-- [ ] AC-07: Given the vote step, then it introduces no new free-text entry
+- [x] AC-07: Given the vote step, then it introduces no new free-text entry
       point and collects no PII - a vote is a tap on an already-vetted,
       already-displayed coral word (every word in `assembled.filledWords`
       already passed the safety filter upstream, per `the-reveal/01` AC-04);

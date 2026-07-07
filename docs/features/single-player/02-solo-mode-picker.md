@@ -1,6 +1,6 @@
 # Story: Solo mode picker (choose a mode, play it)
 
-**Feature:** Single-Player Experience  ·  **Status:** Complete
+**Feature:** Single-Player Experience  ·  **Status:** Complete  ·  **Issue:** #98
 
 ## Context
 game-modes/03-06 shipped three new modes (Word Bank, Progressive Story,

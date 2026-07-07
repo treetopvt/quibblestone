@@ -11,7 +11,9 @@ reveal only, no voices, no images"). Design importance: section 10 ("the payoff
 moment ... deserves the most love").
 
 ## Stories
-- [ ] 01 - Text reveal
+| Story | Issue | Title | Status |
+|---|---|---|---|
+| 01 | #34 | Text reveal | Complete |
 
 ## Dependencies
 - template-model (assembling the final story).
