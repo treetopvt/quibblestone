@@ -12,12 +12,16 @@ green build). The alpha build phase is essentially over: everything from the thi
 slice through reconnect hardening, observability, accounts + billing, and the
 sys-admin console is merged, and the tree is green (clean `dotnet build`, 523 xUnit
 + 363 Vitest tests passing). The bar is no longer "build the alpha" - it is **run
-the alpha**, and the alpha gate itself is now closed: B2 (the UAT SKU) is
-confirmed live, and B1/B3/B4/B5 merged via
-[PR #175](https://github.com/treetopvt/quibblestone/pull/175) and are auto-deploying
-to UAT now. The remaining alpha-gate item is W5 (ACS email config) - once that's
-settled, invite the friends-and-family testers and watch the telemetry that now
-exists. Every path below traces to a written story in
+the alpha**, and the alpha gate is fully closed: B2 (the UAT SKU) is confirmed
+live, B1/B3/B4/B5 merged via
+[PR #175](https://github.com/treetopvt/quibblestone/pull/175) and are deploying
+to UAT, and W5 (ACS email) is live and tested via the magic-link flow. **Nothing
+left blocks inviting the friends-and-family testers** - go watch the telemetry
+that now exists. (Note: a player still cannot email a game invite to someone
+directly - the built invite action is copy-link or the OS/browser share sheet,
+`web/src/pages/useRoomInvite.ts`; email so far is wired only to magic-link auth,
+never to game invites. Not a blocker, just a gap worth knowing about.) Every path
+below traces to a written story in
 [`docs/features/`](./features/); this file is the map over that backlog, not new
 scope.
 
@@ -132,8 +136,8 @@ of the 2026-07-04 view and predates this update.)
 A code-level release-readiness pass found the game logic solid (server-authoritative
 rounds, disciplined locking, the filter on every text path, zero placeholder code)
 but flagged the mobile-reality layer. Blockers first; all are small, located fixes -
-roughly a day or two of work total. **Status as of 2026-07-07 evening: B2 confirmed
-live; B1/B3/B4/B5 merged via PR #175 and auto-deploying to UAT.**
+roughly a day or two of work total. **Status as of 2026-07-07 evening: every
+blocker/high item (B1-B5) and W5 are resolved - the alpha gate is closed.**
 
 | # | Severity | Problem | Fix shape | Status |
 |---|---|---|---|---|
@@ -146,7 +150,7 @@ live; B1/B3/B4/B5 merged via PR #175 and auto-deploying to UAT.**
 | W2 | Warn | Lobby says "n of 6" but the server never enforces a cap (a 7th joiner shows "7 of 6"; on F1 they cannot connect at all) | enforce the cap in `JoinRoom` with a friendly "room's full" | Open |
 | W3 | Warn | `StartRound` has no phase guard: a host double-tap mid-deal re-deals everyone and discards in-flight words | reject StartRound while phase is "prompting" (mirror PassHost's gate) | Open |
 | W4 | Warn | Mid-round joiners get yanked into a reveal they did not play (no phase check on `JoinRoom`) | block joins during "prompting" with a friendly wait message, or mark spectators | Open |
-| W5 | Warn | With no `Email:*` config, magic-link flows silently send nothing - so the operator console (incl. the tale review queue) is unreachable on UAT | configure ACS email per the runbook before the test, or accept no admin console during it | Open - not yet confirmed live |
+| W5 | Warn | With no `Email:*` config, magic-link flows silently send nothing - so the operator console (incl. the tale review queue) is unreachable on UAT | configure ACS email per the runbook before the test, or accept no admin console during it | **Resolved** - ACS email is live on UAT, confirmed via a tested magic-link round trip |
 
 Notes-tier items (hub-method rate limits, tale-link revoke ownership, quota-key
 rotation, unmetered telemetry endpoints, all-family-safe seed content making the
@@ -156,15 +160,20 @@ in the audit and can ride until after the test.
 ## The paths, by horizon
 
 ### 1. Run the alpha (now)
-- **Alpha-gate code fixes are merged** - [#175](https://github.com/treetopvt/quibblestone/pull/175)
-  (B1/B3/B4/B5) is in and auto-deploying to UAT; W1-W4 stay fast-follows.
-- **B2 is done** - UAT is already on B1, confirmed live; **configure ACS email**
-  so the operator console works (W5) is the one alpha-gate item still open.
-- **Invite friends and family.** Watch App Insights (crashes, hub errors, round
-  completions, AI spend) and the tale feedback + reactions data - the telemetry
-  to see how the alpha actually plays is already shipped.
+- **The alpha gate is closed.** B1/B3/B4/B5 merged -
+  [#175](https://github.com/treetopvt/quibblestone/pull/175), auto-deployed to
+  UAT; B2 (UAT SKU) confirmed live; W5 (ACS email) live and tested via a
+  magic-link round trip. W1-W4 stay fast-follows, not blockers.
+- **Invite friends and family** - nothing left blocks it. Watch App Insights
+  (crashes, hub errors, round completions, AI spend) and the tale feedback +
+  reactions data - the telemetry to see how the alpha actually plays is already
+  shipped.
 - **Repair the e2e suite** (3 stale specs) and put Playwright in CI so UI drift
   gets caught, not discovered.
+- **Nice-to-have, not a blocker**: there is no dedicated "email a player an
+  invite" action - today's invite is copy-link or the OS/browser share sheet
+  (`useRoomInvite.ts`); email is wired only to magic-link auth. Worth a small
+  story later if testers ask for it.
 
 ### 2. Polish the laughs (during / after the test)
 - Triage what the telemetry and the family actually surface - this list is a
@@ -236,9 +245,8 @@ cross-feature build order lives in
    reconnect hardening, observability + usage metrics, child-safety hardening,
    the AI cost gate + Fresh Runes, accounts + billing (test mode) + the sys-admin
    console.
-2. **Now** - the alpha-gate PR (#175, B1/B3/B4/B5) is merged and deploying; B2's
-   SKU bump is already done and confirmed live; email config (W5) is what remains
-   open; then **invite the family**; repair the e2e suite + add it to CI.
+2. **Now** - the alpha gate is fully closed (B1-B5 and W5 all resolved); **invite
+   the family**; repair the e2e suite + add it to CI.
 3. **Next** - polish from telemetry + feedback; content velocity (more seeds or
    the content factory); group Progressive Story; `design-system/03`.
 4. **Later** - public tale page provisioning, Stripe live, brand clearance, then
