@@ -11,6 +11,12 @@
 //  unhandled-error beacon ONCE at startup (window 'error' + 'unhandledrejection'
 //  -> a tiny server-side POST, no App Insights JS SDK, no PII). It is idempotent,
 //  so StrictMode's dev double-invoke is harmless.
+//
+//  B5 (alpha-gate hardening): <ErrorBoundary/> wraps <App/> so an uncaught
+//  RENDER error (a channel the window-level beacon above never sees - React
+//  catches it first) shows a minimal "Something went off" + reload screen
+//  instead of unmounting the whole tree to a permanent blank page. It sits
+//  INSIDE ThemeProvider/CssBaseline so its own fallback UI is themed too.
 // ----------------------------------------------------------------------------
 
 import { StrictMode } from 'react';
@@ -21,6 +27,7 @@ import App from './App';
 import { theme } from './theme';
 import { PurchaserSessionProvider } from './account/PurchaserSession';
 import { installErrorBeacon } from './telemetry/errorBeacon';
+import { ErrorBoundary } from './components';
 import './fontawesome';
 
 // AC-06: install the anonymous client-error beacon before the app mounts, so an
@@ -36,11 +43,13 @@ createRoot(rootElement).render(
   <StrictMode>
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <BrowserRouter>
-        <PurchaserSessionProvider>
-          <App />
-        </PurchaserSessionProvider>
-      </BrowserRouter>
+      <ErrorBoundary>
+        <BrowserRouter>
+          <PurchaserSessionProvider>
+            <App />
+          </PurchaserSessionProvider>
+        </BrowserRouter>
+      </ErrorBoundary>
     </ThemeProvider>
   </StrictMode>,
 );

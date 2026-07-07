@@ -865,7 +865,7 @@ public sealed class GameHub : Hub
         }
 
         var room = _rooms.RemoveConnection(Context.ConnectionId, out var promotedHostConnectionId);
-        await HandlePlayerLeftAsync(room, promotedHostConnectionId);
+        await HandlePlayerLeftAsync(room, Context.ConnectionId, promotedHostConnectionId);
     }
 
     /// <summary>
@@ -1734,25 +1734,43 @@ public sealed class GameHub : Hub
     /// this invocation's own <see cref="Hub.Clients"/>. A null room (the leaver was
     /// not seated, or leaving emptied and dropped the room) is a no-op.
     /// </summary>
-    private Task HandlePlayerLeftAsync(Room? room, string? promotedHostConnectionId = null) =>
-        room is null ? Task.CompletedTask : BroadcastPlayerLeftAsync(Clients, room, promotedHostConnectionId);
+    /// <param name="room">The room the leaver was seated in, or null if it was a no-op.</param>
+    /// <param name="leavingConnectionId">
+    /// B3 (alpha-gate hardening): the connection that just left, so
+    /// <see cref="BroadcastPlayerLeftAsync"/> can tell whether it still owed any
+    /// blanks before deciding whether a prompting round must abort.
+    /// </param>
+    /// <param name="promotedHostConnectionId">The connection promoted to host by this departure, if any.</param>
+    private Task HandlePlayerLeftAsync(Room? room, string leavingConnectionId, string? promotedHostConnectionId = null) =>
+        room is null ? Task.CompletedTask : BroadcastPlayerLeftAsync(Clients, room, leavingConnectionId, promotedHostConnectionId);
 
     /// <summary>
     /// group-play recovery: the SHARED player-left epilogue, broadcast to
     /// <paramref name="clients"/>. If the room still has members and its round is
-    /// mid-collection ("prompting"), that round can no longer complete - the departed
-    /// player's assigned blanks will never be submitted, so the reveal would never fire
-    /// and the survivors would hang. Reset the round and broadcast "RoundAborted" so
-    /// every remaining player drops back to the still-live lobby with a friendly notice,
-    /// then always re-broadcast the trimmed roster. A round already at "reveal" is
-    /// effectively done (everyone is on the reveal / recap), so it is left untouched.
+    /// mid-collection ("prompting"), the departed player's OWN assigned blanks decide
+    /// whether that round can still complete:
+    ///   - B3 (alpha-gate hardening): if <paramref name="leavingConnectionId"/> had
+    ///     already submitted everything it owed (or was dealt no blanks at all), its
+    ///     words are already recorded and the remaining players can still fill out
+    ///     every other blank - so the round is left running, exactly as if this
+    ///     departure had never happened.
+    ///   - Otherwise it still owed at least one blank that will now never arrive, so
+    ///     the round can no longer complete and the reveal would never fire - reset
+    ///     the round and broadcast "RoundAborted" so every remaining player drops
+    ///     back to the still-live lobby with a friendly notice, exactly as before
+    ///     this fix.
+    /// Either way the trimmed roster is always re-broadcast afterward. A round already
+    /// at "reveal" is effectively done (everyone is on the reveal / recap), so it is
+    /// left untouched regardless.
     ///
     /// Taking <see cref="IHubClients"/> (rather than reading this hub's own
     /// <see cref="Hub.Clients"/>) is what lets BOTH the live LeaveRoom path (passing
     /// this invocation's <c>Clients</c>) AND the session-engine/07 grace-expiry path
     /// (passing <c>IHubContext&lt;GameHub&gt;.Clients</c>, since the originating hub
     /// invocation has long since ended) run the EXACT same eviction epilogue - no
-    /// forked, mode-specific reconnect logic ("one engine, many thin modes").
+    /// forked, mode-specific reconnect logic ("one engine, many thin modes"). The same
+    /// sharing is why the B3 conditional-abort check lives HERE rather than being
+    /// duplicated per call site.
     ///
     /// room-start-duplicate-members: host migration now runs INSIDE the seat removal
     /// (Room.EnsureHostLocked, on both the RemovePlayer and TryReleaseSeat paths that
@@ -1763,10 +1781,13 @@ public sealed class GameHub : Hub
     internal static async Task BroadcastPlayerLeftAsync(
         IHubClients<IClientProxy> clients,
         Room room,
+        string leavingConnectionId,
         string? promotedHostConnectionId = null)
     {
         var round = room.CurrentRound;
-        if (round is not null && string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
+        if (round is not null &&
+            string.Equals(round.Phase, "prompting", StringComparison.Ordinal) &&
+            RoundHasOutstandingBlanksFor(round, leavingConnectionId))
         {
             room.BackToLobby();
             await clients.Group(room.Code).SendAsync(
@@ -1788,6 +1809,25 @@ public sealed class GameHub : Hub
         {
             await clients.Client(promotedHostConnectionId).SendAsync("HostGranted");
         }
+    }
+
+    /// <summary>
+    /// B3 (alpha-gate hardening): whether the departing connection's OWN assigned
+    /// blanks - if it was dealt any - still had at least one unsubmitted at the
+    /// moment it left <paramref name="round"/>. Mirrors the exact per-player "done"
+    /// rule <see cref="Room.GetProgress"/> uses (an assignment's blanks are ALL
+    /// present in the submission store), just narrowed to the one departing
+    /// connection rather than every player. A connection with no assignment on
+    /// record (dealt zero blanks - fewer blanks than players) owed nothing, so it
+    /// reports false, same as one that had already submitted everything.
+    /// </summary>
+    /// <param name="round">The room's current round snapshot (assignments + submissions).</param>
+    /// <param name="leavingConnectionId">The connection that just left.</param>
+    /// <returns>True if that connection still owed at least one unsubmitted blank.</returns>
+    private static bool RoundHasOutstandingBlanksFor(RoundState round, string leavingConnectionId)
+    {
+        var assignment = round.Assignments.FirstOrDefault(a => a.ConnectionId == leavingConnectionId);
+        return assignment is not null && !assignment.BlankIndices.All(round.Submissions.ContainsKey);
     }
 
     /// <summary>

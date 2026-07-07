@@ -134,6 +134,35 @@
 //  that would mean putting connection identity on PlayerDto, which the file's
 //  own existing comment on `isHost` explains we deliberately do NOT do, for no-
 //  PII reasons) - flagged here rather than inventing a new wire field.
+//
+//  Alpha-gate hardening (pre-friends-and-family audit) adds two resilience fixes
+//  on this SAME connection, no parallel state machine:
+//    - B1: `withAutomaticReconnect()`'s default policy retries a dropped connection
+//      a few times (~0/2/10/30s) then permanently gives up and fires `onclose`, and
+//      the very first `connection.start()` below was a single attempt with no retry
+//      of its own (a cold app-service start, or opening the PWA before wifi
+//      associates, could both fail outright). Either terminal case now falls into a
+//      manual reconnect loop (`manualReconnectDelayMs` below is its pure backoff
+//      schedule - 2s, 5s, 10s, 30s, then repeating at 30s) that keeps calling
+//      `connection.start()` again while the app is foregrounded, plus an immediate
+//      extra attempt on `document.visibilitychange` (back to `'visible'`) and
+//      `window.online` - both realistic "phone was locked/out of signal, now isn't"
+//      triggers. A successful manual restart is treated exactly like `onreconnected`
+//      (status -> connected, then `rejoin()`, a no-op with no held seat). `status`
+//      gains no new value for this: `'disconnected'` now doubles as "not connected,
+//      and the hook is quietly retrying in the background" - Home reads it to show
+//      legible copy plus a manual `retryConnection` (exposed below) instead of the
+//      old silent, unexplained disabled CTA.
+//    - B4: a REJECTED `Rejoin` (an expired token / an already-evicted seat) used to
+//      discard only the stored `{code, token}` handle, leaving `room`/`round`/
+//      `reveal` and "am I in a room" set to their stale pre-drop values - the screen
+//      then froze forever (no more broadcasts arrive; this connection was never
+//      re-added to the room's SignalR group). It now ALSO resets local state back to
+//      "not in a room" via `resetRoomState` (the SAME helper `clearRoom` uses for a
+//      deliberate Leave), guarded by re-checking the stored handle - the file's
+//      existing staleness signal - so a rejection that resolves late never clobbers
+//      a newer room that already landed. It also sets `rejoinFailedNotice` (exposed
+//      below) so Home can explain the bounce instead of leaving it silent.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -154,6 +183,30 @@ const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
 // value and what the hook resets to whenever a new round starts / the reveal clears.
 const ZERO_REACTIONS: ReactionCounts = { love: 0, wow: 0, nope: 0 };
 
+/**
+ * B1 (alpha-gate hardening): the manual reconnect loop's backoff schedule, in
+ * milliseconds, once the automatic-reconnect policy has given up (`onclose`)
+ * or the very first `connection.start()` fails outright. `attempt` is 0-based
+ * (0 = the first manual retry); attempts past the schedule's end repeat at the
+ * last (30s) value forever - the loop never truly gives up while the app stays
+ * foregrounded. Pure and exported so it is unit-testable without a live
+ * HubConnection (this file has no React-render test harness - see
+ * App.test.ts's header note for the same posture).
+ */
+export function manualReconnectDelayMs(attempt: number): number {
+  const scheduleSeconds = [2, 5, 10, 30];
+  const index = Math.min(Math.max(attempt, 0), scheduleSeconds.length - 1);
+  return scheduleSeconds[index] * 1000;
+}
+
+/**
+ * `'disconnected'` covers BOTH "never connected yet" and, since the B1 fix,
+ * "was connected, dropped, and the hook's manual reconnect loop is quietly
+ * retrying in the background" - there is deliberately no separate "gave up
+ * for good" value (the loop never truly stops while the app is foregrounded).
+ * `'connecting'` covers the very first connect and an automatic-reconnect
+ * attempt in progress.
+ */
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 /**
@@ -398,6 +451,15 @@ interface RejoinResult {
 
 export interface UseGameHub {
   status: ConnectionStatus;
+  /**
+   * B1 (alpha-gate hardening): fire an immediate manual reconnect attempt,
+   * bypassing whatever backoff wait the hook's own reconnect loop is mid-way
+   * through. Wired to Home's "Try again" tap when `status === 'disconnected'`
+   * so the disconnected state is actionable, not just legible. A safe no-op
+   * when already connected or already mid-attempt (the underlying attempt
+   * function guards both).
+   */
+  retryConnection: () => void;
   /** The current room (code + live roster), or null when not in one. Owned here so RosterChanged updates flow to every screen. */
   room: RoomState | null;
   /**
@@ -625,6 +687,15 @@ export interface UseGameHub {
    * player Home before the rejoin has a chance to land.
    */
   isRejoining: boolean;
+  /**
+   * B4 (alpha-gate hardening): a brief, friendly explanation for Home after a
+   * REJECTED Rejoin reset local state back to "not in a room" (an expired
+   * token or an already-evicted seat) - so landing back on Home reads as an
+   * explained outcome, not a silent teleport. Null the rest of the time.
+   * Cleared by a fresh SUCCESSFUL createRoom/joinRoom/rejoin (which supersedes
+   * it), never by a timer or by simply navigating around Home.
+   */
+  rejoinFailedNotice: string | null;
 }
 
 export function useGameHub(): UseGameHub {
@@ -707,6 +778,60 @@ export function useGameHub(): UseGameHub {
     isHostRef.current = isHost;
   }, [isHost]);
 
+  // B1 (alpha-gate hardening): the manual reconnect loop's bookkeeping - refs,
+  // not state, because they are read/written from a setTimeout callback and
+  // the visibilitychange/online listeners inside the mount effect below, never
+  // rendered directly. `attemptManualReconnectRef` lets the STABLE
+  // `retryConnection` (exposed below) call into the mount effect's own attempt
+  // function without depending on it (the effect owns the one `connection` and
+  // runs once per mount).
+  const manualReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const manualReconnectAttemptRef = useRef(0);
+  const startInFlightRef = useRef(false);
+  const attemptManualReconnectRef = useRef<() => Promise<void>>(async () => {});
+
+  // B4 (alpha-gate hardening): a brief, friendly explanation shown on Home
+  // after a REJECTED Rejoin reset local state back to "not in a room" (an
+  // expired token or an already-evicted seat) - so landing back on Home reads
+  // as an explained outcome, not a silent teleport. Set only in rejoin()'s
+  // ok:false branch below; cleared by a fresh SUCCESSFUL createRoom/joinRoom/
+  // rejoin (which supersedes it) rather than a timer or a dismiss action.
+  const [rejoinFailedNotice, setRejoinFailedNotice] = useState<string | null>(null);
+
+  /**
+   * B4 (alpha-gate hardening): reset every piece of local room/round/reveal
+   * state back to "not in a room" - the shared core of both a deliberate Leave
+   * (`clearRoom`, below) and a REJECTED `Rejoin` (`rejoin`, below). Marks
+   * `inRoomRef` false BEFORE anything else so an in-flight broadcast racing
+   * this reset is ignored - the same guard `clearRoom` has always relied on.
+   * Deliberately does NOT touch the stored reconnect handle or tell the server
+   * anything: callers decide that part themselves (`clearRoom` also clears the
+   * handle + tells the server `LeaveRoom`; a rejected rejoin has already lost
+   * the handle and the server has already dropped the seat, so neither applies
+   * there). Also deliberately does NOT touch `rejoinFailedNotice` - that is a
+   * DIFFERENT, longer-lived notice than the room state below (it should
+   * survive a plain Leave-from-Home so the player still sees it), cleared only
+   * by a fresh successful create/join/rejoin.
+   */
+  const resetRoomState = useCallback(() => {
+    inRoomRef.current = false;
+    roomCodeRef.current = null;
+    myNicknameRef.current = null;
+    setRoom(null);
+    setIsHost(false);
+    setRound(null);
+    setAssignedBlankIndices(null);
+    setCollectProgress(null);
+    setReveal(null);
+    setReactionCounts(ZERO_REACTIONS);
+    setGoldenGuardianVotedCount(0);
+    setGoldenGuardianTotalVoters(0);
+    setGoldenGuardianResolved(false);
+    setGoldenGuardianWinningBlankId(null);
+    setCrownedSessionId(null);
+    setRoundNotice(null);
+  }, []);
+
   /**
    * session-engine/09: attempt to reclaim a previously-held seat on THIS
    * connection by invoking the hub's Rejoin(code, token) with whatever handle
@@ -769,6 +894,8 @@ export function useGameHub(): UseGameHub {
         }
         inRoomRef.current = true;
         roomCodeRef.current = handle.code;
+        // B4: a successful rejoin supersedes any earlier rejoin failure's notice.
+        setRejoinFailedNotice(null);
         if (result.room) setRoom(result.room);
         setIsHost(result.isHost);
         // replay-remix/03: myNicknameRef is normally set by createRoom/joinRoom in
@@ -791,9 +918,28 @@ export function useGameHub(): UseGameHub {
         setCollectProgress(result.progress);
         setReveal(result.reveal);
       } else {
-        // AC-04: an expected rejection - discard the stale handle so it never
-        // haunts a later create/join.
+        // AC-04 / B4: an expected rejection (an unknown/expired token, an
+        // already-evicted seat). Re-check the stored handle FIRST, using the
+        // SAME staleness signal the ok:true branch above relies on: if a
+        // deliberate Leave (clearRoom) or a fresh create/join has already
+        // landed while this call was in flight, the handle is already gone or
+        // already names a different room, and this late failure is stale news
+        // that must not touch state that has already moved on. Always discard
+        // the handle regardless (AC-04) - a rejected token must never be
+        // retried - but only reset local state + surface the friendly notice
+        // when the failure is still about the CURRENT situation.
+        const current = loadReconnectHandle();
+        const stillRelevant = current !== null && current.code === handle.code;
         clearReconnectHandle();
+        if (stillRelevant) {
+          // B4: the seat is gone server-side and this connection was never
+          // re-added to the room's group, so no more broadcasts will ever
+          // arrive - reset back to "not in a room" (the SAME reset a
+          // deliberate Leave uses) so the app naturally routes Home instead of
+          // freezing on stale room/round/reveal state, and explain why.
+          resetRoomState();
+          setRejoinFailedNotice('That seat timed out - rejoin with a new code.');
+        }
       }
     } catch {
       // A thrown invoke (transient disconnect / hub error) is not a
@@ -803,7 +949,7 @@ export function useGameHub(): UseGameHub {
       rejoiningRef.current = false;
       setIsRejoining(false);
     }
-  }, []);
+  }, [resetRoomState]);
 
   useEffect(() => {
     const connection = new HubConnectionBuilder()
@@ -1020,6 +1166,64 @@ export function useGameHub(): UseGameHub {
     };
     connection.on('RoundAborted', handleRoundAborted);
 
+    // B1 (alpha-gate hardening): the manual reconnect loop, used only once
+    // `withAutomaticReconnect()`'s own policy has given up (`onclose`, below)
+    // or the very first `start()` fails outright (`.catch`, below) - SignalR
+    // retries neither case on its own. `scheduleManualReconnect` arms the next
+    // attempt on `manualReconnectDelayMs`'s backoff (2s/5s/10s/30s, then 30s
+    // forever); `attemptManualReconnect` is the attempt itself, reused
+    // verbatim by the `visibilitychange`/`online` listeners below for an
+    // IMMEDIATE extra try (bypassing whatever wait is left) the moment the app
+    // is plausibly back - "phone was locked/out of signal, now isn't".
+    const scheduleManualReconnect = () => {
+      if (cancelled) return;
+      if (manualReconnectTimerRef.current !== null) {
+        clearTimeout(manualReconnectTimerRef.current);
+      }
+      const attempt = manualReconnectAttemptRef.current;
+      manualReconnectAttemptRef.current = attempt + 1;
+      manualReconnectTimerRef.current = setTimeout(() => {
+        manualReconnectTimerRef.current = null;
+        void attemptManualReconnect();
+      }, manualReconnectDelayMs(attempt));
+    };
+
+    const attemptManualReconnect = async () => {
+      if (cancelled) return;
+      // Only while foregrounded - a backgrounded/locked screen pauses the
+      // loop rather than burning battery retrying unseen; becoming visible
+      // again fires an immediate attempt of its own (below), so nothing here
+      // is lost, just deferred.
+      if (document.visibilityState !== 'visible') return;
+      // Never overlap a start()/stop() already in flight (SignalR throws if
+      // start() is called while one is running) and never race the automatic-
+      // reconnect policy while it still owns the connection.
+      if (startInFlightRef.current || connection.state !== HubConnectionState.Disconnected) {
+        return;
+      }
+      startInFlightRef.current = true;
+      try {
+        await connection.start();
+        if (cancelled) return;
+        manualReconnectAttemptRef.current = 0;
+        if (manualReconnectTimerRef.current !== null) {
+          clearTimeout(manualReconnectTimerRef.current);
+          manualReconnectTimerRef.current = null;
+        }
+        setStatus('connected');
+        // Mirror onreconnected below: the connection is back on a NEW id, so a
+        // held seat needs an explicit Rejoin to be re-added to the room's
+        // group. rejoin() itself no-ops with no stored handle.
+        void rejoin();
+      } catch {
+        if (cancelled) return;
+        scheduleManualReconnect();
+      } finally {
+        startInFlightRef.current = false;
+      }
+    };
+    attemptManualReconnectRef.current = attemptManualReconnect;
+
     connection.onreconnecting(() => {
       if (!cancelled) setStatus('connecting');
     });
@@ -1032,7 +1236,14 @@ export function useGameHub(): UseGameHub {
       if (!cancelled) void rejoin();
     });
     connection.onclose(() => {
-      if (!cancelled) setStatus('disconnected');
+      if (cancelled) return;
+      setStatus('disconnected');
+      // B1: `withAutomaticReconnect()`'s policy just exhausted its retries (or
+      // the connection closed for some other terminal reason) - `onclose` is
+      // SignalR's final word until `start()` is called again. A fresh
+      // terminal disconnect starts its own backoff from the top.
+      manualReconnectAttemptRef.current = 0;
+      scheduleManualReconnect();
     });
 
     connection
@@ -1041,12 +1252,41 @@ export function useGameHub(): UseGameHub {
         if (!cancelled) setStatus('connected');
       })
       .catch(() => {
-        if (!cancelled) setStatus('disconnected');
+        if (cancelled) return;
+        setStatus('disconnected');
+        // B1: the very first attempt was otherwise a single shot with no
+        // retry of its own (a cold app-service start, or opening the PWA
+        // before wifi associates) - fall into the SAME manual loop `onclose`
+        // uses above.
+        manualReconnectAttemptRef.current = 0;
+        scheduleManualReconnect();
       });
+
+    // B1: an immediate extra attempt (bypassing whatever backoff wait is
+    // left) the moment the app is plausibly reachable again - both realistic
+    // "phone was locked/out of signal, now isn't" triggers. A safe no-op the
+    // rest of the time (`attemptManualReconnect` itself guards on being
+    // disconnected and not already mid-attempt).
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void attemptManualReconnect();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const handleOnline = () => {
+      void attemptManualReconnect();
+    };
+    window.addEventListener('online', handleOnline);
 
     // Tear the connection down on unmount (and on StrictMode's dev remount).
     return () => {
       cancelled = true;
+      if (manualReconnectTimerRef.current !== null) {
+        clearTimeout(manualReconnectTimerRef.current);
+        manualReconnectTimerRef.current = null;
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
       connection.off('RosterChanged', handleRosterChanged);
       connection.off('HostGranted', handleHostGranted);
       connection.off('RoundStarted', handleRoundStarted);
@@ -1077,6 +1317,21 @@ export function useGameHub(): UseGameHub {
     void rejoin();
   }, [status, rejoin]);
 
+  /**
+   * B1 (alpha-gate hardening): fire an immediate manual reconnect attempt,
+   * bypassing whatever backoff wait the mount effect's loop is mid-way
+   * through. Wired to Home's "Try again" tap when `status === 'disconnected'`
+   * so the disconnected state is actionable, not just legible. Reads the
+   * latest attempt function off `attemptManualReconnectRef` (set inside the
+   * mount effect) rather than depending on it directly, so this stays a
+   * stable callback across the connection's whole lifetime. A safe no-op when
+   * already connected or already mid-attempt (`attemptManualReconnect` itself
+   * guards both).
+   */
+  const retryConnection = useCallback(() => {
+    void attemptManualReconnectRef.current();
+  }, []);
+
   const createRoom = useCallback(
     async (displayName: string, variant: string): Promise<CreateRoomResult> => {
       const connection = connectionRef.current;
@@ -1103,6 +1358,8 @@ export function useGameHub(): UseGameHub {
           myNicknameRef.current = displayName.trim();
           setRoom(result.room);
           setIsHost(true); // the creator is the host (AC-05)
+          // B4: a fresh successful create supersedes any earlier rejoin-failed notice.
+          setRejoinFailedNotice(null);
           // session-engine/09 (AC-01): remember this seat's {code, token} handle
           // device-locally so a later drop / reload can auto-rejoin it. A no-op
           // (never throws) when the server did not mint a token or storage is
@@ -1148,6 +1405,8 @@ export function useGameHub(): UseGameHub {
           myNicknameRef.current = displayName.trim();
           setRoom(result.room);
           setIsHost(false); // a joiner is never the host (AC-05)
+          // B4: a fresh successful join supersedes any earlier rejoin-failed notice.
+          setRejoinFailedNotice(null);
           // session-engine/09 (AC-01): remember this seat's {code, token} handle
           // device-locally so a later drop / reload can auto-rejoin it.
           if (result.reconnectToken) {
@@ -1388,24 +1647,10 @@ export function useGameHub(): UseGameHub {
   const clearRoom = useCallback(() => {
     const connection = connectionRef.current;
     const code = roomCodeRef.current;
-    // Mark "left" BEFORE anything else so an in-flight RosterChanged is ignored.
-    inRoomRef.current = false;
-    roomCodeRef.current = null;
-    myNicknameRef.current = null; // replay-remix/03: forget our identity handle on leave.
-    setRoom(null);
-    setIsHost(false);
-    setRound(null); // group-play/01: drop any in-progress round on leave.
-    setAssignedBlankIndices(null); // group-play/02: drop this client's blanks on leave.
-    setCollectProgress(null); // group-play/03: drop collection progress on leave.
-    setReveal(null); // group-play/03: drop any shared reveal on leave.
-    setReactionCounts(ZERO_REACTIONS); // reveal-delight/01: drop the reveal's reaction tally on leave.
-    // reveal-delight/03: drop the funniest-word vote state + crown on leave.
-    setGoldenGuardianVotedCount(0);
-    setGoldenGuardianTotalVoters(0);
-    setGoldenGuardianResolved(false);
-    setGoldenGuardianWinningBlankId(null);
-    setCrownedSessionId(null);
-    setRoundNotice(null); // group-play recovery: drop any round-aborted notice on leave.
+    // B4: the shared room/round/reveal reset (also used by a rejected Rejoin) -
+    // it marks "left" BEFORE anything else so an in-flight RosterChanged is
+    // ignored, exactly as this function always has.
+    resetRoomState();
     // session-engine/09 (AC-05): a deliberate leave / Home must never auto-resume
     // later, so the stored reconnect handle is discarded immediately here too.
     clearReconnectHandle();
@@ -1415,10 +1660,11 @@ export function useGameHub(): UseGameHub {
     if (connection && connection.state === HubConnectionState.Connected && code) {
       void connection.invoke('LeaveRoom', code).catch(() => {});
     }
-  }, []);
+  }, [resetRoomState]);
 
   return {
     status,
+    retryConnection,
     room,
     isHost,
     round,
@@ -1445,5 +1691,6 @@ export function useGameHub(): UseGameHub {
     dismissRoundNotice,
     clearRoom,
     isRejoining,
+    rejoinFailedNotice,
   };
 }

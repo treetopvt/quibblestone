@@ -27,6 +27,12 @@ public class SeatGraceServiceTests
     [Fact]
     public async Task Grace_expiry_evicts_the_held_seat_and_aborts_a_prompting_round()
     {
+        // B3 (alpha-gate hardening) regression guard: the joiner here is dealt blanks
+        // (round-robin over blankCount 4 / 2 players) but never submits any of them, so
+        // it still OWES blanks at eviction time - the round must still abort exactly as
+        // before this fix. Contrast
+        // Grace_expiry_of_a_seat_that_already_submitted_everything_does_not_abort_a_prompting_round
+        // below, where the evicted seat owed nothing.
         var registry = new RoomRegistry();
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
@@ -46,14 +52,60 @@ public class SeatGraceServiceTests
 
         await svc.ScheduleEviction(handle!);
 
-        // AC-03: after the window the seat is evicted and, since it was still prompting,
-        // the round aborts - the exact pre-story end state, just deferred.
+        // AC-03 / B3: after the window the seat is evicted and, since it still owed
+        // outstanding blanks, the round aborts - the exact pre-fix end state, just deferred.
         Assert.Equal(1, room.PlayerCount);
         Assert.DoesNotContain(room.SnapshotPlayers(), p => p.ConnectionId == "conn-joiner");
         Assert.Null(room.CurrentRound); // aborted back to the lobby
         Assert.Contains(ctx.Recorder.Sends, s => s.Method == "RoundAborted");
         Assert.Contains(ctx.Recorder.Sends, s => s.Method == "RosterChanged");
         Assert.Equal(1, registry.ActiveRoomCount); // the host remains, room still live
+    }
+
+    [Fact]
+    public async Task Grace_expiry_of_a_seat_that_already_submitted_everything_does_not_abort_a_prompting_round()
+    {
+        // B3 (alpha-gate hardening): the whole point of the fix - a seat that turned in
+        // every blank it owed BEFORE dropping leaves nothing incomplete behind it. The
+        // round must keep collecting from whoever remains rather than aborting just
+        // because this seat's grace window happened to expire.
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+        room.StartRound("tmpl", "classic-blind", blankCount: 4);
+
+        // Round-robin deal (blank k -> player k % 2, host first): the host owns 0/2,
+        // the joiner owns 1/3. The joiner submits BOTH of its own blanks; the host's
+        // stay outstanding, so the round is still "prompting" overall.
+        Assert.Equal(Room.SubmitOutcome.Recorded, room.RecordSubmission("conn-joiner", 1, "wobbly"));
+        Assert.Equal(Room.SubmitOutcome.Recorded, room.RecordSubmission("conn-joiner", 3, "noodle"));
+        Assert.Equal("prompting", room.CurrentRound!.Phase);
+
+        var ctx = new FakeGameHubContext();
+        var svc = Service(registry, ctx, TinyWindow);
+
+        var handle = registry.BeginGrace("conn-joiner");
+        Assert.NotNull(handle);
+
+        await svc.ScheduleEviction(handle!);
+
+        // The seat is gone, but since it owed nothing further the round keeps going for
+        // the host - no RoundAborted, and the round is still live and prompting.
+        Assert.Equal(1, room.PlayerCount);
+        Assert.NotNull(room.CurrentRound);
+        Assert.Equal("prompting", room.CurrentRound!.Phase);
+        Assert.DoesNotContain(ctx.Recorder.Sends, s => s.Method == "RoundAborted");
+        Assert.Contains(ctx.Recorder.Sends, s => s.Method == "RosterChanged");
+        Assert.Equal(1, registry.ActiveRoomCount);
+    }
+
+    [Fact]
+    public void DefaultGraceWindow_is_three_minutes()
+    {
+        // B3 (alpha-gate hardening): raised from the original 30-second default, which
+        // was too eager for a real phone-lock / elevator / brief tunnel drop and was
+        // aborting rounds that a slightly longer wait would have let recover on their own.
+        Assert.Equal(TimeSpan.FromSeconds(180), SeatGraceService.DefaultGraceWindow);
     }
 
     [Fact]

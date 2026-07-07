@@ -482,9 +482,10 @@ builder.Services.AddSingleton<RoomRegistry>();
 // if the grace window elapses with no reconnect (AC-03). A SINGLETON (like the
 // RoomRegistry it works with) so the timer never lives on the per-invocation hub, and
 // it uses IHubContext<GameHub> to broadcast the grace-expiry epilogue after the
-// originating invocation has ended. The 30-second window is a single named constant
-// (SeatGraceService.DefaultGraceWindow) for easy tuning. No-ops for a connection that
-// was never seated; story 08's Rejoin cancels a pending timer to keep the seat.
+// originating invocation has ended. The grace window (3 minutes) is a single
+// named constant (SeatGraceService.DefaultGraceWindow) for easy tuning. No-ops
+// for a connection that was never seated; story 08's Rejoin cancels a pending
+// timer to keep the seat.
 builder.Services.AddSingleton<SeatGraceService>();
 
 // ai-cost-gate/02 (entitlement at session-creation, #121): the thin, #70-shaped,

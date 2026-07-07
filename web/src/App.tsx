@@ -291,7 +291,13 @@ function GroupReveal({
         onSupport={onHome}
         onGetMore={onHome}
         creating={false}
-        disabled={false}
+        // This fallback has nothing to do with the hub connection - it is a
+        // catalog-drift safety net, not a live status display - so it simply
+        // reports "connected" (CTAs enabled, exactly like the old disabled={false})
+        // with a retry that can never be reached (the connection-status row only
+        // renders when disconnected).
+        connectionStatus="connected"
+        onRetryConnection={() => {}}
       />
     );
   }
@@ -567,6 +573,7 @@ function ResumingLiveScreen({ onGoHome }: ResumingLiveScreenProps) {
 export default function App() {
   const {
     status,
+    retryConnection,
     room,
     isHost,
     round,
@@ -593,6 +600,7 @@ export default function App() {
     dismissRoundNotice,
     clearRoom,
     isRejoining,
+    rejoinFailedNotice,
   } = useGameHub();
 
   const navigate = useNavigate();
@@ -948,7 +956,9 @@ export default function App() {
             onAccount={handleOpenAccount}
             onSupport={handleOpenSupport}
             onGetMore={handleOpenGetMore}
-            disabled={status !== 'connected'}
+            connectionStatus={status}
+            onRetryConnection={retryConnection}
+            rejoinFailedNotice={rejoinFailedNotice}
           />
         }
       />

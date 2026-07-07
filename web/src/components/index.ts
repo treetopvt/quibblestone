@@ -86,6 +86,14 @@ export type { TaleFeedbackProps } from './TaleFeedback';
 export { ReactionRow } from './ReactionRow';
 export type { ReactionRowProps, ReactionType, ReactionCounts } from './ReactionRow';
 
+// The app's last-resort render-error safety net (B5, alpha-gate hardening):
+// a class component (required - React error boundaries have no Hook
+// equivalent) wrapping <App/> in main.tsx. Renders a minimal "Something went
+// off" + reload screen instead of a permanent blank page on an uncaught
+// render error.
+export { ErrorBoundary } from './ErrorBoundary';
+export type { ErrorBoundaryProps } from './ErrorBoundary';
+
 // The shared star favorite/unfavorite toggle (story-selection/06, AC-01):
 // rendered on Reveal (solo, via its optional `favorite` prop) and
 // RoundComplete (group, unconditionally - a private per-device action any
