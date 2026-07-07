@@ -153,6 +153,9 @@ import {
   // One-blank remix (replay-remix/02, issue #61): the low-key "Remix a word"
   // secondary action on the Reveal screen's bottom cluster.
   faShuffle,
+  // ErrorBoundary (B5, alpha-gate hardening): the "something went wrong" glyph
+  // on the last-resort render-error fallback screen.
+  faTriangleExclamation,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -210,4 +213,5 @@ library.add(
   faCircleInfo,
   faStarRegular,
   faShuffle,
+  faTriangleExclamation,
 );
