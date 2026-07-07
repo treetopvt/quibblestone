@@ -104,6 +104,13 @@ ever wanted, investigate the 1-per-room JoinRoom race directly (the per-room
 `_gate` + the async safety-filter await straddling the roster mutation is the place
 to look).
 
+> **Update - fixed on this branch.** `Room.AddPlayer` now caps a room at
+> `Room.MaxPlayers` = 6 (host included), atomically under the room lock, and
+> `JoinRoom` returns the friendly "room's full" message. This bounds F2 (the join
+> race) and F3 (the O(N^2) fan-out) for all real play. Covered by
+> `RoomCapacityTests` + a `GameHubJoinTests` case. The low-level `TryAddPlayer`
+> stays uncapped for the distribution invariant sweep (N up to 8).
+
 ### F3 - O(N^2) RosterChanged fan-out during a join storm - Low (Medium if caps lift)
 
 Each successful join broadcasts `RosterChanged` to the whole room, so N joiners

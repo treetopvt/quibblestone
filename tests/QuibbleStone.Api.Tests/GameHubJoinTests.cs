@@ -187,6 +187,37 @@ public class GameHubJoinTests
         Assert.Equal("coral", joiner.Variant);
     }
 
+    // W2/F2: the room fills to Room.MaxPlayers (host included), then the next joiner
+    // is turned away with a friendly "room's full" message - no partial add.
+    [Fact]
+    public async Task JoinRoom_fills_to_the_cap_then_rejects_the_next_with_a_friendly_full_message()
+    {
+        var (hub, registry, _, _) = BuildHub("conn-seed");
+        var code = registry.CreateRoom("conn-host", "Host", "teal").Code; // host = seat 1
+
+        // Seat joiners up to the cap, reusing the one hub by swapping the connection
+        // id per joiner (the same pattern the duplicate-name test uses).
+        for (var i = 1; i < Room.MaxPlayers; i += 1)
+        {
+            hub.Context = new FakeHubCallerContext($"conn-{i}");
+            var join = await hub.JoinRoom(code, $"P{i}", "gold");
+            Assert.True(join.Ok, $"joiner {i} within the cap should be seated");
+        }
+        Assert.Equal(Room.MaxPlayers, registry.TryGet(code)!.PlayerCount);
+
+        // The next joiner (would be MaxPlayers + 1) is refused: Ok=false, no room, a
+        // friendly message that says the room is full, and no partial add.
+        hub.Context = new FakeHubCallerContext("conn-overflow");
+        var overflow = await hub.JoinRoom(code, "OneTooMany", "coral");
+
+        Assert.False(overflow.Ok);
+        Assert.Null(overflow.Room);
+        Assert.NotNull(overflow.Error);
+        Assert.Contains("full", overflow.Error!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(Room.MaxPlayers, registry.TryGet(code)!.PlayerCount);
+        Assert.DoesNotContain(registry.TryGet(code)!.SnapshotPlayers(), p => p.Nickname == "OneTooMany");
+    }
+
     // --- Minimal SignalR fakes ------------------------------------------------
 
     // Records group broadcasts. Every Group(...)/All/etc. returns the same proxy

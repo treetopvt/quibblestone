@@ -354,11 +354,37 @@ public sealed record GoldenGuardianVoteResult(
     string? WinnerNickname);
 
 /// <summary>
+/// The outcome of a seat request through <see cref="Room.AddPlayer"/>: seated, or
+/// the reason it was refused - the name collided, or the room was already full
+/// (W2). Lets the hub return an accurate, friendly message per case.
+/// </summary>
+public enum AddPlayerResult
+{
+    /// <summary>The player was seated.</summary>
+    Added,
+
+    /// <summary>The nickname is already taken in the room (case-insensitive).</summary>
+    NameTaken,
+
+    /// <summary>The room already holds <see cref="Room.MaxPlayers"/> seats.</summary>
+    RoomFull,
+}
+
+/// <summary>
 /// An ephemeral, in-memory game room. Not persisted anywhere (CLAUDE.md
 /// section 10): it lives in the <see cref="RoomRegistry"/> only while active.
 /// </summary>
 public sealed class Room
 {
+    /// <summary>
+    /// Maximum seats per room INCLUDING the host (session-engine / W2). Rooms are
+    /// family-sized (README section 1, the design brief) and the lobby has always
+    /// shown "n of 6" (web MAX_PLAYERS); this is the server making that real.
+    /// Enforced atomically in <see cref="AddPlayer"/> so a concurrent join-storm
+    /// cannot exceed it - the hole the load test surfaced when no cap existed.
+    /// </summary>
+    public const int MaxPlayers = 6;
+
     // Guards the mutable roster AND the current round - SignalR invokes on
     // different connections can touch the same room concurrently.
     private readonly object _gate = new();
@@ -585,42 +611,80 @@ public sealed class Room
     }
 
     /// <summary>
-    /// Attempts to add a joiner to the roster (session-engine/02). The nickname
-    /// must be unique within the room, compared case-insensitively (AC-06), so
-    /// "Sam" and "sam" cannot both be in the same room. The uniqueness check and
-    /// the append happen together under the room lock, so two joiners racing for
-    /// the same name cannot both slip in.
+    /// Seats a joiner (session-engine/02), enforcing the two join-policy invariants
+    /// TOGETHER under the room lock so a concurrent join-storm can violate neither:
+    ///   - CAPACITY (W2): at most <see cref="MaxPlayers"/> seats (host included). The
+    ///     count check and the append are atomic under the lock, so two joiners
+    ///     racing for the last seat cannot both slip in (the hole the load test
+    ///     surfaced when no server cap existed).
+    ///   - UNIQUENESS (AC-06): the nickname must be unique within the room, compared
+    ///     case-insensitively, so "Sam" and "sam" cannot both be seated.
     ///
-    /// The caller (the hub) is responsible for having already routed the nickname
-    /// through the content-safety filter (README section 6) BEFORE calling this -
-    /// this method takes the name as-given and never vets it. It only enforces the
-    /// in-room uniqueness invariant and appends the player.
+    /// The caller (the hub) must have already routed the nickname through the
+    /// content-safety filter (README section 6) BEFORE calling this - this method
+    /// takes the name as-given and never vets it.
     /// </summary>
     /// <param name="nickname">The vetted, trimmed in-session display name.</param>
     /// <param name="variant">The chosen Guardian variant.</param>
     /// <param name="connectionId">The joiner's SignalR connection.</param>
-    /// <returns>True if the player was added; false if the name is already taken.</returns>
+    /// <returns><see cref="AddPlayerResult.Added"/>, or the reason it was refused.</returns>
+    public AddPlayerResult AddPlayer(string nickname, string variant, string connectionId)
+    {
+        lock (_gate)
+        {
+            if (_players.Count >= MaxPlayers)
+            {
+                return AddPlayerResult.RoomFull;
+            }
+
+            return AddPlayerLocked(nickname, variant, connectionId)
+                ? AddPlayerResult.Added
+                : AddPlayerResult.NameTaken;
+        }
+    }
+
+    /// <summary>
+    /// Low-level roster append used by tests + fixtures to build arbitrary rosters
+    /// (e.g. the distribution invariant sweep, which mirrors distribute.test.ts for
+    /// N up to 8 - deliberately BEYOND <see cref="MaxPlayers"/> to prove the dealing
+    /// algorithm stays correct past the cap). Enforces UNIQUENESS only, NOT capacity.
+    /// Production joins go through <see cref="AddPlayer"/> (the ONLY seat path that
+    /// enforces the cap); this is the one path that intentionally skips it, so do not
+    /// call it from a production join. Returns true only when the seat was added.
+    /// </summary>
     public bool TryAddPlayer(string nickname, string variant, string connectionId)
     {
         lock (_gate)
         {
-            var taken = _players.Any(p =>
-                string.Equals(p.Nickname, nickname, StringComparison.OrdinalIgnoreCase));
-            if (taken)
-            {
-                return false;
-            }
-
-            _players.Add(new Player(
-                Nickname: nickname,
-                Variant: variant,
-                ConnectionId: connectionId,
-                IsHost: false,
-                ReconnectToken: NewReconnectToken()));
-
-            LastActiveUtc = DateTimeOffset.UtcNow;
-            return true;
+            return AddPlayerLocked(nickname, variant, connectionId);
         }
+    }
+
+    /// <summary>
+    /// The shared seat-append, ASSUMING the caller already holds <c>_gate</c>.
+    /// Enforces case-insensitive nickname uniqueness (never capacity - that is
+    /// <see cref="AddPlayer"/>'s job) and appends the player, returning false when
+    /// the name is already taken. The "...Locked" suffix marks the lock precondition,
+    /// matching the other under-lock helpers on this type.
+    /// </summary>
+    private bool AddPlayerLocked(string nickname, string variant, string connectionId)
+    {
+        var taken = _players.Any(p =>
+            string.Equals(p.Nickname, nickname, StringComparison.OrdinalIgnoreCase));
+        if (taken)
+        {
+            return false;
+        }
+
+        _players.Add(new Player(
+            Nickname: nickname,
+            Variant: variant,
+            ConnectionId: connectionId,
+            IsHost: false,
+            ReconnectToken: NewReconnectToken()));
+
+        LastActiveUtc = DateTimeOffset.UtcNow;
+        return true;
     }
 
     /// <summary>
