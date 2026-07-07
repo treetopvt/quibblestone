@@ -23,12 +23,12 @@ below - AC-01 through AC-04 read as ALREADY TRUE in the deployed code - rather
 than inventing a new placeholder field.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a player joins a room with a code and nickname (the
+- [x] AC-01: Given a player joins a room with a code and nickname (the
       existing session-engine flow), when the join completes, then the room's
       player record contains only the nickname and chosen Guardian variant -
       no email, no device identifier tied to a person, no account reference of
       any kind.
-- [ ] AC-02: Given the server-side room/player model, when it is inspected,
+- [x] AC-02: Given the server-side room/player model, when it is inspected,
       then the only session-level entitlement seam is `Room.Entitlements` (a
       `SessionEntitlements` capability-key set, captured exactly once via
       `Room.CaptureEntitlements` - ai-cost-gate/02, #121, PR #132) - it carries
@@ -36,15 +36,15 @@ than inventing a new placeholder field.
       per-player account field, login prompt, or optional-sign-in affordance
       anywhere in the join or lobby flow. (Already true in shipped code; this
       AC is a verification, not new work.)
-- [ ] AC-03: Given a room with no signed-in purchaser at all (the common
+- [x] AC-03: Given a room with no signed-in purchaser at all (the common
       case), when the room plays a full round end to end (join, lobby, word
       entry, reveal), then nothing in that flow requires, prompts for, or
       references an account - free play is provably login-free.
-- [ ] AC-04: Given the nickname is free text, when it is submitted, then it
+- [x] AC-04: Given the nickname is free text, when it is submitted, then it
       still passes the existing safety filter (child-safety/01) before it is
       stored or shown to anyone - this story does not weaken or bypass that
       check.
-- [ ] AC-05: Given this story lands, when accounts-identity/02 and 03 are
+- [x] AC-05: Given this story lands, when accounts-identity/02 and 03 are
       built later, then they add a *new*, separate purchaser-account record
       (keyed independently, per feature.md) rather than modifying `Room.cs` /
       `RoomRegistry.cs` or `Room.Entitlements`'s capability-only shape -

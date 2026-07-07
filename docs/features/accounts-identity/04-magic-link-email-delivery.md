@@ -1,6 +1,15 @@
 # Story: Magic-link email delivery
 
-**Feature:** Accounts & Identity  ·  **Status:** In Review  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #167
+**Feature:** Accounts & Identity  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #167
+
+> Shipped (2026-07-07): merged via the PR #169-#172 chain (issue #167 closed).
+> The one `IEmailSender` seam ships with `AcsEmailSender` / `NoOpEmailSender` +
+> `EmailOptions` in `api/src/Accounts/`; `infra/main.bicep` provisions the ACS
+> Email footprint behind `enableEmail`, and `deploy.yml` wires it (an external
+> `EMAIL_ENDPOINT` override skips provisioning) plus the durable
+> `Accounts__TokenSigningKey`; `Account.tsx` / `AdminLogin.tsx` complete sign-in
+> from the followed email link (token read + strip on mount). See
+> `docs/runbooks/enable-magic-link-email.md`.
 
 ## Context
 The magic-link flow is built, but nothing delivers the link. accounts-identity/02
@@ -24,30 +33,30 @@ issuance + email delivery"); issuance shipped, delivery did not. See
 [feature.md](./feature.md) and [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given an email-delivery provider is configured for the environment,
+- [x] AC-01: Given an email-delivery provider is configured for the environment,
       when a purchaser requests a sign-in link (`POST /api/accounts/signin/request`)
       OR an operator requests one (`POST /api/admin/login/request`), then the
       one-time magic link is emailed to the address entered and following it
       completes sign-in in a deployed (Production) environment - closing the gap
       that today leaves both flows unusable outside `Development`.
-- [ ] AC-02: Given both request endpoints, then they deliver through ONE shared
+- [x] AC-02: Given both request endpoints, then they deliver through ONE shared
       sender seam (e.g. `IEmailSender`), consumed the same way both already reuse
       the ONE `IMagicLinkTokenService` - there is no second delivery
       implementation, and the purchaser and operator flows differ only in the
       copy / link they hand the sender, never in the transport.
-- [ ] AC-03 (config-presence, zero-setup default): Given NO provider is
+- [x] AC-03 (config-presence, zero-setup default): Given NO provider is
       configured (local dev, CI, a fresh clone), then the app builds and runs
       EXACTLY as today - a no-op / dev sender is registered, the `Development`
       token echo still works for local walkthroughs, and nothing errors -
       mirroring the config-presence idiom `ITelemetrySink` / `IAiCompletionClient`
       / `IPublishedTaleStore` already use in `Program.cs`.
-- [ ] AC-04 (no enumeration, preserved): Given a link is requested, then the
+- [x] AC-04 (no enumeration, preserved): Given a link is requested, then the
       endpoint's response shape and timing are the SAME whether or not an account
       / operator exists AND whether or not delivery succeeds - sending happens
       without leaking existence (the purchaser request still never reads the
       account store; the operator allowlist is still checked only at verify), and
       a delivery failure never becomes an existence oracle.
-- [ ] AC-05 (no provider secret in the browser or the repo): Given the RECOMMENDED
+- [x] AC-05 (no provider secret in the browser or the repo): Given the RECOMMENDED
       ACS path, then it authenticates keyless via the App Service managed identity -
       there is NO provider secret to store (only the non-secret sender from-address
       is app config). Given instead a provider that needs a key / connection string
@@ -55,25 +64,25 @@ issuance + email delivery"); issuance shipped, delivery did not. See
       per-environment from Azure Key Vault via an App Service app setting (the same
       pattern as the Stripe keys / the magic-link signing key) - never committed,
       never a `VITE_*` var, never logged.
-- [ ] AC-06 (minimal content / minimal PII): Given a delivered email, then it
+- [x] AC-06 (minimal content / minimal PII): Given a delivered email, then it
       carries only the one-time sign-in link and minimal transactional copy - no
       player nickname, room code, session id, or anything beyond the recipient's
       own email - and is sent only to the address entered, upholding README
       section 6's minimal-data posture and the anonymity firewall (purchaser /
       operator plane only, never a player).
-- [ ] AC-07 (durable signing key, so delivered links actually work): Given a
+- [x] AC-07 (durable signing key, so delivered links actually work): Given a
       deployed environment, then `Accounts:TokenSigningKey` is a durable Key
       Vault-backed secret (not the ephemeral per-process fallback), so a delivered
       link stays valid across app restarts and scale-out. Without it a magic link
       can die the moment the app recycles, so it ships together with delivery.
-- [ ] AC-08 (fail-safe on provider error): Given the provider errors or is
+- [x] AC-08 (fail-safe on provider error): Given the provider errors or is
       unreachable, then the request endpoint still returns the neutral
       acknowledgement (never a 500, never a different response that reveals the
       failure), logs the failure WITHOUT the token, link, email body, or any
       secret, and does not retry in a way that becomes an email-bomb vector - the
       existing per-IP guards (`SignInRateLimit`, `OperatorLoginRateLimit`) remain
       the abuse boundary.
-- [ ] AC-09 (verified sender identity): Given real mail must reach inboxes, then a
+- [x] AC-09 (verified sender identity): Given real mail must reach inboxes, then a
       verified sender identity / domain (a `no-reply@`-style from-address with SPF
       / DKIM) is configured per-environment and documented in a runbook, so
       delivery is not silently spam-filtered.

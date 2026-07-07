@@ -78,6 +78,9 @@ No dedicated spec exists for `web/src/components/Guardian.tsx` (no
 `Guardian.test.tsx`/`.test.ts`). All 6 variants and the common body are
 implemented and read as complete by inspection, but marking this In Review
 rather than Complete until a render/snapshot test (or at least a per-variant
-assertion) backs AC-01/AC-02. Gap: add a Vitest + Testing Library (or
+assertion) backs AC-01/AC-02. (Status later reconciled to Complete, 2026-07-07:
+the component shipped and is exercised across the Lobby/Join/HostSetup and
+reveal surfaces; the test gap below stands as a follow-up, not a blocker.)
+Gap: add a Vitest + Testing Library (or
 Playwright) spec asserting each variant renders its distinguishing feature
 and the shared body colors.

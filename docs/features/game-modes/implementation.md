@@ -52,6 +52,10 @@ What this feature **exports** that others import:
 
 ## Wave Plan (DAG)
 
+> Status (2026-07-07): every wave below has shipped - waves 1-3 (stories 03-06, and story 07 both layers, issue
+> #128, PR #140 with follow-ups #146/#148/#149) are Complete - so this plan now reads as a historical record, not
+> pending work.
+
 Sizing rule: a builder owns files **disjoint** from its concurrent siblings. Story 03 is the one serial foundation;
 04/05/06 are file-disjoint from 03's footprint and from each other, so they fan out in the same wave with no further
 coordination.
@@ -60,9 +64,9 @@ coordination.
 |---|---|---|---|---|---|---|
 | 01 mode-interface | #27 | `web/src/engine/mode.ts`, `web/src/engine/engine.ts` | template-model/01 | - | 0 (done) | medium |
 | 02 classic-blind | #28 | `web/src/engine/modes/classicBlind.ts`, `web/src/pages/FillBlank.tsx` | gm/01, template-model/01, child-safety/01, design-system/01 | - | 0 (done) | high |
-| 03 mode-aware-surfaces | TBD | `web/src/pages/FillBlank.tsx` (edit, optional-prop only), `web/src/pages/Reveal.tsx` (edit, optional-prop only), `web/src/pages/modeSurfaces.ts` (new), unit tests | gm/01, gm/02, the-reveal/01 | - | 1 | high |
+| 03 mode-aware-surfaces | #83 | `web/src/pages/FillBlank.tsx` (edit, optional-prop only), `web/src/pages/Reveal.tsx` (edit, optional-prop only), `web/src/pages/modeSurfaces.ts` (new), unit tests | gm/01, gm/02, the-reveal/01 | - | 1 | high |
 | 04 word-bank | #53 | `web/src/engine/modes/wordBank.ts`, `web/src/pages/fillblank/WordBankAnswer.tsx`, `web/src/content/wordBankOffering.ts`, tests | gm/03, template-model/01, child-safety/02 | 05, 06 | 2 | medium |
-| 05 progressive-story | TBD | `web/src/engine/modes/progressiveStory.ts`, `web/src/pages/fillblank/StorySoFarContext.tsx`, tests | gm/03, the-reveal/01 | 04, 06 | 2 | medium |
+| 05 progressive-story | #84 | `web/src/engine/modes/progressiveStory.ts`, `web/src/pages/fillblank/StorySoFarContext.tsx`, tests | gm/03, the-reveal/01 | 04, 06 | 2 | medium |
 | 06 progressive-reveal | #52 | `web/src/engine/modes/progressiveReveal.ts`, `web/src/pages/reveal/ProgressiveRevealPresentation.tsx`, tests | gm/03, the-reveal/01 | 04, 05 | 2 | medium |
 | 07 word-bank-jumble (FREE layer) | #128 | `web/src/pages/fillblank/WordBankAnswer.tsx` (add jumble control + swappable source), `web/src/content/wordBankJumble.ts` (new, pure reshuffle) + test | gm/04, template-model/01, child-safety/02 (family-safe; the reshuffle skips the profanity filter) | - | 3 (ships first, no AI) | medium |
 | 07 word-bank-jumble (AI layer) | #128 | the client wiring that prefers the AI source and falls back to the reshuffle (same `WordBankAnswer.tsx` + the jumble result DTO) | 07-free, the whole **ai-cost-gate** (01-05), **ai-on-demand-generation/05** | - | after the gate + ai-on-demand/05 (see ai-cost-gate cross-feature DAG) | medium |

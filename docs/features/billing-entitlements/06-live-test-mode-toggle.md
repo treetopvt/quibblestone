@@ -95,7 +95,12 @@ See [feature.md](./feature.md) and `docs/runbooks/enable-stripe-billing.md`.
 - **Dependency reality - the auth gate (AC-06).** The toggle endpoint belongs behind real operator
   auth, but `sysadmin-console/01` (operator login + admin boundary, #135) is specified but
   **unbuilt**, and it in turn depends on `accounts-identity/02` (magic-link, #68), also unbuilt.
-  There is no admin page or operator session anywhere in the app today. Two options, same as
+  There is no admin page or operator session anywhere in the app today.
+  *(Update 2026-07-07: that dependency reality is stale - both have since shipped
+  (sysadmin-console/01 via PR #158, accounts-identity/02 via PR #147), so the real Operator scheme
+  and admin surface now exist. The remaining follow-up is relocating the billing-mode toggle into
+  the operator console behind that real Operator scheme, retiring the interim gate.)*
+  Two options, same as
   `sysadmin-console/01`'s own Technical Notes handled an equivalent unbuilt-dependency problem:
   - **(a) Serialize after `sysadmin-console/01`.** Build this story's endpoint requiring
     `[Authorize(Policy = "Operator")]` from day one, scheduled to land once #135 ships.
