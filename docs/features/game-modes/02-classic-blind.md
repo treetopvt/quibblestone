@@ -1,6 +1,6 @@
 # Story: Classic blind mode
 
-**Feature:** Game Modes Engine  ·  **Status:** In Review
+**Feature:** Game Modes Engine  ·  **Status:** Complete
 
 ## Context
 The first mode built (README section 5): no story context, fill the blanks blind,

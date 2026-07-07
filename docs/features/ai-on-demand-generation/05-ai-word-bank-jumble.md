@@ -19,6 +19,20 @@
 > anonymous InstanceId/session key). Covered by `JumbleWordGeneratorTests` (10 tests). The
 > throwaway probe was removed now that this real consumer + its attribution telemetry supersede it.
 
+> **Follow-ups (2026-07-03, post-ship).** Two gpt-5-mini transport fixes were needed
+> before the gated call actually returned words on UAT - the #140 "prove it" step
+> surfaced it silently falling back on every call (AC-06 held, so gameplay was fine, but
+> no AI word ever reached a player): (1) send `max_completion_tokens`, not the legacy
+> `max_tokens`, which gpt-5-mini rejects with a 400 (PR #146); (2) pin
+> `reasoning_effort=minimal` (PR #148) - at the default effort the reasoning model spent
+> the ENTIRE output-token budget on hidden reasoning and returned empty content. Then
+> VERIFIED live: real on-theme words + a `feature=jumble` attribution event in App
+> Insights (AC-05). PR #149 enriched the prompt on top (still AC-01/02): a SOFT theme
+> steer from the template's curated `tags.themes` (the model never sees the story text,
+> so no spoiled reveal; tags sanitized server-side as untrusted input), a cheeky PG-13
+> grown-up voice when family-safe is OFF (see `/02` - still bounded by the always-on
+> profanity/slur filter), and the named avoid-list raised 20 -> 40.
+
 ## Context
 The lightest, cheapest, safest live-generation payload in the whole product, and the
 deliberate proving ground for the AI cost gate (feature.md sketch story 05; ROADMAP

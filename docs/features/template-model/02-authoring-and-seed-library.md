@@ -1,6 +1,6 @@
 # Story: Authoring format + seed library
 
-**Feature:** Template & Content Model  ·  **Status:** In Progress
+**Feature:** Template & Content Model  ·  **Status:** Complete
 
 ## Context
 Slice 1 ships a tiny hand-written library so there is something genuinely funny

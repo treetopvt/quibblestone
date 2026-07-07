@@ -1,6 +1,6 @@
 # Story: Share a join link to the room (deep-link share)
 
-**Feature:** Session & Room Engine  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #115
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #115
 
 ## Context
 Today the Lobby share (session-engine/04) sends the bare room code as text ("Join

@@ -1,6 +1,6 @@
 # Story: Copy and share the room code from the Lobby
 
-**Feature:** Session & Room Engine  ·  **Status:** In Review
+**Feature:** Session & Room Engine  ·  **Status:** Complete
 
 ## Context
 Players joining remotely need to receive the room code without the host having

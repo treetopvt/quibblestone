@@ -7,7 +7,7 @@
 
 # QuibbleStone Roadmap
 
-**As of 2026-07-03.** The thin vertical slice is live and playable end to end -
+**As of 2026-07-04.** The thin vertical slice is live and playable end to end -
 so this is no longer "get to playable," it is "what makes an alpha land, and how
 do we bring AI in without a stranger running up the bill." Every path below traces
 to a written story in [`docs/features/`](./features/); this file is the map over
@@ -32,7 +32,31 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Deployed** - a live dev environment + auto-deploy to UAT on merge.
 - **Client routing** (react-router) + the `/join/:code` deep-link seam (PR #102).
 - **Solo mode picker** - all four modes playable in SOLO (PR #97, `single-player/02`).
-- **Freshness loop** - length classes, quick-story, no-repeats rotation.
+- **Freshness loop** - length classes, quick-story, no-repeats rotation; plus the
+  anonymous serve log (`story-selection/04`) and device-local favorite-a-story
+  replay (`story-selection/06`) - the whole "Keep It Fresh" arc is closed out.
+- **Land the Laugh** - the reveal payoff polish (`reveal-delight/01-04`, PR #112):
+  the reaction row, the word-by-word carving animation, the Golden Guardian
+  funniest-word vote + next-round crown, and per-word "carved by" attribution.
+- **Modes in Group Play** - the host picks the mode for the whole room and every
+  player plays it (`group-play/05`, PR #116): Classic Blind, Word Bank, and
+  Progressive Reveal, resolved through a shared mode registry (solo + group now
+  consume one list). Progressive Story stays deferred (it needs a live cross-player
+  "story so far" broadcast - its own story). Group play is no longer Classic-Blind-only.
+- **Spread the Word** - a finished tale AND a live room now travel (`session-engine/06`
+  + `keepsake-gallery/01-04`, PR #130): a tappable `/join/:code` deep-link share from
+  the Lobby, save the reveal as a stone-tablet image, watermarked image share, a
+  device-local "Tales we've carved" gallery, and the host-opt-in public tale link
+  (server-side re-vetted, unguessable slug, noindex, TTL, per-IP rate limited). The
+  public tale page stays disabled until Azure Table Storage is provisioned (the code
+  ships behind a connection-string flag - see the keepsake-published-tales runbook).
+- **Replay & Remix** - the "again!" reflexes on the same engine, no re-gathering
+  (`replay-remix/01-03`, PR #162): a one-tap same-crew, same-template replay from
+  Round Complete ("Carve it again"), a single-blank remix that re-reveals a finished
+  tale with one word swapped and syncs the swap to the whole room ("Remix a word"),
+  and a between-rounds host handoff ("Pass the chisel") that moves the crown + host
+  controls live, host-only and server-enforced. Additive - no engine change, all on
+  the existing round lifecycle + reveal + one SignalR connection.
 - Profanity filter + family-safe toggle; MUI theme + shared components; Vitest +
   Playwright harness gating CI.
 - **The AI cost gate** (`ai-cost-gate`, all 6 stories - PR #132 app code + #131 IaC).
@@ -46,12 +70,13 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   (`game-modes/07`) and, layered on top, an AI jumble (`ai-on-demand-generation/05` +
   moderation `/02`) that rides the gate (`feature=jumble`) and falls back to the free
   reshuffle whenever the gate degrades. The throwaway measurement probe was removed
-  once this real consumer landed.
-- **Save & share the tale - Keepsake Gallery** (`keepsake-gallery/01-04`, PR #130):
-  save the reveal as a stone-tablet image, share it with a "carved with QuibbleStone"
-  watermark, a device-local "Tales we've carved" gallery, and a public shareable tale
-  link (the growth loop). The cloud-synced purchaser gallery (`/05`) is in review
-  (PR #157), built on the accounts + entitlement seams below.
+  once this real consumer landed. **Made live + enriched same day:** two gpt-5-mini
+  transport fixes (PR #146 `max_completion_tokens`, PR #148 `reasoning_effort=minimal`)
+  turned a silent always-fall-back into real words - VERIFIED on UAT (on-theme words +
+  a `feature=jumble` cost event in App Insights) - and PR #149 added a soft theme steer
+  (from the template's curated `tags.themes`, no story text sent), a cheeky grown-up
+  word set when family-safe is off (still behind the always-on profanity filter), and a
+  larger avoid-list.
 - **Accounts + entitlements, built** (`accounts-identity` #67-69, PR #147;
   `billing-entitlements` #70-74, PR #152): anonymous-forever players, a lightweight
   magic-link purchaser account, the session-creation entitlement seam (the cost gate's
@@ -59,21 +84,12 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   and restore/manage. The monetization seam is now code-complete; going live (real
   Stripe provisioning) is the remaining step (see "Charge for it" below).
 
-> Known gap: **group play is Classic-Blind-only.** The other three built modes are
-> not yet reachable in a group - that is `group-play/05` (below), and it is mostly
-> wiring (the engine, mode surfaces, solo registry, and a `Mode` field on the wire
-> already exist).
-
 ## Open / near-done
 
 | Item | Story | Note |
 |---|---|---|
 | Observability (App Insights) | `platform-devops/04` | crashes, errors, latency |
 | Anonymous usage metrics | `platform-devops/05` | modes, session length; reuses 04's pipeline |
-| Favorite a story | `story-selection/06` | device-local replay |
-| Serve log | `story-selection/04` | what got played |
-| ~~Fresh Runes (free + AI)~~ **shipped** | `game-modes/07` + `ai-on-demand-generation/05` | deterministic reshuffle + AI jumble behind the cost gate (2026-07-03) |
-| Group mode selection | `group-play/05` | host picks the mode for the room |
 | Reconnect / rejoin | `session-engine/07-10` | survive a dropped phone - now decomposed, ready to build |
 
 ## The paths, by horizon
@@ -82,8 +98,8 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
 - **Go Live, the last mile** - observability (`platform-devops/04`) + anonymous
   usage (`platform-devops/05`). Deployed already, but flying blind until telemetry
   lands. *(App Insights + IaC: I prep it; the Azure provisioning is yours to run.)*
-- **Keep It Fresh, the last two** - favorite a story (`story-selection/06`) + serve
-  log (`story-selection/04`).
+- **Keep It Fresh** - done: the serve log (`story-selection/04`) and device-local
+  favorite-a-story replay (`story-selection/06`) both shipped.
 - **Fresh Runes, free half** - the deterministic word-bank reshuffle (`game-modes/07`,
   non-AI layer).
 - **Don't Lose the Room** - reconnect + rejoin, the deferred hardening pass, now
@@ -94,15 +110,21 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   length, whether a mid-round host drop is treated specially).
 
 ### 2. Biggest bang, now
-- **Modes in Group Play** (`group-play/05`) - host picks the mode; Classic Blind,
-  Word Bank, Progressive Reveal. High value (the group is the whole point), mostly
-  wiring. *Progressive Story is deferred - it needs a live cross-player "story so
-  far" broadcast (its own story).*
-- **Land the Laugh** (`reveal-delight/01-04`) - reactions, carving animation, word
-  attribution, Golden Guardian. Best bang-for-buck, all on the built reveal.
-- **Spread the Word** (`session-engine/06` + `keepsake-gallery/01-04`) - deep-link
-  join, save/share the tale, public tale page. Routing already made the deep link
-  cheap.
+- **Modes in Group Play** (`group-play/05`) - **DONE** (PR #116): the host picks the
+  mode (Classic Blind, Word Bank, Progressive Reveal) so the room plays more than
+  Classic Blind, over a shared mode registry. *Progressive Story is deferred - it
+  needs a live cross-player "story so far" broadcast (its own story).*
+- **Land the Laugh** (`reveal-delight/01-04`) - **DONE** (PR #112): reactions,
+  carving animation, word attribution, Golden Guardian. All on the built reveal.
+- **Spread the Word** (`session-engine/06` + `keepsake-gallery/01-04`) - **DONE**
+  (PR #130): deep-link join, save/share the tale, device-local gallery, public tale
+  page. The public tale page ships disabled until Azure Table Storage is provisioned
+  (connection-string flag - see the keepsake-published-tales runbook).
+- **Replay & Remix** (`replay-remix/01-03`) - **DONE** (PR #162): same-crew
+  same-template replay ("Carve it again"), a one-blank remix that re-reveals the tale
+  with one word swapped and syncs to the whole room ("Remix a word"), and a
+  between-rounds host handoff ("Pass the chisel"). Additive on the existing round
+  lifecycle + reveal + one SignalR connection - no engine change.
 
 ### 3. The AI question (explore sooner, gate the cost)
 Prove the AI plumbing ONCE, on the cheapest/safest payload, behind a gate built
@@ -162,35 +184,39 @@ session, not identity**.
 > **Shipped (2026-07-03).** The [`ai-cost-gate`](./features/ai-cost-gate/feature.md)
 > feature - all 6 stories (proxy, entitlement-at-session, quota/meter, spend
 > circuit-breaker + attribution, moderate-before-display, IaC seam) - is BUILT and
-> merged (PR #132 app code + #131 IaC). The gate exists but has no consumer yet.
-> **Next AI step:** the free reshuffle
-> [`game-modes/07`](./features/game-modes/07-word-bank-jumble.md) (no AI, ships first
-> as the always-safe fallback), then the AI jumble
+> merged (PR #132 app code + #131 IaC), and now has its **first live consumer**: the
+> Fresh Runes AI jumble
 > [`ai-on-demand-generation/05`](./features/ai-on-demand-generation/05-ai-word-bank-jumble.md)
 > + its moderation [`/02`](./features/ai-on-demand-generation/02-live-moderation-gate.md),
-> the first CONSUMER that proves the gate on the cheapest payload. Provider/model +
-> cost decisions: [ADR 0001](./adr/0001-ai-provider.md) (Azure AI Foundry; **gpt-5-mini**
+> on the free reshuffle surface
+> [`game-modes/07`](./features/game-modes/07-word-bank-jumble.md) (PR #140), proving the
+> gate on the cheapest payload. It is **verified working on UAT** (real gpt-5-mini words
+> + a `feature=jumble` attribution event) after two same-day transport fixes - PR #146
+> (`max_completion_tokens`) and PR #148 (`reasoning_effort=minimal`) - with PR #149
+> adding the theme steer + family-safe-off grown-up mode. Provider/model + cost
+> decisions: [ADR 0001](./adr/0001-ai-provider.md) (Azure AI Foundry; **gpt-5-mini**
 > after gpt-4o-mini was superseded by availability - see the ADR Update; in-app proxy,
 > existing filter now + Content Safety later, AI jumble free-for-all in alpha behind
 > quota + breaker). The cross-feature build order (gate foundation -> free jumble ->
 > AI jumble) is in
-> [`ai-cost-gate/implementation.md`](./features/ai-cost-gate/implementation.md). A
-> config-gated throwaway probe (`POST /api/ai/probe`) ships with the gate to measure
-> one real call (ADR 0001); it is removed when the AI jumble consumer lands.
+> [`ai-cost-gate/implementation.md`](./features/ai-cost-gate/implementation.md). The
+> config-gated throwaway probe (`POST /api/ai/probe`) that shipped with the gate to
+> measure one real call (ADR 0001) was removed once this AI jumble consumer landed.
 
 ## Recommended sequence
 
-1. **Done** - deploy, routing, solo modes, freshness loop.
-2. **Now** - Land the Laugh + Group modes + the Keep-It-Fresh leftovers (favorite +
-   serve log). All ride things already built.
-3. **Then** - observability + anonymous usage (see how the alpha plays), then Spread
-   the Word (let a shared tale travel).
-4. **Early AI - SHIPPED (PR #140)** - the cost gate is BUILT and now has its first
-   consumer: the Fresh Runes free reshuffle (`game-modes/07`, no AI) plus the AI jumble
-   (`ai-on-demand-generation/05`) that rides the gate - the whole pipeline proven on the
-   cheapest payload. Next AI steps are the heavier payloads (voices, on-demand tales).
-5. **Later** - voices, on-demand, packs, charging - all reuse the gate; let the alpha
-   and the first AI slice tell you which comes first.
+1. **Done** - deploy, routing, solo modes, freshness loop, Land the Laugh
+   (`reveal-delight`, the reveal payoff polish), Modes in Group Play (`group-play/05`,
+   the host mode picker - group play now runs all three real-time-safe modes), Spread
+   the Word (`session-engine/06` + `keepsake-gallery/01-04`, a shared tale and a live
+   room both travel; the public tale page ships behind an Azure-provisioning flag),
+   the AI cost gate (`ai-cost-gate`, PR #132/#131), and the first AI slice - Fresh
+   Runes (`game-modes/07` free reshuffle + the `ai-on-demand-generation/05` AI jumble
+   behind the gate, PR #140).
+2. **Now** - observability + anonymous usage (`platform-devops/04-05`, see how the
+   alpha plays); reconnect + rejoin hardening (`session-engine/07-10`, survive a
+   dropped phone).
+3. **Later** - voices, on-demand tales, packs, charging - all reuse the gate; let the alpha
 
 ## Using this in an implementation session
 

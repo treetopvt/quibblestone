@@ -1,6 +1,6 @@
 # Story: Join a room with a code and nickname
 
-**Feature:** Session & Room Engine  ·  **Status:** In Review
+**Feature:** Session & Room Engine  ·  **Status:** Complete
 
 ## Context
 Players join a host's room from their own device with no account - just a code

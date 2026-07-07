@@ -1,6 +1,6 @@
 # Story: Distribute blanks among players
 
-**Feature:** Group Play Experience  ·  **Status:** In Review
+**Feature:** Group Play Experience  ·  **Status:** Complete
 
 ## Context
 In a group, the blanks of the template are shared out among the players so

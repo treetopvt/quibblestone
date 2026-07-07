@@ -12,6 +12,14 @@
 > and group (room `InstanceId` key) through the shared mode registry. No FillBlank/Reveal/
 > engine edits (AC-06 held). See `ai-cost-gate/implementation.md` cross-feature DAG (phases A + D).
 
+> **Follow-up (2026-07-03).** The AI layer is now VERIFIED live on UAT after two
+> gpt-5-mini transport fixes (PR #146 `max_completion_tokens`, PR #148
+> `reasoning_effort=minimal`) - before them the button always fell back to the free
+> reshuffle. The requester now also passes the template's curated `tags.themes` so AI
+> words fit the story's vibe (no story text sent), and a family-safe-OFF round yields a
+> cheeky grown-up set (PR #149). The FREE reshuffle layer is unchanged. Detail in
+> `ai-on-demand-generation/05`.
+
 ## Context
 Word Bank mode (`game-modes/04`) is fun, and the curated word pool is growing
 (separate content task). But right now the tappable options for a blank are a fixed

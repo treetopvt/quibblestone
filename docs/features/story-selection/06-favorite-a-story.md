@@ -1,6 +1,6 @@
 # Story: Favorite a story and replay it (device-local)
 
-**Feature:** Story Selection & Freshness  ·  **Status:** In Review  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #108
+**Feature:** Story Selection & Freshness  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #108
 
 ## Context
 A kid finds a few tales they love and wants to play THOSE again, with different
@@ -16,38 +16,38 @@ selection pipeline (never a safety bypass). It is the lightweight personal cut o
 [feature.md](./feature.md) and `story-selection/03-freshness-rotation.md`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the end of a tale (solo Reveal, group Round Complete), then a
+- [x] AC-01: Given the end of a tale (solo Reveal, group Round Complete), then a
       clear star/favorite control lets me mark THIS story template as a favorite;
       tapping it again unfavorites it, and the control always reflects the current
       state - big tap target, theme-styled, a FontAwesome star (filled vs outline for
       on vs off).
-- [ ] AC-02: Given I have favorited at least one story, then a "Favorites" list is
+- [x] AC-02: Given I have favorited at least one story, then a "Favorites" list is
       reachable from the app's navigation (e.g. from Home), showing my favorited
       templates by title (with a light length-class / mode hint), most-recently-
       favorited first; an empty state reads friendly ("Star a tale you love to find it
       here"), never a dead end.
-- [ ] AC-03: Given the Favorites list, when I pick a favorite, then a new game starts
+- [x] AC-03: Given the Favorites list, when I pick a favorite, then a new game starts
       on that EXACT template with fresh blanks - no template picker, straight into word
       collection - so "put different words in" is the whole loop. In solo this replays
       on my device; in a group room the HOST picks from their favorites to start the
       round (host-initiated, like other host controls).
-- [ ] AC-04 (freshness interaction): Given I play a favorite, then it is an EXPLICIT
+- [x] AC-04 (freshness interaction): Given I play a favorite, then it is an EXPLICIT
       replay - it BYPASSES the freshness filter and does NOT re-stamp the template's
       freshness history (so replaying a favorite never makes the random pick "forget"
       other unplayed stories). This is exactly the "replaying a favorite" case
       `story-selection/03` AC-04 already reserves - this story is its trigger.
-- [ ] AC-05 (storage / identity): Given favorites, then they are DEVICE-LOCAL
+- [x] AC-05 (storage / identity): Given favorites, then they are DEVICE-LOCAL
       (`localStorage`, the same posture as `story-selection/03`'s solo history and
       `keepsake-gallery/03`), anonymous, account-free, and store only template ids
       (plus a cached title for display) - never words, never PII, never a server sync.
       Clearing browser storage simply clears favorites. Cross-device / per-person
       favorites are parked (they need accounts-identity).
-- [ ] AC-06 (child-safety): Given a favorite is played, then it still passes the
+- [x] AC-06 (child-safety): Given a favorite is played, then it still passes the
       family-safe gate FIRST, exactly like any other pick - a favorited template that
       is not family-safe is not offered or playable in a family-safe session. The star
       is a shortcut INTO the existing pipeline, never a way around safety, and
       favoriting introduces no free-text surface and collects no PII (README section 6).
-- [ ] AC-07 (entitlement): Given favoriting and replaying a favorite, then it is FREE -
+- [x] AC-07 (entitlement): Given favoriting and replaying a favorite, then it is FREE -
       it consumes no billing-entitlements capability key and is not gated at
       session-creation (README section 3, the generous free tier). Favorites cover
       templates the player can already play; a favorite that points at a locked

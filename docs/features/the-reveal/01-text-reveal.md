@@ -1,6 +1,6 @@
 # Story: Text reveal
 
-**Feature:** The Reveal  ·  **Status:** In Review
+**Feature:** The Reveal  ·  **Status:** Complete
 
 ## Context
 Once the words are in, the assembled story is revealed - the moment everyone has

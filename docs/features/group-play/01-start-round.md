@@ -1,6 +1,6 @@
 # Story: Host starts a round
 
-**Feature:** Group Play Experience  ·  **Status:** In Review
+**Feature:** Group Play Experience  ·  **Status:** Complete
 
 ## Context
 With players gathered in the room, the host kicks off a round - picks what to play
