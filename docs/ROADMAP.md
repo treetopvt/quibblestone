@@ -124,6 +124,8 @@ of the 2026-07-04 view and predates this update.)
 | Item | Story / ref | Note |
 |---|---|---|
 | Alpha-gate fixes | [PR #175](https://github.com/treetopvt/quibblestone/pull/175) | B1/B3/B4/B5 merged, auto-deploying to UAT; B2 (UAT SKU) already bumped + confirmed live |
+| Product analytics (GA4 + Clarity) | `analytics/01` (branch `claude/ga4-analytics-stress-test-7tjpar`) | Built: consent-gated, anonymous by construction, env-gated (no-op until ids set). Monitoring LIVE on rollout, one-time banner deferred behind a flag. Two operator steps before go-live: Clarity Masking = "Mask" (strict), GA4 Enhanced Measurement OFF (else a /join/:code leaks via page_referrer) - see [analytics/feature.md](./features/analytics/feature.md) |
+| Load / stress test | [`docs/load-testing/findings.md`](./load-testing/findings.md) + the `/load` harness | Architecture holds well past alpha scale (1,200 conns / 200 rooms / 100% completion, 0 errors locally). Real ceiling is single in-process instance / no Azure SignalR backplane (F1). Reproduced W2 (no player cap -> a 1-per-room join race + O(N^2) roster fan-out in large rooms). Run the harness vs UAT for the true B1 knee |
 | Orientation / landscape readability | `design-system/03` | In Progress - the one genuinely open UI story |
 | Billing-mode toggle relocation | `billing-entitlements/07` follow-up | move `/admin/billing-mode` out of the kid bundle into the operator console, behind the real Operator scheme |
 | E2E suite repair + CI | `platform-devops` (new story needed) | 3 of 8 Playwright specs fail on stale selectors (mode picker moved into Game settings; Home button renamed); e2e is not in CI so drift goes unnoticed |

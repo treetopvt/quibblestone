@@ -1,0 +1,42 @@
+<!--
+  QuibbleStone.LoadTest - a STANDALONE developer load-testing harness for the
+  QuibbleStone SignalR hub (api/src/Hubs/GameHub.cs). It is NOT part of the app:
+  it is a separate console tool, run by hand, that drives the REAL hub with many
+  concurrent simulated players across many rooms to expose real-time /
+  architecture holes and measure per-method latency under load.
+
+  DELIBERATELY STANDALONE (CLAUDE.md section 3 / this tool's charter):
+    - It is NOT listed in /QuibbleStone.slnx and the API does NOT reference it, so
+      `dotnet build QuibbleStone.slnx`, `dotnet test`, and CI are all UNAFFECTED.
+      Build it explicitly: `dotnet build load/QuibbleStone.LoadTest.csproj`.
+    - IsPackable=false + no ProjectReference: it never ships and never couples to
+      the API. It talks to the hub over the wire like any other SignalR client.
+
+  Why these choices:
+    - net10.0 matches the rest of the repo (api/QuibbleStone.Api.csproj); the SDK
+      is pinned by /global.json (rolls forward to the installed 10.0.x).
+    - Microsoft.AspNetCore.SignalR.Client is the ONE dependency - the standard
+      first-party .NET hub client. 9.0.x is wire-compatible with the net10.0
+      SignalR server (the hub protocol is stable across these versions) and
+      restores with NO auth token from the default nuget.org feed. Everything else
+      (timing, percentiles, concurrency) is plain System.* - no heavy stats libs.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>QuibbleStone.LoadTest</RootNamespace>
+    <AssemblyName>QuibbleStone.LoadTest</AssemblyName>
+    <!-- Never packed, never in the solution, never referenced by the API or CI. -->
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.17" />
+  </ItemGroup>
+
+</Project>
