@@ -569,6 +569,22 @@ jobs:
         env:
           VITE_API_BASE_URL: ${{ steps.discover.outputs.api_base }}
           VITE_SIGNALR_HUB_URL: ${{ steps.discover.outputs.api_base }}/hubs/game
+          # Product analytics (analytics/01): PUBLIC measurement ids (they ship in
+          # the browser bundle regardless, so they are NOT secrets - "no secret in a
+          # VITE_* var" still holds). Baked as defaults here to turn monitoring on
+          # for the rollout; a repo/environment VARIABLE of the same name OVERRIDES
+          # the default (set it to a different id to repoint, or to a single space to
+          # effectively disable), so this stays config-overridable without a code
+          # change. TWO OPERATOR STEPS before go-live (config-side guarantees the
+          # app cannot enforce from JS - see web/src/telemetry/analytics.ts):
+          #   1. CHILD SAFETY (AC-03): set the Clarity project's Masking to "Mask"
+          #      (strict) so typed words are never recorded in a replay.
+          #   2. PRIVACY (AC-06): turn OFF GA4 Enhanced Measurement's "page changes
+          #      based on browser history events" - the app sends its own scrubbed
+          #      page_views, and leaving GA4's auto SPA tracking on would leak a
+          #      /join/:code deep link via page_referrer.
+          VITE_GA4_MEASUREMENT_ID: ${{ vars.VITE_GA4_MEASUREMENT_ID || 'G-J1LTY3KMBF' }}
+          VITE_CLARITY_PROJECT_ID: ${{ vars.VITE_CLARITY_PROJECT_ID || 'xiw7t8csoi' }}
         run: npm run build
 
       # --- Deploy the web bundle; fetch the SWA token at run time via OIDC ----

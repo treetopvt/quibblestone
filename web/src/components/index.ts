@@ -86,6 +86,12 @@ export type { TaleFeedbackProps } from './TaleFeedback';
 export { ReactionRow } from './ReactionRow';
 export type { ReactionRowProps, ReactionType, ReactionCounts } from './ReactionRow';
 
+// The lightweight, one-time analytics-consent banner (analytics/01, AC-05).
+// DEFERRED for the initial rollout (monitoring ships live, banner off via
+// ANALYTICS_SHOW_CONSENT_BANNER in web/src/telemetry/consent.ts); self-gates to
+// render nothing until enabled, so App can mount it unconditionally.
+export { ConsentBanner } from './ConsentBanner';
+
 // The app's last-resort render-error safety net (B5, alpha-gate hardening):
 // a class component (required - React error boundaries have no Hook
 // equivalent) wrapping <App/> in main.tsx. Renders a minimal "Something went

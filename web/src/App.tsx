@@ -107,7 +107,7 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { keyframes } from '@mui/material/styles';
@@ -148,6 +148,8 @@ import { DEFAULT_VARIANT, ReactionRow } from './components';
 import { toGuardianVariant, type GuardianVariant } from './components';
 import type { ReactionCounts, ReactionType } from './components';
 import { loadIdentity, saveIdentity } from './identity';
+import { trackEvent, trackPageView } from './telemetry/analytics';
+import { ANALYTICS_EVENTS } from './telemetry/analyticsEvents';
 
 /**
  * Derive the per-player crew recap from the shared reveal payload (group-play/04,
@@ -698,6 +700,71 @@ export default function App() {
     }
   }, [pendingFavorite, location.pathname]);
 
+  // analytics/01 (AC-06): send a GA4 page_view on every SPA route change, with the
+  // NORMALIZED route only (trackPageView strips any deep-link join code before it
+  // reaches GA4). A no-op unless analytics is configured AND consented.
+  useEffect(() => {
+    trackPageView(location.pathname);
+  }, [location.pathname]);
+
+  // analytics/01 (AC-07): fire the anonymous funnel + frustration events on the
+  // real state transitions, edge-detected via refs so each fires ONCE per round -
+  // and for EVERY player (the per-device signal GA4 wants), not just the host who
+  // invoked the start. Params are anonymous by construction (mode id + solo/group
+  // context); the group mode lives on `round` and is kept through the reveal. All
+  // are no-ops unless analytics is configured + consented.
+  const roundStartedRef = useRef(false);
+  useEffect(() => {
+    const inRound = Boolean(round);
+    if (inRound && !roundStartedRef.current) {
+      // `players` is the anonymous room size at round start (the builder clamps it;
+      // undefined is dropped) - a count, never an identity.
+      trackEvent(ANALYTICS_EVENTS.RoundStarted, {
+        mode: round?.mode,
+        context: 'group',
+        players: room?.players.length,
+      });
+    }
+    roundStartedRef.current = inRound;
+  }, [round, room]);
+
+  const revealReachedRef = useRef(false);
+  useEffect(() => {
+    const inReveal = Boolean(reveal);
+    if (inReveal && !revealReachedRef.current) {
+      trackEvent(ANALYTICS_EVENTS.RevealReached, { mode: round?.mode, context: 'group' });
+    }
+    revealReachedRef.current = inReveal;
+  }, [reveal, round]);
+
+  // Frustration signals (the "headscratchers"): the calm "reconnecting your game"
+  // hold (resumePending) and a failed rejoin ("seat timed out"). App Insights sees
+  // these as disconnects; GA4 puts them in a behavioral funnel. Edge-detected so a
+  // transition reports once.
+  const reconnectShownRef = useRef(false);
+  useEffect(() => {
+    // Fire ONLY when the "reconnecting your game" beat is actually on screen -
+    // resumePending AND no room yet (ResumingLiveScreen's own render condition). A
+    // reconnect handle is saved on every successful create/join, so `resumePending`
+    // alone stays true for a whole healthy session and would make this a ~100%
+    // false-positive signal; gating on `!room` ties it to the rendered beat so it
+    // measures a real dead-zone stall, not the happy path.
+    const reconnectingShown = resumePending && !room;
+    if (reconnectingShown && !reconnectShownRef.current) {
+      trackEvent(ANALYTICS_EVENTS.ReconnectShown, { context: 'group' });
+    }
+    reconnectShownRef.current = reconnectingShown;
+  }, [resumePending, room]);
+
+  const seatTimedOutRef = useRef(false);
+  useEffect(() => {
+    const failed = Boolean(rejoinFailedNotice);
+    if (failed && !seatTimedOutRef.current) {
+      trackEvent(ANALYTICS_EVENTS.SeatTimedOut, { context: 'group' });
+    }
+    seatTimedOutRef.current = failed;
+  }, [rejoinFailedNotice]);
+
   // Start a round (host) with the host's family-safe + story-length picks,
   // remembering both as sticky for the replay loop (group-play/04,
   // story-selection/02). Used by the Lobby's Start CTA.
@@ -757,6 +824,17 @@ export default function App() {
     void backToLobby();
   }, [backToLobby]);
 
+  // analytics/01 (AC-07): a reaction tap is the payoff-moment engagement signal.
+  // Record it anonymously (the pill id is enum-ish, never free text), then fire the
+  // hub invoke unchanged. Wraps the hook's `react` so the reveal wiring is untouched.
+  const handleReact = useCallback(
+    (type: ReactionType) => {
+      trackEvent(ANALYTICS_EVENTS.ReactionTapped, { reaction: type, context: 'group' });
+      react(type);
+    },
+    [react],
+  );
+
   // "Create a game": open HostSetup (build/host-identity) so the host names itself +
   // picks a Guardian BEFORE the room is minted. The create happens on HostSetup's
   // onCreate; the room-effect above routes the host into the lobby once room is set.
@@ -773,6 +851,8 @@ export default function App() {
       const result = await createRoom(displayName, variant);
       if (result.ok) {
         saveIdentity(displayName.trim(), toGuardianVariant(variant));
+        // analytics/01 (AC-07): the group-play funnel entry (anonymous - no name).
+        trackEvent(ANALYTICS_EVENTS.RoomCreated, { context: 'group' });
       }
       return result;
     },
@@ -791,6 +871,9 @@ export default function App() {
       const result = await joinRoom(code, displayName, variant);
       if (result.ok) {
         saveIdentity(displayName.trim(), toGuardianVariant(variant));
+        // analytics/01 (AC-07): a joiner entering the funnel (anonymous - never
+        // the code or name, just that a join happened, in group context).
+        trackEvent(ANALYTICS_EVENTS.RoomJoined, { context: 'group' });
       }
       return result;
     },
@@ -1066,7 +1149,7 @@ export default function App() {
               // ever leaves round momentarily null.
               mode={round?.mode ?? 'classic-blind'}
               reactionCounts={reactionCounts}
-              onReact={react}
+              onReact={handleReact}
               isHost={isHost}
               goldenGuardianVotedCount={goldenGuardianVotedCount}
               goldenGuardianTotalVoters={goldenGuardianTotalVoters}

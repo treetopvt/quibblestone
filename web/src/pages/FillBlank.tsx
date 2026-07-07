@@ -564,7 +564,16 @@ export function FillBlank({
                       fullWidth
                       placeholder="type a fun word..."
                       slotProps={{
-                        htmlInput: { maxLength: WORD_MAX_LENGTH, 'aria-label': 'Your word' },
+                        // analytics/01 (AC-03): data-clarity-mask tags THE free-text
+                        // word field so Microsoft Clarity never records a child's
+                        // typed word in a session replay - a real, code-level
+                        // defense-in-depth beyond the project-level "Mask" (strict)
+                        // setting the runbook requires (analytics.ts). Never unmask.
+                        htmlInput: {
+                          maxLength: WORD_MAX_LENGTH,
+                          'aria-label': 'Your word',
+                          'data-clarity-mask': 'true',
+                        },
                         input: { disableUnderline: true },
                       }}
                       sx={{

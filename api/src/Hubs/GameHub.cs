@@ -609,9 +609,19 @@ public sealed class GameHub : Hub
         // room state that every other player then sees rendered.
         var chosenVariant = NormalizeVariant(variant);
 
-        // 4. Add the (now-vetted) player under the room lock, which also enforces
-        //    in-room name uniqueness case-insensitively (AC-06).
-        if (!room.TryAddPlayer(name, chosenVariant, Context.ConnectionId))
+        // 4. Seat the (now-vetted) player under the room lock, which enforces BOTH
+        //    the capacity cap (W2 - family-sized rooms top out at Room.MaxPlayers,
+        //    host included) and case-insensitive name uniqueness (AC-06), atomically
+        //    so a concurrent join-storm can violate neither.
+        var seat = room.AddPlayer(name, chosenVariant, Context.ConnectionId);
+        if (seat == AddPlayerResult.RoomFull)
+        {
+            return new JoinResultDto(
+                false,
+                null,
+                $"This room is full ({Room.MaxPlayers} players). Ask the host to start, or set up your own game.");
+        }
+        if (seat == AddPlayerResult.NameTaken)
         {
             return new JoinResultDto(false, null, "That name is taken in this room - try another.");
         }

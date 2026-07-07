@@ -143,6 +143,8 @@ import { checkWord } from '../safety/checkWord';
 import { createAiJumbleRequester } from '../ai/jumbleClient';
 import { getOrCreateSessionId, recordSoloServe } from '../telemetry/serveLog';
 import { recordSoloRoundCompleted, recordSoloRoundStarted } from '../telemetry/usageBeacon';
+import { trackEvent } from '../telemetry/analytics';
+import { ANALYTICS_EVENTS } from '../telemetry/analyticsEvents';
 import { FillBlank } from './FillBlank';
 import { Reveal } from './Reveal';
 import { ModePicker } from './ModePicker';
@@ -485,6 +487,10 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     // device id (AC-04).
     roundStartRef.current = Date.now();
     recordSoloRoundStarted(mode.config.id);
+    // analytics/01 (AC-07): the same anonymous round-start signal for GA4 (solo
+    // context, mode id) - co-located with the App Insights usage beacon so there is
+    // one event philosophy. No-op unless analytics is configured + consented.
+    trackEvent(ANALYTICS_EVENTS.RoundStarted, { mode: mode.config.id, context: 'solo' });
     if (!record) return;
     // story-selection/04 (anonymous serve log, AC-02): fire-and-forget one
     // anonymous "template served" event. It never awaits, never retries, and
@@ -598,6 +604,9 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
       if (startedAt !== null) {
         roundStartRef.current = null;
         recordSoloRoundCompleted(mode.config.id, Date.now() - startedAt);
+        // analytics/01 (AC-07): solo reached the reveal (the payoff). Inside the
+        // one-shot latch so it fires exactly once per round, like the beacon above.
+        trackEvent(ANALYTICS_EVENTS.RevealReached, { mode: mode.config.id, context: 'solo' });
       }
       setPhase('reveal');
       return;
