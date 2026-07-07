@@ -149,9 +149,18 @@ public sealed class AdminEntitlementsController : ControllerBase
     [HttpPost("{email}/entitlements")]
     public async Task<IActionResult> Grant(
         string email,
-        [FromBody] GrantEntitlementRequest request,
+        [FromBody] GrantEntitlementRequest? request,
         CancellationToken cancellationToken)
     {
+        // Guard a missing / null JSON body with a 400 (matches every other [FromBody]
+        // action here): do not lean on [ApiController]'s auto-validation to be the only
+        // thing standing between a null body and the NullReferenceException on the deref
+        // below - guard it explicitly, like the rest of the codebase does.
+        if (request is null)
+        {
+            return BadRequest(new { message = "A capability grant is required." });
+        }
+
         var capabilityKey = NormalizeCapabilityKey(request.CapabilityKey);
         if (capabilityKey is null)
         {
