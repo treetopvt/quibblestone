@@ -1,6 +1,6 @@
 # Story: Email a game invite to a friend
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #TBD
+**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #180
 
 ## Context
 Today the Lobby's invite mechanism offers two channels: copy the room's join
