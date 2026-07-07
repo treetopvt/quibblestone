@@ -200,6 +200,67 @@ export function manualReconnectDelayMs(attempt: number): number {
 }
 
 /**
+ * B1 follow-up (connect-hang fix, 2026-07-07): the narrow shape `startWithTimeout`
+ * needs from a `HubConnection` - just `start`/`stop` - so a test can pass a plain
+ * mock instead of a real connection (no `any`, no casting).
+ */
+export interface StartStoppable {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+}
+
+/** How long the initial connect (and each manual retry) waits before treating a still-pending `start()` as hung. A single named constant, easy to tune - see `startWithTimeout`'s header for why it exists. */
+export const CONNECT_TIMEOUT_MS = 20_000;
+
+/**
+ * B1 follow-up (connect-hang fix, 2026-07-07): races `connection.start()`
+ * against a timeout. A hung negotiate/handshake - one that never resolves NOR
+ * rejects, which a healthy local dev server never triggers but a real network
+ * condition against the live hub can - otherwise leaves `connection.state`
+ * wedged at `Connecting` forever. Every retry path in this file checks exactly
+ * that state before acting (`attemptManualReconnect`'s own guard, below), so a
+ * hang does not just delay reconnection - it permanently blocks the timer
+ * loop, the visibility/online listeners, AND the user's own "Try again" tap.
+ * The only escape was a full page reload (which throws the wedged
+ * `HubConnection` away for a fresh one), and even that would hit the same wall
+ * again if the underlying condition persisted.
+ *
+ * On timeout this calls `connection.stop()` - SignalR's documented way to
+ * abort a connection attempt in progress, safe to call from any state - which
+ * returns the connection to `Disconnected` so the normal retry/backoff path
+ * below can take over instead of staying wedged. Both branches of the
+ * original `start()` are handled via `.then(onFulfilled, onRejected)` (not a
+ * separate `.catch`), so a late settlement after the timeout already fired is
+ * never an unhandled rejection - the `settled` guard just makes it a no-op.
+ */
+export function startWithTimeout(connection: StartStoppable, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      void connection.stop().catch(() => {});
+      reject(new Error('SignalR connect timed out'));
+    }, timeoutMs);
+
+    connection.start().then(
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      },
+      (err: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
  * `'disconnected'` covers BOTH "never connected yet" and, since the B1 fix,
  * "was connected, dropped, and the hook's manual reconnect loop is quietly
  * retrying in the background" - there is deliberately no separate "gave up
@@ -1203,7 +1264,7 @@ export function useGameHub(): UseGameHub {
       }
       startInFlightRef.current = true;
       try {
-        await connection.start();
+        await startWithTimeout(connection, CONNECT_TIMEOUT_MS);
         if (cancelled) return;
         manualReconnectAttemptRef.current = 0;
         if (manualReconnectTimerRef.current !== null) {
@@ -1246,8 +1307,7 @@ export function useGameHub(): UseGameHub {
       scheduleManualReconnect();
     });
 
-    connection
-      .start()
+    startWithTimeout(connection, CONNECT_TIMEOUT_MS)
       .then(() => {
         if (!cancelled) setStatus('connected');
       })
@@ -1257,7 +1317,9 @@ export function useGameHub(): UseGameHub {
         // B1: the very first attempt was otherwise a single shot with no
         // retry of its own (a cold app-service start, or opening the PWA
         // before wifi associates) - fall into the SAME manual loop `onclose`
-        // uses above.
+        // uses above. A hung attempt (never resolves nor rejects - see
+        // `startWithTimeout`'s header) lands here too once CONNECT_TIMEOUT_MS
+        // elapses, instead of leaving `status` wedged at 'connecting' forever.
         manualReconnectAttemptRef.current = 0;
         scheduleManualReconnect();
       });
