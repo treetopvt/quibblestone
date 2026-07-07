@@ -12,11 +12,12 @@ green build). The alpha build phase is essentially over: everything from the thi
 slice through reconnect hardening, observability, accounts + billing, and the
 sys-admin console is merged, and the tree is green (clean `dotnet build`, 523 xUnit
 + 363 Vitest tests passing). The bar is no longer "build the alpha" - it is **run
-the alpha**, and the alpha gate itself is nearly closed out: B2 (the UAT SKU) is
-already bumped and confirmed live, and B1/B3/B4/B5 are fixed in
-[PR #175](https://github.com/treetopvt/quibblestone/pull/175) (CI green, awaiting
-merge). Once that merges, invite the friends-and-family testers and watch the
-telemetry that now exists. Every path below traces to a written story in
+the alpha**, and the alpha gate itself is now closed: B2 (the UAT SKU) is
+confirmed live, and B1/B3/B4/B5 merged via
+[PR #175](https://github.com/treetopvt/quibblestone/pull/175) and are auto-deploying
+to UAT now. The remaining alpha-gate item is W5 (ACS email config) - once that's
+settled, invite the friends-and-family testers and watch the telemetry that now
+exists. Every path below traces to a written story in
 [`docs/features/`](./features/); this file is the map over that backlog, not new
 scope.
 
@@ -118,7 +119,7 @@ of the 2026-07-04 view and predates this update.)
 
 | Item | Story / ref | Note |
 |---|---|---|
-| Alpha-gate fixes | [PR #175](https://github.com/treetopvt/quibblestone/pull/175) | B1/B3/B4/B5 fixed, CI green, awaiting merge; B2 (UAT SKU) already bumped + confirmed live |
+| Alpha-gate fixes | [PR #175](https://github.com/treetopvt/quibblestone/pull/175) | B1/B3/B4/B5 merged, auto-deploying to UAT; B2 (UAT SKU) already bumped + confirmed live |
 | Orientation / landscape readability | `design-system/03` | In Progress - the one genuinely open UI story |
 | Billing-mode toggle relocation | `billing-entitlements/07` follow-up | move `/admin/billing-mode` out of the kid bundle into the operator console, behind the real Operator scheme |
 | E2E suite repair + CI | `platform-devops` (new story needed) | 3 of 8 Playwright specs fail on stale selectors (mode picker moved into Game settings; Home button renamed); e2e is not in CI so drift goes unnoticed |
@@ -132,15 +133,15 @@ A code-level release-readiness pass found the game logic solid (server-authorita
 rounds, disciplined locking, the filter on every text path, zero placeholder code)
 but flagged the mobile-reality layer. Blockers first; all are small, located fixes -
 roughly a day or two of work total. **Status as of 2026-07-07 evening: B2 confirmed
-live; B1/B3/B4/B5 fixed and reviewed in PR #175 (CI green, awaiting merge).**
+live; B1/B3/B4/B5 merged via PR #175 and auto-deploying to UAT.**
 
 | # | Severity | Problem | Fix shape | Status |
 |---|---|---|---|---|
-| B1 | Blocker | No recovery from a terminal SignalR disconnect: default retry policy gives up in ~40s, `onclose` never restarts, Home's CTAs silently dim with no copy or retry (`useGameHub.ts`, `App.tsx`) | restart on `onclose` / `visibilitychange` / `online` with backoff (or infinite retry array); visible "Reconnecting - tap to retry" state | Fixed - PR #175 |
+| B1 | Blocker | No recovery from a terminal SignalR disconnect: default retry policy gives up in ~40s, `onclose` never restarts, Home's CTAs silently dim with no copy or retry (`useGameHub.ts`, `App.tsx`) | restart on `onclose` / `visibilitychange` / `online` with backoff (or infinite retry array); visible "Reconnecting - tap to retry" state | Merged - PR #175 |
 | B2 | Blocker | UAT runs the checked-in **F1 Free** SKU: 5 concurrent WebSockets (a 6-player room cannot form), no Always On (cold starts), 60 CPU-min/day (`infra/main.uat.bicepparam`) | run Provision with `appServicePlanSku=B1` for the test window; verify the live plan before invites | **Resolved** - `az appservice plan list` confirms `quibblestone-uat-plan` is `B1`/`Basic` |
-| B3 | Blocker | 30s seat grace + abort-on-eviction: early finishers' phones auto-lock on the Waiting screen, and ~60s later the whole round aborts - even when the evicted player had no blanks left (`SeatGraceService.cs`, `GameHub.cs` eviction epilogue) | raise `DefaultGraceWindow` to 2-5 min; only abort when the departed seat has unsubmitted blanks | Fixed - PR #175 (raised to 3 min; abort now conditional on outstanding blanks) |
-| B4 | High | A rejected `Rejoin` (seat expired, server restarted) leaves zombie room state: frozen screen, no broadcasts, submits refused forever (`useGameHub.ts` rejoin-fail path) | on rejected rejoin, clear local room state + show the friendly "seat timed out" notice | Fixed - PR #175 |
-| B5 | High | No React error boundary: any render error is a permanent white screen (the error beacon reports it; the family sees blank) | one ErrorBoundary around `<App/>` with a "Something went off" + reload button | Fixed - PR #175 |
+| B3 | Blocker | 30s seat grace + abort-on-eviction: early finishers' phones auto-lock on the Waiting screen, and ~60s later the whole round aborts - even when the evicted player had no blanks left (`SeatGraceService.cs`, `GameHub.cs` eviction epilogue) | raise `DefaultGraceWindow` to 2-5 min; only abort when the departed seat has unsubmitted blanks | Merged - PR #175 (raised to 3 min; abort now conditional on outstanding blanks) |
+| B4 | High | A rejected `Rejoin` (seat expired, server restarted) leaves zombie room state: frozen screen, no broadcasts, submits refused forever (`useGameHub.ts` rejoin-fail path) | on rejected rejoin, clear local room state + show the friendly "seat timed out" notice | Merged - PR #175 |
+| B5 | High | No React error boundary: any render error is a permanent white screen (the error beacon reports it; the family sees blank) | one ErrorBoundary around `<App/>` with a "Something went off" + reload button | Merged - PR #175 |
 | W1 | Warn | 30-min idle sweep deletes rooms under still-connected players (nothing bumps `LastActiveUtc` for connected sockets) | exempt rooms with connected seats or lengthen; clear client state on "room not found" | Open |
 | W2 | Warn | Lobby says "n of 6" but the server never enforces a cap (a 7th joiner shows "7 of 6"; on F1 they cannot connect at all) | enforce the cap in `JoinRoom` with a friendly "room's full" | Open |
 | W3 | Warn | `StartRound` has no phase guard: a host double-tap mid-deal re-deals everyone and discards in-flight words | reject StartRound while phase is "prompting" (mirror PassHost's gate) | Open |
@@ -155,8 +156,8 @@ in the audit and can ride until after the test.
 ## The paths, by horizon
 
 ### 1. Run the alpha (now)
-- **Merge the alpha-gate PR** - [#175](https://github.com/treetopvt/quibblestone/pull/175)
-  (B1/B3/B4/B5), CI green, awaiting merge; W1-W4 stay fast-follows.
+- **Alpha-gate code fixes are merged** - [#175](https://github.com/treetopvt/quibblestone/pull/175)
+  (B1/B3/B4/B5) is in and auto-deploying to UAT; W1-W4 stay fast-follows.
 - **B2 is done** - UAT is already on B1, confirmed live; **configure ACS email**
   so the operator console works (W5) is the one alpha-gate item still open.
 - **Invite friends and family.** Watch App Insights (crashes, hub errors, round
@@ -235,9 +236,9 @@ cross-feature build order lives in
    reconnect hardening, observability + usage metrics, child-safety hardening,
    the AI cost gate + Fresh Runes, accounts + billing (test mode) + the sys-admin
    console.
-2. **Now** - merge the alpha-gate PR (#175, B1/B3/B4/B5); B2's SKU bump is
-   already done and confirmed live; email config (W5) is what remains open; then
-   **invite the family**; repair the e2e suite + add it to CI.
+2. **Now** - the alpha-gate PR (#175, B1/B3/B4/B5) is merged and deploying; B2's
+   SKU bump is already done and confirmed live; email config (W5) is what remains
+   open; then **invite the family**; repair the e2e suite + add it to CI.
 3. **Next** - polish from telemetry + feedback; content velocity (more seeds or
    the content factory); group Progressive Story; `design-system/03`.
 4. **Later** - public tale page provisioning, Stripe live, brand clearance, then
