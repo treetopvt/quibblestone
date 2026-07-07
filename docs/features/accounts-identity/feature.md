@@ -21,7 +21,7 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 | 01 | #67 | Anonymous player, forever | Complete |
 | 02 | #68 | Lightweight purchaser account | Complete |
 | 03 | #69 | Sign-in and restore on a new device | Complete |
-| 04 | #167 | Magic-link email delivery | Not Started |
+| 04 | #167 | Magic-link email delivery | Complete |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:
@@ -131,3 +131,14 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   a verified domain to the footprint; SendGrid avoids the resource but adds a
   third-party dependency. Story 04 also promotes `Accounts:TokenSigningKey` to a
   durable Key Vault secret so a delivered link survives an app recycle.
+- 2026-07-07: **Story 04 shipped (Complete)** via the PR #169-#172 chain (issue
+  #167 closed). The open provider decision resolved to Azure Communication
+  Services Email: the one `IEmailSender` seam (`AcsEmailSender` /
+  `NoOpEmailSender`, config-presence) delivers both the purchaser and operator
+  links, `infra/main.bicep` provisions the ACS Email footprint behind
+  `enableEmail` (deploy-wired, with an `EMAIL_ENDPOINT` external override that
+  skips provisioning), the durable `Accounts__TokenSigningKey` is Key
+  Vault-backed, and the web surfaces complete sign-in from the followed email
+  link. Note: the 2026-07-01 "exactly the three stories above" scoping decision
+  predates story 04's decomposition - the feature is now four stories, all
+  Complete.

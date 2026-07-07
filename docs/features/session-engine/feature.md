@@ -5,8 +5,8 @@ The SignalR backbone for multiplayer: a host creates a room, players join with a
 short code and a nickname, and everyone sees a live roster. Everything in group
 play rides on this. Slice 1 shipped the minimum viable version (create / join /
 roster) with reconnect-hardening deliberately deferred; stories 07-10 are that
-deferred hardening pass, now planned - "Don't Lose the Room" (README section 1's
-"tolerance for brief connectivity drops (dead zones)").
+deferred hardening pass, now shipped (PR #151) - "Don't Lose the Room" (README
+section 1's "tolerance for brief connectivity drops (dead zones)").
 
 ## README reference
 README section 7 (Epic Map - Phase 0, Session & Room Engine) and section 8
@@ -16,7 +16,7 @@ section 1 ("the car case is handled by reconnect logic and light caching on top
 of the same cloud backbone, not a separate system") and section 6 / CLAUDE.md
 section 5 (anonymity - the reconnect handle must never become an off-device
 identity). Roadmap: [`docs/ROADMAP.md`](../../ROADMAP.md) "Don't Lose the Room -
-reconnect + rejoin" (Open/near-done).
+reconnect + rejoin" (shipped via PR #151).
 
 ## Stories
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
@@ -32,7 +32,7 @@ reconnect + rejoin" (Open/near-done).
 | 08 | #142 | Rejoin: reclaim your seat and resume the round | Complete |
 | 09 | #143 | Web: remember this seat and rejoin automatically | Complete |
 | 10 | #144 | Web: resume the live screen, don't bounce Home | Complete |
-| 11 | TBD | Wire the "+ invite" roster slot to the share action | Complete |
+| 11 | - | Wire the "+ invite" roster slot to the share action | Complete |
 
 ## Dependencies
 - platform-devops (the real-time backbone must be deployable and reachable).
@@ -138,6 +138,20 @@ reconnect + rejoin" (Open/near-done).
   into a full state-machine rehydration of every reveal-delight surface.
 
 **Open questions for the next build session (not yet decided):**
+
+*(2026-07-07: all three were resolved in the build (PR #151); the questions are kept
+below for the record. Grace window: 30 seconds, one named constant -
+`SeatGraceService.DefaultGraceWindow` in `api/src/Rooms/SeatGraceService.cs` - with a
+test constructor that injects a smaller window. Host drop: the grace window applies
+UNIFORMLY (no host special-casing of the window itself), and a follow-up hardening went
+further than the original plan - when a host's seat is evicted (grace expiry or a
+deliberate leave), `Room.EnsureHostLocked` migrates the host flag to the earliest-joined
+still-connected seat and the epilogue nudges that connection with "HostGranted"
+(`api/src/Rooms/Room.cs`), so the room never sits hostless/unstartable. Token storage:
+exactly ONE device-local `{code, token}` pair under the versioned key `qs.reconnect.v1`,
+overwritten on every create/join and shape-validated on load (`web/src/reconnect.ts`) -
+the accepted single-slot limitation.)*
+
 - **Grace window length.** No value is picked yet - a starting guess is
   20-30 seconds (a short tunnel/phone-lock blip, not "went inside a store"), but
   this is a product feel call, not a technical one; make it a single named

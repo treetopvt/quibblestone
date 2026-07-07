@@ -13,31 +13,31 @@ untouched - no player is ever asked to sign in to join a room. See
 early even if the UI is minimal").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a purchaser has an existing account (accounts-identity/02)
+- [x] AC-01: Given a purchaser has an existing account (accounts-identity/02)
       and opens QuibbleStone on a new device, when they enter their email and
       follow the emailed magic link (ADR 0002 Decision A), then their existing
       account is recognized and no duplicate account is created.
-- [ ] AC-02: Given a purchaser signs in successfully, when
+- [x] AC-02: Given a purchaser signs in successfully, when
       billing-entitlements/05's restore view is opened, then it can look up
       that purchaser's entitlements without any device-specific state - the
       new device now behaves identically to the original purchasing device
       for entitlement purposes.
-- [ ] AC-03: Given a device where no one has signed in, when a player opens
+- [x] AC-03: Given a device where no one has signed in, when a player opens
       the app and plays (single-player or joins a group by code), then they
       are never prompted to sign in, and declining/ignoring any visible
       sign-in affordance has zero effect on their ability to play the free
       tier.
-- [ ] AC-04: Given the sign-in surface, when it is placed in the app, then it
+- [x] AC-04: Given the sign-in surface, when it is placed in the app, then it
       lives in a purchaser-facing area (Home's settings/account entry point or
       the restore/manage screen) - never inside the join code, lobby, word
       entry, or reveal flow a child would be using.
-- [ ] AC-05: Given a magic-link request for an email address that has no
+- [x] AC-05: Given a magic-link request for an email address that has no
       matching account, then the system does not leak whether an account
       exists for that email beyond what is functionally necessary (no
       account is silently created as a side effect of a failed sign-in
       attempt; the user is guided to purchase, not left in an ambiguous
       state).
-- [ ] AC-06: Given no accounts or purchases exist anywhere yet (day one of
+- [x] AC-06: Given no accounts or purchases exist anywhere yet (day one of
       this feature shipping), then this story's sign-in surface is inert
       (nothing to restore) without erroring - graceful for the common case of
       a family that has never paid for anything.

@@ -3,7 +3,9 @@
   Also carries the CROSS-FEATURE master DAG (gate -> free jumble -> AI jumble) since the gate is the
   spine the thin slice rides. Look-ahead pass (2026-07-02): story 06 (IaC) delivered + deployed via
   PR #131 as a separate infra/ai.bicep on its own subscription (see its Wave Plan row + notes below);
-  stories 01-05 (code) remain Not Started. No em dashes.
+  stories 01-05 (code) remain Not Started. Correction (2026-07-07): that last clause is stale - all
+  six stories shipped 2026-07-03 (code via PR #132, IaC via PR #131), matching the COMPLETE status
+  the master DAG below records. No em dashes.
 -->
 
 # Implementation Plan: AI Cost Gate

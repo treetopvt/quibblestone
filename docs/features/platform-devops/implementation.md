@@ -44,8 +44,8 @@ Sizing rule: a builder owns files **disjoint** from its concurrent siblings.
 |---|---|---|---|---|---|---|
 | 01 test-harness | #18 | `web/vitest.config.ts`, a sample pure-logic test, `playwright.config.ts`, `tests/smoke.spec.ts`, `web/package.json` (dev deps + scripts); edits `.github/workflows/ci.yml` (unit-test step); docs in `web/README.md` / `CLAUDE.md` | none (builds on the skeleton) | 02 (disjoint files), child-safety/01, design-system/01-02, template-model/01 | 1 | medium |
 | 02 deploy-to-dev | #19 | edits `.github/workflows/deploy.yml` (secrets/vars wiring), `infra/main.bicepparam`; deploy runbook notes | none | 01 (disjoint files) | 1 | medium |
-| 04 operational-observability | TBD | `infra/main.bicep` (App Insights + Log Analytics + Key Vault secret + app setting), `infra/README.md`, `api/QuibbleStone.Api.csproj` (package), `api/src/Program.cs` (`AddApplicationInsightsTelemetry` + PII scrubber), `api/src/Hubs/GameHub.cs` (hub exception/disconnect telemetry), light web error beacon | 02 (a deployed env to emit from), infra Key Vault, child-safety/01 | - | 2 | medium |
-| 05 anonymous-usage-metrics | TBD | usage custom events in `api/src/Hubs/GameHub.cs` (RoundStarted/complete) + a minimal solo client wrapper (`web/src/`), anonymous device id (reuse `identity.ts`) | 04 (reuses its App Insights pipeline + scrubber), game-modes, single-player/group-play, story-selection/04 (coordinate) | - | 3 | low |
+| 04 operational-observability | #106 | `infra/main.bicep` (App Insights + Log Analytics + Key Vault secret + app setting), `infra/README.md`, `api/QuibbleStone.Api.csproj` (package), `api/src/Program.cs` (`AddApplicationInsightsTelemetry` + PII scrubber), `api/src/Hubs/GameHub.cs` (hub exception/disconnect telemetry), light web error beacon | 02 (a deployed env to emit from), infra Key Vault, child-safety/01 | - | 2 | medium |
+| 05 anonymous-usage-metrics | #107 | usage custom events in `api/src/Hubs/GameHub.cs` (RoundStarted/complete) + a minimal solo client wrapper (`web/src/`), anonymous device id (reuse `identity.ts`) | 04 (reuses its App Insights pipeline + scrubber), game-modes, single-player/group-play, story-selection/04 (coordinate) | - | 3 | low |
 
 **Concurrency per wave:** Wave 1 = 2 (stories 01 and 02 in parallel). They are disjoint: 01 touches `ci.yml` +
 `web/` test config + `web/package.json`; 02 touches `deploy.yml` + `infra/`. No shared file. Both are otherwise
@@ -55,6 +55,9 @@ Observability lands later (a deployed environment must exist first): **Wave 2 = 
 **Wave 3 = 05** (reuses 04's App Insights pipeline + PII scrubber). They serialize because 05's usage events ride
 the exact pipeline and scrubber 04 stands up - do not build a second telemetry stack. Both touch `GameHub.cs`, so
 even if reordered they cannot run truly concurrently without a disjointness check.
+
+*(2026-07-07: stories 04 and 05 shipped together via PR #110 (issues #106/#107); story 03 - continuous delivery
+to UAT, added after this plan was written - is documented in [feature.md](./feature.md).)*
 
 ## Per-story tech notes
 

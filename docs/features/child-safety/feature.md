@@ -11,8 +11,11 @@ the start") and section 3 (identity model: anonymous players, minimal data on
 minors / COPPA / GDPR-K).
 
 ## Stories
-- [ ] 01 - Profanity / safety filter on free text
-- [ ] 02 - Family-safe toggle
+<!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
+| Story | Issue | Title | Status |
+|---|---|---|---|
+| 01 | #35 | Profanity / safety filter on free text | Complete |
+| 02 | #36 | Family-safe toggle | Complete |
 
 ## Dependencies
 None for 01 (it is foundational and other features call it). 02 uses

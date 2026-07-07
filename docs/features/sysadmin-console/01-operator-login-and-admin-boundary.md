@@ -1,6 +1,6 @@
 # Story: Operator login and admin boundary (separate surface)
 
-**Feature:** Sys-Admin Console  ·  **Status:** In Progress  ·  **Issue:** #135
+**Feature:** Sys-Admin Console  ·  **Status:** Complete  ·  **Issue:** #135
 
 ## Context
 This is the foundation of the whole feature (feature.md's Candidate stories table, ADR 0002
@@ -30,18 +30,18 @@ radius must stay minimal (CLAUDE.md section 5). See [feature.md](./feature.md).
       is presented to any admin endpoint, then the request is rejected - admin endpoints check
       membership in the operator allowlist, never "is this caller signed in as *some* account."
       `purchaser == admin` must be structurally impossible, not merely undocumented.
-- [ ] AC-04: Given the back office, then it lives in a separate bundle/route tree (its own entry
+- [x] AC-04: Given the back office, then it lives in a separate bundle/route tree (its own entry
       point, e.g. a distinct build output or route prefix never linked from the kid PWA's nav,
       deep links, or service worker) - there is no path from Join, Lobby, FillBlank, Reveal, or Home
       that reaches it, and no shared JS chunk ships admin-only code to the kid app.
-- [ ] AC-05: Given the operator allowlist, then it is held in configuration backed by Azure Key
+- [x] AC-05: Given the operator allowlist, then it is held in configuration backed by Azure Key
       Vault (never a `VITE_*` variable, never committed to source, never inferred from any player-
       or purchaser-facing data) - adding or removing an operator is a config change, not a code
       change.
-- [ ] AC-06: Given an unauthenticated visitor reaches any back-office route, then they see only the
+- [x] AC-06: Given an unauthenticated visitor reaches any back-office route, then they see only the
       login screen - no admin data, no room/player data, and no purchaser data of any kind is
       rendered or fetched before an operator session is established.
-- [ ] AC-07 (no PII beyond the operator's own email): Given the operator login flow, then it
+- [x] AC-07 (no PII beyond the operator's own email): Given the operator login flow, then it
       collects nothing about the operator beyond the email used to issue and verify the magic
       link (no name, no player/session cross-reference) - consistent with README section 6's
       minimal-data posture, applied here to the one adult-facing account this feature adds.
@@ -71,6 +71,9 @@ radius must stay minimal (CLAUDE.md section 5). See [feature.md](./feature.md).
   otherwise (b) keeps this feature unblocked. Whichever is chosen, the token issuer/verifier is a
   small, shared, reusable service (`api/src/Accounts/` or a new `api/src/Admin/` companion) - not
   two independent implementations of "email a one-time link."
+  *(2026-07-07: stale - #68 (accounts-identity/02, PR #147) has since shipped, and the built story
+  took option (a): `OperatorLoginController` reuses the real `IMagicLinkTokenService`, no stand-in
+  issuer. The entitlement grant store #70 (PR #152) has shipped too.)*
 - New `api/src/Admin/` folder (mirrors the existing per-concern layout: `Rooms/`, `Safety/`,
   `Accounts/`, `PublishedTales/`). An `IOperatorAllowlist` (reads the allowlist from configuration
   backed by Key Vault - see `infra/main.bicep`'s `keyVault` resource, the same pattern

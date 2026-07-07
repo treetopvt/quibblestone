@@ -1,6 +1,6 @@
 # Story: Operator grant / revoke an entitlement by purchaser email
 
-**Feature:** Sys-Admin Console  ·  **Status:** In Progress  ·  **Issue:** #136
+**Feature:** Sys-Admin Console  ·  **Status:** Complete  ·  **Issue:** #136
 
 ## Context
 The concrete need this story exists for (ADR 0002 "Recommendation" + Decision B): unstick a paying
@@ -31,7 +31,7 @@ protected endpoints plus a minimal internal page, not a full admin app. See
       that purchaser evaluates that capability as no longer unlocked - consistent with "not
       per-request" (README section 3): an already-open session is unaffected, only new
       sessions see the change.
-- [ ] AC-04 (anonymity invariant, non-negotiable): Given any grant/revoke action, then it is keyed
+- [x] AC-04 (anonymity invariant, non-negotiable): Given any grant/revoke action, then it is keyed
       and displayed solely by purchaser identity (email) and capability keys - no player nickname,
       room code, session id, or gameplay data is ever looked up, joined, or displayed anywhere on
       this surface; the operator cannot navigate from a purchaser record to any room or player the
@@ -91,6 +91,10 @@ protected endpoints plus a minimal internal page, not a full admin app. See
 - Timing: this story is deliberately sequenced to land alongside real charging
   (`billing-entitlements/03-04`) per feature.md's Candidate stories table - building it earlier is
   not wrong, but it has nothing real to grant/revoke until a purchaser can actually buy something.
+- *(2026-07-07: the "Dependency reality" bullet above is stale - #70 (billing-entitlements/01, PR
+  #152: `IEntitlementGrantStore` + `StoredValueEntitlementService`) and #68 (accounts-identity/02,
+  PR #147) have since shipped, so the built story writes through the real grant store and the real
+  by-email account lookup, not a stand-in.)*
 
 ## Tests
 | AC | Test |

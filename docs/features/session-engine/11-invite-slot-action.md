@@ -1,6 +1,6 @@
 # Story: Wire the "+ invite" roster slot to the share action
 
-**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** - (no issue filed; shipped with the reconnect wave)
 
 ## Context
 The fit-to-viewport de-clutter (`design-system/05`) replaced the Lobby's

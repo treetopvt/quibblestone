@@ -1,6 +1,6 @@
 # Story: Operational observability (Application Insights)
 
-**Feature:** Platform & DevOps  ·  **Status:** In Review  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #106
+**Feature:** Platform & DevOps  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #106
 
 ## Context
 The app is effectively unobserved: there is no Application Insights, no exception
@@ -16,40 +16,48 @@ SEPARATE story (`platform-devops/05`); this one is purely operational health. Se
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the dev/UAT footprint, then `infra/main.bicep` provisions an
+- [x] AC-01: Given the dev/UAT footprint, then `infra/main.bicep` provisions an
       Application Insights resource (workspace-based, so also the Log Analytics
       workspace it requires) and exposes its connection string to the API as
       configuration - via an App Service app setting sourced from Key Vault, NEVER
       committed to source and NEVER a `VITE_*` var. The added footprint is documented
       in `infra/README.md` (README section 9 - keep it tiny, make it earn its place).
-- [ ] AC-02: Given the API is running with a connection string, then it emits telemetry
+- [x] AC-02: Given the API is running with a connection string, then it emits telemetry
       to Application Insights - unhandled exceptions, failed requests (4xx/5xx), request
       rate + duration, and outbound dependency calls - wired via the ASP.NET Core
       Application Insights SDK in `Program.cs`. Verifiable: a deliberately thrown
       exception (or any 500) shows up in App Insights within minutes.
-- [ ] AC-03: Given the real-time hub is the scary path (README section 4), then SignalR
+- [x] AC-03: Given the real-time hub is the scary path (README section 4), then SignalR
       hub failures are observable - a hub method exception and an abnormal disconnect
       surface as telemetry (exception/custom-event on `GameHub`), so a disconnect storm
       or a failing round-start is diagnosable, not invisible.
-- [ ] AC-04 (child-safety / PII, non-negotiable): Given any telemetry, then it NEVER
+- [x] AC-04 (child-safety / PII, non-negotiable): Given any telemetry, then it NEVER
       carries PII or content - no nickname (free text), join code, player session id,
       submitted word, or story text. A telemetry initializer/processor strips or drops
       anything carrying them; only anonymous operational data (route templates, status
       codes, durations, exception types/stacks, dependency names) is sent (README
       section 6). Story content and player words are never logged, ever.
-- [ ] AC-05: Given local development, then App Insights is a clean no-op when no
+- [x] AC-05: Given local development, then App Insights is a clean no-op when no
       connection string is present - local runs neither require it nor emit anywhere,
       and no key or connection string is ever committed. Secrets stay in GitHub
       secrets / Key Vault, never in `VITE_*` (which ships to the browser).
-- [ ] AC-06 (light web layer): Given the web client, then it reports unhandled
+- [x] AC-06 (light web layer): Given the web client, then it reports unhandled
       client-side JS errors anonymously (a minimal error beacon or the App Insights JS
       SDK). If the JS SDK's bundle cost is not worth it on a PWA, a minimal manual
       beacon is acceptable - flag the bundle-size tradeoff at build time (CLAUDE.md
       section 10). Client error reports honor the SAME no-PII rule as AC-04.
-- [ ] AC-07: Given the telemetry exists, then at least a minimal ALERT seam is set up or
+- [x] AC-07: Given the telemetry exists, then at least a minimal ALERT seam is set up or
       documented (e.g. an alert on a server-exception or failed-request spike) so a
       failure notifies rather than sitting silent. Keep it minimal - one or two signals,
       not a full alerting suite.
+
+*(Shipped 2026-07-07 note: landed via PR #110, issue #106 closed. Evidence:
+`AddApplicationInsightsTelemetry` in `api/src/Program.cs`,
+`api/src/Telemetry/PiiScrubbingTelemetryInitializer.cs`,
+`api/src/Telemetry/HubTelemetryFilter.cs`, `api/src/Controllers/ClientErrorController.cs`
++ `web/src/telemetry/errorBeacon.ts`, App Insights + Log Analytics + the Key Vault
+connection-string secret in `infra/main.bicep`, and the alert seam documented in
+`infra/README.md`.)*
 
 ## Out of Scope
 - Product / usage analytics - game types played, session length, approximate unique

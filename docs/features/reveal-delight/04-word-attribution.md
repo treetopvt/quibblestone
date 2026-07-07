@@ -16,31 +16,31 @@ no engine change (see [feature.md](./feature.md) and the reuse map note "Assembl
 story / attribution (unchanged by this feature)").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a group reveal (a room with more than one player), when the story
+- [x] AC-01: Given a group reveal (a room with more than one player), when the story
       is fully shown, then each coral filled-in word can reveal its contributor - the
       in-session nickname (and their Guardian variant) of the player who submitted it -
       sourced by mapping the word's existing `playerSessionId` to the roster player.
-- [ ] AC-02: Given the attribution surface, then it is DELIGHT, not clutter: it does
+- [x] AC-02: Given the attribution surface, then it is DELIGHT, not clutter: it does
       not force a name onto every word inline by default (that would drown the coral
       contrast the reveal depends on). A tap/press on a coral word reveals "carved by
       [nickname]" with their Guardian, and/or a per-contributor color/legend keyed to
       each player's Guardian variant - the exact treatment is a build-time design
       choice, but the coral highlight and body text stay readable either way.
-- [ ] AC-03: Given a word that was left blank (no submission - `playerSessionId` is
+- [x] AC-03: Given a word that was left blank (no submission - `playerSessionId` is
       `undefined`, per `assemble()`'s empty-fill rule), then it shows no contributor
       (it is attributed to no one) and never renders "carved by undefined" or a broken
       tile - the unattributed case is handled explicitly.
-- [ ] AC-04: Given I am playing solo (no room / a single-player session), then
+- [x] AC-04: Given I am playing solo (no room / a single-player session), then
       per-word attribution is not shown at all - every word is mine, so naming a
       contributor is noise. This mechanic is inherently group-shaped (README section
       1: it is about the shared "you wrote THAT?" laugh), and is simply absent solo.
-- [ ] AC-05 (child-safety / privacy, non-negotiable): Given attribution, then the
+- [x] AC-05 (child-safety / privacy, non-negotiable): Given attribution, then the
       only identity shown is the in-session nickname + Guardian variant already on the
       roster (exactly what `session-engine/03` displays) - never any PII, never a
       device id. It introduces no new free-text entry point: both the word and the
       nickname already passed the safety filter upstream (`the-reveal/01` AC-04,
       `session-engine/02` AC-03), so there is nothing new here for the filter to check.
-- [ ] AC-06: Given a shared, real-time reveal, then attribution is derived purely from
+- [x] AC-06: Given a shared, real-time reveal, then attribution is derived purely from
       data every client already holds (the assembled story's `playerSessionId` per
       word + the roster the room already broadcasts) - this story adds NO new hub
       message and no second SignalR connection; it is a pure client-side presentation

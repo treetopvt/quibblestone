@@ -8,13 +8,13 @@ to play before any AI exists. This story defines how templates are authored and
 seeds 10-15 of them. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: There is a simple, documented authoring format for writing a template
+- [x] AC-01: There is a simple, documented authoring format for writing a template
       by hand (editing a data file, no special tooling required).
-- [ ] AC-02: A seed library of 10-15 hand-written templates exists and loads into
+- [x] AC-02: A seed library of 10-15 hand-written templates exists and loads into
       the app.
-- [ ] AC-03: Every seed template is tagged family-safe and has been vetted to the
+- [x] AC-03: Every seed template is tagged family-safe and has been vetted to the
       same standard players' submitted words must meet (README section 6).
-- [ ] AC-04: A new template can be added as data (no code change), or with a
+- [x] AC-04: A new template can be added as data (no code change), or with a
       single clearly documented step.
 
 ## Out of Scope

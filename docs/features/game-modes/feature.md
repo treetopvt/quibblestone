@@ -26,7 +26,7 @@ variations - reframed here per-axis, see Decisions below).
 | 04 | #53 | Word Bank mode (answer axis) | Complete |
 | 05 | #84 | Progressive Story mode (see axis) | Complete |
 | 06 | #52 | Progressive Reveal mode (reveal axis) | Complete |
-| 07 | #128 | Jumble the word bank (fresh options on demand) | Not Started |
+| 07 | #128 | Jumble the word bank (fresh options on demand) | Complete |
 
 ## Dependencies
 - template-model (a mode plays a template).

@@ -65,6 +65,11 @@ with the confirmation and visibility the footgun deserves - this is a single pub
   side beyond the session) - explicitly temporary, and noted as such in a header comment, so
   moving it into the real back office later is a relocation, not a rewrite. Do not invest in
   polish disproportionate to its temporary status.
+  *(Update 2026-07-07: the "both are currently unbuilt" reality above is stale - sysadmin-console/01
+  shipped via PR #158 and accounts-identity/02 via PR #147, so the real operator console and
+  Operator scheme now exist. This screen still sits at its interim `/admin/billing-mode` route in
+  the kid bundle behind the X-Operator-Secret gate; the remaining follow-up is the relocation the
+  note above planned for - moving it into the operator console behind the real Operator scheme.)*
 - Calls story 06's `GET /api/admin/stripe-mode` (render AC-01/AC-04) and
   `POST /api/admin/stripe-mode` (AC-02's confirmed switch). No new SignalR surface - this is
   request/response like the rest of the billing REST surface (`BillingController`), not a hub

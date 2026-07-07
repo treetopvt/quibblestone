@@ -103,3 +103,6 @@ safety applies to pack content exactly as it does to base content).
   independent of `ai-content-factory`'s completion, so this feature is not
   blocked end-to-end on that feature's pipeline - the same "tiny hand-written
   library first" discipline README section 8 used for Slice 1's base content.
+- 2026-07-07: Correction to the first entry above: the three stories did not
+  stay at Issue "TBD" - issues #75/#76/#77 were filed 2026-07-01 (see the
+  Stories table).

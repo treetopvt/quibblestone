@@ -110,3 +110,6 @@ from whatever this factory publishes.
   (README Phase 3 XL) so a future builder does not fold live generation into
   this back-office pipeline. The two share an AI provider but nothing else -
   different trust boundary, different moderation burden, different phase.
+- 2026-07-07: Correction to the first entry above: the three stories did not
+  stay at Issue "TBD" - issues #78/#79/#80 were filed 2026-07-01 (see the
+  Stories table).

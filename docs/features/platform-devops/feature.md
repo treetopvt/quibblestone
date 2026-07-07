@@ -3,19 +3,24 @@
 ## Summary
 The foundation everything else builds on: monorepo structure, CI/CD, deployable
 infrastructure, a test harness, and observability. Kept intentionally tiny
-(README section 9). The walking-skeleton PR delivered its first cut; the
-remaining Slice-1 work is a test harness and a clean deploy to a dev environment.
+(README section 9). The walking-skeleton PR delivered its first cut; since then
+the test harness (01), continuous delivery to UAT (03), and both observability
+stories (04-05, PR #110) have shipped, and the separate dev-environment deploy
+(02) was superseded by 03's single auto-provisioned UAT environment
+(status refreshed 2026-07-07).
 
 ## README reference
 README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
 "get it up first, keep it tiny").
 
 ## Stories
-- [ ] 01 - Test harness (Vitest + Playwright)
-- [ ] 02 - Deploy to a dev environment
-- [ ] 03 - Continuous delivery to UAT on merge to main
-- [ ] 04 - Operational observability (Application Insights)
-- [ ] 05 - Anonymous product-usage metrics (game types, session length, approximate reach)
+| Story | Issue | Title | Status |
+|---|---|---|---|
+| 01 | #18 | Test harness (Vitest + Playwright) | Complete |
+| 02 | #19 | Deploy to a dev environment | Dropped (superseded by 03) |
+| 03 | - | Continuous delivery to UAT on merge to main | Complete |
+| 04 | #106 | Operational observability (App Insights) | Complete |
+| 05 | #107 | Anonymous product-usage metrics | Complete |
 
 ## Dependencies
 - None for the Slice-1 stories (01-03) - this is the base of the stack.

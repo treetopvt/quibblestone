@@ -13,31 +13,31 @@ only at the moment of purchase, and never required to play. See
 lightweight account, and only when they buy").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a person is about to complete a purchase (tip jar or a
+- [x] AC-01: Given a person is about to complete a purchase (tip jar or a
       gated purchase) and has no purchaser account yet, when the purchase flow
       reaches the point of needing one, then an account is created holding
       only an email address (the magic-link identity, ADR 0002 Decision A) -
       no password, no OAuth identity, no name, birthdate, address, or phone
       number is collected.
-- [ ] AC-02: Given no one has ever purchased anything in a browser/device,
+- [x] AC-02: Given no one has ever purchased anything in a browser/device,
       when that device is used for free play (single-player or a same-code
       group), then no purchaser account exists and none is created - account
       creation is purchase-triggered only, never a side effect of playing.
-- [ ] AC-03: Given a purchaser account is created, when it is inspected, then
+- [x] AC-03: Given a purchaser account is created, when it is inspected, then
       it contains no reference to which players/nicknames used the session at
       purchase time - the account is scoped to "who bought this," not "who
       played this."
-- [ ] AC-04: Given the purchaser account exists, when
+- [x] AC-04: Given the purchaser account exists, when
       billing-entitlements/01's session-creation gate runs, then it can read
       "is there an entitled purchaser behind this session" from this account
       without touching player/room data (the seam named in
       accounts-identity/01 AC-02).
-- [ ] AC-05: Given a purchaser account is created, then the email
+- [x] AC-05: Given a purchaser account is created, then the email
       identity is treated as adult data, not child data - no age-of-consent
       flow is triggered for the account itself, because completing a checkout
       is itself evidence the account holder is the purchasing adult, per
       feature.md's "belongs to the buyer, not the kids playing" design note.
-- [ ] AC-06: Given the purchaser account record, then it is persisted in Azure
+- [x] AC-06: Given the purchaser account record, then it is persisted in Azure
       Table Storage (README section 4) and no purchaser secret (password, if
       any auth method uses one) is ever logged or stored in plaintext.
 

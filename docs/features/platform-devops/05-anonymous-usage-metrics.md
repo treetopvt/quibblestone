@@ -1,6 +1,6 @@
 # Story: Anonymous product-usage metrics (game types, session length, approximate reach)
 
-**Feature:** Platform & DevOps  ·  **Status:** In Review  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #107
+**Feature:** Platform & DevOps  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #107
 
 ## Context
 Beyond "is it broken" (`platform-devops/04`), the product question is "how is the toy
@@ -15,42 +15,49 @@ coordinates with `story-selection/04`'s anonymous serve log so one telemetry
 philosophy holds, not three. See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a round is played, then an anonymous usage EVENT is recorded with the
+- [x] AC-01: Given a round is played, then an anonymous usage EVENT is recorded with the
       MODE (Classic blind, Word Bank, Progressive Story, Progressive Reveal) and the
       context (solo vs group) - emitted as an Application Insights custom event via
       `platform-devops/04`'s pipeline, fire-and-forget, never blocking gameplay. This
       answers "what types of games they play".
-- [ ] AC-02 (session length): Given play, then session/round DURATION is captured
+- [x] AC-02 (session length): Given play, then session/round DURATION is captured
       anonymously (e.g. round start-to-finish, and/or app-open to app-close) so "how
       long they play" is answerable - with no per-person identity attached.
-- [ ] AC-03 (approximate reach): Given there are NO accounts (README section 3), then
+- [x] AC-03 (approximate reach): Given there are NO accounts (README section 3), then
       "how many are playing" is answered ONLY by an anonymous device/session id (a random
       id in `localStorage`, no PII, reset by clearing storage) or App Insights' built-in
       anonymous session/user telemetry - and it is documented as APPROXIMATE (a device
       count, never a verified unique person). True unique-user identity is explicitly
       deferred to the Phase-2 account seam (accounts-identity).
-- [ ] AC-04 (child-safety / PII, non-negotiable): Given every usage event, then it is
+- [x] AC-04 (child-safety / PII, non-negotiable): Given every usage event, then it is
       anonymous by construction - no nickname, join code, player session id,
       IP-derived identity, submitted word, or story text - only mode, solo/group,
       counts, durations, length class, and the anonymous device/session id (README
       section 6). The family-safe posture is unaffected (this adds no content surface).
-- [ ] AC-05 (entitlement): Given these are INTERNAL metrics, then there is no
+- [x] AC-05 (entitlement): Given these are INTERNAL metrics, then there is no
       entitlement gate and no player-facing UI - free/base and paid sessions are
       measured identically and anonymously. Usage telemetry is not a feature a player
       turns on or pays for; it consumes no billing-entitlements capability key.
-- [ ] AC-06 (one telemetry philosophy, no third system): Given the existing telemetry
+- [x] AC-06 (one telemetry philosophy, no third system): Given the existing telemetry
       surfaces, then this story REUSES `platform-devops/04`'s App Insights pipeline for
       usage custom events and COORDINATES with `story-selection/04`'s anonymous serve
       log - it does not stand up a third parallel telemetry stack. Operational health
       (04), content-curation serve counts (story-selection/04-05), and product usage
       (this) stay coherent, each with a clear purpose and no duplicated plumbing.
-- [ ] AC-07: Given the events exist, then the headline questions are answerable with a
+- [x] AC-07: Given the events exist, then the headline questions are answerable with a
       straightforward App Insights query - modes played over time, median session
       length, and an approximate active-device count - with NO dashboard required (a
       dashboard is demand-driven, README section 12).
-- [ ] AC-08: Given a telemetry outage, then it fails soft - a failed usage write never
+- [x] AC-08: Given a telemetry outage, then it fails soft - a failed usage write never
       blocks, delays, or errors a round (the same fire-and-forget posture
       `story-selection/04` sets for the serve log).
+
+*(Shipped 2026-07-07 note: landed via PR #110, issue #107 closed. Evidence:
+`api/src/Telemetry/UsageTelemetry.cs` (RoundStarted/RoundCompleted with mode,
+context, duration), `GameHub` group events + `api/src/Controllers/UsageController.cs`
+with `web/src/telemetry/usageBeacon.ts` for solo, the anonymous device id in
+`web/src/telemetry/deviceId.ts`, and the headline KQL queries documented in
+`infra/README.md` - all riding story 04's App Insights pipeline and PII scrubber.)*
 
 ## Out of Scope
 - Real unique-user identity, cross-device dedupe, or login-based counting - needs

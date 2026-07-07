@@ -117,7 +117,7 @@ child-safety and privacy guardrails. See [feature.md](./feature.md).
 | AC-06 | manual (phone): the CTA enters the create/join flow; the PWA offers add-to-home-screen |
 | AC-07 | manual: revoking a tale makes the link stop resolving |
 
-## Implementation notes (2026-07-02, In Progress)
+## Implementation notes (2026-07-02, as-built)
 - **Server (isolated, no GameHub touch):** new `api/src/PublishedTales/` -
   `PublishedTale`/`TalePart` (stored record), `SlugGenerator`, `IPublishedTaleStore`
   + `TableStoragePublishedTaleStore` (mirrors `TableStorageTelemetrySink`;

@@ -16,29 +16,29 @@ state stays the authority. See [feature.md](./feature.md) and
 `session-engine/06-share-room-link.md` (the deep-link join this unblocks).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the app, then navigation uses react-router with real routes: `/`
+- [x] AC-01: Given the app, then navigation uses react-router with real routes: `/`
       (Home), `/host` (HostSetup), `/join` (Join), `/join/:code` (Join pre-filled from
       the URL), `/solo`, `/lobby`, `/round`, `/reveal`, `/recap`. The address bar
       reflects the current screen and browser back/forward work for the entry screens.
-- [ ] AC-02: Given the one SignalR connection (`useGameHub`), then the hook is mounted
+- [x] AC-02: Given the one SignalR connection (`useGameHub`), then the hook is mounted
       ONCE ABOVE the router so navigation never remounts or duplicates the connection
       (CLAUDE.md - one shared connection). Hub/API URLs still come from `import.meta.env`.
-- [ ] AC-03 (behavior-preserving, non-negotiable): Given the live game flow, then it
+- [x] AC-03 (behavior-preserving, non-negotiable): Given the live game flow, then it
       behaves exactly as before - when the hub sets `round` / `reveal` (a broadcast to
       every player), each client routes into the round / shared reveal / recap in the
       same precedence as today (reveal-recap > reveal > round > lobby), with no refresh.
       State remains the authority; the router reflects it. No regression to the scary
       2-player real-time path (README section 4).
-- [ ] AC-04 (deep link): Given someone opens `/join/MOSS`, then the app loads on the
+- [x] AC-04 (deep link): Given someone opens `/join/MOSS`, then the app loads on the
       Join screen with the code pre-filled and normalized (only nickname + Guardian left
       to choose) - the concrete surface `session-engine/06` shares. An unknown/expired
       code fails as gracefully as a mistyped one.
-- [ ] AC-05: Given a refresh, then the app restores to a sensible screen for the
+- [x] AC-05: Given a refresh, then the app restores to a sensible screen for the
       current (client-only) state: entry screens (`/`, `/host`, `/join`, `/solo`)
       restore as-is; an in-game URL with no live room (rooms are ephemeral, and rejoin
       is the separate resilience track) redirects home rather than showing a broken
       shell - no crash, no blank screen.
-- [ ] AC-06: Given the refactor, then it is presentation/navigation only - no change to
+- [x] AC-06: Given the refactor, then it is presentation/navigation only - no change to
       `useGameHub`'s hub contract, the engine, or any game logic; the child-safety and
       no-PII posture is untouched (a code in the URL is not PII, exactly as
       `session-engine/06` establishes).

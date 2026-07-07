@@ -8,23 +8,23 @@ This story defines that shape so the engine and the modes can build on it. See
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: A template has a title/subject and body text containing ordered,
+- [x] AC-01: A template has a title/subject and body text containing ordered,
       typed blanks (for example: plural noun, verb, adjective, name, place,
       exclamation, number).
-- [ ] AC-02: Each blank carries: a category label (displayed as the purple
+- [x] AC-02: Each blank carries: a category label (displayed as the purple
       category chip on the FillBlank screen, e.g. "ADJECTIVE"), a human-facing
       prompt sentence (e.g. "Give me a silly describing word"), a sub-hint
       (e.g. "Something that describes a thing - anything goes!"), and a short list
       of 3 example "spark" words for that category (e.g. "squishy", "gigantic",
       "sparkly"). See `docs/design/README.md` Screens screen 4 (FillBlank) for
       how these fields render on the prompt card.
-- [ ] AC-03: A template may optionally carry a word bank (a list of suggested
+- [x] AC-03: A template may optionally carry a word bank (a list of suggested
       words) for word-bank modes; templates without one are still valid.
-- [ ] AC-04: A template carries theme and age-appropriateness tags, usable by the
+- [x] AC-04: A template carries theme and age-appropriateness tags, usable by the
       family-safe toggle and later by content discovery.
-- [ ] AC-05: The schema is mode-agnostic: the same template can be played by any
+- [x] AC-05: The schema is mode-agnostic: the same template can be played by any
       mode without modification.
-- [ ] AC-06: Given a template and an ordered set of words, then assembling them
+- [x] AC-06: Given a template and an ordered set of words, then assembling them
       produces the final story text deterministically (each blank replaced in
       order); per-word attribution is preserved so each word is associated with
       the player who submitted it (used in the Waiting progress row and Round

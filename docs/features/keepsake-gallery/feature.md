@@ -158,3 +158,9 @@ mirrors for sharing the image).
   (point-read by slug) does not serve list-by-owner/search/rank, so this is the
   explicit trigger to re-evaluate it rather than silently bolting queries onto
   a store chosen for a different access pattern.
+- 2026-07-07: Superseded: the 2026-07-03 status-reconciliation bullet's claim
+  that story 05 "stays Not Started and is BLOCKED ... Issue: TBD" no longer
+  holds. Story 05 was picked up the SAME day, once its two hard gates landed
+  (`accounts-identity/02` #68 via PR #147; `billing-entitlements/01` #70 via
+  PR #152), and shipped as issue #154 / PR #157 - see the 2026-07-03 pickup
+  bullet above. The stories table and the story file (Complete) are correct.

@@ -15,37 +15,37 @@ ORDER and TIMING in which the already-known result becomes visible. See
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the Reveal screen loads with a complete assembled story,
+- [x] AC-01: Given the Reveal screen loads with a complete assembled story,
       then the literal template text appears immediately (it needs no
       "carving" - it was never hidden), while each coral filled-in word pops in
       SEQUENTIALLY, in body order, with a short stagger between words (e.g.
       ~120-200ms per word), rather than all filled words appearing at once.
-- [ ] AC-02: Given a filled word's entrance, then it is driven by `transform:
+- [x] AC-02: Given a filled word's entrance, then it is driven by `transform:
       scale` (a quick scale-up from a smaller starting scale to 1, ease-out)
       ONLY - it never animates `opacity` as part of a `@keyframes` step, per
       the design pack's documented gotcha (an opacity keyframe with
       `fill-mode: both` can leave a re-rendered list item stuck invisible,
       which would be especially damaging here since the WHOLE story would look
       broken/half-missing).
-- [ ] AC-03: Given `prefers-reduced-motion: reduce` is set, then the carving
+- [x] AC-03: Given `prefers-reduced-motion: reduce` is set, then the carving
       animation is skipped entirely - the complete story (literal text +
       every filled word) renders immediately at full scale, matching Slice
       1's current instant-reveal behavior, so a reduced-motion player never
       waits on an animation to read their story.
-- [ ] AC-04: Given the carving animation is playing, then it never blocks or
+- [x] AC-04: Given the carving animation is playing, then it never blocks or
       delays the rest of the screen - the celebratory header, confetti, the
       pinned action bar ("Play another round" / "Share the tale"), and (once
       `reveal-delight/01` lands) the reaction row are all interactive
       immediately; a player can tap "Play another round" mid-carve without
       waiting for the last word to pop in.
-- [ ] AC-05: Given I am in a group room and the reveal is shared (the room
+- [x] AC-05: Given I am in a group room and the reveal is shared (the room
       transitions to Reveal together, per `group-play/03`'s broadcast), then
       every player's client independently plays the SAME carving sequence
       against the SAME assembled story they all received - the animation is
       purely a local, client-side presentation layer over data every client
       already has; it introduces NO new hub message (the story text/attribution
       itself is unchanged, only its entrance timing).
-- [ ] AC-06: Given the carving animation completes (or is skipped per AC-03),
+- [x] AC-06: Given the carving animation completes (or is skipped per AC-03),
       then the final rendered story is pixel-identical to today's instant
       reveal - same coral highlight styling (`color: theme.palette.coral.main`,
       weight 800, coral underline), same text, same layout. This story adds

@@ -11,8 +11,10 @@ README section 7 (Epic Map - Phase 1, Template & Content Model) and section 8
 mode-agnostic to support section 4's "one engine, many thin modes".
 
 ## Stories
-- [ ] 01 - Template schema (typed blanks, optional word bank, tags)
-- [ ] 02 - Authoring format + seed library
+| Story | Issue | Title | Status |
+|---|---|---|---|
+| 01 | #25 | Template schema (typed blanks, optional word bank, tags) | Complete |
+| 02 | #26 | Authoring format + seed library | Complete |
 
 ## Dependencies
 None (this is the content foundation). child-safety vets the seed content.

@@ -34,7 +34,7 @@ telemetry service + controller + infra) and can run beside 02. 05 needs 04's sin
 | 04 | #94 | `api/src/Telemetry/*` (sink + implementations), new controller, `Program.cs` (DI), `api/src/Hubs/GameHub.cs` (StartRound epilogue write - overlaps 02, so 04 is SERIALIZED after 02, not parallel), `infra/main.bicep` (app setting/table), API tests | 01, 02 | - | 2 | medium |
 | 03 | #93 | `web/src/content/fresh.ts` + history module + tests, `web/src/pages/Solo.tsx`, `api/src/Hubs/GameHub.cs`, `api/src/Rooms/Room.cs` (played ids) | 02 (file overlap, not logic) | - | 3 | medium |
 | 05 | #95 | `web/src/components/TaleFeedback.tsx`, `Reveal.tsx` / `RoundComplete.tsx` wiring, feedback endpoint + table, API tests | 04, 03 (screen/file overlap) | - | 4 | medium |
-| 06 | TBD | `web/src/content/favorites.ts` (new) + test, a "Favorites" list screen, star affordance wired into `Reveal.tsx` / `RoundComplete.tsx`, "play a favorite" into the `Solo.tsx` / `GameHub.StartRound` selection seam | 01 (pipeline/call sites), 03 (freshness-bypass seam) | - | 4 | medium |
+| 06 | #108 | `web/src/content/favorites.ts` (new) + test, a "Favorites" list screen, star affordance wired into `Reveal.tsx` / `RoundComplete.tsx`, "play a favorite" into the `Solo.tsx` / `GameHub.StartRound` selection seam | 01 (pipeline/call sites), 03 (freshness-bypass seam) | - | 4 | medium |
 
 **Concurrency per wave:** Wave 1 = 01 alone. Wave 2 = {02, 04} in parallel. Wave 3 = 03. Wave 4 = {05, 06} (both
 wire into `Reveal.tsx` / `RoundComplete.tsx`, so verify line-level disjointness before running concurrently, else

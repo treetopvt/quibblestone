@@ -13,6 +13,10 @@ Solo is the no-friction entry point and the funnel into group play (README secti
 **composition**: reuse the engine (`game-modes`), the FillBlank screen, and the Reveal screen, wired into a local
 (no-room, no-SignalR) flow. Proving the engine works solo first de-risks group play. One story.
 
+*(2026-07-07: "one story" was true when this plan was written; a second story - 02 solo mode
+picker, issue #98 - was added later and shipped via PR #97. Its row is in the Wave Plan below;
+the original prose is kept as written.)*
+
 ## Reuse map
 
 | Concern | Reuse | Where |
@@ -35,6 +39,7 @@ Sizing rule: a builder owns files **disjoint** from its concurrent siblings.
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
 | 01 solo-play | #29 | `web/src/pages/Solo.tsx` (local engine flow); edits `web/src/pages/Home.tsx` (solo entry) | template-model/01, game-modes/02, the-reveal/01, child-safety/01, child-safety/02, session-engine/01 (Home.tsx), design-system/01 | group-play chain (disjoint) | 1 | medium |
+| 02 solo-mode-picker | #98 | edits `web/src/pages/Solo.tsx` (mode picker at setup; resolves the picked mode's `ModeConfig` + `ModeSurfaces` into the shared FillBlank / Reveal slots) - added 2026-07-07 to record the shipped story (PR #97) | 01 solo-play, game-modes/03-06 | - | 2 | medium |
 
 **Concurrency per wave:** 1 (single story). It runs **in parallel with the `group-play` chain** - solo owns
 `Solo.tsx` + an edit to `Home.tsx`, while group-play owns `GameHub.cs` + Waiting / Round Complete; no shared file.

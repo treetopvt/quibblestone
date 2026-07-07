@@ -24,19 +24,27 @@ shipped, what is open, and the priority order - lives in
 implementation session by picking an item there, opening its story under
 `docs/features/`, and building it on its own branch.
 
-Snapshot (2026-07-02 - see the roadmap for detail):
+Snapshot (2026-07-07 - see the roadmap for detail):
 
-- **Shipped:** rooms/roster/avatars, solo + group play, the coral reveal + recap,
-  4 modes **in solo** (mode picker, PR #97), client routing + deep-link seam
-  (PR #102), the freshness loop (length/quick/no-repeats), profanity + family-safe,
-  deployed to dev + auto-UAT.
-- **Notable gap:** group play is **Classic-Blind-only** - `group-play/05` wires the
-  other built modes in (mostly plumbing).
-- **Priority order:** (1) Land the Laugh (`reveal-delight`) + Group modes
-  (`group-play/05`) + the Keep-It-Fresh leftovers (`story-selection/04`, `/06`);
-  (2) observability (`platform-devops/04`, `/05`) then Spread the Word
-  (`session-engine/06`, `keepsake-gallery`); (3) the **AI thin slice** (Fresh Runes
-  jumble) behind the **AI cost gate**; (4) voices / on-demand / packs / charging.
+- **Shipped:** the whole alpha build - rooms/roster/avatars + host migration,
+  solo + group play, 4 modes in solo and 3 in group (shared mode registry), the
+  freshness arc (`story-selection/01-06`), Land the Laugh (`reveal-delight`),
+  Spread the Word (deep-link join + keepsake gallery + public tale link behind a
+  storage flag), Replay & Remix, reconnect hardening (`session-engine/07-11`),
+  observability + anonymous usage (App Insights, PII-scrubbed), child safety
+  (always-on filter + family-safe), the AI cost gate + Fresh Runes AI jumble,
+  accounts (magic-link + real email) + billing (Stripe test mode, tip jar, gated
+  purchase) + the operator/sys-admin console. One UAT environment, auto-deployed
+  on merge (no separate cloud dev).
+- **Notable gap:** the "alpha gate" fix list in the roadmap (disconnect recovery,
+  UAT SKU, grace-window tuning, error boundary) blocks the friends-and-family
+  test; group play still lacks Progressive Story (needs its own broadcast story);
+  the Playwright e2e suite has drifted (3 stale specs) and is not in CI.
+- **Priority order:** (1) alpha-gate fixes, then **run the friends-and-family
+  test** and watch the shipped telemetry; (2) polish from what the test surfaces +
+  content velocity (more seeds or `ai-content-factory`); (3) the AI delight tier
+  (voices next) behind the gate; (4) Stripe live + public-launch prep (brand
+  clearance).
 - **Load-bearing rule for AI:** the moment any AI call ships, it goes behind the
   cost gate (server-side proxy + entitlement-at-session-start + rate-limit/quota +
   spend circuit-breaker + moderation). The gate meters compute per session, not
@@ -137,7 +145,7 @@ slice ships. The engine abstraction is what keeps parked ideas cheap to add late
 | `frontend-agent` | Web components, pages, hooks, real-time wiring, theming, forms |
 | `story-agent` | Authoring/maintaining `docs/features/` stories (README section 11 templates) |
 | `code-review` | Reviewing a diff against project values, stack rules, child safety, scope |
-| `testing-agent` | Test strategy + specs (note: no harness is wired up yet) |
+| `testing-agent` | Test strategy + specs (harnesses live: Vitest, xUnit, Playwright) |
 
 | Skill (`.claude/skills/`) | Trigger |
 |---|---|
@@ -159,17 +167,21 @@ az bicep build --file infra/main.bicep
 
 # Tests (the harness lives in platform-devops/01)
 cd web && npm run test:unit       # Vitest - pure engine + content logic (src/**/*.test.ts)
-cd web && npm run test:e2e        # Playwright - browser smoke test (loads app, sees "Connected")
+dotnet test QuibbleStone.slnx     # xUnit - API hub/rooms/safety/gate/billing (tests/QuibbleStone.Api.Tests)
+cd web && npm run test:e2e        # Playwright - browser flows (smoke/routing/group-mode/reconnect)
 ```
 
-The canonical test harness is **Vitest** (pure logic, config `web/vitest.config.ts`)
-plus **Playwright** (browser smoke test, config `playwright.config.ts` at the repo
-root, specs in `tests/`). `npm run test:unit` is the CI gate
-(`.github/workflows/ci.yml`): a failing spec fails the run. `npm run test:e2e` needs
-a running full stack - it boots the web dev server but the smoke test asserts
-"Connected", so the **API hub must be up on `:5180`** (start it first); Playwright's
-Chromium is pre-provisioned (do **not** run `playwright install`). See
-`.claude/agents/testing-agent.md` for strategy and `web/README.md` for details.
+The canonical test harness is **Vitest** (pure web logic, config
+`web/vitest.config.ts`) plus **xUnit** (`tests/QuibbleStone.Api.Tests`, the API's
+server-side suite) plus **Playwright** (browser flows, config
+`playwright.config.ts` at the repo root, specs in `tests/`). CI
+(`.github/workflows/ci.yml`) gates on `npm run test:unit`, the web build, and
+`dotnet test`; **Playwright is NOT in CI** (it needs the full stack) and can
+drift - run it locally for flow work. `npm run test:e2e` boots the web dev server
+but the specs assert against the live hub, so the **API must be up on `:5180`**
+(start it first); Playwright's Chromium is pre-provisioned (do **not** run
+`playwright install`). See `.claude/agents/testing-agent.md` for strategy and
+`web/README.md` for details.
 
 ## 10. Things that look wrong but aren't
 
