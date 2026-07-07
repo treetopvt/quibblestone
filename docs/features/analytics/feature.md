@@ -46,6 +46,22 @@ Operational health (`platform-devops/04`), content-curation serve counts
 (`story-selection/04-05`), anonymous usage (`platform-devops/05`), and now product
 analytics (this) stay complementary - each a clear purpose, no duplicated plumbing.
 
+## Operator steps before go-live (config-side, not code)
+
+Two guarantees live in the provider dashboards, not the app, so they must be set
+when the measurement ids are turned on (`web/src/telemetry/analytics.ts` documents
+both):
+
+1. **Clarity Masking = "Mask" (strict)** - the real "never record typed words"
+   guarantee (AC-03). The app also tags the word-entry field with
+   `data-clarity-mask` as a code-level second layer, but it cannot force
+   project-level masking from JS.
+2. **GA4: turn OFF Enhanced Measurement "page changes based on browser history
+   events"** (AC-06). The app sends its own scrubbed page_views; leaving GA4's
+   automatic SPA page tracking on would double-count and leak a `/join/:code`
+   deep link via `page_referrer`. Disabling it leaves only the scrubbed sends
+   (the app also scrubs `page_referrer` defensively).
+
 ## Stories
 | Story | Title | Status |
 |---|---|---|

@@ -717,10 +717,16 @@ export default function App() {
   useEffect(() => {
     const inRound = Boolean(round);
     if (inRound && !roundStartedRef.current) {
-      trackEvent(ANALYTICS_EVENTS.RoundStarted, { mode: round?.mode, context: 'group' });
+      // `players` is the anonymous room size at round start (the builder clamps it;
+      // undefined is dropped) - a count, never an identity.
+      trackEvent(ANALYTICS_EVENTS.RoundStarted, {
+        mode: round?.mode,
+        context: 'group',
+        players: room?.players.length,
+      });
     }
     roundStartedRef.current = inRound;
-  }, [round]);
+  }, [round, room]);
 
   const revealReachedRef = useRef(false);
   useEffect(() => {
@@ -737,11 +743,18 @@ export default function App() {
   // transition reports once.
   const reconnectShownRef = useRef(false);
   useEffect(() => {
-    if (resumePending && !reconnectShownRef.current) {
+    // Fire ONLY when the "reconnecting your game" beat is actually on screen -
+    // resumePending AND no room yet (ResumingLiveScreen's own render condition). A
+    // reconnect handle is saved on every successful create/join, so `resumePending`
+    // alone stays true for a whole healthy session and would make this a ~100%
+    // false-positive signal; gating on `!room` ties it to the rendered beat so it
+    // measures a real dead-zone stall, not the happy path.
+    const reconnectingShown = resumePending && !room;
+    if (reconnectingShown && !reconnectShownRef.current) {
       trackEvent(ANALYTICS_EVENTS.ReconnectShown, { context: 'group' });
     }
-    reconnectShownRef.current = resumePending;
-  }, [resumePending]);
+    reconnectShownRef.current = reconnectingShown;
+  }, [resumePending, room]);
 
   const seatTimedOutRef = useRef(false);
   useEffect(() => {

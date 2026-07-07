@@ -31,6 +31,18 @@
 //       setting is the real guarantee. We additionally tag the word-entry field
 //       with data-clarity-mask as defense-in-depth (see the fill-blank input).
 //
+//  OPERATOR STEPS (config-side guarantees the app CANNOT enforce from JS - do BOTH
+//  before turning the ids on; also in docs/features/analytics/feature.md):
+//    - CLARITY: set the project's Masking to "Mask" (strict) so no typed text is
+//      recorded (guardrail #4 is the code-side half; this is the real guarantee).
+//    - GA4: turn OFF Enhanced Measurement's "page changes based on browser history
+//      events". The app sends its own SCRUBBED page_views (trackPageView), so
+//      leaving GA4's automatic SPA page tracking on would (a) double-count and,
+//      worse, (b) LEAK the join code - an auto page_view on the /join/ABCD ->
+//      /lobby navigation carries page_referrer = the /join/ABCD url. Disabling it
+//      leaves only our scrubbed sends. (trackPageView also scrubs page_referrer
+//      defensively, but this property setting is the real fix.)
+//
 //  FIRE-AND-FORGET / NEVER BLOCKS (AC-08): scripts load async; every send is
 //  wrapped so a blocked/slow analytics host can never delay first paint, wedge a
 //  round, or surface to a player - the same posture as errorBeacon.ts / serveLog.ts.
@@ -181,6 +193,13 @@ export function initAnalytics(): void {
  * Record the player's consent choice (analytics/01, AC-05) - called by the consent
  * banner. Persists device-local, updates Consent Mode, and (on grant) loads Clarity
  * if it was deferred. Safe to call when unconfigured (persists the choice, no send).
+ *
+ * REVOKE LIMITATION (resolve before enabling the banner): a grant -> deny updates
+ * GA4 Consent Mode to denied (GA4 stops), but Clarity, once loaded, keeps recording
+ * until the next page load - there is no clean JS stop. This is LATENT today: the
+ * banner is off and the rollout default is opt-OUT granted, so the only grant->deny
+ * path is the not-yet-enabled banner. Before setting ANALYTICS_SHOW_CONSENT_BANNER
+ * = true, handle this (e.g. reload the page on revoke).
  */
 export function setAnalyticsConsent(granted: boolean): void {
   saveConsent(granted ? 'granted' : 'denied');
@@ -251,6 +270,11 @@ export function trackPageView(pathname: string): void {
     window.gtag?.('set', {
       page_path: path,
       page_location: `${origin}${path}`,
+      // Scrub the referrer default to the bare origin so no previous route (a
+      // /join/ABCD deep link) rides along as page_referrer on this or a later
+      // event. Defense-in-depth; the real fix for GA4's own auto SPA page_views is
+      // the operator step in this file's header (disable Enhanced Measurement).
+      page_referrer: origin,
       page_title: 'QuibbleStone',
     });
     window.gtag?.('event', 'page_view');
