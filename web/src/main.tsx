@@ -17,6 +17,12 @@
 //  catches it first) shows a minimal "Something went off" + reload screen
 //  instead of unmounting the whole tree to a permanent blank page. It sits
 //  INSIDE ThemeProvider/CssBaseline so its own fallback UI is themed too.
+//
+//  analytics/01: initAnalytics() installs product analytics (GA4 + Clarity) ONCE
+//  at startup, beside the error beacon. It is a NO-OP unless the operator has set
+//  VITE_GA4_MEASUREMENT_ID / VITE_CLARITY_PROJECT_ID (so this ships inert), and it
+//  is consent-gated (Consent Mode v2) + anonymous by construction. See
+//  ./telemetry/analytics.ts.
 // ----------------------------------------------------------------------------
 
 import { StrictMode } from 'react';
@@ -27,12 +33,17 @@ import App from './App';
 import { theme } from './theme';
 import { PurchaserSessionProvider } from './account/PurchaserSession';
 import { installErrorBeacon } from './telemetry/errorBeacon';
-import { ErrorBoundary } from './components';
+import { initAnalytics } from './telemetry/analytics';
+import { ConsentBanner, ErrorBoundary } from './components';
 import './fontawesome';
 
 // AC-06: install the anonymous client-error beacon before the app mounts, so an
 // error during first render is still reported (anonymously, no PII).
 installErrorBeacon();
+
+// analytics/01: install product analytics (GA4 + Clarity) once at startup. No-op
+// when unconfigured; consent-gated + anonymous by construction (see analytics.ts).
+initAnalytics();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -50,6 +61,10 @@ createRoot(rootElement).render(
           </PurchaserSessionProvider>
         </BrowserRouter>
       </ErrorBoundary>
+      {/* analytics/01 (AC-05): the one-time consent banner. Self-gating (renders
+          nothing until enabled + configured + unchosen), so it is DORMANT for the
+          initial monitoring-live rollout. A themed fixed overlay - needs no router. */}
+      <ConsentBanner />
     </ThemeProvider>
   </StrictMode>,
 );

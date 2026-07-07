@@ -46,6 +46,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { buildJoinLink } from './joinLink';
+import { trackEvent } from '../telemetry/analytics';
+import { ANALYTICS_EVENTS } from '../telemetry/analyticsEvents';
 
 /**
  * How long the post-copy confirmation (e.g. a "Copied!" label) stays up before
@@ -116,6 +118,9 @@ export function useRoomInvite(code: string): RoomInvite {
       // bare code - this path is independent of Web Share availability, so it
       // still yields the full link with no error when Share is unavailable.
       await navigator.clipboard.writeText(joinLink);
+      // analytics/01 (AC-07): the share loop's copy-link path (anonymous - the
+      // method label only, never the code). No-op unless configured + consented.
+      trackEvent(ANALYTICS_EVENTS.InviteShared, { method: 'copy-link' });
       setCopied(true);
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       copiedTimer.current = setTimeout(() => setCopied(false), COPIED_CONFIRMATION_MS);
@@ -141,6 +146,10 @@ export function useRoomInvite(code: string): RoomInvite {
         text: `Join my QuibbleStone game! Room code: ${code}`,
         url: joinLink,
       });
+      // analytics/01 (AC-07): the share loop's OS/browser share-sheet path -
+      // recorded only on a completed share (a user cancel throws AbortError and is
+      // swallowed below, so it is not counted). Anonymous - the method label only.
+      trackEvent(ANALYTICS_EVENTS.InviteShared, { method: 'share-sheet' });
     } catch {
       // A user-cancelled share (AbortError) or any other rejection should
       // never surface as an unhandled error or noisy console log.

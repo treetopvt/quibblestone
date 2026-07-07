@@ -569,6 +569,16 @@ jobs:
         env:
           VITE_API_BASE_URL: ${{ steps.discover.outputs.api_base }}
           VITE_SIGNALR_HUB_URL: ${{ steps.discover.outputs.api_base }}/hubs/game
+          # Product analytics (analytics/01): PUBLIC measurement ids, so they live
+          # as repo/environment VARIABLES (vars.*), never secrets - "no secret goes
+          # into a VITE_* var" still holds. When a var is unset, it resolves to an
+          # empty string and GA4/Clarity simply do NOT load (analytics.ts no-ops),
+          # so this is safe to ship before the ids are configured. Set them under
+          # Settings -> Secrets and variables -> Actions -> Variables to turn
+          # monitoring on. IMPORTANT: create the Clarity project with Masking =
+          # "Mask" (strict) so typed words are never recorded (AC-03).
+          VITE_GA4_MEASUREMENT_ID: ${{ vars.VITE_GA4_MEASUREMENT_ID }}
+          VITE_CLARITY_PROJECT_ID: ${{ vars.VITE_CLARITY_PROJECT_ID }}
         run: npm run build
 
       # --- Deploy the web bundle; fetch the SWA token at run time via OIDC ----

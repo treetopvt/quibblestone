@@ -13,6 +13,21 @@ interface ImportMetaEnv {
    * back to the running origin when unset.
    */
   readonly VITE_PUBLIC_BASE_URL?: string;
+  /**
+   * Optional Google Analytics 4 measurement id (e.g. "G-XXXXXXXXXX") for product
+   * analytics (analytics/01). PUBLIC id, not a secret - safe baked into the
+   * bundle. When unset/empty, GA4 does not load and every analytics call is a
+   * no-op (web/src/telemetry/analytics.ts). Set in deploy.yml's Build-web step.
+   */
+  readonly VITE_GA4_MEASUREMENT_ID?: string;
+  /**
+   * Optional Microsoft Clarity project id (e.g. "abcd1234ef") for session replay +
+   * heatmaps (analytics/01). PUBLIC id, not a secret. When unset/empty, Clarity
+   * does not load. IMPORTANT: create the Clarity project with Masking = "Mask"
+   * (strict) so typed words are never recorded (analytics.ts, AC-03). Set in
+   * deploy.yml's Build-web step.
+   */
+  readonly VITE_CLARITY_PROJECT_ID?: string;
 }
 
 interface ImportMeta {
