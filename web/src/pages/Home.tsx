@@ -86,6 +86,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography, useMediaQuery } from '@mui/material';
 import { HeroGuardian } from '../components';
+import type { ConnectionStatus } from '../signalr/useGameHub';
 
 export interface HomeProps {
   /** Create a room and land in the lobby as host (AC-01). App wires this to the hub. */
@@ -129,8 +130,26 @@ export interface HomeProps {
   onSupport: () => void;
   /** True while a create-room request is in flight - disables the CTA to avoid double-taps. */
   creating?: boolean;
-  /** True until the real-time connection is ready - the CTAs need the hub to act. */
-  disabled?: boolean;
+  /**
+   * B1 (alpha-gate hardening): the live hub connection status - the Create/Join
+   * CTAs below need it `'connected'` to act. Replaces the old plain `disabled`
+   * boolean so this screen can show LEGIBLE status copy ("Connecting..." /
+   * "Can't connect right now") instead of just silently dimming the CTAs.
+   */
+  connectionStatus: ConnectionStatus;
+  /**
+   * B1: fire an immediate manual reconnect attempt. Wired to the "Try again"
+   * tap shown when `connectionStatus === 'disconnected'` (App.tsx passes the
+   * hook's `retryConnection`).
+   */
+  onRetryConnection: () => void;
+  /**
+   * B4 (alpha-gate hardening): a brief, friendly explanation shown after a
+   * rejected Rejoin bounced the player back here (an expired/evicted seat),
+   * or null the rest of the time. App.tsx passes the hook's
+   * `rejoinFailedNotice` through unchanged.
+   */
+  rejoinFailedNotice?: string | null;
 }
 
 /** One column of the bottom utility icon bar (40x40 chip + tiny label). */
@@ -215,7 +234,9 @@ export function Home({
   onGetMore,
   onSupport,
   creating = false,
-  disabled = false,
+  connectionStatus,
+  onRetryConnection,
+  rejoinFailedNotice = null,
 }: HomeProps) {
   const theme = useTheme();
   // P3 (tablet / desktop): scale the hero up on md+ rather than leaving a
@@ -223,6 +244,9 @@ export function Home({
   // the one prop that is a raw number (HeroGuardian's width); everything else
   // scales via responsive sx breakpoint objects below.
   const mdUp = useMediaQuery(theme.breakpoints.up('md'));
+  // B1: the CTAs below need the hub connected to act - derived locally so the
+  // rest of this file's `disabled` usages (the two CTA buttons) stay unchanged.
+  const disabled = connectionStatus !== 'connected';
 
   return (
     <Stack
@@ -419,10 +443,62 @@ export function Home({
         Fill in the blanks together and watch a wild tale get carved into stone.
       </Typography>
 
+      {/* B4 (alpha-gate hardening): a brief explanation after a rejected Rejoin
+          bounced the player back here (an expired/evicted seat) - so landing
+          here reads as an explained outcome, not a silent teleport. Mirrors
+          Join's inline server-error styling (role="alert", error.main). */}
+      {rejoinFailedNotice && (
+        <Typography
+          role="alert"
+          sx={{ mt: 2, textAlign: 'center', fontSize: 13.5, fontWeight: 700, color: 'error.main' }}
+        >
+          {rejoinFailedNotice}
+        </Typography>
+      )}
+
       {/* Primary actions + reassurance + play-solo path, below the hero + tagline.
           (The old `mt: 'auto'` bottom-pin is gone now that the whole column is
           vertically centered rather than spread with space-between.) */}
       <Stack spacing={2} sx={{ width: '100%', pt: 3 }}>
+        {/* B1 (alpha-gate hardening): legible + actionable connection status,
+            replacing the old silent opacity-dim on the CTAs below. Mirrors
+            App.tsx's ResumingLiveScreen "plug" icon for the same connection
+            concept; short entry-screen copy since there is no game yet to
+            resume. "Connecting..." covers the first connect and an
+            automatic-reconnect attempt; "Can't connect right now" covers the
+            terminal case the hook's manual reconnect loop is quietly retrying
+            in the background, with a tap to nudge it immediately. */}
+        {connectionStatus !== 'connected' && (
+          <Stack direction="row" spacing={1.25} alignItems="center" justifyContent="center">
+            <Box
+              sx={{
+                display: 'flex',
+                fontSize: 14,
+                color: connectionStatus === 'disconnected' ? 'error.main' : 'text.secondary',
+              }}
+            >
+              <FontAwesomeIcon icon="plug" />
+            </Box>
+            <Typography
+              sx={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: connectionStatus === 'disconnected' ? 'error.main' : 'text.secondary',
+              }}
+            >
+              {connectionStatus === 'connecting' ? 'Connecting...' : "Can't connect right now"}
+            </Typography>
+            {connectionStatus === 'disconnected' && (
+              <Button
+                onClick={onRetryConnection}
+                sx={{ minWidth: 0, p: 0, fontSize: 13, fontWeight: 700, color: 'primary.main', textTransform: 'none' }}
+              >
+                Try again
+              </Button>
+            )}
+          </Stack>
+        )}
+
         <Button
           variant="contained"
           fullWidth
