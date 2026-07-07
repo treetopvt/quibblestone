@@ -32,9 +32,10 @@
 //  the SAME shared GameHub.BroadcastPlayerLeftAsync the live LeaveRoom path uses -
 //  no forked, mode-specific reconnect logic ("one engine, many thin modes").
 //
-//  The grace window is a SINGLE named constant (DefaultGraceWindow = 30s) so it is
-//  trivially tunable after playtesting, and injectable via the test constructor so
-//  a spec can drive a tiny window instead of waiting 30 real seconds.
+//  The grace window is a SINGLE named constant (DefaultGraceWindow = 180s / 3
+//  minutes) so it is trivially tunable after playtesting, and injectable via the
+//  test constructor so a spec can drive a tiny window instead of waiting for the
+//  real thing.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -56,11 +57,14 @@ public sealed class SeatGraceService
 {
     /// <summary>
     /// The grace window a dropped seat is held before eviction (session-engine/07).
-    /// A single named constant, chosen at 30 seconds as a starting default (a short
-    /// tunnel / phone-lock blip, not "went inside a store" - feature.md's open
-    /// decision, resolved here) so it is cheap to tune after playtesting.
+    /// Alpha-gate hardening (pre-friends-and-family audit, B3) raised this from the
+    /// original 30-second starting default to 3 minutes: 30 seconds was too eager for
+    /// a real phone-lock / elevator / brief tunnel drop (README section 1's "car dead
+    /// zone" tolerance) and was aborting rounds that a slightly longer wait would have
+    /// let recover cleanly on their own. Still a single named constant, so it stays
+    /// cheap to tune again after the friends-and-family test.
     /// </summary>
-    public static readonly TimeSpan DefaultGraceWindow = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan DefaultGraceWindow = TimeSpan.FromSeconds(180);
 
     private readonly IHubContext<GameHub> _hub;
     private readonly RoomRegistry _rooms;
@@ -68,7 +72,7 @@ public sealed class SeatGraceService
     private readonly ILogger<SeatGraceService> _logger;
     private readonly TimeSpan _graceWindow;
 
-    /// <summary>The DI constructor: the 30-second <see cref="DefaultGraceWindow"/>.</summary>
+    /// <summary>The DI constructor: the 3-minute <see cref="DefaultGraceWindow"/>.</summary>
     public SeatGraceService(
         IHubContext<GameHub> hub,
         RoomRegistry rooms,
@@ -139,7 +143,10 @@ public sealed class SeatGraceService
             {
                 // room-start-duplicate-members: pass the promoted-host connection (if the
                 // evicted seat was the host) so the epilogue nudges it with "HostGranted".
-                await GameHub.BroadcastPlayerLeftAsync(_hub.Clients, stillActive, promotedHostConnectionId);
+                // B3 (alpha-gate hardening): also pass the EVICTED seat's own connection id
+                // so the epilogue can tell whether IT still owed any blanks before aborting
+                // a prompting round on its account - see BroadcastPlayerLeftAsync.
+                await GameHub.BroadcastPlayerLeftAsync(_hub.Clients, stillActive, handle.ConnectionId, promotedHostConnectionId);
             }
         }
         catch (Exception ex)
