@@ -13,10 +13,14 @@ this is intentionally not gold-plated.
 | 4 | Storage Account | `Microsoft.Storage/storageAccounts` | Table: `StoryServes` / `StoryFeedback` (telemetry) + `PublishedTales` (keepsake-gallery/04 public tale links); Blob (AI images, later) |
 | 5 | Key Vault | `Microsoft.KeyVault/vaults` | Secrets (Stripe, AI provider keys); now also holds the App Insights connection string |
 | 6 | Application Insights (+ Log Analytics workspace) | `Microsoft.Insights/components` (+ `Microsoft.OperationalInsights/workspaces`) | Operational telemetry for the API (exceptions, failed requests, latency, dependencies) - `platform-devops/04` |
+| 7 | ACS Email (**optional**, `enableEmail`) | `Microsoft.Communication/emailServices` (+ `/domains`) and `Microsoft.Communication/communicationServices` | Magic-link sign-in / operator-login email delivery - `accounts-identity/04`. **OFF by default** (the core footprint is unchanged); provisioned only when `enableEmail=true` (the deploy flips this from `vars.EMAIL_ENABLED`) |
 
 The App Service Plan is part of resource #2 (App Service cannot run without a
 plan). Application Insights is workspace-based, so it needs the Log Analytics
-workspace alongside it (two ARM resources, one concern).
+workspace alongside it (two ARM resources, one concern). Resource #7 (ACS Email)
+is the only gated part of the footprint: with `enableEmail=false` (the default)
+none of its resources exist, so a fresh clone or a UAT that has not turned email
+on stays at the tiny core set (README section 9).
 
 ## Observability (platform-devops/04)
 
@@ -123,6 +127,48 @@ Logs) - no dashboard or workbook (demand-driven, README section 12):
   id, so they contribute `RoundStarted` volume and `context == "group"` but not
   device reach - true cross-device / unique-person counting needs accounts (Phase 2,
   out of scope). Split solo vs group with `context = tostring(customDimensions.context)`.
+
+## Magic-link email delivery (accounts-identity/04)
+
+Purchaser sign-in and operator login use a one-time magic link that has to be
+**emailed**. The transport is Azure Communication Services (ACS) Email, and the app
+sends **keyless** via its existing App Service managed identity (no provider secret -
+see `api/src/Accounts/AcsEmailSender.cs`). The footprint is **gated behind
+`enableEmail`** (default `false`), so it is inert until email is turned on.
+
+- **What `enableEmail=true` provisions.** An Email Communication Service, an
+  **Azure-managed domain** (a `*.azurecomm.net` sender Azure creates and verifies for
+  you - **no SPF/DKIM DNS work**), and the Communication Services resource the app's
+  `EmailClient` targets (linked to the domain). The managed-domain sender is Azure's
+  **fixed `DoNotReply@<generated>.azurecomm.net`** - managed domains do not allow custom
+  sender usernames, so a friendly `no-reply@…` needs the custom-domain upgrade below.
+  This is a
+  deliberate addition to the core footprint (README section 9), justified because
+  magic-link is now load-bearing - and it stays out of the footprint entirely until
+  you opt in.
+- **Keyless send-role grant, automated.** The deploy workflow grants the API's managed
+  identity the **Communication and Email Service Owner** role on the Communication
+  Services resource, so the keyless path works end to end with no hand-run role
+  assignment. (The role is name-resolved by the workflow, so no role GUID is hardcoded
+  in Bicep; the grant is idempotent.)
+- **How the app is wired.** `main.bicep` outputs the ACS endpoint (`emailAcsEndpoint`)
+  and the Azure-managed sender address (`emailSenderAddress`); the deploy workflow's
+  "Wire magic-link email delivery" step applies them to the API as `Email__Endpoint` /
+  `Email__FromAddress`, plus a durable Key Vault-backed `Accounts__TokenSigningKey`
+  (AC-07) and the derived `Email__LinkBaseUrl`. No secret is committed and nothing goes
+  into a `VITE_*` var. With `enableEmail=false` those outputs are empty and the wiring
+  step is skipped, so the API runs on the `NoOpEmailSender` exactly as before.
+- **Production deliverability is an operator upgrade (not automated).** The
+  `*.azurecomm.net` managed domain is perfect for UAT/alpha, but a **verified custom
+  domain** (`no-reply@quibblestone.com` with real SPF/DKIM) needs DNS records and a
+  verification wait that cannot live in Bicep. Set it up in ACS and point
+  `vars.EMAIL_FROM_ADDRESS` (and, for a separate ACS, `vars.EMAIL_ENDPOINT`) at it -
+  both override the provisioned defaults. See the turn-on procedure in the runbook:
+  [`docs/runbooks/enable-magic-link-email.md`](../docs/runbooks/enable-magic-link-email.md).
+
+The one still-manual, out-of-band step is the **durable signing key** Key Vault secret
+(`AccountsTokenSigningKey`) - a value you choose, never in GitHub - so a delivered link
+survives an app recycle. The runbook covers it.
 
 ## AI cost gate provider footprint (`infra/ai.bicep`, ai-cost-gate/06)
 

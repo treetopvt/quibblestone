@@ -1,6 +1,6 @@
 # Story: Rejoin - reclaim your seat and resume the round
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #142
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #142
 
 ## Context
 Story 07 holds a dropped seat open for a grace window and mints a reconnect token
@@ -16,30 +16,30 @@ left off, rather than looking like it re-joined a fresh game. See
 and token this story consumes).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a device holds a reconnect token for a seat still within its
+- [x] AC-01: Given a device holds a reconnect token for a seat still within its
       grace window, when it calls `Rejoin(code, token)` on a NEW connection, then
       the server reclaims that seat under the new connection (re-subscribes it to
       the room's SignalR group), marks it connected again, and cancels the pending
       grace-expiry eviction for that seat.
-- [ ] AC-02: Given the reclaim succeeds, then the caller receives the current room
+- [x] AC-02: Given the reclaim succeeds, then the caller receives the current room
       roster, whether it is the host, and the round's phase ("lobby" | "prompting"
       | "reveal").
-- [ ] AC-03: Given the round is "prompting", then the rehydration ALSO carries this
+- [x] AC-03: Given the round is "prompting", then the rehydration ALSO carries this
       seat's own remaining (not-yet-submitted) blank indices only - never another
       player's - and the room's current collection progress ("[N] of [M] done"), so
       the resumed client's word-collection screen shows exactly what is left,
       nothing already-answered re-asked.
-- [ ] AC-04: Given the round is "reveal", then the rehydration carries the shared
+- [x] AC-04: Given the round is "reveal", then the rehydration carries the shared
       reveal payload (the ordered words) so the resuming client renders the same
       reveal everyone else is looking at.
-- [ ] AC-05: Given the token is unknown, already evicted (grace expired), or names
+- [x] AC-05: Given the token is unknown, already evicted (grace expired), or names
       a different room than `code`, then `Rejoin` fails with a friendly,
       kid-readable error and reclaims nothing - the caller is told plainly rather
       than silently failing or throwing.
-- [ ] AC-06: Given the reclaim succeeds, then the OTHER players in the room see the
+- [x] AC-06: Given the reclaim succeeds, then the OTHER players in the room see the
       roster flip that seat back to connected (the same `RosterChanged` broadcast,
       now carrying that player's `Connected: true`) in near-real-time.
-- [ ] AC-07 (child safety / no PII): the rehydration payload carries no more than
+- [x] AC-07 (child safety / no PII): the rehydration payload carries no more than
       the room already exposes elsewhere in this codebase (own blank indices,
       room-wide progress/reveal) - no other player's private state, no token, and
       no new personal data.

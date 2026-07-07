@@ -8,50 +8,112 @@
 //  screen simply reacts - so newcomers appear and departed players' tiles revert
 //  to empty slots in near-real-time (AC-02, AC-04) without any polling here.
 //
+//  session-engine/11: the trailing "+ invite" roster slot (`InviteSlot`, below)
+//  is no longer decorative - tapping it triggers the SAME invite action as the
+//  stone-tablet `ShareWidget`'s own Copy/Share buttons, via the shared
+//  `useRoomInvite` hook (./useRoomInvite.ts). Any player may tap it (not
+//  host-gated - the room code is already visible to everyone here).
+//
+//  FIT-TO-VIEWPORT REDESIGN (screen de-clutter, 2026-07): the previous layout
+//  stacked the family-safe toggle, story-length choice, and mode picker inline
+//  in a scrollable area, and drew all MAX_PLAYERS seats as a grid (present
+//  tiles plus empty "waiting..." placeholders). On a real phone that produced a
+//  long page scroll before the Start CTA was even visible. This version fits
+//  ONE phone viewport (~390x844) with NO page scroll:
+//    - The root is a FIXED-HEIGHT flex column (`height: 100dvh`,
+//      `overflow: hidden`) - AppBar pinned at top, a `flex: 1; minHeight: 0`
+//      middle region holding the code card + roster + settings row, and the
+//      host's <BottomActionBar> pinned at the bottom. The page itself can never
+//      scroll; only the middle region may, and in practice it does not need to
+//      once the tall host controls are moved out (below).
+//    - The roster no longer pre-draws empty seats: it is a SINGLE horizontal
+//      row of compact avatars for players actually PRESENT, plus one dashed
+//      "+ invite" slot, with its OWN horizontal scroll (`overflowX: auto`) if
+//      more players join than fit on screen - the page still never scrolls.
+//    - The host's round-setup controls (family-safe toggle, story-length
+//      choice, mode picker) and the "Play a favorite" panel MOVED into a
+//      slide-up bottom sheet (<GameSettingsSheet>, ../components), opened by
+//      tapping a single collapsed "Game settings" row that summarizes the
+//      CURRENT values (e.g. "Full tale - Classic - Family-safe on"). This is
+//      the key fix: the tall controls still have all the room they need, just
+//      inside a sheet that only opens on demand instead of always being laid
+//      out inline. Lobby still owns every bit of that state (familySafe,
+//      lengthPref, mode, showFavoritePicker, favoriteError) - the sheet is
+//      pure chrome around the SAME existing controls, unchanged.
+//
 //  What it shows (design: docs/design/Lobby.dc.html, docs/design/README.md
-//  "Screens" screen 3):
-//    - The stone-tablet share widget (session-engine/04): the room code in big
-//      purple Fredoka type, an outlined-purple "Copy" button (flips to a
-//      teal-check "Copied!" for ~1.8s on tap, no server round-trip - the code
-//      is already local client state) and a filled-purple "Share" button that
-//      invokes the Web Share API when available (hidden otherwise - AC-04),
-//      plus the "share this code" hint line.
+//  "Screens" screen 3, as adapted by the fit-to-viewport redesign above):
+//    - The stone-tablet share widget (session-engine/04): a centered ROOM CODE
+//      label, the room code as the hero in big purple Fredoka type, then an
+//      outlined-purple "Copy" button (flips to a teal-check "Copied!" for ~1.8s
+//      on tap, no server round-trip - the code is already local client state)
+//      and a filled-purple "Share" button side by side (Web Share, hidden when
+//      unavailable - AC-04), with the "share this code so friends can gather
+//      round the stone" helper line at the foot. This is the original centered
+//      card layout, kept per product-owner preference (an earlier pass tried a
+//      compact left/right row without the helper; the centered look was
+//      preferred and still fits now that round setup lives in the sheet).
 //    - "Carvers gathered" with a live teal count chip "{n} of {MAX_PLAYERS}" (AC-01).
-//    - A 3-column grid, up to MAX_PLAYERS (6). Each present player is a carved
-//      stone tile (theme rosterTile tokens) with their Guardian, name, and a
-//      role chip: host = gold "HOST" chip + crown badge + a pulsing gold RING;
-//      everyone else = teal "READY" chip (AC-01). New tiles scale-pop in (AC-02).
-//    - Every remaining slot is a dashed circle with 3 pulsing dots + "waiting..."
-//      whose border pulses purple (AC-03).
+//    - A single horizontal row of compact (~60px) avatar circles for players
+//      PRESENT ONLY - the empty-seat grid from the original design is gone (it
+//      previously drew up to MAX_PLAYERS placeholders whether or not anyone
+//      would ever fill them). Each present player is a carved stone tile
+//      (theme rosterTile tokens) with their Guardian, name, and a role chip:
+//      host = gold "HOST" chip + crown badge + a pulsing gold RING; everyone
+//      else = teal "READY" chip (AC-01). New tiles scale-pop in (AC-02).
+//      session-engine/10 (AC-04): a seat held through a disconnect grace window
+//      (`player.connected === false`, mirroring the hub's `PlayerDto.Connected`
+//      from session-engine/07) renders instead as a DIMMED tile with a pulsing
+//      DASHED ring (reusing the SAME `borderPulse` keyframe the invite slot
+//      uses - not a new visual system) and a muted "reconnecting..." chip in
+//      place of READY/HOST, so the room understands why the round is paused on
+//      them rather than the tile silently vanishing and reappearing. One
+//      dashed "+ invite" slot always trails the row. If more players join than
+//      fit on screen, the ROW scrolls horizontally on its own axis - the page
+//      itself never scrolls (AC-03 preserved via the invite slot's identical
+//      dashed/pulsing affordance, just singular now instead of one-per-empty-seat).
 //    - A transient dark bottom-center toast "[Name] pulled up a stone" when a new
 //      player appears (not on the initial roster, not for yourself) (AC-02).
-//    - ONLY when this client is the host: a grouped round-setup block in the
-//      SCROLLABLE area - the host-only family-safe toggle (group-play/01), the
-//      host-only story-length choice (story-selection/02), and the host-only mode
-//      picker (group-play/05, the shared ModePicker over GROUP_MODES). These moved
-//      OUT of the pinned bar (which reserves only one button's height via its fixed
-//      spacer, so three stacked controls hid behind it) into the scroll flow the
-//      SAME way Solo groups them, so the mode picker's three chunky cards are
-//      actually visible. Only the pinned gold "Start game" CTA (whose tap carries
-//      the chosen mode id) stays in the bar; the crown note "You're the host -
-//      start whenever your crew's ready" (AC-05) sits just above it in the scroll
-//      flow. Non-hosts see none of these.
+//    - ONLY when this client is the host: a collapsed "Game settings" row
+//      (tappable, summarizing the current family-safe / length / mode values)
+//      that opens <GameSettingsSheet>, a slide-up bottom sheet holding - in
+//      order - the host-only family-safe toggle (group-play/01), the host-only
+//      story-length choice (story-selection/02), the host-only mode picker
+//      (group-play/05, the shared ModePicker over GROUP_MODES), and the
+//      host-only "Play a favorite" panel (story-selection/06, AC-03, moved
+//      into the sheet from its old inline spot below the mode picker). Only
+//      the pinned gold "Start game" CTA (whose tap carries the chosen mode id)
+//      plus the crown note "You're the host - start whenever your crew's
+//      ready" (AC-05) stay in the main flow, just above the pinned bar. Non-
+//      hosts see none of these - the settings row itself is host-only, exactly
+//      as the inline controls were before this redesign.
 //      Tapping "Start game" calls onStart with the host's family-safe toggle
 //      value, length choice, AND chosen mode id (story-selection/02 AC-02 +
 //      group-play/05, more parameters on the SAME onStart/startRound seam, not new
 //      hub methods) -
 //      App wires that to the hub's host-only startRound, which the SERVER
 //      enforces + filters by both (AC-03/AC-04, story-selection/02 AC-03).
-//    - ALSO host-only (story-selection/06, AC-03): a "Play a favorite" toggle
-//      that reveals an INLINE favorites picker (the shared <FavoritesList>
-//      from ./Favorites.tsx, reused as-is - no second list implementation) so
-//      the host can start a round on one of THEIR favorited templates without
-//      leaving the lobby or losing room state. Picking one calls onPlayFavorite
-//      with that templateId; App wires it to the SAME startRound seam with the
-//      templateId as its 4th argument (the server plays that exact template,
-//      still family-safe-gated first, AC-06) - a rejected pick (e.g. the
-//      favorite is no longer family-safe under the current toggle) shows a
-//      friendly inline message, mirroring RoundComplete's playAgainError.
+//    - ALSO host-only, now living INSIDE the settings sheet (story-selection/06,
+//      AC-03): a "Play a favorite" toggle that reveals an INLINE favorites
+//      picker (the shared <FavoritesList> from ./Favorites.tsx, reused as-is -
+//      no second list implementation) so the host can start a round on one of
+//      THEIR favorited templates without leaving the lobby or losing room
+//      state. Picking one calls onPlayFavorite with that templateId; App wires
+//      it to the SAME startRound seam with the templateId as its 4th argument
+//      (the server plays that exact template, still family-safe-gated first,
+//      AC-06) - a rejected pick (e.g. the favorite is no longer family-safe
+//      under the current toggle) shows a friendly inline message, mirroring
+//      RoundComplete's playAgainError.
+//
+//  replay-remix/03 ("Pass the chisel", AC-01/AC-02/AC-04/AC-05): the Lobby is
+//  always "between rounds" (there is no live round here), so a host-only "Pass"
+//  pill (PassHostPill, below) appears on every OTHER present player's tile
+//  whenever this client is host - tapping it calls onPassHost with that tile's
+//  nickname. The SERVER re-enforces the host check + the between-rounds phase
+//  gate authoritatively (AC-04/AC-05); a rejection (a rare race) surfaces as a
+//  transient inline message. On success the reused "RosterChanged" broadcast
+//  moves the crown for everyone live (AC-02/AC-03) - this screen adds no new
+//  broadcast handling of its own.
 //
 //  Child safety (AC-06): names arrive already vetted by the join-time safety
 //  filter (session-engine/02); this screen renders them verbatim and never takes
@@ -71,7 +133,15 @@ import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { AppBar, BottomActionBar, BottomActionBarSpacer, FamilySafeToggle, Guardian, StoryLengthChoice } from '../components';
+import {
+  AppBar,
+  BottomActionBar,
+  BottomActionBarSpacer,
+  FamilySafeToggle,
+  GameSettingsSheet,
+  Guardian,
+  StoryLengthChoice,
+} from '../components';
 import { toGuardianVariant } from '../components';
 import { FAMILY_SAFE_DEFAULT } from '../content/familySafe';
 import type { FavoriteEntry } from '../content/favorites';
@@ -79,21 +149,18 @@ import type { LengthPreference } from '../content/length';
 import { seedLibrary } from '../content/seedLibrary';
 import type { Player, RoomState, StartRoundResult } from '../signalr/useGameHub';
 import { FavoritesList } from './Favorites';
-import { buildJoinLink } from './joinLink';
 import { ModePicker } from './ModePicker';
 import { DEFAULT_GROUP_MODE, GROUP_MODES, type GameMode } from './modeRegistry';
+import { useRoomInvite } from './useRoomInvite';
 
 // Room capacity for Slice 1: the roster tops out at six carvers (AC-01). The
-// grid fills the remaining seats with dashed "waiting..." slots up to this.
+// live count chip still reads "{n} of {MAX_PLAYERS}" even though the redesign
+// no longer pre-draws the remaining empty seats as placeholder tiles.
 const MAX_PLAYERS = 6;
 
 // How long the "[Name] pulled up a stone" toast stays on screen (AC-02): matches
 // the qsToastIn animation duration so it slides out exactly as it is removed.
 const TOAST_DURATION_MS = 2600;
-
-// How long the "Copy" button shows its teal-check "Copied!" confirmation
-// before reverting (session-engine/04 AC-02) - matches the design spec's ~1.8s.
-const COPIED_CONFIRMATION_MS = 1800;
 
 export interface LobbyProps {
   /** The current room (code + live roster). Roster updates flow in via the hook's RosterChanged handler. */
@@ -132,6 +199,16 @@ export interface LobbyProps {
    * RoundStarted broadcast routes everyone into the round as usual.
    */
   onPlayFavorite: (templateId: string, familySafe: boolean, modeId: string) => Promise<StartRoundResult>;
+  /**
+   * replay-remix/03 (AC-01/AC-02): host-only "Pass the chisel" - hand the host
+   * role to another present roster player, by nickname. The Lobby is always
+   * "between rounds" (there is no live round here), so the action shows on
+   * every OTHER present player's tile whenever THIS client is host (AC-01);
+   * App wires this to the hub's host-only passHost invoke - the SERVER
+   * re-enforces the host check (AC-04). Omitted renders no handoff affordance
+   * (defensive default - e.g. a screen reused before this story wires it up).
+   */
+  onPassHost?: (targetNickname: string) => Promise<{ ok: boolean; error: string | null }>;
   /**
    * Optional notice shown at the top of the lobby - e.g. "a carver left, so the
    * round was reset" when the hub aborts a round mid-collection (group-play
@@ -181,18 +258,51 @@ const toastIn = keyframes`
   100% { transform: translateY(-8px); opacity: 0; }
 `;
 
-/** One present player's tile: Guardian in a carved stone circle, name, role chip. */
-function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
+/**
+ * One present player's tile: Guardian in a carved stone circle, name, role chip.
+ * Sized compactly (~60px) for the redesigned single-row layout (fit-to-viewport,
+ * 2026-07) - previously 74px in the 3-column grid, shrunk so a full row of
+ * carvers plus the trailing invite slot reads comfortably on one line without
+ * forcing the page to scroll.
+ * session-engine/10 (AC-04): `player.connected === false` (a seat held through
+ * a disconnect grace window) swaps the solid border + boxShadow for a dimmed,
+ * pulsing DASHED ring - reusing the trailing invite slot's `borderPulse`
+ * keyframe below, the SAME "held seat" language already established on this
+ * screen rather than a new visual system - and the role chip for a muted
+ * "reconnecting..." one. The host's gold presence ring is suppressed while
+ * disconnected (the dashed pulse already signals motion; two competing rings
+ * read as noisy) but the crown badge stays - identity ("who this seat belongs
+ * to") persists, only presence dims.
+ *
+ * replay-remix/03 (AC-01): `onPassHost`, when supplied, renders a small "Pass"
+ * pill (reusing the app's carving/chisel glyph, faHammer - already registered
+ * for the Waiting screen's progress row and RoundBadge's "ROUND N CARVED" - not
+ * a new icon) beneath the name so the HOST can hand this OTHER player the role
+ * with one tap. The caller (Lobby) only ever supplies this to tiles that are
+ * NOT the current host's own.
+ */
+function PlayerTile({
+  player,
+  crowned,
+  onPassHost,
+}: {
+  player: Player;
+  crowned: boolean;
+  /** replay-remix/03 (AC-01): pass the host role to THIS tile's player. Present only for host-viewable, non-host tiles. */
+  onPassHost?: () => void;
+}) {
   const theme = useTheme();
   // The variant is a free string on the wire; the server normalizes it to one of
   // the six known values, so treat it as a GuardianVariant for the avatar.
   const variant = toGuardianVariant(player.variant);
+  const connected = player.connected;
 
   return (
     <Stack
       alignItems="center"
-      spacing={1}
+      spacing={0.75}
       sx={{
+        flexShrink: 0,
         // Scale-pop entrance (AC-02) - transform only.
         animation: `${arrive} 0.45s ease both`,
       }}
@@ -200,20 +310,33 @@ function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
       <Box
         sx={{
           position: 'relative',
-          width: 74,
-          height: 74,
+          width: 60,
+          height: 60,
           borderRadius: '50%',
           bgcolor: 'rosterTile.fill',
-          border: `2.5px solid ${theme.palette.rosterTile.border}`,
-          boxShadow: `0 8px 16px -10px ${alpha(theme.palette.stoneEdge.main, 0.7)}`,
+          // A steady dimmed opacity while disconnected (not an entrance/exit
+          // animation on a list item - the Waiting screen's own done/writing
+          // dim uses the same static-opacity posture, Waiting.tsx).
+          opacity: connected ? 1 : 0.55,
+          boxShadow: connected
+            ? `0 8px 16px -10px ${alpha(theme.palette.stoneEdge.main, 0.7)}`
+            : 'none',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          ...(connected
+            ? { border: `2.5px solid ${theme.palette.rosterTile.border}` }
+            : {
+                border: '2.5px dashed',
+                '--qs-pulse-from': alpha(theme.palette.stoneEdge.main, 0.4),
+                '--qs-pulse-to': alpha(theme.palette.primary.main, 0.5),
+                animation: `${borderPulse} 2.6s ease-in-out infinite`,
+              }),
         }}
       >
-        <Guardian variant={variant} size={52} crowned={crowned} />
+        <Guardian variant={variant} size={42} crowned={crowned} />
 
-        {player.isHost && (
+        {player.isHost && connected && (
           <>
             {/* Pulsing gold presence ring (AC-01) - box-shadow, not opacity. */}
             <Box
@@ -229,70 +352,109 @@ function PlayerTile({ player, crowned }: { player: Player; crowned: boolean }) {
                 animation: `${ring} 2.4s ease-in-out infinite`,
               }}
             />
-            {/* Crown badge above the avatar (AC-01). */}
-            <Box
-              aria-hidden
-              sx={{
-                position: 'absolute',
-                top: -13,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                color: 'gold.main',
-                fontSize: 20,
-                display: 'flex',
-              }}
-            >
-              <FontAwesomeIcon icon="crown" />
-            </Box>
           </>
+        )}
+        {player.isHost && (
+          // Crown badge above the avatar (AC-01) - persists through a
+          // disconnect: identity stays, only the presence ring dims (AC-04).
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              top: -11,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              color: 'gold.main',
+              fontSize: 16,
+              display: 'flex',
+              opacity: connected ? 1 : 0.55,
+            }}
+          >
+            <FontAwesomeIcon icon="crown" />
+          </Box>
         )}
       </Box>
 
-      <Box sx={{ textAlign: 'center' }}>
-        <Typography
-          sx={{
-            fontFamily: '"Fredoka", sans-serif',
-            fontWeight: 500,
-            fontSize: 15,
-            lineHeight: 1.1,
-            color: 'text.primary',
-          }}
-        >
-          {player.nickname}
-        </Typography>
-        {player.isHost ? <HostChip /> : <ReadyChip />}
-      </Box>
+      <Typography
+        noWrap
+        sx={{
+          fontFamily: '"Fredoka", sans-serif',
+          fontWeight: 500,
+          fontSize: 12.5,
+          lineHeight: 1.1,
+          color: 'text.primary',
+          maxWidth: 68,
+          textAlign: 'center',
+        }}
+      >
+        {player.nickname}
+      </Typography>
+      {/* HOST/READY are now conveyed by the gold ring + crown badge above (the
+          compact 60px tile has no room for a role chip AND a name on separate
+          lines without the row growing tall enough to threaten the one-
+          viewport budget). The "reconnecting..." state is the one exception
+          (session-engine/10, AC-04/AC-06): a held seat's dashed pulse alone
+          could read as "still empty", so the plain-language chip stays to
+          explain WHY the round is paused on this seat. */}
+      {!connected && <ReconnectingChip />}
+      {/* replay-remix/03 (AC-01): host-only "Pass the chisel" - a small tappable
+          pill so the host can hand this OTHER player the role with one tap. The
+          caller only supplies onPassHost for a non-host tile when THIS client is
+          host, so no extra gating is needed here. */}
+      {onPassHost && <PassHostPill onPassHost={onPassHost} nickname={player.nickname} />}
     </Stack>
   );
 }
 
-/** Gold "HOST" role chip (AC-01). */
-function HostChip() {
+/**
+ * replay-remix/03 (AC-01): the "Pass the chisel" pill - a small, tappable,
+ * host-only affordance rendered beneath a roster tile's name, reusing the
+ * app's carving/chisel glyph (faHammer, already registered for the Waiting
+ * screen's progress row and RoundBadge). Kept compact to match the tile's own
+ * ~60px footprint (the reconnecting chip beside it uses the same scale).
+ */
+function PassHostPill({ onPassHost, nickname }: { onPassHost: () => void; nickname: string }) {
   const theme = useTheme();
   return (
     <Box
-      component="span"
+      component="button"
+      type="button"
+      onClick={onPassHost}
+      aria-label={`Pass the chisel to ${nickname}`}
       sx={{
-        display: 'inline-block',
-        mt: 1,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.5,
+        mt: 0.75,
         px: 1.25,
-        py: 0.25,
-        bgcolor: alpha(theme.palette.gold.main, 0.22),
+        py: 0.5,
+        border: 'none',
         borderRadius: 999,
+        bgcolor: alpha(theme.palette.primary.main, 0.14),
+        color: theme.palette.primary.main,
         fontFamily: '"Nunito", sans-serif',
-        fontSize: 10.5,
         fontWeight: 800,
-        letterSpacing: 0.4,
-        color: theme.palette.gold.dark,
+        fontSize: 10.5,
+        cursor: 'pointer',
+        '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
       }}
     >
-      HOST
+      <FontAwesomeIcon icon="hammer" style={{ width: 10, height: 10 }} />
+      Pass
     </Box>
   );
 }
 
-/** Teal "READY" role chip with a filled dot (AC-01). */
-function ReadyChip() {
+/**
+ * Muted "reconnecting..." chip (session-engine/10, AC-04, AC-06): a calm,
+ * plain-language stand-in for READY/HOST while a seat's `connected` flag is
+ * false. Reuses the SAME pulsing-dots keyframe (`dots`, below) EmptySlot's
+ * "waiting..." caption already uses, rather than a new affordance - and the
+ * SAME muted stone tone, so it visually reads as "this seat's dashed pulse
+ * above" rather than a competing alarm color (never coral/red - AC-06, this is
+ * "hang tight," not an error).
+ */
+function ReconnectingChip() {
   const theme = useTheme();
   return (
     <Box
@@ -304,68 +466,118 @@ function ReadyChip() {
         mt: 1,
         px: 1.25,
         py: 0.25,
-        bgcolor: alpha(theme.palette.teal.main, 0.18),
+        bgcolor: alpha(theme.palette.stoneEdge.main, 0.22),
         borderRadius: 999,
         fontFamily: '"Nunito", sans-serif',
         fontSize: 10.5,
         fontWeight: 800,
         letterSpacing: 0.3,
-        color: theme.palette.teal.dark,
+        color: 'text.secondary',
       }}
     >
       <Box
         component="span"
-        sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: 'teal.main' }}
+        sx={{
+          width: 5,
+          height: 5,
+          borderRadius: '50%',
+          bgcolor: alpha(theme.palette.stoneEdge.main, 0.85),
+          animation: `${dots} 1.4s ease-in-out infinite`,
+        }}
       />
-      READY
+      reconnecting...
     </Box>
   );
 }
 
-/** An unfilled seat: a dashed circle with 3 pulsing dots + "waiting..." (AC-03). */
-function EmptySlot() {
+/**
+ * The trailing "+ invite" slot (session-engine/11: wired to the SAME invite
+ * action `ShareWidget`'s Copy/Share buttons trigger, via the shared
+ * `useRoomInvite` hook - see ./useRoomInvite.ts). Previously (design-system/05)
+ * this was a purely decorative dashed circle with no `onClick`: the roster grid
+ * used to pre-draw one dashed "waiting..." placeholder PER remaining seat (up
+ * to MAX_PLAYERS), and the fit-to-viewport redesign collapsed that down to
+ * exactly ONE trailing slot, but left it inert. Now tapping it DOES the thing
+ * its label promises (AC-01/AC-02): Share-first when the Web Share API is
+ * available (the single highest-value tap for a big "+ invite" affordance),
+ * falling back to Copy-plus-a-brief-local-confirmation otherwise - mirroring
+ * the widget's own Share-first, Copy-fallback posture rather than a third UX
+ * pattern. AC-03: this slot owns NO copy/share logic of its own - it only
+ * calls the one shared hook, so there is exactly one invite code path in the
+ * codebase.
+ *
+ * Not host-gated (AC-04): every player in the room already sees the room code
+ * on this same screen, so there is nothing host-only being exposed here - any
+ * player may tap invite.
+ *
+ * A real `<button type="button">` (not the old non-interactive `Stack`/`Box`)
+ * so it gets proper button semantics: keyboard-focusable, a visible
+ * `:focus-visible` outline, and an `aria-label` (AC-05) - matching the pattern
+ * already used by the "Game settings" row below in this same file. The
+ * dashed-circle + "+" glyph + "invite" caption visual (design-system/05) is
+ * unchanged; only behavior was added.
+ */
+function InviteSlot({ code }: { code: string }) {
   const theme = useTheme();
+  const { canShare, copied, copy, share } = useRoomInvite(code);
+
+  const handleTap = () => {
+    // Share-first when available (AC-01), Copy-fallback otherwise (AC-02) -
+    // the SAME behavior split as ShareWidget's two buttons, just collapsed
+    // onto this slot's single tap target.
+    if (canShare) {
+      void share();
+    } else {
+      void copy();
+    }
+  };
+
   return (
-    <Stack alignItems="center" spacing={1}>
+    <Stack alignItems="center" spacing={0.75} sx={{ flexShrink: 0 }}>
       <Box
+        component="button"
+        type="button"
+        onClick={handleTap}
+        aria-label="Invite another player"
         sx={{
-          width: 74,
-          height: 74,
+          width: 60,
+          height: 60,
           borderRadius: '50%',
           bgcolor: alpha(theme.palette.sandstone.main, 0.35),
           border: '2.5px dashed',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          color: theme.palette.stoneEdge.main,
+          cursor: 'pointer',
+          p: 0,
+          fontFamily: 'inherit',
           '--qs-pulse-from': alpha(theme.palette.stoneEdge.main, 0.4),
           '--qs-pulse-to': alpha(theme.palette.primary.main, 0.5),
           animation: `${borderPulse} 2.6s ease-in-out infinite`,
+          '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
         }}
       >
-        <Stack direction="row" spacing={0.5}>
-          {[0, 0.2, 0.4].map((delay) => (
-            <Box
-              key={delay}
-              sx={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                bgcolor: alpha(theme.palette.stoneEdge.main, 0.85),
-                animation: `${dots} 1.4s ease-in-out ${delay}s infinite`,
-              }}
-            />
-          ))}
-        </Stack>
+        {/* A light local confirmation (a brief check-glyph swap) when Share is
+            unavailable and the fallback Copy just ran - this slot is a small
+            circle, so a check icon reads better here than swapping the caption
+            text, but it mirrors the SAME `copied` timer ShareWidget's own
+            "Copied!" confirmation uses (AC-02). */}
+        {copied ? (
+          <FontAwesomeIcon icon="check" style={{ width: 18, height: 18, color: theme.palette.teal.main }} />
+        ) : (
+          <FontAwesomeIcon icon="plus" style={{ width: 18, height: 18 }} />
+        )}
       </Box>
       <Typography
         sx={{
           fontFamily: '"Nunito", sans-serif',
           fontWeight: 700,
-          fontSize: 12.5,
+          fontSize: 11.5,
           color: 'text.secondary',
         }}
       >
-        waiting...
+        {copied ? 'copied!' : 'invite'}
       </Typography>
     </Stack>
   );
@@ -382,88 +594,38 @@ function EmptySlot() {
  * another device lands straight on the Join screen with the code pre-filled
  * (AC-01, AC-04). The on-screen carved-stone code display below is unchanged -
  * only the Copy/Share payloads change.
+ *
+ * Layout (product-owner preference, 2026-07): the original stacked-and-centered
+ * card - a centered ROOM CODE label, the big code as the hero on its own line,
+ * Copy + Share side by side below, and the "share this code so friends can
+ * gather round the stone" helper line at the foot. (An earlier fit-to-viewport
+ * pass tried a compact left/right row without the helper line; the product owner
+ * preferred this original look, and it still fits the one-viewport budget now
+ * that the round-setup controls live in the settings sheet.) All Copy/Share
+ * behavior (the deep-link payload, the "Copied!" confirmation timer, the Web
+ * Share feature-detect) is unchanged.
+ *
+ * session-engine/11: the Copy/Share closures, the `joinLink` build, the
+ * `canShare` feature-detect, and the `copied` confirmation timer all now live
+ * in the shared `useRoomInvite` hook (./useRoomInvite.ts) - this widget and the
+ * roster's "+ invite" slot (`InviteSlot`, above) both call it, so there is
+ * exactly one invite code path (AC-03). Nothing about the widget's OWN
+ * behavior changed: same payload, same ~1.8s confirmation, same hidden-when-
+ * unavailable Share button.
  */
 function ShareWidget({ code }: { code: string }) {
   const theme = useTheme();
-
-  // The link's base (AC-06): prefer an explicit VITE_PUBLIC_BASE_URL override
-  // when set and non-empty, otherwise the running app's own origin. Guarded
-  // for SSR / a non-browser environment (no `window`) - falls back to an empty
-  // origin rather than throwing, which still yields a coherent (if relative)
-  // `/join/<code>` path.
-  const configuredBase = import.meta.env.VITE_PUBLIC_BASE_URL;
-  const origin =
-    configuredBase && configuredBase.length > 0
-      ? configuredBase
-      : typeof window !== 'undefined'
-        ? window.location.origin
-        : '';
-  const joinLink = buildJoinLink(code, origin);
-
-  // "Copied!" confirmation (AC-02): local state only, reverts after
-  // COPIED_CONFIRMATION_MS. The timer is cleared on unmount so we never call
-  // setState after the component is gone.
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    };
-  }, []);
-
-  const handleCopy = async () => {
-    // Guard clipboard availability gracefully (e.g. insecure context / an
-    // older browser) - never throw, just skip the confirmation.
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
-    try {
-      // session-engine/06 AC-04/AC-05: copy the tappable deep link, not the
-      // bare code - this path is independent of Web Share availability, so it
-      // still yields the full link with no error when Share is hidden below.
-      await navigator.clipboard.writeText(joinLink);
-      setCopied(true);
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-      copiedTimer.current = setTimeout(() => setCopied(false), COPIED_CONFIRMATION_MS);
-    } catch {
-      // Clipboard permission denied or unavailable - fail silently, no error surfaced.
-    }
-  };
-
-  // Feature-detect the Web Share API once (it does not change over the
-  // component's lifetime) - AC-04: hide the Share button entirely when it is
-  // not available (e.g. desktop Chrome) rather than showing a dead button.
-  const [canShare] = useState(
-    () => typeof navigator !== 'undefined' && typeof navigator.share === 'function',
-  );
-
-  const handleShare = async () => {
-    if (!canShare) return;
-    try {
-      // session-engine/06 AC-01: the tappable deep link travels in `url`
-      // alongside the human-readable `text` (still naming the bare code, so
-      // a channel that drops `url` - e.g. some SMS clients - still shows a
-      // readable message), so the recipient can just tap through.
-      await navigator.share({
-        title: 'QuibbleStone',
-        text: `Join my QuibbleStone game! Room code: ${code}`,
-        url: joinLink,
-      });
-    } catch {
-      // A user-cancelled share (AbortError) or any other rejection should
-      // never surface as an unhandled error or noisy console log.
-    }
-  };
+  const { canShare, copied, copy, share } = useRoomInvite(code);
 
   return (
     <Box
       sx={{
         position: 'relative',
         px: 6,
-        py: 5,
+        py: 4.5,
         // Fixed px radius, NOT a bare number: MUI's sx `borderRadius` multiplies
-        // by theme.shape.borderRadius (20), so 6.5 ballooned to 130px - a pill
-        // whose huge corners cut under the full-width label + hint (they read as
-        // "outside the bubble"). A literal keeps a proper carved-tablet shape.
+        // by theme.shape.borderRadius (20), which would corrupt the carved-tablet
+        // shape. A literal keeps proper corners.
         borderRadius: '26px',
         textAlign: 'center',
         // Resolve the theme gradient explicitly: MUI's sx only maps dotted theme
@@ -472,14 +634,11 @@ function ShareWidget({ code }: { code: string }) {
         // invalid CSS. Home.tsx uses the same theme.palette.tablet.gradient.
         background: theme.palette.tablet.gradient,
         boxShadow: `0 18px 36px -22px ${alpha(theme.palette.primary.main, 0.5)}, inset 0 2px 0 ${alpha(theme.palette.common.white, 0.5)}, inset 0 -4px 12px ${alpha(theme.palette.stoneEdge.main, 0.35)}`,
-        mb: 4,
       }}
     >
-      {/* Code hero on its own row so it can breathe, then a full-width action
-          row below (design mock stacked the buttons in a cramped right column;
-          on a real phone that squeezed two uneven pills - the product owner
-          asked to rework this). Copy + Share are equal-width and chunky (big tap
-          targets); when Web Share is unavailable, Copy spans the full width. */}
+      {/* Centered ROOM CODE label + big code (the product-owner-preferred original
+          layout): the code reads as the hero, centered on its own line, with the
+          actions below and the "share this code" helper line at the foot. */}
       <Typography
         variant="overline"
         sx={{ display: 'block', fontSize: 11, fontWeight: 800, color: 'text.secondary' }}
@@ -504,10 +663,13 @@ function ShareWidget({ code }: { code: string }) {
         {code}
       </Typography>
 
+      {/* Copy + Share side by side (chunky, equal-width). Share is feature-
+          detected and hidden entirely when unavailable, so Copy spans the full
+          width then (AC-04). */}
       <Stack direction="row" spacing={1.25} sx={{ mt: 3 }}>
         <Button
           variant="outlined"
-          onClick={handleCopy}
+          onClick={() => void copy()}
           sx={{ flex: 1, height: 48, fontSize: 15, gap: 1 }}
         >
           {copied ? (
@@ -522,7 +684,7 @@ function ShareWidget({ code }: { code: string }) {
         {canShare && (
           <Button
             variant="sharePurple"
-            onClick={handleShare}
+            onClick={() => void share()}
             sx={{ flex: 1, height: 48, fontSize: 15, gap: 1 }}
           >
             <FontAwesomeIcon icon="share-nodes" style={{ width: 16, height: 16 }} />
@@ -531,6 +693,8 @@ function ShareWidget({ code }: { code: string }) {
         )}
       </Stack>
 
+      {/* Helper line (product-owner-preferred): a coral people glyph + the
+          "gather round the stone" invitation, set off by a dashed rule. */}
       <Stack
         direction="row"
         alignItems="center"
@@ -567,12 +731,43 @@ export function Lobby({
   onLeave,
   onStart,
   onPlayFavorite,
+  onPassHost,
   notice,
   onDismissNotice,
 }: LobbyProps) {
   const theme = useTheme();
   const players = room.players;
-  const emptyCount = Math.max(0, MAX_PLAYERS - players.length);
+
+  // replay-remix/03: a friendly, transient message when a "Pass the chisel"
+  // attempt is rejected server-side (a race with the room dropping out of
+  // "between rounds", or the target having just left). Mirrors the join
+  // toast's own transient-timer pattern below.
+  const [passHostError, setPassHostError] = useState<string | null>(null);
+  const passHostErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handlePassHost = async (targetNickname: string) => {
+    if (!onPassHost) return;
+    setPassHostError(null);
+    const result = await onPassHost(targetNickname);
+    if (!result.ok) {
+      setPassHostError(result.error ?? "Couldn't pass the chisel - please try again.");
+      if (passHostErrorTimer.current) clearTimeout(passHostErrorTimer.current);
+      passHostErrorTimer.current = setTimeout(() => setPassHostError(null), TOAST_DURATION_MS);
+    }
+  };
+
+  // room-start-duplicate-members (belt-and-suspenders): the server migrates the host
+  // flag whenever the host leaves, so a populated room is normally always hosted. If a
+  // roster ever arrives with NO host at all, surface the Start CTA to everyone rather
+  // than leaving the room unstartable - the hub's StartRound matches this, accepting a
+  // start from any player when the room has no host. Under normal play this is false.
+  const noHostPresent = players.length > 0 && !players.some((p) => p.isHost);
+
+  // Host-only "Game settings" bottom sheet (fit-to-viewport redesign): whether
+  // the sheet holding the family-safe toggle / length choice / mode picker /
+  // favorites panel is open. Purely local UI state - it never affects what
+  // gets sent to onStart, only whether those controls are currently visible.
+  const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
 
   // Host-only family-safe toggle (group-play/01). Safe by default (AC-04): seeded
   // from FAMILY_SAFE_DEFAULT rather than a hardcoded true, so the safe-by-default
@@ -662,21 +857,46 @@ export function Lobby({
     seenNames.current = current;
   }, [players]);
 
-  // Clear a pending toast timer on unmount so it never fires after leaving.
+  // Clear pending toast / pass-host-error timers on unmount so neither fires
+  // after leaving.
   useEffect(() => {
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
+      if (passHostErrorTimer.current) clearTimeout(passHostErrorTimer.current);
     };
   }, []);
 
+  // The collapsed settings row's summary subtitle (fit-to-viewport redesign):
+  // reflects the host's CURRENT values so the row is informative even closed,
+  // e.g. "Full tale - Classic - Family-safe on". Recomputed on every render
+  // (cheap string join) rather than memoized - these three values change
+  // rarely and only via direct user taps.
+  const lengthLabel = lengthPref === 'quick' ? 'Quick tale' : 'Full tale';
+  const settingsSummary = `${lengthLabel} - ${mode.config.label} - Family-safe ${familySafe ? 'on' : 'off'}`;
+
   return (
-    <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto' }}>
+    <Box
+      sx={{
+        position: 'relative',
+        height: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        // Tablet / desktop: a wider column than the 430 phone width (viewport pass).
+        maxWidth: { xs: 430, sm: 560 },
+        mx: 'auto',
+      }}
+    >
       <AppBar
         title="Waiting room"
         leftAction={{ icon: 'xmark', label: 'Leave room', onClick: onLeave }}
       />
 
-      <Stack sx={{ px: 5.5, pt: 1 }} spacing={0}>
+      {/* The one region that may ever scroll (and in practice should not need
+          to, on the target ~390x844 viewport) - everything tall (the round-
+          setup controls, the favorites panel) lives in the settings sheet
+          instead, per the file header. */}
+      <Stack sx={{ px: 5.5, pt: 1, flex: 1, minHeight: 0, overflowY: 'auto' }} spacing={3}>
         {/* Group-play recovery notice: shown when a round was reset because a carver
             left mid-collection (the hub's "RoundAborted"). Dismissible; theme-driven. */}
         {notice && (
@@ -687,7 +907,6 @@ export function Lobby({
               gap: 1.25,
               px: 2,
               py: 1.5,
-              mb: 3,
               borderRadius: '14px',
               bgcolor: alpha(theme.palette.coral.main, 0.14),
               border: `1.5px solid ${alpha(theme.palette.coral.main, 0.35)}`,
@@ -729,135 +948,164 @@ export function Lobby({
         <ShareWidget code={room.code} />
 
         {/* "Carvers gathered" header with the live teal count chip (AC-01). */}
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ mb: 3.5 }}
-        >
-          <Typography
-            variant="h6"
-            component="h2"
-            sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 18 }}
+        <Box>
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ mb: 2 }}
           >
-            Carvers gathered
-          </Typography>
-          <Box
-            component="span"
+            <Typography
+              variant="h6"
+              component="h2"
+              sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 18 }}
+            >
+              Carvers gathered
+            </Typography>
+            <Box
+              component="span"
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 0.75,
+                px: 1.5,
+                py: 0.5,
+                bgcolor: alpha(theme.palette.teal.main, 0.16),
+                borderRadius: 999,
+                fontFamily: '"Nunito", sans-serif',
+                fontSize: 13,
+                fontWeight: 800,
+                color: theme.palette.teal.dark,
+              }}
+            >
+              <FontAwesomeIcon icon="users" style={{ width: 14, height: 14 }} />
+              {players.length} of {MAX_PLAYERS}
+            </Box>
+          </Stack>
+
+          {/* A single horizontal row of present-player avatars + one trailing
+              "+ invite" slot (AC-01/03, redesigned - see the file header for
+              why the old per-empty-seat grid is gone). The row scrolls on its
+              OWN horizontal axis if more players join than fit - the page
+              itself never scrolls. */}
+          <Stack
+            direction="row"
+            spacing={2}
             sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 0.75,
-              px: 1.5,
-              py: 0.5,
-              bgcolor: alpha(theme.palette.teal.main, 0.16),
-              borderRadius: 999,
-              fontFamily: '"Nunito", sans-serif',
-              fontSize: 13,
-              fontWeight: 800,
-              color: theme.palette.teal.dark,
+              overflowX: 'auto',
+              overflowY: 'hidden',
+              pb: 0.5,
+              // A little breathing room so the host crown/ring never clips
+              // against the scroll container's edge.
+              pt: 0.5,
             }}
           >
-            <FontAwesomeIcon icon="users" style={{ width: 14, height: 14 }} />
-            {players.length} of {MAX_PLAYERS}
-          </Box>
-        </Stack>
-
-        {/* The roster grid: present players then dashed waiting-slots (AC-01/03). */}
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            columnGap: 1,
-            rowGap: 2.5,
-            alignContent: 'start',
-          }}
-        >
-          {players.map((player) => (
-            // ConnectionId is not on the wire (no PII), so a present player is
-            // keyed by nickname - unique within a room (enforced at join, AC-06).
-            <PlayerTile
-              key={player.nickname}
-              player={player}
-              crowned={!!crownedNickname && player.nickname === crownedNickname}
-            />
-          ))}
-          {Array.from({ length: emptyCount }, (_, index) => (
-            <EmptySlot key={`empty-${index}`} />
-          ))}
+            {players.map((player) => (
+              // ConnectionId is not on the wire (no PII), so a present player is
+              // keyed by nickname - unique within a room (enforced at join, AC-06).
+              <PlayerTile
+                key={player.nickname}
+                player={player}
+                crowned={!!crownedNickname && player.nickname === crownedNickname}
+                // replay-remix/03 (AC-01/AC-04/AC-05): the Lobby is always
+                // "between rounds", so the only gate here is "I am host" and
+                // "this tile is not my own" - the SERVER re-enforces both the
+                // host check and the phase gate authoritatively either way.
+                onPassHost={
+                  isHost && !player.isHost && onPassHost
+                    ? () => void handlePassHost(player.nickname)
+                    : undefined
+                }
+              />
+            ))}
+            <InviteSlot code={room.code} />
+          </Stack>
+          {/* replay-remix/03: a transient, friendly rejection message (mirrors
+              favoriteError's inline posture below) - most taps succeed instantly
+              via the reused RosterChanged broadcast, so this only shows on the
+              rare server-side reject (a race with the phase gate, or a target
+              that just left). */}
+          {passHostError && (
+            <Typography
+              sx={{
+                mt: 1,
+                fontFamily: '"Nunito", sans-serif',
+                fontWeight: 700,
+                fontSize: 12,
+                color: 'coral.main',
+                textAlign: 'center',
+              }}
+            >
+              {passHostError}
+            </Typography>
+          )}
         </Box>
 
-        {/* Host-only round setup (group-play/01 family-safe, story-selection/02
-            length, group-play/05 mode - all host-only, non-hosts see none of it).
-            These live in the SCROLLABLE area (not the pinned bar) the SAME way Solo
-            groups them: the mode picker needs room for three chunky cards, and the
-            bottom bar's fixed-height spacer only reserves the Start button - so
-            stuffing all three controls into the bar hid them behind it. Grouped
-            here, everything is visible by scrolling and the Start CTA stays pinned. */}
+        {/* Host-only collapsed "Game settings" row (fit-to-viewport redesign):
+            the key fix that keeps the round-setup controls (family-safe,
+            length, mode, favorites) from stealing the whole viewport. Tapping
+            it opens <GameSettingsSheet> below, which holds the SAME controls
+            that used to live inline here. Non-hosts never saw those controls,
+            so this row is host-only too (unchanged gating). */}
         {isHost && (
-          <Stack spacing={4} sx={{ mt: 4 }}>
-            {/* Safe by default (AC-04); its value + the length + mode travel out
-                through onStart -> the hub's startRound (server-authoritative). */}
-            <FamilySafeToggle checked={familySafe} onChange={handleFamilySafeChange} />
-            <StoryLengthChoice value={lengthPref} onChange={setLengthPref} />
-            {/* The host chooses the mode for the WHOLE room from the SHARED registry
-                (the same cards Solo uses). Disabled cards + the family-safe fallback
-                keep it on a startable mode (AC-04). */}
-            <ModePicker
-              modes={GROUP_MODES}
-              selectedId={mode.config.id}
-              onSelect={setMode}
-              familySafe={familySafe}
-              label="Choose a mode"
-            />
-          </Stack>
-        )}
-
-        {/* Host-only "Play a favorite" inline picker (story-selection/06,
-            AC-03): reveals the SAME <FavoritesList> the standalone Favorites
-            screen uses (no second list implementation), so the host can start
-            a round on one of their own favorited templates without leaving
-            the lobby. Non-hosts never see this panel. */}
-        {isHost && (
-          <Box sx={{ mt: 4 }}>
-            <Button
-              variant="outlined"
-              fullWidth
-              onClick={() => {
-                // Clear any stale rejection so it does not linger on reopen (S-001).
-                setFavoriteError(null);
-                setShowFavoritePicker((expanded) => !expanded);
+          <Box
+            component="button"
+            type="button"
+            onClick={() => setSettingsSheetOpen(true)}
+            aria-haspopup="dialog"
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              width: '100%',
+              textAlign: 'left',
+              cursor: 'pointer',
+              px: 3,
+              py: 2.5,
+              bgcolor: 'card.main',
+              borderRadius: '20px',
+              border: `1.5px solid ${alpha(theme.palette.stoneEdge.main, 0.22)}`,
+              fontFamily: 'inherit',
+              '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+            }}
+          >
+            <Box
+              sx={{
+                flexShrink: 0,
+                width: 44,
+                height: 44,
+                borderRadius: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: alpha(theme.palette.primary.main, 0.14),
+                color: theme.palette.primary.main,
               }}
-              startIcon={<FontAwesomeIcon icon="star" style={{ width: 18, height: 18 }} />}
             >
-              {showFavoritePicker ? 'Hide favorites' : 'Play a favorite'}
-            </Button>
-            {showFavoritePicker && (
-              <Box sx={{ mt: 2.5 }}>
-                {favoriteError && (
-                  <Typography
-                    sx={{
-                      fontFamily: '"Nunito", sans-serif',
-                      fontWeight: 700,
-                      fontSize: 12.5,
-                      color: 'coral.main',
-                      textAlign: 'center',
-                      mb: 1.5,
-                    }}
-                  >
-                    {favoriteError}
-                  </Typography>
-                )}
-                <FavoritesList onPick={(entry) => void handlePickFavoriteForRound(entry)} />
-              </Box>
-            )}
+              <FontAwesomeIcon icon="sliders" style={{ width: 19, height: 19 }} />
+            </Box>
+            <Stack spacing={0.25} sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Typography
+                sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 16.5, color: 'text.primary' }}
+              >
+                Game settings
+              </Typography>
+              <Typography
+                noWrap
+                sx={{ fontFamily: '"Nunito", sans-serif', fontWeight: 700, fontSize: 13, color: 'text.secondary' }}
+              >
+                {settingsSummary}
+              </Typography>
+            </Stack>
+            <Box sx={{ flexShrink: 0, color: 'text.secondary', display: 'flex' }}>
+              <FontAwesomeIcon icon="chevron-right" style={{ width: 16, height: 16 }} />
+            </Box>
           </Box>
         )}
 
-        {/* Host reassurance, right above the pinned Start CTA (moved here from the
-            bar along with the setup controls). */}
+        {/* Host reassurance, right above the pinned Start CTA. */}
         {isHost && (
-          <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.75} sx={{ mt: 4 }}>
+          <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.75}>
             <Box sx={{ color: 'gold.main', fontSize: 14, display: 'flex' }}>
               <FontAwesomeIcon icon="crown" />
             </Box>
@@ -931,19 +1179,85 @@ export function Lobby({
         </Box>
       )}
 
-      {/* Pinned gold Start CTA (group-play/01, AC-05): host-only, always visible.
+      {/* Pinned gold Start CTA (group-play/01, AC-05): shown to the host, and - via the
+          `noHostPresent` escape hatch (room-start-duplicate-members) - to everyone when the
+          roster somehow carries no host, so a hostless room stays startable. Normally that
+          is host-only, since a populated room always has a host.
           The round-setup controls (family-safe, length, mode) now live in the
-          scrollable area above (grouped with the crown note) so the bar holds only
-          the action it is designed for - the fixed spacer reserves exactly this
-          button's height. onStart carries the host's family-safe + length + mode
-          to the hub's startRound (server-authoritative). */}
-      {isHost && (
+          settings sheet (opened via the collapsed row above) so the bar holds
+          only the action it is designed for - the fixed spacer reserves exactly
+          this button's height. onStart carries the host's family-safe + length +
+          mode to the hub's startRound (server-authoritative). */}
+      {(isHost || noHostPresent) && (
         <BottomActionBar>
           <Button variant="contained" fullWidth onClick={() => onStart(familySafe, lengthPref, mode.config.id)}>
             <FontAwesomeIcon icon="play" style={{ width: 22, height: 22 }} />
             Start game
           </Button>
         </BottomActionBar>
+      )}
+
+      {/* Host-only settings sheet (fit-to-viewport redesign): holds the SAME
+          family-safe / length / mode / favorites controls that used to be
+          laid out inline above, reused as-is. Lobby owns every bit of their
+          state; the sheet is pure slide-up chrome. */}
+      {isHost && (
+        <GameSettingsSheet open={settingsSheetOpen} onClose={() => setSettingsSheetOpen(false)}>
+          {/* Safe by default (AC-04); its value + the length + mode travel out
+              through onStart -> the hub's startRound (server-authoritative). */}
+          <FamilySafeToggle checked={familySafe} onChange={handleFamilySafeChange} />
+          <StoryLengthChoice value={lengthPref} onChange={setLengthPref} />
+          {/* The host chooses the mode for the WHOLE room from the SHARED registry
+              (the same cards Solo uses). Disabled cards + the family-safe fallback
+              keep it on a startable mode (AC-04). */}
+          <ModePicker
+            modes={GROUP_MODES}
+            selectedId={mode.config.id}
+            onSelect={setMode}
+            familySafe={familySafe}
+            label="Choose a mode"
+          />
+
+          {/* Host-only "Play a favorite" inline picker (story-selection/06,
+              AC-03), moved into the sheet from its old inline spot on the main
+              screen: reveals the SAME <FavoritesList> the standalone Favorites
+              screen uses (no second list implementation), so the host can
+              start a round on one of their own favorited templates without
+              leaving the lobby. */}
+          <Box>
+            <Button
+              variant="outlined"
+              fullWidth
+              onClick={() => {
+                // Clear any stale rejection so it does not linger on reopen (S-001).
+                setFavoriteError(null);
+                setShowFavoritePicker((expanded) => !expanded);
+              }}
+              startIcon={<FontAwesomeIcon icon="star" style={{ width: 18, height: 18 }} />}
+            >
+              {showFavoritePicker ? 'Hide favorites' : 'Play a favorite'}
+            </Button>
+            {showFavoritePicker && (
+              <Box sx={{ mt: 2.5 }}>
+                {favoriteError && (
+                  <Typography
+                    sx={{
+                      fontFamily: '"Nunito", sans-serif',
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      color: 'coral.main',
+                      textAlign: 'center',
+                      mb: 1.5,
+                    }}
+                  >
+                    {favoriteError}
+                  </Typography>
+                )}
+                <FavoritesList onPick={(entry) => void handlePickFavoriteForRound(entry)} />
+              </Box>
+            )}
+          </Box>
+        </GameSettingsSheet>
       )}
     </Box>
   );

@@ -156,8 +156,9 @@ export function Join({
     // local navigation needed here.
   });
 
+  // Tablet / desktop: a wider column than the 430 phone width (viewport pass).
   return (
-    <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: 430, mx: 'auto' }}>
+    <Box sx={{ position: 'relative', minHeight: '100dvh', maxWidth: { xs: 430, sm: 560 }, mx: 'auto' }}>
       <AppBar
         title="Join a game"
         leftAction={{ icon: 'arrow-left', label: 'Back', onClick: onBack }}

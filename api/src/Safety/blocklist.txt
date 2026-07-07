@@ -53,6 +53,29 @@ wank
 wanker
 whore
 
+# --- Compound / fused profanity ---
+# The matcher is WHOLE-WORD by design (it never substring-scans, to avoid the
+# Scunthorpe problem - "ass" in "class", "cum" in "cucumber", "shit" in the
+# mushroom "shiitake", "cunt" in "Scunthorpe"). A consequence is that profanity
+# FUSED into one token ("shithead") is only caught if the whole compound is
+# listed here. So the common, unambiguous compounds are listed explicitly - each
+# is obscene as a whole word, so it adds zero false-positive risk. This is the
+# curated middle ground; broad generative coverage is the parked AI-moderation
+# work (README section 12), not a substring rule.
+bullshit
+clusterfuck
+cocksucker
+dipshit
+dumbass
+dumbshit
+fuckface
+fuckwit
+horseshit
+jackoff
+motherfucker
+shithead
+shithole
+
 # --- Slurs and hateful terms (zero tolerance for a kid-facing game) ---
 # Intentionally minimal in this baseline resource - a fuller, carefully curated
 # slur list is a follow-up. The strongest, most common ones are covered.

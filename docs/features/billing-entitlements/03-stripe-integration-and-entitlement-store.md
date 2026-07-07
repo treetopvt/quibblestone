@@ -1,6 +1,6 @@
 # Story: Stripe integration + entitlement store
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #72
+**Feature:** Billing & Entitlements  ·  **Status:** Complete  ·  **Issue:** #72
 
 ## Context
 The shared server-side plumbing that both the tip jar (story 02) and the
@@ -16,42 +16,42 @@ note for Stripe webhooks), and
 [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the API needs to call Stripe, when it does, then the
+- [x] AC-01: Given the API needs to call Stripe, when it does, then the
       Stripe secret key (and any webhook signing secret) is read from Azure
       Key Vault at startup/request time - it is never present in a
       `VITE_*` variable, a committed config file, or a log line.
-- [ ] AC-02: Given a Stripe Checkout Session is created (for a tip, a pack, or
+- [x] AC-02: Given a Stripe Checkout Session is created (for a tip, a pack, or
       the family-plan subscription), when the flow is invoked, then it
       supports both a one-time payment mode (tip jar, add-on pack) and a
       recurring subscription mode (family plan) through the same underlying
       service - not two parallel integrations.
-- [ ] AC-03: Given Stripe confirms an initial payment or subscription creation
+- [x] AC-03: Given Stripe confirms an initial payment or subscription creation
       (checkout completed), when that confirmation arrives, then it is
       received via a webhook endpoint, the webhook signature is verified
       before any processing, and the resulting entitlement (if any - the tip
       jar grants none, per story 02 AC-02) is written to the entitlement
       store from billing-entitlements/01 as a lease-shaped `EntitlementGrant`
       (capability key(s), `validThrough`, `source`).
-- [ ] AC-04: Given the webhook handler is implemented in-app (inside the
+- [x] AC-04: Given the webhook handler is implemented in-app (inside the
       single ASP.NET Core app, per README section 4's "one app to start"), it
       is written as an isolated, single-purpose endpoint/service (its own
       controller or minimal-API route + a dedicated handler class) so lifting
       it into an Azure Function later - the natural first carve-out README
       section 4 names - is a move of that class, not a rewrite.
-- [ ] AC-05: Given a webhook event is received twice (Stripe's documented
+- [x] AC-05: Given a webhook event is received twice (Stripe's documented
       at-least-once delivery), when the handler processes it, then the
       resulting entitlement grant is idempotent - processing the same event
       id twice does not double-grant or corrupt the entitlement store.
-- [ ] AC-06: Given a purchase completes for a signed-in purchaser
+- [x] AC-06: Given a purchase completes for a signed-in purchaser
       (accounts-identity/02), when the entitlement is granted, then it is
       written keyed to that purchaser's identity in Azure Table Storage
       (README section 4), matching the lease-shaped `EntitlementGrant`
       read shape billing-entitlements/01's session-creation gate expects
       (`validThrough` + `source`, ADR 0002 Decision C).
-- [ ] AC-07: Given a payment fails or is abandoned mid-checkout, when that
+- [x] AC-07: Given a payment fails or is abandoned mid-checkout, when that
       happens, then no entitlement is granted and the purchaser sees no false
       "unlocked" state anywhere in the app.
-- [ ] AC-08: Given the family-plan subscription's lifecycle events arrive via
+- [x] AC-08: Given the family-plan subscription's lifecycle events arrive via
       webhook, when each is processed, then: an `invoice.paid` (renewal) event
       extends the grant's `validThrough` to the new billing period's end; a
       `past_due` status extends `validThrough` by a ~7-day grace window (ADR
@@ -138,14 +138,14 @@ note for Stripe webhooks), and
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `manual: config/secret audit - confirm the Stripe key is sourced from Key Vault-backed configuration, grep the repo and build output for the literal key value.` |
-| AC-02 | `api/tests/Billing/StripeCheckoutServiceTests.cs (to be created, Stripe test-mode or a mocked client): both a payment-mode and a subscription-mode session are created via the same service.` |
-| AC-03 | `api/tests/Billing/StripeWebhookHandlerTests.cs: a valid signed test event grants the expected lease-shaped entitlement; an invalid signature is rejected before any processing.` |
-| AC-04 | `manual: code review - confirm the handler is a single, self-contained class/route with no cross-cutting dependencies that would block extraction into a Function.` |
-| AC-05 | `api/tests/Billing/StripeWebhookHandlerTests.cs: replaying the same event id a second time does not change the entitlement store's state.` |
-| AC-06 | `api/tests/Billing/StripeWebhookHandlerTests.cs (integration-style, Table Storage emulator or fake): the granted entitlement is readable via billing-entitlements/01's session-creation gate for that purchaser.` |
-| AC-07 | `manual: simulate a failed/abandoned Stripe test-mode checkout - confirm no entitlement row is written and the app shows no false-unlocked state.` |
-| AC-08 | `api/tests/Billing/StripeWebhookHandlerTests.cs (new cases): invoice.paid extends validThrough to the new period end; past_due extends it by the ~7-day grace constant; canceled leaves validThrough to lapse (no live revoke of an open session).` |
+| AC-01 | `manual: verified - config/secret audit confirms the Stripe key is sourced from Key Vault-backed configuration; repo and build output contain no literal key value.` |
+| AC-02 | `tests/QuibbleStone.Api.Tests/Billing/StripeCheckoutServiceTests.cs::Payment_mode_builds_a_payment_session_with_metadata` and `::Subscription_mode_builds_a_subscription_session_and_stamps_subscription_metadata` - both modes created via the same `StripeCheckoutService`. Also verified LIVE against Stripe test-mode: a real Checkout Session was created end to end.` |
+| AC-03 | `tests/QuibbleStone.Api.Tests/Billing/StripeWebhookHandlerTests.cs::Checkout_one_time_grants_a_permanent_capability_readable_via_the_gate`, plus `tests/QuibbleStone.Api.Tests/Billing/StripeWebhookControllerTests.cs::Tampered_signature_is_rejected_and_grants_nothing`. Also verified LIVE: a real signed Stripe test-mode webhook was processed and the grant written.` |
+| AC-04 | `manual: verified - the handler (StripeWebhookHandler + StripeWebhookController in api/src/Billing/) is a single, self-contained class/route with no cross-cutting dependencies blocking later extraction into a Function.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/Billing/StripeWebhookHandlerTests.cs::Replaying_the_same_event_id_is_idempotent` |
+| AC-06 | `tests/QuibbleStone.Api.Tests/Billing/StripeWebhookHandlerTests.cs::Checkout_one_time_grants_a_permanent_capability_readable_via_the_gate` and `::Checkout_without_a_purchaser_grants_nothing`.` |
+| AC-07 | `manual: verified - a failed/abandoned Stripe test-mode checkout writes no entitlement row and the app shows no false-unlocked state.` |
+| AC-08 | `tests/QuibbleStone.Api.Tests/Billing/StripeWebhookHandlerTests.cs::Renewal_extends_the_lease_to_the_new_period_end`, `::PastDue_extends_by_grace_and_never_shortens`, `::Cancel_lapses_the_lease_at_next_read`.` |
 
 ## Dependencies
 - billing-entitlements/01 (#70) - the grant store shape (`EntitlementGrant`,

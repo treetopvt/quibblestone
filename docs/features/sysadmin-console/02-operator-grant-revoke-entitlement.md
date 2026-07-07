@@ -1,6 +1,6 @@
 # Story: Operator grant / revoke an entitlement by purchaser email
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #136
+**Feature:** Sys-Admin Console  ·  **Status:** In Progress  ·  **Issue:** #136
 
 ## Context
 The concrete need this story exists for (ADR 0002 "Recommendation" + Decision B): unstick a paying
@@ -15,17 +15,17 @@ protected endpoints plus a minimal internal page, not a full admin app. See
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in operator (story 01's boundary), when they enter a purchaser's email
+- [x] AC-01: Given a signed-in operator (story 01's boundary), when they enter a purchaser's email
       into the back office's lookup screen, then the purchaser's account (accounts-identity/02) and
       its current entitlement grants (capability key, `validThrough`, `source`) are displayed - or a
       clear "no account found for this email" state if none exists.
-- [ ] AC-02: Given a looked-up purchaser, when the operator grants a capability key from the
+- [x] AC-02: Given a looked-up purchaser, when the operator grants a capability key from the
       `billing-entitlements/01` catalog, then an `EntitlementGrant` row is written keyed to that
       purchaser's identity with `source = operator` (or an equivalent explicit marker distinguishing
       it from a Stripe-driven grant) and a `validThrough` the operator sets (a specific date, or "no
       expiry" for a one-time-pack-shaped grant) - written through the exact same store
       `billing-entitlements/01`'s session-creation gate reads, not a parallel write path.
-- [ ] AC-03: Given a purchaser with an active grant, when the operator revokes a capability key,
+- [x] AC-03: Given a purchaser with an active grant, when the operator revokes a capability key,
       then the grant is removed or its `validThrough` is set to the past (whichever
       `billing-entitlements/01`'s store shape prefers) so the very next session-creation check for
       that purchaser evaluates that capability as no longer unlocked - consistent with "not
@@ -36,11 +36,11 @@ protected endpoints plus a minimal internal page, not a full admin app. See
       room code, session id, or gameplay data is ever looked up, joined, or displayed anywhere on
       this surface; the operator cannot navigate from a purchaser record to any room or player the
       purchaser's household played in.
-- [ ] AC-05 (admin-boundary reuse): Given these endpoints, then they are reachable only from the
+- [x] AC-05 (admin-boundary reuse): Given these endpoints, then they are reachable only from the
       back office (story 01's separate bundle/route tree) and require the operator authorization
       policy from story 01 - never merely "signed in as a purchaser," and never exposed to the kid
       PWA or any player-facing route.
-- [ ] AC-06: Given an operator grants or revokes an entitlement, then the change is idempotent and
+- [x] AC-06: Given an operator grants or revokes an entitlement, then the change is idempotent and
       low-ceremony - granting the same key twice does not create duplicate rows, and there is no
       audit-trail/approval-workflow ceremony beyond the operator seeing what they just did (this is
       operator convenience, not a compliance console, per feature.md's Design notes).
@@ -95,12 +95,12 @@ protected endpoints plus a minimal internal page, not a full admin app. See
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Admin/AdminEntitlementsControllerTests.cs (to be created): a lookup by known email returns the account + grants; an unknown email returns a clear not-found state.` |
-| AC-02 | `api/tests/Admin/AdminEntitlementsControllerTests.cs: granting a capability key writes an EntitlementGrant with source=operator and the given validThrough, readable by billing-entitlements/01's session-creation gate.` |
-| AC-03 | `api/tests/Admin/AdminEntitlementsControllerTests.cs: revoking a capability key causes the next EvaluateForSession call for that purchaser to return it locked; a fake already-open session is unaffected.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Admin/AdminEntitlementsControllerTests.cs: a lookup by known email returns the account + grants; an unknown email returns a clear not-found state.` |
+| AC-02 | `tests/QuibbleStone.Api.Tests/Admin/AdminEntitlementsControllerTests.cs: granting a capability key writes an EntitlementGrant with source=Operator and the given validThrough, readable by billing-entitlements/01's session-creation gate (EvaluateForSession).` |
+| AC-03 | `tests/QuibbleStone.Api.Tests/Admin/AdminEntitlementsControllerTests.cs: revoking a capability key (past-dating the lease) causes the next EvaluateForSession call for that purchaser to return it locked; a SessionEntitlements captured before the revoke is unaffected.` |
 | AC-04 | `manual: code review + UI audit - confirm no player/room/session field is ever queried, joined, or rendered on the purchaser lookup or grant/revoke screen.` |
-| AC-05 | `manual: attempt these endpoints with a purchaser-scoped credential (accounts-identity/03 shape) - confirm rejection; confirm the page is unreachable from the kid PWA.` |
-| AC-06 | `api/tests/Admin/AdminEntitlementsControllerTests.cs: granting the same key twice does not duplicate rows; no audit-log entity is required for the action to succeed.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/Admin/AdminEntitlementsControllerTests.cs: a purchaser-scoped credential (and no credential) is rejected by these endpoints; the page is unreachable from the kid PWA (separate admin bundle).` |
+| AC-06 | `tests/QuibbleStone.Api.Tests/Admin/AdminEntitlementsControllerTests.cs: granting the same key twice does not duplicate rows; no audit-log entity is required for the action to succeed.` |
 
 ## Dependencies
 - `sysadmin-console/01` (this feature) - the operator login + admin boundary this story's endpoints

@@ -13,10 +13,12 @@
 //       over-blocked these via a whole-string substring scan (the Scunthorpe
 //       problem); the fix matches whole words / whole obfuscated strings only.
 //
-//  Known baseline gap (asserted below so it is explicit, not accidental):
-//  profanity fused inside a longer single token ("fuckface") is not caught - a
-//  documented Slice-1 limitation, since substring-matching it would re-introduce
-//  the false positives above.
+//  Compound / fused profanity: the COMMON compounds are now curated into the
+//  blocklist as whole terms ("shithead", "dumbass", "bullshit", ...) and ARE
+//  blocked (asserted below). An UNLISTED compound ("asshat") is still not caught -
+//  a documented Slice-1 limitation asserted below so it stays explicit, since
+//  substring-matching arbitrary compounds would re-introduce the false positives
+//  above (even "shit"/"cunt" have innocent hosts: "shiitake", "scunthorpe").
 // ----------------------------------------------------------------------------
 
 using QuibbleStone.Api.Safety;
@@ -47,6 +49,8 @@ public class ContentSafetyFilterTests
     [InlineData("cucumber")]   // "cum"
     [InlineData("raccoon")]    // "coon"
     [InlineData("scunthorpe")] // "cunt"
+    [InlineData("shiitake")]   // "shit" (folds to "shitake") - a curated-compound regression guard
+    [InlineData("asshat")]     // an UNLISTED compound - still allowed (documents the remaining gap)
     public async Task Allows_clean_and_innocent_substring_words(string text)
     {
         var result = await _filter.CheckAsync(text);
@@ -101,15 +105,27 @@ public class ContentSafetyFilterTests
         Assert.DoesNotContain("shit", result.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task Known_gap_compound_embedded_profanity_is_not_caught()
+    [Theory]
+    // Curated compound obscenities, now listed as whole terms in blocklist.txt and
+    // caught by pass 1's exact-token equality (no substring scan, so no innocent-host
+    // false positive is reintroduced - see "shiitake"/"scunthorpe"/"asshat" above).
+    [InlineData("shithead")]
+    [InlineData("dumbass")]
+    [InlineData("bullshit")]
+    [InlineData("motherfucker")]
+    [InlineData("fuckface")]
+    [InlineData("dipshit")]
+    [InlineData("cocksucker")]
+    // Folding still applies to compounds: leet, repeats, and separators resolve
+    // to the listed term.
+    [InlineData("Sh1thead")]
+    [InlineData("dumbaaass")]
+    [InlineData("bull-shit")]
+    public async Task Blocks_curated_compound_profanity(string text)
     {
-        // Documented Slice-1 limitation: a blocked term fused inside a longer
-        // single token is not substring-matched (that would over-block innocent
-        // words). This test pins the CURRENT behavior so a future change that
-        // closes the gap is a deliberate, reviewed decision - not a silent drift.
-        var result = await _filter.CheckAsync("fuckface");
-        Assert.True(result.IsAllowed);
+        var result = await _filter.CheckAsync(text);
+        Assert.False(result.IsAllowed, $"Expected '{text}' to be blocked");
+        Assert.NotNull(result.Message);
     }
 
     [Theory]

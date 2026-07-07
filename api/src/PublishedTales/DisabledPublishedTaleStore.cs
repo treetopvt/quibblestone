@@ -42,4 +42,32 @@ public sealed class DisabledPublishedTaleStore : IPublishedTaleStore
     /// <inheritdoc />
     public Task RevokeAsync(string slug, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
+
+    // ---- Moderation (sysadmin-console/03, issue #137) ------------------------
+    // With the feature OFF there are no stored tales, so every moderation call is a
+    // safe no-op: a report has nothing to record (null), the serve path sees the
+    // unreported default (so nothing is ever under review), the review queue is
+    // empty, and confirm / restore find nothing to act on (false). This keeps the
+    // app building + running locally with the whole feature simply switched off
+    // (AC-07's spirit) - it never breaks the disabled path.
+
+    /// <inheritdoc />
+    public Task<TaleModerationState?> ReportAsync(string slug, int autoHideThreshold, CancellationToken cancellationToken = default) =>
+        Task.FromResult<TaleModerationState?>(null);
+
+    /// <inheritdoc />
+    public Task<TaleModerationState> GetModerationAsync(string slug, CancellationToken cancellationToken = default) =>
+        Task.FromResult(TaleModerationState.None(slug));
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ReportedTaleView>> ListHiddenAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<ReportedTaleView>>([]);
+
+    /// <inheritdoc />
+    public Task<bool> ConfirmHiddenAsync(string slug, CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
+
+    /// <inheritdoc />
+    public Task<bool> RestoreAsync(string slug, CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
 }

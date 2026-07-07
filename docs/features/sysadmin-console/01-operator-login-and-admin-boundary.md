@@ -1,6 +1,6 @@
 # Story: Operator login and admin boundary (separate surface)
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #135
+**Feature:** Sys-Admin Console  ·  **Status:** In Progress  ·  **Issue:** #135
 
 ## Context
 This is the foundation of the whole feature (feature.md's Candidate stories table, ADR 0002
@@ -16,16 +16,16 @@ surface will shortly carry purchaser-email lookups and moderation actions, and t
 radius must stay minimal (CLAUDE.md section 5). See [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given an operator (an email on the operator allowlist) requests a sign-in link, when
+- [x] AC-01: Given an operator (an email on the operator allowlist) requests a sign-in link, when
       they submit their email to the back office's login screen, then a one-time magic link is
       issued and emailed - using the same token issue/verify plumbing as the purchaser flow (or,
       per Technical Notes, a thin contract-compatible issuer this story builds if that plumbing
       has not landed yet) - and following it signs them into the back office.
-- [ ] AC-02: Given an email that is NOT on the operator allowlist, when a magic-link sign-in for
+- [x] AC-02: Given an email that is NOT on the operator allowlist, when a magic-link sign-in for
       that email is attempted (issued or followed), then it never resolves to an operator session
       - the allowlist check happens at verify time, not at token-issue time, so no operator scope
       is ever granted based on possessing a valid link alone.
-- [ ] AC-03 (the load-bearing guard): Given a purchaser is signed in to their own purchaser account
+- [x] AC-03 (the load-bearing guard): Given a purchaser is signed in to their own purchaser account
       (accounts-identity/02, a *different* session/credential), when that purchaser's session token
       is presented to any admin endpoint, then the request is rejected - admin endpoints check
       membership in the operator allowlist, never "is this caller signed in as *some* account."
@@ -96,11 +96,11 @@ radius must stay minimal (CLAUDE.md section 5). See [feature.md](./feature.md).
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Admin/OperatorLoginTests.cs (to be created): issuing then following a magic link for an allowlisted email establishes an operator session.` |
-| AC-02 | `api/tests/Admin/OperatorLoginTests.cs: a valid, followed link for a non-allowlisted email never yields an operator-scoped session.` |
-| AC-03 | `api/tests/Admin/OperatorAuthorizationTests.cs: a purchaser-scoped credential (accounts-identity/03 shape) presented to an admin-only endpoint is rejected (403/401), never authorized by mere sign-in.` |
-| AC-04 | `manual: bundle/route audit - confirm the back-office entry point is a separate build/route with no import edge from web/src (the kid PWA) and no nav/deep-link path reaches it.` |
-| AC-05 | `manual: config/secret audit - confirm the allowlist is sourced from Key Vault-backed configuration, never a web-exposed env var or a committed file.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Admin/OperatorLoginTests.cs: issuing then following a magic link for an allowlisted email establishes an operator session.` |
+| AC-02 | `tests/QuibbleStone.Api.Tests/Admin/OperatorLoginTests.cs + OperatorAllowlistTests.cs: a valid, followed link for a non-allowlisted email never yields an operator-scoped session (allowlist checked at verify time, not issue time).` |
+| AC-03 | `tests/QuibbleStone.Api.Tests/Admin/OperatorAuthorizationTests.cs: a genuine purchaser-purpose DataProtection credential presented to an Operator-policy endpoint is rejected (401), while an allowlisted operator credential returns 200 (WebApplicationFactory boots the real app).` |
+| AC-04 | `manual + static: bundle/route audit - the admin bundle (web/admin.html -> web/src/admin/) builds as its own chunk with no import edge from web/src kid-app code and no nav/deep-link path reaches it (confirmed at build time; re-confirm in the browser at verification).` |
+| AC-05 | `manual: config/secret audit - the allowlist is sourced from Key Vault-backed configuration (Operator:AllowedEmails), fail-closed empty in appsettings.json, never a VITE_* var or a committed literal.` |
 | AC-06 | `manual: load each back-office route unauthenticated - confirm only the login screen renders and no admin/purchaser data is fetched.` |
 | AC-07 | `manual: code read of the operator login path - confirm no field beyond the operator's email is collected or stored.` |
 

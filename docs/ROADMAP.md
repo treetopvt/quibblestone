@@ -77,6 +77,12 @@ https://claude.ai/code/artifact/2e5c39ac-98e9-4afc-b7d4-1c06fbf677bd
   (from the template's curated `tags.themes`, no story text sent), a cheeky grown-up
   word set when family-safe is off (still behind the always-on profanity filter), and a
   larger avoid-list.
+- **Accounts + entitlements, built** (`accounts-identity` #67-69, PR #147;
+  `billing-entitlements` #70-74, PR #152): anonymous-forever players, a lightweight
+  magic-link purchaser account, the session-creation entitlement seam (the cost gate's
+  `IEntitlementService` made real), Stripe checkout + webhook, tip jar, gated purchase,
+  and restore/manage. The monetization seam is now code-complete; going live (real
+  Stripe provisioning) is the remaining step (see "Charge for it" below).
 
 ## Open / near-done
 
@@ -135,10 +141,14 @@ once and reused by every later AI feature.
   "a story about our dog in space" (`ai-voice-narration`, `ai-illustration`,
   `ai-on-demand-generation`). Same gate, bigger payloads, strongest moderation.
 - **Charge for it** - purchaser account + tip jar -> Stripe -> gated purchase
-  (`accounts-identity`, `billing-entitlements`). The cost gate is already half of it:
-  the `IEntitlementService` seam shipped thin + default-unlocked, captured at
-  `CreateRoom` (ai-cost-gate/02); `billing-entitlements/01` (#70) extends it with the
-  real catalog + grant store. How this stays anonymous while a paying adult unlocks
+  (`accounts-identity`, `billing-entitlements`). **The build is done** (see "Accounts
+  + entitlements, built" above - PRs #147/#152): the account, the entitlement seam,
+  Stripe checkout/webhook, tip jar, gated purchase, and restore all merged. What
+  remains is **going live** - real Stripe keys + price ids provisioned, and the
+  operator back office. Context: the `IEntitlementService` seam shipped thin +
+  default-unlocked, captured at `CreateRoom` (ai-cost-gate/02), and
+  `billing-entitlements/01` (#70) extended it with the real catalog + grant store. How
+  this stays anonymous while a paying adult unlocks
   content/features for their sessions - the family-plan subscription shape, and the
   operator back office - is decided in [ADR 0002](./adr/0002-accounts-subscriptions-and-admin.md)
   (decisions A-F resolved) and decomposed in

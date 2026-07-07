@@ -274,11 +274,14 @@ export function WordBankAnswer({
   };
 
   return (
-    <Stack sx={{ mb: 4 }}>
+    // No outer margin: this surface renders inside FillBlank's pinned interaction
+    // zone, whose flex `gap` handles spacing to the "Skip" link below it.
+    <Stack>
       <Stack
         direction="row"
-        alignItems="baseline"
+        alignItems="center"
         justifyContent="space-between"
+        spacing={1}
         sx={{ mb: 1.25 }}
       >
         <Typography
@@ -291,23 +294,78 @@ export function WordBankAnswer({
         >
           Tap a word from the bank
         </Typography>
-        {/* The "N fresh runes left" meter (AC-08 / ai-cost-gate/03), shown only
-            once an AI jumble has reported a remaining count. */}
-        {remainingQuota !== null && (
-          <Typography
-            sx={{
-              fontFamily: '"Nunito", sans-serif',
-              fontWeight: 700,
-              fontSize: 11.5,
-              color: 'text.secondary',
-            }}
-          >
-            {remainingQuota} fresh {remainingQuota === 1 ? 'rune' : 'runes'} left
-          </Typography>
-        )}
+        {/* Fresh Runes re-roll (AC-01/07), INLINE with the instruction (not on
+            its own row below): swaps the offered words for a fresh set for the
+            same category. Sitting up here keeps the layout compact and, with the
+            reserved-height bank below, keeps "Choose this word" from shifting.
+            A compact pill (on-brand label + dice glyph); soft-disables when a
+            re-roll can offer nothing new. */}
+        <Box
+          component="button"
+          type="button"
+          disabled={jumbleDisabled}
+          onClick={handleJumble}
+          aria-label={`${FRESH_RUNES_LABEL}: offer a fresh set of words`}
+          sx={{
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 0.75,
+            border: `2px solid ${alpha(theme.palette.teal.main, 0.5)}`,
+            cursor: 'pointer',
+            bgcolor: 'transparent',
+            px: 1.75,
+            py: 0.75,
+            borderRadius: 999,
+            color: theme.palette.teal.dark,
+            fontFamily: '"Nunito", sans-serif',
+            fontWeight: 800,
+            fontSize: 13,
+            whiteSpace: 'nowrap',
+            '&:hover': { bgcolor: alpha(theme.palette.teal.main, 0.1) },
+            '&:focus-visible': {
+              outline: `2px solid ${theme.palette.teal.dark}`,
+              outlineOffset: 2,
+            },
+            '&:disabled': { cursor: 'not-allowed', opacity: 0.45 },
+          }}
+        >
+          <FontAwesomeIcon icon="dice" style={{ width: 14, height: 14 }} />
+          {jumbling ? 'Carving...' : FRESH_RUNES_LABEL}
+        </Box>
       </Stack>
+      {/* The "N fresh runes left" meter (AC-08 / ai-cost-gate/03), shown only
+          once an AI jumble has reported a remaining count. Sits just under the
+          row so it never destabilizes the label / Fresh-runes baseline. */}
+      {remainingQuota !== null && (
+        <Typography
+          sx={{
+            textAlign: 'right',
+            fontFamily: '"Nunito", sans-serif',
+            fontWeight: 700,
+            fontSize: 11.5,
+            color: 'text.secondary',
+            mt: -0.5,
+            mb: 1,
+          }}
+        >
+          {remainingQuota} fresh {remainingQuota === 1 ? 'rune' : 'runes'} left
+        </Typography>
+      )}
 
-      <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+      {/* Reserved-height chip bank: a stable minHeight (enough for the full
+          offering of ~3 rows) with chips top-aligned, so the "Choose this word"
+          button below lands in the SAME place no matter how many words the
+          current blank or a fresh re-roll offers - it no longer drifts with the
+          bank size. A small category simply leaves a little parchment space
+          below its chips rather than pulling the button up. */}
+      <Stack
+        direction="row"
+        spacing={1.25}
+        flexWrap="wrap"
+        useFlexGap
+        sx={{ mb: 1.5, minHeight: 152, alignContent: 'flex-start' }}
+      >
         {offered.map((word, index) => {
           const isSelected = word === selected;
           return (
@@ -349,42 +407,6 @@ export function WordBankAnswer({
           );
         })}
       </Stack>
-
-      {/* Fresh Runes re-roll (AC-01/07): swaps the offered words for a fresh set
-          for the same category. On-brand label + dice glyph, big tap target. */}
-      <Box
-        component="button"
-        type="button"
-        disabled={jumbleDisabled}
-        onClick={handleJumble}
-        aria-label={`${FRESH_RUNES_LABEL}: offer a fresh set of words`}
-        sx={{
-          alignSelf: 'flex-start',
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 1,
-          border: `2px solid ${alpha(theme.palette.teal.main, 0.5)}`,
-          cursor: 'pointer',
-          bgcolor: 'transparent',
-          px: 2.5,
-          py: 1.25,
-          mb: 2.5,
-          borderRadius: 999,
-          color: theme.palette.teal.dark,
-          fontFamily: '"Nunito", sans-serif',
-          fontWeight: 800,
-          fontSize: 14,
-          '&:hover': { bgcolor: alpha(theme.palette.teal.main, 0.1) },
-          '&:focus-visible': {
-            outline: `2px solid ${theme.palette.teal.dark}`,
-            outlineOffset: 2,
-          },
-          '&:disabled': { cursor: 'not-allowed', opacity: 0.45 },
-        }}
-      >
-        <FontAwesomeIcon icon="dice" style={{ width: 16, height: 16 }} />
-        {jumbling ? 'Carving fresh words...' : FRESH_RUNES_LABEL}
-      </Box>
 
       {errorMessage && (
         <Typography

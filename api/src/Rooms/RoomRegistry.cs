@@ -31,6 +31,17 @@ using System.Security.Cryptography;
 
 namespace QuibbleStone.Api.Rooms;
 
+/// <summary>
+/// session-engine/07 (hold the seat): the handle a grace-holding disconnect hands to
+/// the grace scheduler so it can run (and later resolve) the one-shot delayed
+/// eviction. Carries the affected <see cref="Room"/>, the dropped connection id, the
+/// disconnect <see cref="Episode"/> (so a stale timer cannot evict a since-reconnected
+/// seat), and the <see cref="Token"/> the delay waits on (story 08's Rejoin cancels
+/// its source to keep the seat). It is a transient scheduling handle, never persisted
+/// or broadcast.
+/// </summary>
+public sealed record SeatGraceHandle(Room Room, string ConnectionId, Guid Episode, CancellationToken Token);
+
 public sealed class RoomRegistry
 {
     // Unambiguous code alphabet: A-Z and 2-9 with the look-alike glyphs removed
@@ -125,8 +136,21 @@ public sealed class RoomRegistry
     /// </summary>
     /// <param name="connectionId">The SignalR connection that dropped.</param>
     /// <returns>The still-active room to re-broadcast, or null if none / the room was emptied.</returns>
-    public Room? RemoveConnection(string connectionId)
+    public Room? RemoveConnection(string connectionId) => RemoveConnection(connectionId, out _);
+
+    /// <summary>
+    /// room-start-duplicate-members: the same removal as <see cref="RemoveConnection(string)"/>,
+    /// additionally reporting (via <paramref name="promotedHostConnectionId"/>) whether the
+    /// departing seat's removal migrated the host flag to a remaining seat, so the hub can
+    /// nudge that connection with "HostGranted". Null when nobody was promoted (a non-host
+    /// left, the connection was not seated, or the room emptied).
+    /// </summary>
+    /// <param name="connectionId">The SignalR connection that dropped.</param>
+    /// <param name="promotedHostConnectionId">Out: the connection promoted to host, or null when none was.</param>
+    /// <returns>The still-active room to re-broadcast, or null if none / the room was emptied.</returns>
+    public Room? RemoveConnection(string connectionId, out string? promotedHostConnectionId)
     {
+        promotedHostConnectionId = null;
         if (string.IsNullOrEmpty(connectionId))
         {
             return null;
@@ -135,7 +159,7 @@ public sealed class RoomRegistry
         foreach (var pair in _rooms)
         {
             var room = pair.Value;
-            if (!room.RemovePlayer(connectionId))
+            if (!room.RemovePlayer(connectionId, out promotedHostConnectionId))
             {
                 continue;
             }
@@ -164,6 +188,89 @@ public sealed class RoomRegistry
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// session-engine/07 (AC-01/AC-02): begin holding a dropped connection's seat for
+    /// the grace window instead of evicting it. Scans the active rooms (a connection is
+    /// only ever in one room in Slice 1, same scan <see cref="RemoveConnection"/> uses)
+    /// for the seat owning <paramref name="connectionId"/> and marks it disconnected via
+    /// <see cref="Room.MarkDisconnected"/> - the seat stays on the roster (now flagged
+    /// not-connected) and the room is NOT freed. Returns a <see cref="SeatGraceHandle"/>
+    /// the caller hands to the grace scheduler, or null when the connection was not
+    /// seated anywhere (or its seat is already being held) - the "nothing to hold" case
+    /// the hub treats as a no-op.
+    /// </summary>
+    /// <param name="connectionId">The dropped SignalR connection.</param>
+    /// <returns>The handle to schedule the deferred eviction, or null if there is no live seat to hold.</returns>
+    public SeatGraceHandle? BeginGrace(string connectionId)
+    {
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            return null;
+        }
+
+        foreach (var pair in _rooms)
+        {
+            var ticket = pair.Value.MarkDisconnected(connectionId);
+            if (ticket is not null)
+            {
+                return new SeatGraceHandle(pair.Value, connectionId, ticket.Episode, ticket.Token);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// session-engine/07 (AC-03/AC-05): resolve a grace window that elapsed with no
+    /// reconnect - the deferred twin of <see cref="RemoveConnection"/>. Releases the
+    /// held seat via <see cref="Room.TryReleaseSeat"/> ONLY if the same disconnect
+    /// <paramref name="episode"/> is still pending (a reconnect or a newer drop makes
+    /// this a no-op), then, if that emptied the room, drops it from the store so its
+    /// code frees at once (AC-05 - the room lives through the grace window but not past
+    /// eviction). Mirrors <see cref="RemoveConnection"/>'s return contract: the
+    /// still-active room to re-broadcast to when members remain, or null when there is
+    /// nothing to do (reconnected / superseded) OR the room was emptied and dropped
+    /// (no one left to tell).
+    /// </summary>
+    /// <param name="room">The room the held seat lives in (from the grace handle).</param>
+    /// <param name="connectionId">The held (dropped) connection to evict.</param>
+    /// <param name="episode">The disconnect episode the expiring timer was started for.</param>
+    /// <returns>The still-active room to re-broadcast, or null if nothing was evicted or the room was emptied.</returns>
+    public Room? ReleaseGraceSeat(Room room, string connectionId, Guid episode) =>
+        ReleaseGraceSeat(room, connectionId, episode, out _);
+
+    /// <summary>
+    /// room-start-duplicate-members: the same grace release as
+    /// <see cref="ReleaseGraceSeat(Room, string, Guid)"/>, additionally reporting whether
+    /// evicting the held seat migrated the host flag to a remaining seat (via
+    /// <paramref name="promotedHostConnectionId"/>), so the grace-expiry epilogue can nudge
+    /// that connection with "HostGranted". Null when nobody was promoted.
+    /// </summary>
+    /// <param name="room">The room the held seat lives in (from the grace handle).</param>
+    /// <param name="connectionId">The held (dropped) connection to evict.</param>
+    /// <param name="episode">The disconnect episode the expiring timer was started for.</param>
+    /// <param name="promotedHostConnectionId">Out: the connection promoted to host, or null when none was.</param>
+    /// <returns>The still-active room to re-broadcast, or null if nothing was evicted or the room was emptied.</returns>
+    public Room? ReleaseGraceSeat(Room room, string connectionId, Guid episode, out string? promotedHostConnectionId)
+    {
+        promotedHostConnectionId = null;
+        ArgumentNullException.ThrowIfNull(room);
+
+        if (!room.TryReleaseSeat(connectionId, episode, out promotedHostConnectionId))
+        {
+            // Reconnected within grace, or superseded by a newer drop - keep the seat.
+            return null;
+        }
+
+        if (room.IsEmpty)
+        {
+            _rooms.TryRemove(room.Code, out _);
+            return null;
+        }
+
+        return room;
     }
 
     /// <summary>The number of currently active rooms (after sweeping expired ones).</summary>

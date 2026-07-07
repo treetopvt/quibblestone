@@ -327,17 +327,27 @@ public class PublishedTalesControllerTests
 /// Hand-rolled in-memory published-tale store for controller tests (no mocking
 /// framework in the harness). Mirrors the real store's semantics that the
 /// controller depends on: IsEnabled true, point read by slug, lazy expiry-on-read
-/// (an expired tale reads as null), and idempotent revoke.
+/// (an expired tale reads as null), idempotent revoke, and (sysadmin-console/03) the
+/// report -> auto-hide -> operator-review moderation companion state, kept as a
+/// SEPARATE tiny state keyed by slug (never rewriting the tale body), matching the
+/// real TableStoragePublishedTaleStore's semantics.
 /// </summary>
 internal sealed class FakePublishedTaleStore : IPublishedTaleStore
 {
     private readonly Dictionary<string, PublishedTale> _byslug = new();
+    // The moderation companion state, keyed by slug (count + hidden) - distinct from
+    // the tale body, exactly like the real store's separate moderation row.
+    private readonly Dictionary<string, TaleModerationState> _moderation = new();
 
     public IReadOnlyList<PublishedTale> Tales => _byslug.Values.ToList();
 
     public bool IsEnabled => true;
 
     public void Seed(PublishedTale tale) => _byslug[tale.Slug] = tale;
+
+    /// <summary>Test seam: force a slug into a given moderation state (count + hidden).</summary>
+    public void SeedModeration(string slug, int reportCount, bool isHidden) =>
+        _moderation[slug] = new TaleModerationState(slug, reportCount, isHidden);
 
     public Task PublishAsync(PublishedTale tale, CancellationToken cancellationToken = default)
     {
@@ -363,5 +373,60 @@ internal sealed class FakePublishedTaleStore : IPublishedTaleStore
     {
         _byslug.Remove(slug);
         return Task.CompletedTask;
+    }
+
+    // ---- Moderation (sysadmin-console/03) ------------------------------------
+
+    public async Task<TaleModerationState?> ReportAsync(string slug, int autoHideThreshold, CancellationToken cancellationToken = default)
+    {
+        // Only a serving tale can be reported (expiry / missing applied via GetAsync).
+        var tale = await GetAsync(slug, cancellationToken);
+        if (tale is null)
+        {
+            return null;
+        }
+
+        var existing = _moderation.TryGetValue(slug, out var state) ? state : TaleModerationState.None(slug);
+        var count = existing.ReportCount + 1;
+        var hidden = existing.IsHidden || count >= autoHideThreshold;
+        var updated = new TaleModerationState(slug, count, hidden);
+        _moderation[slug] = updated;
+        return updated;
+    }
+
+    public Task<TaleModerationState> GetModerationAsync(string slug, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_moderation.TryGetValue(slug, out var state) ? state : TaleModerationState.None(slug));
+
+    public Task<IReadOnlyList<ReportedTaleView>> ListHiddenAsync(CancellationToken cancellationToken = default)
+    {
+        var views = _moderation.Values
+            .Where(m => m.IsHidden && _byslug.ContainsKey(m.Slug))
+            .OrderByDescending(m => m.ReportCount)
+            .Select(m => new ReportedTaleView(_byslug[m.Slug], m.ReportCount))
+            .ToList();
+        return Task.FromResult<IReadOnlyList<ReportedTaleView>>(views);
+    }
+
+    public Task<bool> ConfirmHiddenAsync(string slug, CancellationToken cancellationToken = default)
+    {
+        if (!_moderation.TryGetValue(slug, out var state) || !state.IsHidden)
+        {
+            return Task.FromResult(false);
+        }
+        // Confirm-hidden: the slug never serves again, and it drops off the queue.
+        _byslug.Remove(slug);
+        _moderation.Remove(slug);
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> RestoreAsync(string slug, CancellationToken cancellationToken = default)
+    {
+        if (!_moderation.TryGetValue(slug, out var state) || !state.IsHidden)
+        {
+            return Task.FromResult(false);
+        }
+        // Restore: resume serving + reset the count (drop the moderation state).
+        _moderation.Remove(slug);
+        return Task.FromResult(true);
     }
 }

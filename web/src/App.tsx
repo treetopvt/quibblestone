@@ -14,6 +14,13 @@
 //  faithful refactor of the prior view-state router - the flow is unchanged; the
 //  URL now reflects it (design-system/04, AC-03).
 //
+//  '/admin/billing-mode' (billing-entitlements/07) is a DELIBERATE OUTLIER:
+//  the operator-only Stripe mode screen (AdminBillingMode.tsx). It is wired
+//  as a plain Route like any entry screen, but NO Home/Join/Lobby/FillBlank/
+//  Reveal link points to it and nothing here ever navigates to it - it is
+//  reachable only by an operator typing the exact URL. Temporary until
+//  sysadmin-console/01 (#135) gives it a real back-office home.
+//
 //  App owns the ONE SignalR connection via useGameHub, called ABOVE <Routes> so
 //  navigation never remounts or duplicates it (AC-02). The LIVE room state lives
 //  IN the hook (so RosterChanged broadcasts update every screen); App reads
@@ -58,6 +65,21 @@
 //  ephemeral; rejoin is the separate resilience track) redirects home rather than
 //  rendering a broken shell - the per-route guards below handle that.
 //
+//  session-engine/10 narrows WHEN that redirect fires: a stored reconnect handle
+//  (../reconnect.ts's loadReconnectHandle) means a resume may still be pending,
+//  so the guards hold the screen with a calm "reconnecting your game..." beat
+//  (ResumingLiveScreen below) instead of bouncing Home first. This covers BOTH
+//  the cold-reload window (the connection has not yet reached "connected", so
+//  story 09's mount-time Rejoin has not had a chance to fire) and the in-flight-
+//  Rejoin window (the hook's `isRejoining`, story 09) - see the pure
+//  `shouldHoldLiveRouteForResume` below for the exact combined condition. Once a
+//  resume resolves - success (room/round/reveal populate, and the routing effect
+//  above lands the player on the right screen with no extra code, AC-02) or
+//  failure (story 09 discards the stale handle, AC-04) - the guard falls
+//  straight through to today's `<Navigate to="/" />` (AC-03). This story does
+//  NOT touch the reconnect MECHANICS (grace window, token, Rejoin, auto-rejoin
+//  triggers) - stories 07-09 own those; this is presentation + routing only.
+//
 //  story-selection/02 threads the host's story-length choice through the SAME
 //  seam the family-safe flag already uses: handleStartRound now takes
 //  (familySafe, lengthPref), remembers lengthPref as a sticky `lastLengthPref`
@@ -87,9 +109,20 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useGameHub, type RevealInfo, type StartRoundResult } from './signalr/useGameHub';
+import { Box, Button, Stack, Typography } from '@mui/material';
+import { keyframes } from '@mui/material/styles';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  useGameHub,
+  type ConnectionStatus,
+  type RevealInfo,
+  type StartRoundResult,
+} from './signalr/useGameHub';
+import { loadReconnectHandle } from './reconnect';
 import { seedLibrary } from './content/seedLibrary';
 import { assemble, type SubmittedWord } from './engine/assemble';
+import { getBlanks } from './engine/template';
+import { listRemixableBlanks } from './engine/remixHelpers';
 import { Home } from './pages/Home';
 import { Join, type JoinProps } from './pages/Join';
 import { HostSetup } from './pages/HostSetup';
@@ -98,6 +131,9 @@ import { Solo } from './pages/Solo';
 import { Favorites } from './pages/Favorites';
 import { Gallery } from './pages/Gallery';
 import { Account } from './pages/Account';
+import { GetMore } from './pages/GetMore';
+import { Support } from './pages/Support';
+import { AdminBillingMode } from './pages/AdminBillingMode';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { findGroupMode } from './pages/modeRegistry';
@@ -124,12 +160,19 @@ import { loadIdentity, saveIdentity } from './identity';
  * it has no owner, so it is skipped entirely (no PII, no phantom crew member) - the
  * total blanks reported to RoundComplete matches the words that actually have an
  * owner. Crew members come out in first-appearance (reveal) order.
+ *
+ * replay-remix/03: deliberately does NOT set `isHost` - the reveal payload
+ * carries no host flag (only nickname + variant per blank), so this stays a
+ * pure function of the reveal, matching its existing contract. The recap call
+ * site enriches the returned crew with `isHost`, cross-referenced from the
+ * LIVE roster (`room.players`) by nickname, right before handing it to
+ * RoundComplete.
  */
 function buildCrew(words: RevealInfo['words']): {
-  crew: RoundCompleteCrewMember[];
+  crew: Omit<RoundCompleteCrewMember, 'isHost'>[];
   totalWords: number;
 } {
-  const byNickname = new Map<string, RoundCompleteCrewMember>();
+  const byNickname = new Map<string, Omit<RoundCompleteCrewMember, 'isHost'>>();
   let totalWords = 0;
   for (const w of words) {
     // Skip an unfilled blank (a disconnected player left it empty): no owner, no PII.
@@ -195,6 +238,7 @@ function GroupReveal({
   goldenGuardianWinningBlankId,
   onCastGoldenGuardianVote,
   onCloseGoldenGuardianVoting,
+  onRemixWord,
   onPlayAgain,
   onHome,
 }: {
@@ -209,6 +253,13 @@ function GroupReveal({
   goldenGuardianWinningBlankId: string | null;
   onCastGoldenGuardianVote: (blankId: string) => void;
   onCloseGoldenGuardianVoting: () => void;
+  /**
+   * replay-remix/02 (AC-04/AC-06/AC-07): the hub's `remixWord` invoke, keyed by
+   * blank INDEX (the same body-order convention `submitWord` and Golden
+   * Guardian's vote token use) - GroupReveal below resolves the blank-id the
+   * Reveal picker hands back to its body-order index before calling this.
+   */
+  onRemixWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   onPlayAgain: () => void;
   onHome: () => void;
 }) {
@@ -216,6 +267,13 @@ function GroupReveal({
   // instantly). GroupReveal remounts per reveal (a new round clears `reveal` to null
   // first, unmounting this), so this state starts fresh each round - no manual reset.
   const [myVote, setMyVote] = useState<string | undefined>(undefined);
+
+  // reactions v2 (one-per-user): MY current reaction selection is client-local for
+  // the highlight (the SERVER is authoritative for the counts, via SetReaction's
+  // select/move/toggle - see useGameHub's react()). Like myVote it starts fresh each
+  // round because GroupReveal remounts per reveal. A tap SELECTS / MOVES / TOGGLES
+  // OFF locally to mirror what the server does, then fires the hub invoke.
+  const [myReaction, setMyReaction] = useState<ReactionType | null>(null);
 
   const template = seedLibrary.find((t) => t.id === reveal.templateId);
 
@@ -230,6 +288,8 @@ function GroupReveal({
         onFavorites={onHome}
         onGallery={onHome}
         onAccount={onHome}
+        onSupport={onHome}
+        onGetMore={onHome}
         creating={false}
         disabled={false}
       />
@@ -297,6 +357,28 @@ function GroupReveal({
   // Progressive Story reveal surface and never crashes.
   const revealSurfaces = findGroupMode(mode).revealSurfaces({ template, assembled });
 
+  // replay-remix/02 (AC-02/AC-04/AC-06/AC-07): the "Remix a word" slot. `blanks`
+  // is the SAME pure picker list (engine/remixHelpers.ts) solo uses, built from
+  // THIS render's `assembled` + `template`. `onSubmit` resolves the picker's
+  // blankId back to its body-order INDEX (the wire convention `onRemixWord` /
+  // the hub's RemixWord expect - the same one `submitWord` and Golden Guardian's
+  // vote token already use) and forwards to the hub invoke. The server re-vets
+  // the word (AC-06) and re-broadcasts "RevealReady" (AC-07); this component
+  // needs NO extra state of its own - the SAME `reveal` prop feeding `assembled`
+  // above updates from that broadcast and this whole function re-renders with
+  // the swapped word, exactly like any other RevealReady update.
+  const templateBlanks = getBlanks(template);
+  const remix = {
+    blanks: listRemixableBlanks(assembled, template),
+    onSubmit: async (blankId: string, word: string) => {
+      const blankIndex = templateBlanks.findIndex((b) => b.id === blankId);
+      if (blankIndex < 0) {
+        return { accepted: false, message: 'Something went off - please try again.' };
+      }
+      return onRemixWord(blankIndex, word);
+    },
+  };
+
   return (
     <Reveal
       assembled={assembled}
@@ -309,10 +391,25 @@ function GroupReveal({
       wordAttribution={wordAttribution}
       saveImageByline={saveImageByline}
       publicShare={publicShare}
-      // reveal-delight/01 (AC-04): counts are server-authoritative (from the hub's
-      // ReactionCountsChanged broadcast) and a tap fires the hub's React invoke,
-      // so every player in the room sees the tally update in near-real-time.
-      reactionRow={<ReactionRow counts={reactionCounts} onReact={onReact} />}
+      remix={remix}
+      // reveal-delight/01 (AC-04) + reactions v2: counts are server-authoritative
+      // (from the hub's ReactionCountsChanged broadcast, where the server de-dupes
+      // ONE PER USER) and a tap fires the hub's React invoke, so every player sees
+      // the tally update in near-real-time. `selected` is MY local pick, updated to
+      // mirror the server's select/move/toggle so the row highlights the pill I hold.
+      reactionRow={
+        <ReactionRow
+          counts={reactionCounts}
+          selected={myReaction}
+          onReact={(type) => {
+            // Mirror the server's one-per-user rule locally for the highlight: tapping
+            // the pill I already hold TOGGLES it off (null); any other tap SELECTS /
+            // MOVES to it. Then fire the hub invoke, which is authoritative for counts.
+            setMyReaction((current) => (current === type ? null : type));
+            onReact(type);
+          }}
+        />
+      }
       // reveal-delight/03 (AC-01/02/03): the funniest-word vote. Present ONLY in
       // group play (solo omits it entirely, AC-06). Reveal turns each coral word into
       // a tap target and paints the winner; the hub carries votes/resolution and the
@@ -352,6 +449,121 @@ function JoinRoute(props: Omit<JoinProps, 'initialCode'>) {
   return <Join {...props} initialCode={code ?? ''} key={code ?? 'join'} />;
 }
 
+/**
+ * session-engine/10 (AC-01, AC-03): should a live-route guard (/lobby, /round,
+ * /reveal) hold the current screen with the "reconnecting" beat instead of
+ * falling through to today's redirect Home? True while a resume is genuinely
+ * possible AND has not settled into a terminal failure - gated on a stored
+ * reconnect handle actually existing (no handle means there is nothing to
+ * resume, so redirect immediately exactly as today - AC-03's "no stored handle"
+ * case). Given a handle, the ONLY case we redirect Home is a SETTLED
+ * `'disconnected'` connection: SignalR's `withAutomaticReconnect()` does not
+ * cover the initial `start()`, so a cold reload / relaunch with no network
+ * lands on a terminal `'disconnected'` that never becomes `'connected'` on its
+ * own - holding the beat there would strand the player forever, so we fall
+ * through to the redirect (AC-03). We hold for every non-terminal case:
+ *   - the COLD-RELOAD window (`'connecting'`): the connection has not yet
+ *     reached `connected`, so story 09's mount-time Rejoin cannot fire yet.
+ *   - the CONNECTED-but-resume-pending window (`'connected'`, room still null):
+ *     the Rejoin is in flight or about to fire (`isRejoining` covers the former).
+ * Holding through the connected-but-pending window is what stops the one-commit
+ * flash to Home on a SUCCESSFUL cold-reload resume (`'connected'` lands a render
+ * before `isRejoining` flips and before `room` populates - AC-01). Convergence
+ * needs no extra state: a SUCCESSFUL resume populates room/round/reveal so the
+ * guard's OWN state check renders the live screen before this helper is even
+ * consulted (AC-02); a FAILED resume discards the handle (rejoin(), AC-04) so
+ * `hasReconnectHandle` is false next render. A hung `'connecting'` that never
+ * settles is not a trap either - ResumingLiveScreen carries a "Back to home"
+ * escape hatch.
+ *
+ * Pure (no localStorage / hook access) so it is unit-testable without mocking
+ * either - callers derive `hasReconnectHandle` from
+ * `loadReconnectHandle() !== null` (../reconnect.ts) and pass it in.
+ */
+export function shouldHoldLiveRouteForResume(params: {
+  status: ConnectionStatus;
+  isRejoining: boolean;
+  hasReconnectHandle: boolean;
+}): boolean {
+  if (!params.hasReconnectHandle) return false;
+  // A settled 'disconnected' (e.g. a cold reload during a real network outage,
+  // which never auto-retries the initial start) resolves negatively -> redirect
+  // Home (AC-03). Every other state ('connecting', or 'connected' while the
+  // resume is still pending) holds the calm beat. `isRejoining` is subsumed by
+  // this (it only ever occurs while 'connected'), kept in the signature for
+  // caller clarity.
+  return params.status !== 'disconnected';
+}
+
+// A calm pulsing beat for ResumingLiveScreen's icon (AC-01, AC-06). Opacity-only
+// on a single decorative icon (not a mounted/unmounted list item), the same
+// posture Lobby's own "waiting..." dots already use - see Lobby.tsx's `dots`
+// keyframe doc for why that is safe here (a steady looping style, not an
+// entrance/exit animation that could strand something invisible).
+const resumePulse = keyframes`
+  0%, 100% { opacity: .4; }
+  50% { opacity: 1; }
+`;
+
+/**
+ * session-engine/10 (AC-01, AC-06): the brief, calm beat a live-route guard
+ * shows in place of Home while `shouldHoldLiveRouteForResume` is true. Mirrors
+ * GroupRound.tsx's own "Dealing your blanks..." beat's posture - deliberately
+ * passive and reassuring, no spinner-of-doom, no technical jargon, no alarm
+ * ("hang tight," never an error state). It carries ONE low-key escape hatch (a
+ * "Back to home" text button): the beat normally resolves itself in a moment
+ * (the resume lands and the routing effect takes over, or it fails and the
+ * existing redirect fires), but a connection stuck at `'connecting'` on a real
+ * dead zone would otherwise have no in-app exit - so an always-available way
+ * out keeps the "never trapped, always a big tap target" posture (README
+ * section 10). `onGoHome` clears the room + the stored handle (handleGoHome).
+ */
+interface ResumingLiveScreenProps {
+  onGoHome: () => void;
+}
+
+function ResumingLiveScreen({ onGoHome }: ResumingLiveScreenProps) {
+  return (
+    <Box
+      sx={{
+        minHeight: '100dvh',
+        maxWidth: 430,
+        mx: 'auto',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        px: 5.5,
+      }}
+    >
+      <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center' }}>
+        <Box
+          aria-hidden
+          sx={{
+            color: 'primary.main',
+            fontSize: 34,
+            display: 'flex',
+            animation: `${resumePulse} 1.6s ease-in-out infinite`,
+          }}
+        >
+          <FontAwesomeIcon icon="plug" />
+        </Box>
+        <Typography sx={{ fontFamily: '"Fredoka", sans-serif', fontWeight: 600, fontSize: 20 }}>
+          Reconnecting your game...
+        </Typography>
+        <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'text.secondary' }}>
+          Hang tight - picking up right where you left off.
+        </Typography>
+        <Button
+          onClick={onGoHome}
+          sx={{ mt: 1, fontWeight: 700, color: 'text.secondary', textTransform: 'none' }}
+        >
+          Back to home
+        </Button>
+      </Stack>
+    </Box>
+  );
+}
+
 export default function App() {
   const {
     status,
@@ -371,17 +583,33 @@ export default function App() {
     castGoldenGuardianVote,
     closeGoldenGuardianVoting,
     submitWord,
+    remixWord,
     createRoom,
     joinRoom,
     startRound,
     backToLobby,
+    passHost,
     roundNotice,
     dismissRoundNotice,
     clearRoom,
+    isRejoining,
   } = useGameHub();
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  // session-engine/10 (AC-01, AC-03): whether a resume is still pending for the
+  // live-route guards below - see shouldHoldLiveRouteForResume's doc for the
+  // exact combined condition. Read `loadReconnectHandle()` fresh each render
+  // (a cheap, try/catch-guarded localStorage read - reconnect.ts) rather than
+  // caching it in state, so a handle cleared elsewhere (a deliberate leave via
+  // clearRoom, or story 09's rejoin() discarding a rejected one) is picked up
+  // on the very next render with no extra effect/subscription of its own.
+  const resumePending = shouldHoldLiveRouteForResume({
+    status,
+    isRejoining,
+    hasReconnectHandle: loadReconnectHandle() !== null,
+  });
 
   // group-play/04: whether THIS client is viewing the Round Complete recap (a
   // client-local step shown after the reveal, before the next round; AC-01). Set
@@ -494,6 +722,26 @@ export default function App() {
     }
   }, [startRound, lastFamilySafe, lastLengthPref, lastModeId]);
 
+  // replay-remix/01 (AC-01/AC-02/AC-04): "Carve it again" from the Round Complete
+  // recap (host). Same seam as handlePlayAnotherRound above, but pins the just-
+  // finished template id (reveal.templateId) instead of leaving it undefined - the
+  // server then plays that EXACT tale again (host-checked and family-safe-gated
+  // exactly like handlePlayFavorite's explicit pick above) rather than a new
+  // random/host pick. Reuses the SAME sticky family-safe + mode the host is
+  // already playing with, so no new picker is shown (AC-02 out-of-scope). On
+  // success the server's RoundStarted broadcast clears reveal and routes EVERYONE
+  // into the new round together (AC-04) - this handler never sets round locally.
+  const handleCarveItAgain = useCallback(async () => {
+    if (!reveal) {
+      return;
+    }
+    setPlayAgainError(null);
+    const result = await startRound(lastFamilySafe, lastLengthPref, lastModeId, reveal.templateId);
+    if (!result.ok) {
+      setPlayAgainError(result.error ?? 'Could not start another round - please try again.');
+    }
+  }, [startRound, lastFamilySafe, lastLengthPref, lastModeId, reveal]);
+
   // group-play/04: "Back to lobby" from the Round Complete recap (host). The hub's
   // bare "BackToLobby" broadcast clears round/reveal for EVERYONE so all players land
   // back on the still-live Lobby with the code + roster preserved (AC-05).
@@ -565,6 +813,18 @@ export default function App() {
     navigate('/account');
   }, [navigate]);
 
+  // "Get more" (billing-entitlements/04, AC-05) and "Support us" (billing-
+  // entitlements/02, AC-01): purchaser-facing surfaces reached ONLY from Home, a
+  // plain route change like Account / Gallery above - never a child's play flow, no
+  // hub call, and free play never depends on either.
+  const handleOpenGetMore = useCallback(() => {
+    navigate('/get-more');
+  }, [navigate]);
+
+  const handleOpenSupport = useCallback(() => {
+    navigate('/support');
+  }, [navigate]);
+
   // Favorites screen's onPick (SOLO replay, AC-03/AC-04): remember the picked
   // template and route to '/solo', where Solo's own mount effect resolves it,
   // gates it through family-safe, and starts it with the freshness bypass.
@@ -624,20 +884,49 @@ export default function App() {
       (() => {
         const template = seedLibrary.find((t) => t.id === reveal.templateId);
         const { crew, totalWords } = buildCrew(reveal.words);
+        // replay-remix/03 (AC-03): enrich the reveal-derived crew with `isHost`,
+        // cross-referenced from the LIVE roster by nickname (the reveal payload
+        // itself carries no host flag) - so the crew row's crown moves live on a
+        // "Pass the chisel" handoff, exactly like Lobby's roster tiles.
+        const host = room.players.find((p) => p.isHost);
+        const hostNickname = host?.nickname;
+        const crewWithHost = crew.map((member) => ({
+          ...member,
+          isHost: member.nickname === hostNickname,
+        }));
+        // replay-remix/03 (AC-03): the host can be ABSENT from the reveal-derived
+        // crew when they carved 0 words this round (fewer blanks than players, or
+        // a handoff to someone who did not submit) - buildCrew only lists players
+        // who own a filled blank. Ensure the host always has a tile (wordCount 0)
+        // so the crown - and the host-only "Pass the chisel" affordance - has a
+        // home on the recap, not only in the Lobby. Nickname match stays exact:
+        // both strings are the SAME stored player nickname, and join uniqueness is
+        // not case-folded, so a case-insensitive compare could crown the wrong
+        // same-spelling player.
+        if (host && !crewWithHost.some((member) => member.isHost)) {
+          crewWithHost.push({
+            nickname: host.nickname,
+            variant: toGuardianVariant(host.variant),
+            wordCount: 0,
+            isHost: true,
+          });
+        }
         return (
           <RoundComplete
             roundNumber={round.roundNumber}
             title={template ? template.title : 'Your tale'}
-            crew={crew}
+            crew={crewWithHost}
             totalWords={totalWords}
             crownedNickname={crownedNickname}
             isHost={isHost}
             canPlayAgain={room.players.length >= 2}
             playAgainError={playAgainError}
             onPlayAgain={() => void handlePlayAnotherRound()}
+            onCarveItAgain={() => void handleCarveItAgain()}
             onBackToLobby={handleBackToLobby}
             onLeave={handleGoHome}
             templateId={reveal.templateId}
+            onPassHost={passHost}
           />
         );
       })()
@@ -657,11 +946,15 @@ export default function App() {
             onFavorites={handleOpenFavorites}
             onGallery={handleOpenGallery}
             onAccount={handleOpenAccount}
+            onSupport={handleOpenSupport}
+            onGetMore={handleOpenGetMore}
             disabled={status !== 'connected'}
           />
         }
       />
       <Route path="/account" element={<Account onBack={handleGoHome} />} />
+      <Route path="/get-more" element={<GetMore onBack={handleGoHome} />} />
+      <Route path="/support" element={<Support onBack={handleGoHome} />} />
       <Route
         path="/favorites"
         element={<Favorites onBack={handleGoHome} onPick={handlePickFavorite} />}
@@ -712,9 +1005,12 @@ export default function App() {
               onLeave={handleGoHome}
               onStart={handleStartRound}
               onPlayFavorite={handlePlayFavorite}
+              onPassHost={passHost}
               notice={roundNotice}
               onDismissNotice={dismissRoundNotice}
             />
+          ) : resumePending ? (
+            <ResumingLiveScreen onGoHome={handleGoHome} />
           ) : (
             <Navigate to="/" replace />
           )
@@ -741,6 +1037,8 @@ export default function App() {
               familySafe={lastFamilySafe}
               onLeave={handleGoHome}
             />
+          ) : resumePending ? (
+            <ResumingLiveScreen onGoHome={handleGoHome} />
           ) : (
             <Navigate to="/" replace />
           )
@@ -766,15 +1064,26 @@ export default function App() {
               goldenGuardianWinningBlankId={goldenGuardianWinningBlankId}
               onCastGoldenGuardianVote={castGoldenGuardianVote}
               onCloseGoldenGuardianVoting={closeGoldenGuardianVoting}
+              onRemixWord={remixWord}
               onPlayAgain={() => setShowRoundComplete(true)}
               onHome={handleGoHome}
             />
+          ) : resumePending ? (
+            <ResumingLiveScreen onGoHome={handleGoHome} />
           ) : (
             <Navigate to="/" replace />
           )
         }
       />
       <Route path="/recap" element={recapElement} />
+      {/* billing-entitlements/07 (AC-05): the operator-only Stripe mode screen.
+          Reachable ONLY by knowing this exact URL - no Home/Join/Lobby/
+          FillBlank/Reveal link points here, and nothing above navigates to it
+          automatically. It renders its own secret prompt + fetches nothing
+          until submitted (AdminBillingMode.tsx), so simply mounting this
+          route is harmless with no operator secret in hand. `onBack` returns
+          to Home only as a graceful escape hatch, not a discovery path. */}
+      <Route path="/admin/billing-mode" element={<AdminBillingMode onBack={handleGoHome} />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

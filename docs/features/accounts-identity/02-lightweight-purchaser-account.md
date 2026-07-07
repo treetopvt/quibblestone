@@ -1,6 +1,6 @@
 # Story: Lightweight purchaser account
 
-**Feature:** Accounts & Identity  ·  **Status:** In Review  ·  **Issue:** #68
+**Feature:** Accounts & Identity  ·  **Status:** Complete  ·  **Issue:** #68
 
 ## Context
 The first time anyone spends money in QuibbleStone (the tip jar,

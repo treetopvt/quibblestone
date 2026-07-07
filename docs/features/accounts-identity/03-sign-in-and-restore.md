@@ -1,6 +1,6 @@
 # Story: Sign-in and restore on a new device
 
-**Feature:** Accounts & Identity  ·  **Status:** In Review  ·  **Issue:** #69
+**Feature:** Accounts & Identity  ·  **Status:** Complete  ·  **Issue:** #69
 
 ## Context
 A purchaser who bought the family plan on their phone should not have to
@@ -80,6 +80,19 @@ early even if the UI is minimal").
 - No secrets in `VITE_*` (CLAUDE.md section 4/6); any signing key for the
   purchaser credential lives in Azure Key Vault alongside the Stripe keys from
   billing-entitlements/03.
+
+## Enhancement (2026-07-03, PR #157)
+The purchaser credential from a successful verify used to live in `Account.tsx`
+local state, so it was discarded on navigation away - a return to Account (or the
+keepsake cloud gallery, keepsake-gallery/05) forced a fresh sign-in every visit.
+Added an app-wide, in-memory `PurchaserSession` context (`web/src/account/
+PurchaserSession.tsx`, mounted above the router in `main.tsx`) so sign-in persists
+across client-side navigation for the SPA's lifetime, plus a Sign out control.
+In-memory ONLY (never persisted) - a short-lived bearer must not linger on a shared
+or child's device across reloads (the credential is gone on a full reload / new
+tab, an accepted trade-off). Auth boundary unchanged: only the Account surface
+consumes it; the game/reveal/lobby flow never imports it. A durable, persisted
+sign-in remains a separate, deliberate decision (not done here).
 
 ## Tests
 | AC | Test |

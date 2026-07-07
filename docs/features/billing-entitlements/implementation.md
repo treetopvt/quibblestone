@@ -33,6 +33,9 @@
 | Secrets (Stripe secret key, webhook signing secret) | Azure Key Vault | `infra/main.bicep` (`keyVault` resource) |
 | Durable storage (entitlement grants, processed webhook events) | Azure Table Storage | `infra/main.bicep` (`storage` resource) |
 | Home screen pattern for a low-key, reassuring affordance | the existing "No account needed" reassurance row | `web/src/pages/Home.tsx` (reference for tone/placement) |
+| `TableStorage*Store` pairing pattern (real store + in-memory fallback, config-presence idiom) - story 06 mirrors this for the active-mode flag | `TableStorageEntitlementGrantStore` / `InMemoryEntitlementGrantStore` | `api/src/Entitlements/` |
+| Stripe checkout/webhook surface story 06 reshapes into mode-aware form | `StripeOptions`, `StripeCheckoutService`, `StripeWebhookController`, `ProductCatalog` | `api/src/Billing/`, `api/src/Controllers/StripeWebhookController.cs` |
+| Operator auth boundary story 06/07 sit behind (once it lands; interim gate until then, see story 06 Technical Notes) | `sysadmin-console/01`'s `[Authorize(Policy = "Operator")]` | `docs/features/sysadmin-console/01-operator-login-and-admin-boundary.md` (not yet built) |
 
 New surfaces this feature introduces (not yet reuse targets, become them once built):
 - `EntitlementGrant` + a grant-store type (`IEntitlementGrantStore` or similar) - story 01 ADDS these to the
@@ -44,6 +47,12 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
 - `web/src/components/TipJar.tsx` (or similar) - story 02.
 - `web/src/pages/` purchase/paywall screen and restore/manage view - stories 04 and 05 (likely sit near the
   accounts-identity/03 sign-in screen).
+- `IActiveStripeModeStore` + `TableStorageActiveStripeModeStore` / `InMemoryActiveStripeModeStore`, and a
+  `Controllers/StripeModeController.cs` - story 06. The interim `IOperatorGate` (or equivalent) story 06 builds
+  to unblock on `sysadmin-console/01` becomes a reuse target for story 07 and, later, a one-file swap once #135
+  ships.
+- An operator-facing mode screen (location depends on whether `sysadmin-console/01` has landed - see story 07
+  Technical Notes) - story 07.
 
 ## Wave Plan (DAG)
 
@@ -62,6 +71,8 @@ not session-engine (the session-creation call site is already wired by the shipp
 | 02 tip-jar | #71 | `web/src/components/TipJar.tsx` (or `pages/`), one Home entry-point edit | 01 (confirms no-op), 03 (payment call) | 04 (disjoint files) | 3 | medium |
 | 04 gated-purchase-flow | #73 | `web/src/pages/` paywall screen, `api/src/Billing/` pack/plan-to-capability-bundle map | 01, 03, accounts-identity/02 | 02 (disjoint files) | 3 | medium |
 | 05 restore-and-manage | #74 | `web/src/pages/` restore/manage view (near accounts-identity/03's screen), a read-only API endpoint | 01, accounts-identity/03 | - (needs 03/04 landed to have anything real to show, though its empty state is independently testable) | 4 | medium |
+| 06 live-test-mode-toggle | TBD | `api/src/Billing/StripeOptions.cs` (reshaped), new `IActiveStripeModeStore` + Table/InMemory impls, new `Controllers/StripeModeController.cs`, edits to `StripeCheckoutService`, `StripeWebhookController`, `ProductCatalog` | 03 (reshapes its output), sysadmin-console/01 (soft - see Technical Notes interim gate) | - | 5 | medium-high |
+| 07 operator-mode-toggle-ui | TBD | a new operator-facing screen (location per Technical Notes - `sysadmin-console`'s back office if landed, else a temporary standalone route) | 06 (hard - calls its endpoint), sysadmin-console/01 (soft, same interim-gate posture) | - | 6 | small |
 
 **Concurrency per wave:** Wave 1 = 1 (01, extending the shipped seam - must land first, everything else imports its
 shape; the `IEntitlementService` interface itself is already shipped, so this wave is narrower than a from-scratch
@@ -70,7 +81,12 @@ once 01's grant-store shape is stable, even before 01 is fully merged, but treat
 03 writes into 01's store). Wave 3 = {02, 04} in parallel (disjoint web/API files; both consume 03's
 `StripeCheckoutService` but call it with different parameters - a pack/subscription price for 04, a one-time
 no-entitlement price for 02). Wave 4 = 05 (benefits from 03/04 having granted at least one real entitlement to
-display, and needs accounts-identity/03's sign-in to exist as its auth guard).
+display, and needs accounts-identity/03's sign-in to exist as its auth guard). Wave 5 = 06 (reshapes 03's
+`StripeOptions`/`StripeCheckoutService`/`StripeWebhookController` into mode-aware form - serial-after-03 since it
+edits the same files 03 created, not because 03 is otherwise a blocker). Wave 6 = 07 (calls 06's endpoint; cannot
+usefully start before 06's contract exists). Waves 5-6 are independent of 02/04/05's product-purchase surfaces
+(disjoint files) and could in principle run alongside them if scheduled earlier, but are numbered after because they
+were requested and specified after 01-05 shipped.
 
 **Cross-feature order:** accounts-identity/02 (magic-link + `IAccountStore`) is upstream of story 01's
 purchaser-lookup piece (AC-06) - schedule it first across features. Story 01's catalog-extension and grant-store
@@ -140,6 +156,26 @@ purchaser-credential check. Calls a new, small read endpoint that resolves the s
 map). **Owns:** the restore/manage view + its read endpoint. **Gotcha:** this is read-only - no write path, no plan
 management, no cancellation; keep it that way per the story's Out of Scope.
 
+### 06 - Live/test Stripe mode: mode-aware config + toggle endpoint
+**Approach:** reshapes `StripeOptions` into a mode-keyed configuration (Live + Test credential sets held
+simultaneously), adds a persisted active-mode flag mirroring the existing `TableStorage*Store` pairing pattern
+(real Table Storage store + in-memory fallback, defaulting to Test), and adds a small, swappable `IOperatorGate`
+interface behind the toggle endpoint so the interim thin secret-based gate is a one-file swap once
+`sysadmin-console/01` ships real operator auth. **Exports:** the resolved "active mode's credentials" view
+(`StripeCheckoutService`, `StripeWebhookController`, `ProductCatalog` all read through it rather than branching on
+mode themselves) and the `GET`/`POST /api/admin/stripe-mode` endpoints story 07 calls. **Gotcha:** the webhook
+verification path (AC-04) must try BOTH mode's signing secrets (not branch on the currently-active mode) since a
+mode flip mid-checkout must not orphan an in-flight webhook - this is the one genuinely tricky piece, flag it in
+review.
+
+### 07 - Live/test Stripe mode: operator toggle UI
+**Approach:** a small screen calling story 06's two endpoints - render the current mode + last-changed timestamp,
+and a confirmation dialog (asymmetric friction: switching TO Live warns harder than switching to Test) before
+submitting a flip. **Owns:** the screen itself; location depends on whether `sysadmin-console/01` has landed by
+build time (its back office if so, else a clearly-marked temporary standalone route per the story's Technical
+Notes). **Gotcha:** do not over-invest in polish if built before `sysadmin-console/01` lands - it is meant to
+relocate, not become a second design system.
+
 ## Cross-cutting concerns
 
 - **The interface is shipped; the stored-value side is not.** `IEntitlementService`, `SessionEntitlements`, the
@@ -165,3 +201,12 @@ management, no cancellation; keep it that way per the story's Out of Scope.
   second Stripe integration.
 - **No i18n** (plain strings). **No em dashes.** Big tap targets extend to purchaser-facing screens too - one
   visual language across the whole app, not a separate "checkout look."
+- **Stories 06-07's operator gate is deliberately interim, not a shortcut to skip building real operator auth.**
+  Both stories name the same swap point (`IOperatorGate` or equivalent) so that when `sysadmin-console/01` (#135)
+  ships, migrating onto real operator auth is a small, contract-stable edit - mirroring how `sysadmin-console/01`
+  itself and `sysadmin-console/02` each name a thin, contract-compatible stand-in for their own unbuilt upstream
+  dependencies. Do not let the interim gate quietly become permanent; revisit promptly once #135 lands.
+- **Single public environment footgun (stories 06-07).** `quibblestone.com` is the one live site - there is no
+  separate staging Stripe-mode surface. AC-05's safe default (Test) and AC-06's confirmation-gating (story 06),
+  plus AC-02/AC-03's asymmetric-friction confirmation (story 07), exist specifically so "go live" is always the
+  effortful, deliberate direction and "fall back to test" is always cheap and fast.

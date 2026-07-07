@@ -38,6 +38,14 @@
 //                    round/reveal locally and lands back on the Lobby (AC-05). The
 //                    replay counterpart is just StartRound again (same room, no
 //                    re-join) - the Room increments the round number for the badge.
+//    - PassHost    : replay-remix/03. HOST-ONLY (server-enforced, the SAME
+//                    IsHost check StartRound/BackToLobby use) handoff of the host
+//                    role to another roster player, BETWEEN ROUNDS only (rejected
+//                    while the room's round phase is "prompting", AC-05). Flips
+//                    IsHost on the room's player records (Room.PassHost, under the
+//                    room lock) and broadcasts the EXISTING "RosterChanged" event -
+//                    no new broadcast event type, since IsHost already rides on
+//                    every PlayerDto - so the crown moves live for everyone.
 //
 //  Room state lives in the RoomRegistry singleton (injected below), NOT in this
 //  hub instance - SignalR builds a fresh hub per invocation, so per-hub fields
@@ -70,7 +78,8 @@ namespace QuibbleStone.Api.Hubs;
 /// <param name="Nickname">In-session display name (the host now picks one on HostSetup before the room is minted).</param>
 /// <param name="Variant">Guardian avatar variant (the host picks one on HostSetup; "teal" is the default selection).</param>
 /// <param name="IsHost">True for the room creator.</param>
-public sealed record PlayerDto(string Nickname, string Variant, bool IsHost);
+/// <param name="Connected">session-engine/07: false while this seat is being held through a disconnect grace window, true otherwise. Additive to the wire contract now; web story 10 renders the "reconnecting" tile from it (nothing reads it yet). The reconnect TOKEN is deliberately NOT here - it is caller-only (AC-06).</param>
+public sealed record PlayerDto(string Nickname, string Variant, bool IsHost, bool Connected);
 
 /// <summary>
 /// The state of a room as returned to the caller of <see cref="GameHub.CreateRoom"/>
@@ -93,7 +102,8 @@ public sealed record RoomStateDto(string Code, IReadOnlyList<PlayerDto> Players)
 /// <param name="Ok">True if the caller joined the room; false for an expected validation failure.</param>
 /// <param name="Room">The room's state (code + roster) on success; null on failure.</param>
 /// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
-public sealed record JoinResultDto(bool Ok, RoomStateDto? Room, string? Error);
+/// <param name="ReconnectToken">session-engine/07 (AC-06): the caller's own opaque, server-minted reconnect handle on success (null on failure). Returned ONLY here, in the joiner's own envelope - NEVER on <see cref="RoomStateDto"/>/<see cref="PlayerDto"/> (the whole-room roster), so no other player can see or spend it. Story 08's Rejoin is the only consumer.</param>
+public sealed record JoinResultDto(bool Ok, RoomStateDto? Room, string? Error, string? ReconnectToken = null);
 
 /// <summary>
 /// The outcome of <see cref="GameHub.CreateRoom"/> (build/host-identity). Same
@@ -109,7 +119,61 @@ public sealed record JoinResultDto(bool Ok, RoomStateDto? Room, string? Error);
 /// <param name="Ok">True if the room was created; false for an expected validation failure.</param>
 /// <param name="Room">The minted room's state (code + roster) on success; null on failure.</param>
 /// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
-public sealed record CreateRoomResultDto(bool Ok, RoomStateDto? Room, string? Error);
+/// <param name="ReconnectToken">session-engine/07 (AC-06): the host's own opaque, server-minted reconnect handle on success (null on failure). Returned ONLY here, in the host's own envelope - NEVER on <see cref="RoomStateDto"/>/<see cref="PlayerDto"/> (the whole-room roster), so no other player can see or spend it. Story 08's Rejoin is the only consumer.</param>
+public sealed record CreateRoomResultDto(bool Ok, RoomStateDto? Room, string? Error, string? ReconnectToken = null);
+
+/// <summary>
+/// The outcome of <see cref="GameHub.Rejoin"/> (session-engine/08): the rehydration
+/// envelope a device gets when it reclaims its held seat under a new connection. Like
+/// every other hub result here it is a friendly envelope, NOT an exception channel -
+/// an unknown / already-evicted / wrong-room token comes back as Ok=false with a
+/// kid-readable Error, never a throw (AC-05).
+///
+/// On success (Ok=true) it carries EXACTLY what the resuming client needs to pick up
+/// where it left off, and NOTHING the room does not already expose elsewhere (AC-07):
+///   - <see cref="Room"/>: the current roster (the same <see cref="RoomStateDto"/> shape
+///     createRoom / joinRoom / RosterChanged carry) - feeds the client's setRoom (AC-02).
+///   - <see cref="IsHost"/>: whether this seat is the host (AC-02).
+///   - <see cref="Phase"/>: the round's phase - "lobby" | "prompting" | "reveal" (AC-02).
+///   - <see cref="Round"/>: the round's public metadata (template id, mode, round number,
+///     crown), the SAME <see cref="RoundStartedDto"/> shape the RoundStarted broadcast
+///     carried - present for a live round (prompting or reveal), null in the lobby.
+///   - <see cref="YourBlanks"/>: for a "prompting" round, THIS seat's own remaining
+///     (not-yet-submitted) blank indices only - never another player's - reusing the
+///     index-only, no-PII <see cref="YourBlanksDto"/> shape (AC-03). Null otherwise.
+///   - <see cref="Progress"/>: for a "prompting" round, the room-wide "N of M done"
+///     collection progress (the SAME <see cref="CollectProgressDto"/> the CollectProgress
+///     broadcast carries), so the resumed Waiting/collection screen is current (AC-03).
+///     Null otherwise.
+///   - <see cref="Reveal"/>: for a "reveal" round, the shared ordered reveal words (the
+///     SAME <see cref="RevealReadyDto"/> the RevealReady broadcast carries) so the resuming
+///     client renders the exact reveal everyone else sees (AC-04). Null otherwise.
+///
+/// This is the wire contract story 09's useGameHub.ts consumes (there is no codegen step
+/// - keep the two hand-in-sync); the setters it feeds (setRoom / setIsHost / setRound /
+/// setAssignedBlankIndices / setCollectProgress / setReveal) map 1:1 onto these fields.
+/// The reconnect TOKEN is deliberately NOT echoed back to anyone (AC-07): the caller
+/// already holds it, and it must never travel on the wire to be readable.
+/// </summary>
+/// <param name="Ok">True if the seat was reclaimed; false for an expected failure (AC-05).</param>
+/// <param name="Error">A friendly, kid-readable message on failure; null on success.</param>
+/// <param name="Room">The current roster on success; null on failure.</param>
+/// <param name="IsHost">True when the reclaimed seat is the room's host (false on failure).</param>
+/// <param name="Phase">The round phase on success ("lobby" | "prompting" | "reveal"); null on failure.</param>
+/// <param name="Round">The live round's public metadata on success (null in the lobby or on failure).</param>
+/// <param name="YourBlanks">This seat's remaining blank indices for a "prompting" round; null otherwise.</param>
+/// <param name="Progress">The room-wide collection progress for a "prompting" round; null otherwise.</param>
+/// <param name="Reveal">The shared reveal payload for a "reveal" round; null otherwise.</param>
+public sealed record RejoinResultDto(
+    bool Ok,
+    string? Error,
+    RoomStateDto? Room,
+    bool IsHost,
+    string? Phase,
+    RoundStartedDto? Round,
+    YourBlanksDto? YourBlanks,
+    CollectProgressDto? Progress,
+    RevealReadyDto? Reveal);
 
 /// <summary>
 /// The outcome of <see cref="GameHub.StartRound"/> (group-play/01). Like
@@ -241,17 +305,19 @@ public sealed record RoundAbortedDto(string Reason);
 /// Broadcast to the whole room group as "ReactionCountsChanged" whenever any
 /// player reacts on the reveal (reveal-delight/01, AC-04): the FULL per-type
 /// tally for the current reveal, so every client renders the same count in
-/// near-real-time. Server-authoritative (no client double-counts). The four
-/// fields serialize to camelCase (laugh/heart/wow/star) - the EXACT shape the
-/// web's ReactionCounts (Record&lt;ReactionType, number&gt;) mirrors, so the hook
-/// hands the payload straight to the ReactionRow. A reaction carries no text and
-/// no identity (AC-06, no PII) - only these counts.
+/// near-real-time. Server-authoritative (no client double-counts). The UX
+/// de-clutter (reactions v2) narrowed the set from four (laugh/heart/wow/star) to
+/// THREE - Love / Wow / Didn't like - and made a reaction ONE-PER-USER (a player
+/// holds at most one; see <see cref="Room.SetReaction"/>). The three fields
+/// serialize to camelCase (love/wow/nope) - the EXACT shape the web's
+/// ReactionCounts (Record&lt;ReactionType, number&gt;) mirrors, so the hook hands the
+/// payload straight to the ReactionRow. A reaction carries no text and no identity
+/// (AC-06, no PII) - only these counts.
 /// </summary>
-/// <param name="Laugh">The Laugh tally.</param>
-/// <param name="Heart">The Heart tally.</param>
-/// <param name="Wow">The Wow tally.</param>
-/// <param name="Star">The Star tally.</param>
-public sealed record ReactionCountsDto(int Laugh, int Heart, int Wow, int Star);
+/// <param name="Love">The Love ("thumbs-up") tally.</param>
+/// <param name="Wow">The Wow ("face-surprise") tally.</param>
+/// <param name="Nope">The "Didn't like" ("thumbs-down") tally.</param>
+public sealed record ReactionCountsDto(int Love, int Wow, int Nope);
 
 /// <summary>
 /// Broadcast to the whole room group as "GoldenGuardianVoteCast" whenever a player
@@ -316,14 +382,15 @@ public sealed class GameHub : Hub
         LengthContentSelector.Quick, LengthContentSelector.Full, LengthContentSelector.Any,
     };
 
-    // reveal-delight/01 (AC-04): the ONLY four reaction types a client may send
-    // (mirrors the web's ReactionType union). A crafted client could send any
-    // string, so this is the server-side source of truth - React ignores anything
-    // else, exactly like NormalizeVariant guards an unknown variant. The payload is
-    // a TYPE ENUM only, so this set is the entire contract (no free text - AC-06).
+    // reveal-delight/01 (AC-04) + reactions v2: the ONLY three reaction types a
+    // client may send - Love ("love"), Wow ("wow"), Didn't like ("nope") - mirroring
+    // the web's ReactionType union. A crafted client could send any string, so this
+    // is the server-side source of truth - React ignores anything else, exactly like
+    // NormalizeVariant guards an unknown variant. The payload is a TYPE ENUM only, so
+    // this set is the entire contract (no free text - AC-06).
     private static readonly HashSet<string> KnownReactions = new(StringComparer.OrdinalIgnoreCase)
     {
-        "laugh", "heart", "wow", "star",
+        "love", "wow", "nope",
     };
 
     private readonly RoomRegistry _rooms;
@@ -335,6 +402,7 @@ public sealed class GameHub : Hub
     private readonly ITelemetrySink _telemetry;
     private readonly TelemetryClient _appInsights;
     private readonly IEntitlementService _entitlements;
+    private readonly SeatGraceService _grace;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -347,6 +415,7 @@ public sealed class GameHub : Hub
         ITelemetrySink telemetry,
         TelemetryClient appInsights,
         IEntitlementService entitlements,
+        SeatGraceService grace,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -374,6 +443,13 @@ public sealed class GameHub : Hub
         // result on the Room; nothing re-evaluates it per AI call (AC-01). In alpha
         // every ai.* capability is unlocked, so this changes zero behavior (AC-03).
         _entitlements = entitlements;
+        // session-engine/07 (hold the seat): the singleton scheduler that runs the
+        // one-shot delayed eviction when a dropped seat's grace window expires. It is
+        // the ONLY scheduled timer in the codebase (every other lifecycle read is
+        // lazy-on-access) - justified because other seated players actively wait on a
+        // dropped seat's blanks, so eviction must be pushed even if nobody calls the
+        // hub in the meantime (see SeatGraceService's header + feature.md Decisions).
+        _grace = grace;
         _logger = logger;
     }
 
@@ -457,7 +533,11 @@ public sealed class GameHub : Hub
         // roster/round broadcasts (Clients.Group(room.Code)) reach them.
         await Groups.AddToGroupAsync(Context.ConnectionId, room.Code);
 
-        return new CreateRoomResultDto(true, ToRoomState(room), null);
+        // session-engine/07 (AC-06): hand the host its OWN opaque reconnect token in
+        // this envelope only - never on the roster the whole room receives. Story 08's
+        // Rejoin spends it to reclaim this seat after a drop.
+        var reconnectToken = room.GetReconnectToken(Context.ConnectionId);
+        return new CreateRoomResultDto(true, ToRoomState(room), null, reconnectToken);
     }
 
     /// <summary>
@@ -542,7 +622,138 @@ public sealed class GameHub : Hub
         await Groups.AddToGroupAsync(Context.ConnectionId, room.Code);
         await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
 
-        return new JoinResultDto(true, ToRoomState(room), null);
+        // session-engine/07 (AC-06): hand the joiner its OWN opaque reconnect token in
+        // this envelope only - never broadcast on the roster (that would let another
+        // player hijack the seat). Story 08's Rejoin spends it to reclaim this seat.
+        var reconnectToken = room.GetReconnectToken(Context.ConnectionId);
+        return new JoinResultDto(true, ToRoomState(room), null, reconnectToken);
+    }
+
+    /// <summary>
+    /// session-engine/08: reclaim a held seat and resume the round.
+    ///
+    /// Story 07 holds a dropped seat open for a grace window and mints a per-seat
+    /// reconnect token; this method SPENDS that token. When a device's SignalR
+    /// connection drops (a car dead zone, a phone lock, a page reload) it reconnects on
+    /// a BRAND-NEW connection id (SignalR's own <c>withAutomaticReconnect</c> always gets
+    /// a fresh one), then calls <c>Rejoin(code, token)</c> to prove it owns the seat and
+    /// move it to the new connection - rather than looking like it re-joined a fresh
+    /// game. Validation runs in a fixed order and every EXPECTED failure returns a
+    /// friendly <see cref="RejoinResultDto"/> (Ok=false, kid-readable Error) rather than
+    /// throwing, mirroring <see cref="JoinRoom"/>'s envelope style:
+    ///
+    ///   1. Unknown / expired room code -> friendly fail (nothing to rejoin).
+    ///   2. <see cref="Room.ReclaimSeat"/> finds no seat holding the token (unknown,
+    ///      already evicted when its grace expired, or a token minted for a DIFFERENT
+    ///      room than <paramref name="code"/>) -> friendly fail, mutates nothing (AC-05).
+    ///
+    /// On success the seat is reclaimed ATOMICALLY under the room lock: the caller's new
+    /// connection id is swapped in, the seat is marked connected again, and the pending
+    /// grace-expiry eviction is cancelled (a race between "grace expires" and "Rejoin
+    /// lands" resolves deterministically under that same lock - whichever wins, the other
+    /// is a no-op). This method then (AC-01) re-subscribes the new connection to the
+    /// room's SignalR group (the old connection's membership tore down on disconnect),
+    /// (AC-06) re-broadcasts the roster so every OTHER player sees this seat flip back to
+    /// Connected in near-real-time, and builds the rehydration envelope (AC-02 to AC-04):
+    /// the roster, the host flag, the phase, and - for a "prompting" round - THIS seat's
+    /// own remaining blank indices (via the reclaim result) plus the room-wide collection
+    /// progress from the EXISTING <see cref="Room.GetProgressCounts"/> / <see cref="Room.GetProgress"/>,
+    /// or - for a "reveal" round - the shared ordered words from the EXISTING
+    /// <see cref="Room.BuildReveal"/>. No second, parallel round projection is built, and
+    /// nothing beyond what the room already exposes to every player travels back (AC-07).
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive), from the caller's stored handle.</param>
+    /// <param name="token">The caller's own opaque reconnect token, from its create/join result envelope.</param>
+    public async Task<RejoinResultDto> Rejoin(string code, string token)
+    {
+        // 1. Look the room up first (an unknown / expired code has nothing to rejoin).
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new RejoinResultDto(
+                false,
+                "We couldn't find that game - it may have wrapped up. Head back and start or join again.",
+                Room: null, IsHost: false, Phase: null, Round: null, YourBlanks: null, Progress: null, Reveal: null);
+        }
+
+        // 2. Reclaim the seat by token under the room lock (AC-01/AC-05). A miss (unknown,
+        //    already-evicted, or a token for a different room) mutates nothing and is a
+        //    friendly failure - never a throw.
+        var reclaim = room.ReclaimSeat(token, Context.ConnectionId);
+        if (reclaim.Status == ReclaimStatus.NotFound)
+        {
+            return new RejoinResultDto(
+                false,
+                "We couldn't get you back into that game - your seat may have timed out. Head back and join again.",
+                Room: null, IsHost: false, Phase: null, Round: null, YourBlanks: null, Progress: null, Reveal: null);
+        }
+
+        // 3. Re-subscribe the NEW connection to the room's SignalR group (the OLD
+        //    connection's membership already tore down via SignalR's disconnect handling),
+        //    so future roster/round broadcasts reach the resumed device (AC-01).
+        await Groups.AddToGroupAsync(Context.ConnectionId, room.Code);
+
+        // 4. Re-broadcast the roster so EVERY player sees this seat flip back to Connected
+        //    in near-real-time (AC-06). ToRoomState carries the now-true Connected flag.
+        await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+
+        // 5. Build the rehydration envelope (AC-02 to AC-04). The roster + host flag +
+        //    phase always come back; the phase decides what round data rides along, all
+        //    from the EXISTING projections (no parallel bookkeeping).
+        RoundStartedDto? roundDto = null;
+        YourBlanksDto? blanksDto = null;
+        CollectProgressDto? progressDto = null;
+        RevealReadyDto? revealDto = null;
+
+        var round = room.CurrentRound;
+        if (round is not null)
+        {
+            // The same RoundStarted metadata every player received (template id + mode +
+            // round number + CrownedNickname) - carried through exactly as the RoundStarted
+            // broadcast does. CrownedNickname here is already-public, decided round metadata,
+            // distinct from the parked LIVE vote/reaction-tally rehydration (which may show
+            // reset counters until the next broadcast - see 08's Out of Scope).
+            roundDto = new RoundStartedDto(round.TemplateId, round.Mode, round.RoundNumber, round.CrownedNickname);
+
+            // Note: reclaim.Phase is a point-in-time snapshot captured atomically under the
+            // room lock during ReclaimSeat; the projection reads below re-acquire the lock, so
+            // a round flipping prompting -> reveal in between yields a momentarily
+            // phase-inconsistent envelope. That is benign: the new connection is already in the
+            // room's group (re-added above), so the live RevealReady / CollectProgress
+            // broadcast reconciles it - the same cross-lock pattern SubmitWord already relies on.
+            if (string.Equals(reclaim.Phase, "prompting", StringComparison.Ordinal))
+            {
+                // AC-03: ONLY this seat's own outstanding blank indices (from the atomic
+                // reclaim), plus the room-wide "N of M done" progress the Waiting card shows.
+                blanksDto = new YourBlanksDto(reclaim.RemainingBlankIndices);
+
+                var (doneCount, playerCount) = room.GetProgressCounts();
+                var progress = room.GetProgress()
+                    .Select(p => new PlayerProgressDto(p.Nickname, p.Variant, p.Done))
+                    .ToArray();
+                progressDto = new CollectProgressDto(doneCount, playerCount, progress);
+            }
+            else if (string.Equals(reclaim.Phase, "reveal", StringComparison.Ordinal))
+            {
+                // AC-04: the shared ordered reveal words, so the resuming client renders the
+                // exact reveal everyone else is looking at (built by the SAME BuildReveal).
+                var words = room.BuildReveal()
+                    .Select(w => new RevealWordDto(w.Word, w.Nickname, w.Variant))
+                    .ToArray();
+                revealDto = new RevealReadyDto(round.TemplateId, words);
+            }
+        }
+
+        return new RejoinResultDto(
+            true,
+            Error: null,
+            Room: ToRoomState(room),
+            IsHost: reclaim.IsHost,
+            Phase: reclaim.Phase,
+            Round: roundDto,
+            YourBlanks: blanksDto,
+            Progress: progressDto,
+            Reveal: revealDto);
     }
 
     /// <summary>
@@ -568,6 +779,16 @@ public sealed class GameHub : Hub
     /// an abnormal close plus the transport exception's type/stack, which the PII
     /// scrubber's allowed shape permits. No-ops cleanly with no connection string
     /// configured (AC-05).
+    ///
+    /// session-engine/07 (hold the seat): a dropped connection (ANY OnDisconnectedAsync
+    /// - the connection-lifecycle drop, as opposed to a deliberate LeaveRoom) no longer
+    /// evicts the seat on the spot. Instead it HOLDS the seat for a grace window: mark
+    /// it disconnected (kept on the roster, PlayerCount unchanged, a "prompting" round
+    /// NOT aborted - AC-01/AC-02) and schedule ONE one-shot delayed eviction that runs
+    /// today's eviction + conditional RoundAborted + RosterChanged ONLY if the window
+    /// elapses with no reconnect (AC-03). A deliberate LeaveRoom still evicts
+    /// immediately (AC-04). This is the car dead-zone / phone-lock tolerance README
+    /// section 1 calls out - a brief blip must not tear down the room.
     /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
@@ -576,7 +797,7 @@ public sealed class GameHub : Hub
             // Abnormal close only (a clean disconnect passes null). Track the
             // anonymous fact + the transport exception - never any room/player payload.
             // Wrapped so an unexpected telemetry failure can NEVER interfere with the
-            // disconnect cleanup / room removal below (AC-08 posture, matching
+            // disconnect cleanup / grace scheduling below (AC-08 posture, matching
             // TrackUsageRoundStarted/Completed and FireServeEvent).
             try
             {
@@ -589,8 +810,34 @@ public sealed class GameHub : Hub
             }
         }
 
-        var room = _rooms.RemoveConnection(Context.ConnectionId);
-        await HandlePlayerLeftAsync(room);
+        // session-engine/07: hold the dropped seat instead of evicting it now. BeginGrace
+        // marks the seat disconnected (still on the roster) and returns a handle, or null
+        // when the connection was not seated anywhere (the no-op case).
+        var handle = _rooms.BeginGrace(Context.ConnectionId);
+        if (handle is not null)
+        {
+            // AC-01: the roster still reports the seat, now flagged not-connected.
+            // Broadcast it so every remaining client's roster reflects the held seat.
+            // Nothing renders the Connected flag until web story 10; the round is NOT
+            // aborted here (AC-02) - only the deferred eviction can abort it (AC-03).
+            await Clients.Group(handle.Room.Code).SendAsync("RosterChanged", ToRoomState(handle.Room));
+
+            // Optional anonymous operational signal (no room / nickname payload), mirroring
+            // HubAbnormalDisconnect above - "a grace window began". Never breaks teardown.
+            try
+            {
+                _appInsights.TrackEvent("HubGraceStarted");
+            }
+            catch
+            {
+                // Swallowed: telemetry must never break hub teardown.
+            }
+
+            // Fire-and-forget the one-shot delayed eviction. The seat's CancellationToken
+            // lives on the Room, so story 08's Rejoin can cancel it to keep the seat;
+            // SeatGraceService wraps the run so a fault is logged, never left unobserved.
+            _ = _grace.ScheduleEviction(handle);
+        }
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -617,8 +864,8 @@ public sealed class GameHub : Hub
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, code);
         }
 
-        var room = _rooms.RemoveConnection(Context.ConnectionId);
-        await HandlePlayerLeftAsync(room);
+        var room = _rooms.RemoveConnection(Context.ConnectionId, out var promotedHostConnectionId);
+        await HandlePlayerLeftAsync(room, promotedHostConnectionId);
     }
 
     /// <summary>
@@ -678,10 +925,18 @@ public sealed class GameHub : Hub
                 "We couldn't find a game with that code - double-check and try again.");
         }
 
-        // 2. Server-enforced host check (AC-03): only the connection that owns the
-        //    room's host player may start a round. This is authoritative even
-        //    though the client also hides the CTA from non-hosts.
-        if (!room.IsHost(Context.ConnectionId))
+        // 2. Server-enforced host check (AC-03): while the room HAS a host, only the
+        //    connection that owns that host player may start a round (the one exception
+        //    is the hostless case below). This is authoritative even though the client
+        //    also hides the CTA from non-hosts.
+        //
+        //    room-start-duplicate-members (belt-and-suspenders): host migration keeps a
+        //    non-empty room always hosted, so this normally rejects every non-host. The
+        //    `room.HasHost` guard only relaxes it if a room ever ends up with NO host at
+        //    all - then any remaining player may start it rather than the room being
+        //    permanently unstartable. Mirrors the client CTA, which likewise shows Start
+        //    to everyone when the roster carries no host.
+        if (!room.IsHost(Context.ConnectionId) && room.HasHost)
         {
             return new StartRoundResultDto(
                 false,
@@ -1031,32 +1286,120 @@ public sealed class GameHub : Hub
     }
 
     /// <summary>
-    /// reveal-delight/01: a player reacts on the reveal (AC-04).
+    /// replay-remix/03: the HOST hands the host role to another roster player,
+    /// BETWEEN ROUNDS only ("Pass the chisel", AC-01/AC-02).
+    ///
+    /// HOST-ONLY and SERVER-ENFORCED, reusing the EXACT SAME authorization check
+    /// <see cref="StartRound"/>/<see cref="BackToLobby"/> already perform
+    /// (<see cref="Room.IsHost"/>) - not a second authorization mechanism (AC-04).
+    /// Reuses the friendly <see cref="StartRoundResultDto"/> envelope, exactly as
+    /// <see cref="BackToLobby"/> does, rather than a throw:
+    ///
+    ///   1. Unknown / expired code -> friendly fail (nothing to hand off).
+    ///   2. Caller is not the host -> reject (AC-04). Server-authoritative even
+    ///      though the client only shows the action to the host.
+    ///   3. The room is mid-round (a live round whose phase is "prompting") ->
+    ///      reject (AC-05) - a handoff is deliberately between-rounds only. A
+    ///      "reveal" phase round (Round Complete's underlying phase) and the
+    ///      lobby (no round at all) are both allowed.
+    ///   4. <see cref="Room.PassHost"/> flips the flag under the room lock,
+    ///      re-verifying the host check atomically and requiring the target to be
+    ///      a live roster member; a false result (a race, or an unknown/departed
+    ///      target) is a friendly fail.
+    ///
+    /// On success it broadcasts the EXISTING "RosterChanged" event with the
+    /// updated roster (no new broadcast event type, AC-02/AC-03) - the moved
+    /// IsHost flag already rides on every PlayerDto, so every client (the new
+    /// host, the outgoing host, and everyone else) sees the crown move live.
+    /// </summary>
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="targetNickname">The roster member (by nickname) to become the new host.</param>
+    public async Task<StartRoundResultDto> PassHost(string code, string targetNickname)
+    {
+        // 1. Look up the room first (an unknown / expired code has nothing to hand off).
+        var room = _rooms.TryGet(code);
+        if (room is null)
+        {
+            return new StartRoundResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
+        }
+
+        // 2. Server-enforced host check (AC-04): only the connection that owns the
+        //    room's host player may hand it off. Authoritative even though the
+        //    client only shows "Pass the chisel" to the host.
+        if (!room.IsHost(Context.ConnectionId))
+        {
+            return new StartRoundResultDto(
+                false,
+                "Only the host can pass the chisel.");
+        }
+
+        // 3. Between-rounds only (AC-05): a live round still in "prompting" blocks
+        //    the handoff. No round (lobby) or a "reveal" round (Round Complete's
+        //    underlying phase) are both fine.
+        var round = room.CurrentRound;
+        if (round is not null && string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
+        {
+            return new StartRoundResultDto(
+                false,
+                "The chisel can only pass between rounds, not mid-round.");
+        }
+
+        // 4. Flip the flag under the room lock (re-verifies the host + target
+        //    atomically). A false result is a race or an unknown/departed target.
+        if (!room.PassHost(Context.ConnectionId, targetNickname))
+        {
+            return new StartRoundResultDto(
+                false,
+                "That player isn't available to become host right now.");
+        }
+
+        // 5. Broadcast the EXISTING RosterChanged event so every client's roster -
+        //    including the crown - updates live (AC-02/AC-03). No new event type.
+        await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+
+        return new StartRoundResultDto(true, null);
+    }
+
+    /// <summary>
+    /// reveal-delight/01 + reactions v2: a player reacts on the reveal (AC-04).
     ///
     /// The lightest-weight room-wide real-time surface: a player taps one of the
-    /// four reaction pills (Laugh/Heart/Wow/Star) and every player in the room sees
-    /// that reaction's count tick up in near-real-time, over the SAME one connection
-    /// the roster and reveal already use. This is FIRE-AND-FORGET from the client's
-    /// side (it returns void, not a result envelope) - the tapper's perceived
-    /// responsiveness comes from an instant local floating-icon pop, and the
-    /// authoritative count arrives for everyone (the tapper included) via the
-    /// "ReactionCountsChanged" broadcast, so no client ever double-counts.
+    /// THREE reaction pills (Love / Wow / Didn't like) and every player in the room
+    /// sees the tally update in near-real-time, over the SAME one connection the
+    /// roster and reveal already use. This is FIRE-AND-FORGET from the client's side
+    /// (it returns void, not a result envelope) - the tapper's perceived
+    /// responsiveness comes from an instant local selection highlight, and the
+    /// authoritative counts arrive for everyone (the tapper included) via the
+    /// "ReactionCountsChanged" broadcast.
+    ///
+    /// The UX de-clutter made reactions ONE-PER-USER, which is what fixes the old
+    /// count-inflation bug (a player could previously tap a pill repeatedly to run
+    /// its count up). The SERVER is now authoritative for that de-dupe: the tapping
+    /// connection is passed to <see cref="Room.SetReaction"/>, which SELECTS the
+    /// reaction (a first tap), MOVES it (tapping a different pill decrements the old
+    /// + increments the new), or TOGGLES it off (tapping the pill you already hold
+    /// removes it). So React is idempotent-by-design - a repeat of the same tap
+    /// toggles rather than inflates.
     ///
     /// A reaction is a TYPE ENUM only (AC-06): no text and no player identity travel
     /// on the wire, so there is nothing for the safety filter to check and no PII is
-    /// collected - the payload is just "someone in this room reacted with X". The
-    /// type is validated server-side against the four allowed values (a crafted
+    /// collected - the payload is just "someone in this room reacted with X" (the
+    /// connection id used for de-dupe is a server-side handle, never broadcast). The
+    /// type is validated server-side against the three allowed values (a crafted
     /// client sending anything else is simply ignored, no throw), then the room's
-    /// ephemeral per-reveal tally is incremented and the full updated tally is
-    /// broadcast to the whole room group. The counts reset when a new round starts
-    /// (see <see cref="Room.StartRound"/>) - they are per-reveal, not persisted.
+    /// ephemeral per-reveal tally + per-connection hold are updated and the full
+    /// updated tally is broadcast to the whole room group. The counts + holds reset
+    /// when a new round starts (see <see cref="Room.StartRound"/>) - they are
+    /// per-reveal, not persisted.
     ///
     /// An unknown/expired code, or a type outside the allowed set, is a silent no-op
     /// (a stray reaction is harmless) rather than a friendly error envelope - unlike
     /// the word/round methods there is nothing the player needs to retry.
     /// </summary>
     /// <param name="code">The room's join code (case-insensitive).</param>
-    /// <param name="reactionType">One of laugh/heart/wow/star; anything else is ignored server-side.</param>
+    /// <param name="reactionType">One of love/wow/nope; anything else is ignored server-side.</param>
     public async Task React(string code, string reactionType)
     {
         // An unknown / expired room has nothing to react to - silently ignore.
@@ -1066,23 +1409,24 @@ public sealed class GameHub : Hub
             return;
         }
 
-        // Validate the type against the four allowed values (AC-06). A crafted
+        // Validate the type against the three allowed values (AC-06). A crafted
         // client sending anything else is ignored - never trust the wire value.
         if (string.IsNullOrWhiteSpace(reactionType) || !KnownReactions.Contains(reactionType))
         {
             return;
         }
 
-        // Increment the room's ephemeral per-reveal tally under its lock and get a
-        // detached snapshot to broadcast. Lowercase to the canonical key the tally
+        // Apply this connection's single reaction under the room's lock (select /
+        // move / toggle off - the server-authoritative one-per-user de-dupe) and get
+        // a detached snapshot to broadcast. Lowercase to the canonical key the tally
         // uses (the client already sends lowercase, but normalize defensively).
-        var tally = room.IncrementReaction(reactionType.ToLowerInvariant());
+        var tally = room.SetReaction(Context.ConnectionId, reactionType.ToLowerInvariant());
 
         // Broadcast the full updated tally to the whole room group so every player
         // (the tapper included) sees the count update in near-real-time (AC-04).
         await Clients.Group(room.Code).SendAsync(
             "ReactionCountsChanged",
-            new ReactionCountsDto(tally["laugh"], tally["heart"], tally["wow"], tally["star"]));
+            new ReactionCountsDto(tally["love"], tally["wow"], tally["nope"]));
     }
 
     /// <summary>
@@ -1300,34 +1644,150 @@ public sealed class GameHub : Hub
     }
 
     /// <summary>
-    /// group-play recovery: shared teardown when a player leaves a room (via a
-    /// dropped connection or a deliberate LeaveRoom). If the room still has members
-    /// and its round is mid-collection ("prompting"), that round can no longer
-    /// complete - the departed player's assigned blanks will never be submitted, so
-    /// the reveal would never fire and the survivors would hang. Reset the round and
-    /// broadcast "RoundAborted" so every remaining player drops back to the still-live
-    /// lobby with a friendly notice, then always re-broadcast the trimmed roster. A
-    /// round already at "reveal" is effectively done (everyone is on the reveal /
-    /// recap), so it is left untouched. Small recovery beyond Slice-1's parked
-    /// reconnect handling; host migration (if the HOST leaves) is still parked.
+    /// replay-remix/02: re-reveal the SAME finished tale with ONE blank re-collected
+    /// (issue #61, "One-blank remix of a finished tale"), then broadcast the freshly
+    /// re-assembled reveal to EVERYONE (AC-07, a shared moment - not a private edit
+    /// only the remixer sees). This is a thin SIBLING of <see cref="SubmitWord"/>,
+    /// reusing the SAME two-step shape (safety check, then an authoritative room
+    /// mutation) rather than a new subsystem:
+    ///
+    ///   1. SAFETY FILTER FIRST (AC-06), exactly like <see cref="SubmitWord"/>: a
+    ///      blocked word never gets recorded or shown, and the caller gets the
+    ///      filter's friendly retry message back.
+    ///   2. <see cref="Room.RemixSubmission"/> is the ONE authoritative mutation:
+    ///      it validates the round is in the "reveal" phase (not mid-collection),
+    ///      that <paramref name="blankIndex"/> is in range, and that the caller is a
+    ///      LIVE ROOM MEMBER - deliberately NO host guard here (2026-07-04
+    ///      Decisions-log call: ANY player may remix, since the whole point is
+    ///      "swap the one word that made YOU laugh").
+    ///   3. On success, rebuild the ORDERED reveal payload (the SAME
+    ///      <see cref="Room.BuildReveal"/> projection <see cref="SubmitWord"/>
+    ///      already uses) and re-broadcast the EXISTING "RevealReady" event - every
+    ///      client's already-wired RevealReady handler updates its `reveal` state
+    ///      and re-renders through the SAME unmodified Reveal screen, no new client
+    ///      event needed.
+    ///
+    /// Never changes the round's template, blank count, or phase - a remix is a
+    /// same-tale, one-word swap only.
     /// </summary>
-    private async Task HandlePlayerLeftAsync(Room? room)
+    /// <param name="code">The room's join code (case-insensitive).</param>
+    /// <param name="blankIndex">The blank index (into the template's ordered blanks) to remix.</param>
+    /// <param name="word">The new free-text word for that one blank; vetted server-side before recording.</param>
+    public async Task<SubmitWordResultDto> RemixWord(string code, int blankIndex, string word)
     {
+        var room = _rooms.TryGet(code);
         if (room is null)
         {
-            return;
+            return new SubmitWordResultDto(
+                false,
+                "We couldn't find a game with that code - double-check and try again.");
         }
 
+        // SAFETY FILTER FIRST (AC-06), exactly like SubmitWord: a blocked word is
+        // never recorded or shown, regardless of who is remixing.
+        var candidate = word ?? string.Empty;
+        var verdict = await _safety.CheckAsync(candidate, Context.ConnectionAborted);
+        if (!verdict.IsAllowed)
+        {
+            return new SubmitWordResultDto(false, verdict.Message);
+        }
+
+        var outcome = room.RemixSubmission(Context.ConnectionId, blankIndex, candidate);
+        if (outcome != Room.RemixOutcome.Recorded)
+        {
+            // Both expected-rejection cases (no live reveal to remix into, or a
+            // caller who is not a seated room member) get the same friendly retry
+            // message - neither leaks which case it was, mirroring the other hub
+            // envelopes' posture of not distinguishing "why" beyond kid-readable copy.
+            return new SubmitWordResultDto(
+                false,
+                "That word can't be remixed right now - please try again.");
+        }
+
+        // Rebuild + re-broadcast the SAME "RevealReady" event SubmitWord uses (AC-07):
+        // every client's already-wired handler updates `reveal` and re-renders through
+        // the unmodified Reveal screen - no new client event, no second broadcast type.
+        var round = room.CurrentRound;
+        if (round is null)
+        {
+            // Defensive: RemixSubmission only recorded because a "reveal"-phase round
+            // existed a moment ago under the same lock, but re-read it fresh here in
+            // case something raced it away (e.g. BackToLobby) between the two calls.
+            return new SubmitWordResultDto(
+                false,
+                "That word can't be remixed right now - please try again.");
+        }
+
+        var words = room.BuildReveal()
+            .Select(w => new RevealWordDto(w.Word, w.Nickname, w.Variant))
+            .ToArray();
+        await Clients.Group(room.Code).SendAsync(
+            "RevealReady",
+            new RevealReadyDto(round.TemplateId, words));
+
+        return new SubmitWordResultDto(true, null);
+    }
+
+    /// <summary>
+    /// group-play recovery: shared teardown when a player leaves a room. The
+    /// instance wrapper for the LeaveRoom (deliberate) path - it broadcasts through
+    /// this invocation's own <see cref="Hub.Clients"/>. A null room (the leaver was
+    /// not seated, or leaving emptied and dropped the room) is a no-op.
+    /// </summary>
+    private Task HandlePlayerLeftAsync(Room? room, string? promotedHostConnectionId = null) =>
+        room is null ? Task.CompletedTask : BroadcastPlayerLeftAsync(Clients, room, promotedHostConnectionId);
+
+    /// <summary>
+    /// group-play recovery: the SHARED player-left epilogue, broadcast to
+    /// <paramref name="clients"/>. If the room still has members and its round is
+    /// mid-collection ("prompting"), that round can no longer complete - the departed
+    /// player's assigned blanks will never be submitted, so the reveal would never fire
+    /// and the survivors would hang. Reset the round and broadcast "RoundAborted" so
+    /// every remaining player drops back to the still-live lobby with a friendly notice,
+    /// then always re-broadcast the trimmed roster. A round already at "reveal" is
+    /// effectively done (everyone is on the reveal / recap), so it is left untouched.
+    ///
+    /// Taking <see cref="IHubClients"/> (rather than reading this hub's own
+    /// <see cref="Hub.Clients"/>) is what lets BOTH the live LeaveRoom path (passing
+    /// this invocation's <c>Clients</c>) AND the session-engine/07 grace-expiry path
+    /// (passing <c>IHubContext&lt;GameHub&gt;.Clients</c>, since the originating hub
+    /// invocation has long since ended) run the EXACT same eviction epilogue - no
+    /// forked, mode-specific reconnect logic ("one engine, many thin modes").
+    ///
+    /// room-start-duplicate-members: host migration now runs INSIDE the seat removal
+    /// (Room.EnsureHostLocked, on both the RemovePlayer and TryReleaseSeat paths that
+    /// feed this epilogue), so if the departing seat was the host a remaining seat has
+    /// already inherited the flag by the time we broadcast. The targeted "HostGranted"
+    /// below tells that promoted connection so its client can start.
+    /// </summary>
+    internal static async Task BroadcastPlayerLeftAsync(
+        IHubClients<IClientProxy> clients,
+        Room room,
+        string? promotedHostConnectionId = null)
+    {
         var round = room.CurrentRound;
         if (round is not null && string.Equals(round.Phase, "prompting", StringComparison.Ordinal))
         {
             room.BackToLobby();
-            await Clients.Group(room.Code).SendAsync(
+            await clients.Group(room.Code).SendAsync(
                 "RoundAborted",
                 new RoundAbortedDto("A carver left, so we headed back to the lobby. Start a fresh round when your crew's ready."));
         }
 
-        await Clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+        await clients.Group(room.Code).SendAsync("RosterChanged", ToRoomState(room));
+
+        // room-start-duplicate-members: if this leave migrated the host flag to a remaining
+        // seat (Room.EnsureHostLocked runs inside the seat removal on BOTH the deliberate-
+        // leave and grace-eviction paths that land here), nudge ONLY that promoted
+        // connection so its client flips its host-only Start CTA on. The roster DTO is
+        // anonymous - it carries no connection identity - so it can never tell a specific
+        // client "you are the host"; without this targeted message the promoted player
+        // would sit in a hosted room with no way to start (the dead-end this story fixes).
+        // Null (a non-host left, so the host is unchanged) sends nothing.
+        if (promotedHostConnectionId is not null)
+        {
+            await clients.Client(promotedHostConnectionId).SendAsync("HostGranted");
+        }
     }
 
     /// <summary>
@@ -1365,11 +1825,14 @@ public sealed class GameHub : Hub
         return lengthPref.ToLowerInvariant();
     }
 
-    // Map the in-memory Room to the wire DTO (drops the server-only connectionId).
+    // Map the in-memory Room to the wire DTO (drops the server-only connectionId AND
+    // the server-only reconnect token - session-engine/07 AC-06: the token is NEVER on
+    // the roster the whole room receives). The Connected flag DOES ride along (web
+    // story 10 renders the "reconnecting" tile from it).
     private static RoomStateDto ToRoomState(Room room)
     {
         var players = room.SnapshotPlayers()
-            .Select(p => new PlayerDto(p.Nickname, p.Variant, p.IsHost))
+            .Select(p => new PlayerDto(p.Nickname, p.Variant, p.IsHost, p.Connected))
             .ToArray();
 
         return new RoomStateDto(room.Code, players);

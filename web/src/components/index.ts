@@ -93,3 +93,10 @@ export type { ReactionRowProps, ReactionType, ReactionCounts } from './ReactionR
 // web/src/content/favorites.ts.
 export { FavoriteStarButton } from './FavoriteStarButton';
 export type { FavoriteStarButtonProps } from './FavoriteStarButton';
+
+// The Lobby's host-only "Game settings" bottom sheet (screen de-clutter /
+// fit-to-viewport redesign): slide-up chrome over the existing FamilySafeToggle
+// / StoryLengthChoice / ModePicker / favorites-picker controls, so the Waiting
+// room's main screen stays a fixed, non-scrolling layout.
+export { GameSettingsSheet } from './GameSettingsSheet';
+export type { GameSettingsSheetProps } from './GameSettingsSheet';

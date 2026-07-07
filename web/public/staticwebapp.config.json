@@ -1,8 +1,13 @@
 {
   "$schema": "https://json.schemastore.org/staticwebapp.config.json",
+  "routes": [
+    { "route": "/admin", "rewrite": "/admin.html" },
+    { "route": "/admin/login", "rewrite": "/admin.html" }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [
+      "/admin.html",
       "/assets/*",
       "/*.svg",
       "/*.jpg",

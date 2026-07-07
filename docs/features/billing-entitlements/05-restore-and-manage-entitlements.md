@@ -1,6 +1,6 @@
 # Story: Restore / manage entitlements
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #74
+**Feature:** Billing & Entitlements  ·  **Status:** Complete  ·  **Issue:** #74
 
 ## Context
 A purchaser should always be able to see what they own and get it back on a
@@ -12,31 +12,31 @@ purchase durable across the purchaser's devices. See
 early ... retrofitting auth onto an anonymous system later is painful").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in purchaser (accounts-identity/03) with one or
+- [x] AC-01: Given a signed-in purchaser (accounts-identity/03) with one or
       more granted entitlements, when they open the restore/manage view, then
       they see a plain-language list of what is unlocked (e.g. "Family Plan -
       active" or "Holiday Pack - unlocked") sourced from
       billing-entitlements/01's entitlement store for their account.
-- [ ] AC-02: Given a purchaser signs in on a new device that has never made a
+- [x] AC-02: Given a purchaser signs in on a new device that has never made a
       purchase, when they open the restore view, then their existing
       entitlements are visible there without needing to re-purchase anything,
       and the next session created from that device reflects the same unlocks
       as their original device (per billing-entitlements/01 AC-03's
       session-creation-time read).
-- [ ] AC-03: Given a purchaser with zero entitlements (e.g. they only ever
+- [x] AC-03: Given a purchaser with zero entitlements (e.g. they only ever
       used the tip jar, or never purchased), when they open the restore view,
       then it shows a friendly empty state (not an error) - consistent with
       billing-entitlements/01 AC-07's "day one, nothing granted" default.
-- [ ] AC-04: Given the restore/manage view, when it is reached, then it is
+- [x] AC-04: Given the restore/manage view, when it is reached, then it is
       only reachable from a purchaser-facing area (the same settings/account
       entry point as accounts-identity/03's sign-in) - it never appears in
       the join code, lobby, word entry, or reveal flow.
-- [ ] AC-05: Given the restore view displays entitlement state, then it
+- [x] AC-05: Given the restore view displays entitlement state, then it
       displays no data about which players/nicknames used those entitlements
       in past sessions - it shows what the *purchaser* owns, not a play
       history (consistent with accounts-identity/02 AC-03's "who bought this,
       not who played this" scoping).
-- [ ] AC-06: Given a purchaser is not signed in, when they navigate to the
+- [x] AC-06: Given a purchaser is not signed in, when they navigate to the
       restore/manage entry point, then they are directed to sign in
       (accounts-identity/03) first - this view never guesses or shows
       entitlement state for an unauthenticated visitor.
@@ -77,12 +77,12 @@ early ... retrofitting auth onto an anonymous system later is painful").
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `api/tests/Billing/RestoreViewTests.cs (to be created): a purchaser with a known grant sees it listed via the read endpoint.` |
-| AC-02 | `manual: sign in on a second simulated device/browser profile with an entitled account - confirm the list matches, then create a new session and confirm the unlock is present.` |
-| AC-03 | `manual: sign in as a purchaser with zero grants - confirm a friendly empty state, no error.` |
-| AC-04 | `manual: UI audit - confirm the restore/manage entry point is absent from Join, Lobby, FillBlank, and Reveal.` |
-| AC-05 | `manual: code/response read - confirm the read endpoint's payload contains no player/nickname/session reference.` |
-| AC-06 | `manual: attempt to navigate to the restore view while signed out - confirm redirect/prompt to sign in, no entitlement data shown.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/Billing/RestoreViewTests.cs::SignedIn_purchaser_sees_active_grants_labeled` (labels via `EntitlementLabels`). Also verified LIVE: signed in as a purchaser, the restore endpoint listed Full Library / Remote Play / Large Groups.` |
+| AC-02 | `manual: verified - signed in on a second simulated device/browser profile with an entitled account; the list matched, and a new session created from that device reflected the same unlocks.` |
+| AC-03 | `tests/QuibbleStone.Api.Tests/Billing/RestoreViewTests.cs::SignedIn_purchaser_with_no_grants_gets_empty_list` and `::Valid_credential_but_no_account_gets_empty_list` (friendly empty state, no error).` |
+| AC-04 | `manual: verified in browser - the restore/manage entry point (Account page) is absent from Join, Lobby, FillBlank, and Reveal.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/Billing/RestoreViewTests.cs::Payload_contains_no_player_or_session_data` |
+| AC-06 | `tests/QuibbleStone.Api.Tests/Billing/RestoreViewTests.cs::Unauthenticated_caller_gets_401` and `::Invalid_credential_gets_401` (guarded by `PurchaserCredentialService`), plus `tests/QuibbleStone.Api.Tests/Accounts/PurchaserCredentialServiceTests.cs` (existing suite, re-run as regression).` |
 
 ## Dependencies
 - billing-entitlements/01 (the entitlement store this view reads).

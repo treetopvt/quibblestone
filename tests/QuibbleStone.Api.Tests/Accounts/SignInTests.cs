@@ -28,6 +28,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Controllers;
 
@@ -53,9 +54,14 @@ public class SignInTests
         // for a test - reused here so the test can unprotect what the controller
         // protected.
         IDataProtectionProvider dataProtection = new EphemeralDataProtectionProvider();
+        var credential = new PurchaserCredentialService(dataProtection);
         var environment = new FakeWebHostEnvironment(development ? "Development" : "Production");
+        // No email provider configured => the no-op sender (AC-03); these tests do not
+        // assert on delivery (EmailSenderTests covers that seam), only sign-in logic.
+        IEmailSender email = new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance);
 
-        var controller = new AccountsController(tokens, store, dataProtection, environment)
+        var controller = new AccountsController(
+            tokens, store, credential, email, new EmailOptions(), environment, NullLogger<AccountsController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
@@ -156,8 +162,8 @@ public class SignInTests
         // Production env so the token is NOT echoed - the shape a real client sees.
         var harness = NewHarness(development: false);
 
-        var unknown = RequestLink(harness, "nobody@example.com");
-        var alsoUnknown = RequestLink(harness, "someone-else@example.com");
+        var unknown = await RequestLink(harness, "nobody@example.com");
+        var alsoUnknown = await RequestLink(harness, "someone-else@example.com");
 
         // The response is the SAME neutral shape for both - no existence tell, and
         // no token leaks in a non-dev environment (AC-05).
@@ -170,11 +176,11 @@ public class SignInTests
     }
 
     [Fact]
-    public void RequestLink_InDevelopment_EchoesAWalkableToken()
+    public async Task RequestLink_InDevelopment_EchoesAWalkableToken()
     {
         var harness = NewHarness(development: true);
 
-        var result = RequestLink(harness, "buyer@example.com");
+        var result = await RequestLink(harness, "buyer@example.com");
 
         // Dev-only affordance: a token is echoed so the flow is walkable with no
         // email provider. It verifies to the same email (the flow works).
@@ -186,14 +192,14 @@ public class SignInTests
     // ---- input-length guards (Copilot review) -----------------------------------
 
     [Fact]
-    public void RequestLink_OverLengthEmail_ReturnsNeutralShapeAndIssuesNoToken()
+    public async Task RequestLink_OverLengthEmail_ReturnsNeutralShapeAndIssuesNoToken()
     {
         // Dev env so a token WOULD normally be echoed - proving the over-length
         // path bails BEFORE issuing one (no oversized token, no oversized echo).
         var harness = NewHarness(development: true);
         var tooLong = new string('a', AccountsController.MaxEmailLength) + "@example.com";
 
-        var result = RequestLink(harness, tooLong);
+        var result = await RequestLink(harness, tooLong);
 
         // Same neutral message as any other submit (no enumeration tell), and no
         // token was minted for the over-length input.
@@ -215,9 +221,9 @@ public class SignInTests
 
     // ---- helpers ----------------------------------------------------------------
 
-    private static SignInRequestResult RequestLink(Harness harness, string email)
+    private static async Task<SignInRequestResult> RequestLink(Harness harness, string email)
     {
-        var action = harness.Controller.RequestLink(new SignInRequestBody(email));
+        var action = await harness.Controller.RequestLink(new SignInRequestBody(email));
         var ok = Assert.IsType<OkObjectResult>(action);
         return Assert.IsType<SignInRequestResult>(ok.Value);
     }

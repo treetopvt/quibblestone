@@ -49,6 +49,7 @@
 //  ===========================================================================
 // ----------------------------------------------------------------------------
 
+using System.Security.Cryptography;
 using QuibbleStone.Api.Entitlements;
 
 namespace QuibbleStone.Api.Rooms;
@@ -57,16 +58,84 @@ namespace QuibbleStone.Api.Rooms;
 /// One anonymous player in a room. Minimal by design (no PII, README section 6):
 /// just an in-session nickname, a Guardian variant, the owning connection, and
 /// whether this player is the host.
+///
+/// session-engine/07 (hold the seat): a seat also carries a server-minted
+/// <see cref="ReconnectToken"/> (the opaque handle story 08's Rejoin spends - see
+/// <see cref="Room.NewReconnectToken"/>) and a <see cref="Connected"/> flag. Both
+/// are SERVER-SIDE on this record; the token is NEVER projected onto the wire DTO
+/// (that would let another player hijack the seat, AC-06), and only the Connected
+/// flag reaches the roster shape (consumed by web story 10). "Marking a seat
+/// disconnected" rebuilds this immutable record with <c>Connected = false</c> under
+/// the room lock (see <see cref="Room.MarkDisconnected"/>) - it never mutates in place.
 /// </summary>
 /// <param name="Nickname">In-session display name (the host now picks one on HostSetup before the room is minted - see <see cref="Room.CreateHosted"/>).</param>
 /// <param name="Variant">Guardian avatar variant (the host picks one on HostSetup; joiners pick on Join).</param>
 /// <param name="ConnectionId">The SignalR connection that owns this player - used for leave-detection in story 03.</param>
 /// <param name="IsHost">True for the room creator; false for joiners.</param>
+/// <param name="ReconnectToken">session-engine/07: the opaque, cryptographically random, per-seat reconnect handle (returned ONLY to the owning caller, never broadcast). Story 08's Rejoin matches it to reclaim this seat.</param>
+/// <param name="Connected">session-engine/07: false while the seat is being held through a disconnect grace window; true otherwise. The one grace-state field the roster DTO surfaces (web story 10 renders it); the token never is.</param>
 public sealed record Player(
     string Nickname,
     string Variant,
     string ConnectionId,
-    bool IsHost);
+    bool IsHost,
+    string ReconnectToken,
+    bool Connected = true);
+
+/// <summary>
+/// session-engine/07: the ticket <see cref="Room.MarkDisconnected"/> hands back
+/// when it opens a grace hold on a dropped seat. The <see cref="Episode"/> uniquely
+/// identifies THIS disconnect (so a stale timer from an earlier drop can never evict
+/// a seat that has since reconnected and dropped again), and <see cref="Token"/> is
+/// the cancellation token the one-shot grace-expiry <c>Task.Delay</c> waits on -
+/// story 08's Rejoin cancels its source (<see cref="Room.CancelGrace"/>) to keep the seat.
+/// </summary>
+public sealed record GraceHoldTicket(Guid Episode, CancellationToken Token);
+
+/// <summary>
+/// session-engine/08: the two outcomes of <see cref="Room.ReclaimSeat"/> - the seat
+/// was found by its reconnect token and reclaimed, or there was nothing to reclaim
+/// (unknown / already-evicted / wrong-room token). The hub maps this to a friendly
+/// result envelope, never a throw (AC-05).
+/// </summary>
+public enum ReclaimStatus
+{
+    /// <summary>No seat in this room holds the given token (unknown, already evicted, or a token for a different room); nothing was mutated.</summary>
+    NotFound,
+
+    /// <summary>The seat was reclaimed under the new connection; the round-phase rehydration fields are populated.</summary>
+    Reclaimed,
+}
+
+/// <summary>
+/// session-engine/08: what <see cref="Room.ReclaimSeat"/> hands back after matching a
+/// reconnect token to a held seat and swapping in the caller's new connection - just
+/// enough round-phase context (computed ATOMICALLY under the room lock at reclaim time)
+/// for the hub to build the rehydration envelope story 09 consumes:
+///   - <see cref="Status"/>: whether a seat was actually reclaimed (AC-05 guard).
+///   - <see cref="Phase"/>: "lobby" (no round) | "prompting" | "reveal" (AC-02).
+///   - <see cref="IsHost"/>: whether the reclaimed seat is the room's host (AC-02).
+///   - <see cref="RemainingBlankIndices"/>: for a "prompting" round, THIS seat's own
+///     not-yet-submitted blank indices - index-only, no words, no PII, mirroring the
+///     shape of <see cref="Hubs.YourBlanksDto"/> (AC-03). Empty in any other phase.
+/// The room-wide progress ("N of M") and the reveal words are NOT duplicated here - the
+/// hub reads them from the EXISTING <see cref="GetProgressCounts"/> / <see cref="GetProgress"/>
+/// / <see cref="BuildReveal"/> projections (no second parallel round bookkeeping).
+/// </summary>
+/// <param name="Status">Whether a seat was reclaimed or nothing matched the token.</param>
+/// <param name="Phase">The round's phase at reclaim time: "lobby" | "prompting" | "reveal".</param>
+/// <param name="IsHost">True when the reclaimed seat is the room's host.</param>
+/// <param name="RemainingBlankIndices">This seat's outstanding blank indices (prompting only; empty otherwise).</param>
+public sealed record ReclaimResult(
+    ReclaimStatus Status,
+    string Phase,
+    bool IsHost,
+    IReadOnlyList<int> RemainingBlankIndices)
+{
+    /// <summary>The shared "nothing to reclaim" result (AC-05) - a clean, mutation-free miss.</summary>
+    public static readonly ReclaimResult NotFound =
+        new(ReclaimStatus.NotFound, "lobby", false, Array.Empty<int>());
+}
 
 /// <summary>
 /// One player's blank assignment within a round (group-play/02). Records WHICH
@@ -299,6 +368,27 @@ public sealed class Room
     // _gate: mutated only under the lock (see StartRound), snapshotted for reads.
     private RoundState? _round;
 
+    // session-engine/07 (hold the seat): the in-flight disconnect grace holds,
+    // keyed by the DROPPED connection id. A hold opens when a seat is marked
+    // disconnected (MarkDisconnected) and closes when the seat is reclaimed
+    // (CancelGrace - story 08's Rejoin) or evicted on grace expiry
+    // (TryReleaseSeat). Each hold carries a unique EPISODE (so a stale timer for an
+    // earlier drop cannot evict a seat that reconnected then dropped again) and a
+    // CancellationTokenSource the one-shot grace-expiry Task.Delay waits on. A
+    // pending hold NEVER keeps an abandoned room alive (AC-05): the seat still
+    // counts in _players until eviction, and eviction (TryReleaseSeat) frees it so
+    // the registry drops the room the instant it empties. Guarded by _gate like
+    // every other piece of room state; the CTS is disposed when its hold closes.
+    private readonly Dictionary<string, GraceHold> _graceHolds = new(StringComparer.Ordinal);
+
+    // One in-flight grace hold: the disconnect episode + the timer's cancellation
+    // source. A plain mutable holder (never handed out); the room owns its lifetime.
+    private sealed class GraceHold
+    {
+        public required Guid Episode { get; init; }
+        public required CancellationTokenSource Cts { get; init; }
+    }
+
     // story-selection/03 (freshness rotation, AC-02): the ordered, in-memory,
     // room-lifetime history of template ids this room has already played,
     // oldest-first / most-recently-played last - the shape
@@ -319,26 +409,42 @@ public sealed class Room
     // (mirrors the web module's MAX_HISTORY_SIZE rationale).
     private const int MaxPlayedTemplateHistory = 200;
 
-    // reveal-delight/01 (AC-04): the room-wide reaction tally for the CURRENT
-    // reveal - one counter per allowed reaction type (laugh/heart/wow/star). This
+    // The UX de-clutter (reactions v2): the room-wide reaction tally for the
+    // CURRENT reveal - one counter per allowed reaction type (love/wow/nope). This
     // is ephemeral, per-reveal state (Out of Scope: no persistence): it is RESET
     // to all-zero every time a new round starts (see StartRound). A reaction is a
     // TYPE ENUM only - no text, no player identity is ever stored here (AC-06, no
-    // PII). Guarded by _gate; mutated only via IncrementReaction / the StartRound
-    // reset. The hub validates the type against the allowed set BEFORE calling
-    // IncrementReaction, so every key here is always one of the four.
+    // PII). Guarded by _gate; mutated only via SetReaction / the StartRound reset.
+    // The hub validates the type against the allowed set BEFORE calling
+    // SetReaction, so every key here is always one of the three.
+    //
+    // The move from four types (laugh/heart/wow/star) to three (love/wow/nope) rode
+    // in alongside the one-reaction-per-user rule below (see _reactionByConnection):
+    // a player now HOLDS at most one reaction rather than tapping to inflate a count.
     private readonly Dictionary<string, int> _reactionCounts = NewReactionTally();
 
-    // A fresh all-zero tally over exactly the four allowed reaction types. The
+    // A fresh all-zero tally over exactly the three allowed reaction types. The
     // ordinal comparer keeps the (already-lowercased-by-the-hub) keys exact.
     private static Dictionary<string, int> NewReactionTally() =>
         new(StringComparer.Ordinal)
         {
-            ["laugh"] = 0,
-            ["heart"] = 0,
+            ["love"] = 0,
             ["wow"] = 0,
-            ["star"] = 0,
+            ["nope"] = 0,
         };
+
+    // The UX de-clutter (reactions v2, one-per-user): the CURRENT reaction each
+    // connection holds, keyed by connection id -> its reaction type (one of
+    // love/wow/nope). This is what makes SetReaction a SINGLE-SELECT with move +
+    // toggle-off semantics instead of the old free-for-all increment: a connection
+    // that is absent here holds no reaction; a connection present here holds exactly
+    // one, and _reactionCounts[thatType] includes it. Ephemeral and per-reveal like
+    // _reactionCounts (RESET together on StartRound), and cleared when a connection
+    // leaves the room (RemovePlayer / TryReleaseSeat) so a departed player's held
+    // reaction cannot linger in the tally. A connection id is a server-side handle,
+    // never PII (README section 6, AC-06); no text is ever stored here. Guarded by
+    // _gate; mutated only via SetReaction / ClearReactionLocked / the StartRound reset.
+    private readonly Dictionary<string, string> _reactionByConnection = new(StringComparer.Ordinal);
 
     // reveal-delight/03 (AC-04): the PENDING Golden Guardian crown - the nickname
     // that won the most recent funniest-word vote and should wear the crown for the
@@ -464,7 +570,8 @@ public sealed class Room
             Nickname: nickname,
             Variant: variant,
             ConnectionId: hostConnectionId,
-            IsHost: true));
+            IsHost: true,
+            ReconnectToken: NewReconnectToken()));
         return room;
     }
 
@@ -508,7 +615,8 @@ public sealed class Room
                 Nickname: nickname,
                 Variant: variant,
                 ConnectionId: connectionId,
-                IsHost: false));
+                IsHost: false,
+                ReconnectToken: NewReconnectToken()));
 
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
@@ -530,8 +638,21 @@ public sealed class Room
     /// </summary>
     /// <param name="connectionId">The SignalR connection that dropped.</param>
     /// <returns>True if a player was removed; false if the connection was not seated here.</returns>
-    public bool RemovePlayer(string connectionId)
+    public bool RemovePlayer(string connectionId) => RemovePlayer(connectionId, out _);
+
+    /// <summary>
+    /// room-start-duplicate-members: the same removal as <see cref="RemovePlayer(string)"/>,
+    /// additionally reporting whether the removal handed the host flag to a remaining seat
+    /// (host migration). The hub uses <paramref name="promotedHostConnectionId"/> to send
+    /// exactly that connection the targeted "HostGranted" nudge - null (a non-host left, or
+    /// the room emptied) means nobody was promoted and no nudge is sent.
+    /// </summary>
+    /// <param name="connectionId">The SignalR connection that dropped.</param>
+    /// <param name="promotedHostConnectionId">Out: the connection promoted to host by this removal, or null when none was.</param>
+    /// <returns>True if a player was removed; false if the connection was not seated here.</returns>
+    public bool RemovePlayer(string connectionId, out string? promotedHostConnectionId)
     {
+        promotedHostConnectionId = null;
         lock (_gate)
         {
             var removed = _players.RemoveAll(p => p.ConnectionId == connectionId);
@@ -540,9 +661,368 @@ public sealed class Room
                 return false;
             }
 
+            // session-engine/08 (Gate-1 nit carried from 07): the seat is gone, so any
+            // pending grace hold keyed by this same connection id must go with it - drop
+            // and dispose it so a CancellationTokenSource never outlives the seat it
+            // guards (a deliberate LeaveRoom during a held-then-abandoned window, or any
+            // odd sequencing, could otherwise leak a live CTS). No-op when none pending.
+            DiscardGraceHoldLocked(connectionId);
+
+            // reactions v2 (one-per-user): forget any reaction this leaving connection
+            // held so its count does not linger in the current reveal's tally.
+            ClearReactionLocked(connectionId);
+
+            // room-start-duplicate-members: if the seat just removed was the host, hand
+            // the host flag to a remaining seat so the room never sits hostless (and thus
+            // unstartable) after the creator leaves - see EnsureHostLocked.
+            promotedHostConnectionId = EnsureHostLocked();
+
             LastActiveUtc = DateTimeOffset.UtcNow;
             return true;
         }
+    }
+
+    /// <summary>
+    /// session-engine/07 (AC-06/AC-07): the owning connection's opaque reconnect
+    /// token, or null if that connection is not seated here. Returned ONLY to the
+    /// caller of CreateRoom/JoinRoom in that call's own result envelope - it is
+    /// NEVER placed on the roster DTO the whole room receives, so no other player
+    /// can learn it and hijack the seat. Read under the lock.
+    /// </summary>
+    /// <param name="connectionId">The connection whose own token to read.</param>
+    /// <returns>The seat's reconnect token, or null when the connection is not seated here.</returns>
+    public string? GetReconnectToken(string connectionId)
+    {
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            return _players.FirstOrDefault(p => p.ConnectionId == connectionId)?.ReconnectToken;
+        }
+    }
+
+    /// <summary>
+    /// session-engine/07 (AC-01/AC-02): mark a dropped connection's seat DISCONNECTED
+    /// instead of removing it, and open a one-shot grace hold for it. The seat stays
+    /// in <see cref="_players"/> (so <see cref="PlayerCount"/>, <see cref="IsHost"/>,
+    /// and the round's assignments/submissions all still see it) - only its
+    /// <see cref="Player.Connected"/> flag flips false, by rebuilding the immutable
+    /// record under the lock (the same swap-a-fresh-value pattern
+    /// <see cref="RecordSubmission"/> uses), never a field mutation.
+    ///
+    /// Returns a <see cref="GraceHoldTicket"/> (episode + cancellation token) the
+    /// caller hands to the grace scheduler to run the deferred eviction, or null when
+    /// the connection is not seated here OR its seat is already being held (a second
+    /// disconnect for the same still-disconnected seat is a no-op, so grace is never
+    /// double-scheduled). Deliberately does NOT bump <see cref="LastActiveUtc"/> - a
+    /// drop is not activity, and the seat's presence alone keeps the room out of the
+    /// idle sweep for the seconds-long grace window.
+    /// </summary>
+    /// <param name="connectionId">The dropped SignalR connection.</param>
+    /// <returns>The grace ticket to schedule the deferred eviction, or null if there is no live seat to hold.</returns>
+    public GraceHoldTicket? MarkDisconnected(string connectionId)
+    {
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            var index = _players.FindIndex(p => p.ConnectionId == connectionId);
+            if (index < 0 || !_players[index].Connected)
+            {
+                // Not seated here, or already being held - nothing new to hold.
+                return null;
+            }
+
+            // Rebuild the immutable record with Connected = false (remove + re-add via
+            // an in-place swap under the lock), preserving the seat's reconnect token.
+            _players[index] = _players[index] with { Connected = false };
+
+            // Defensive: retire any stale hold for this connection before opening a
+            // fresh episode (should not happen given the Connected guard above).
+            DiscardGraceHoldLocked(connectionId);
+
+            var cts = new CancellationTokenSource();
+            var episode = Guid.NewGuid();
+            _graceHolds[connectionId] = new GraceHold { Episode = episode, Cts = cts };
+            return new GraceHoldTicket(episode, cts.Token);
+        }
+    }
+
+    /// <summary>
+    /// session-engine/07: cancel a seat's pending grace hold (the cancellation seam
+    /// story 08's Rejoin consumes). Cancelling the source wakes the grace-expiry
+    /// <c>Task.Delay</c> so it exits WITHOUT evicting, and drops the hold. This only
+    /// stops the timer - it deliberately does NOT flip the seat back to connected or
+    /// swap in the new connection id; that is story 08's ReclaimSeat, which calls
+    /// this as one step of a full reclaim under the same lock. A no-op (returns
+    /// false) when there is no hold for the connection.
+    /// </summary>
+    /// <param name="connectionId">The held (dropped) connection whose grace to cancel.</param>
+    /// <returns>True if a pending hold was cancelled; false if none was pending.</returns>
+    public bool CancelGrace(string connectionId)
+    {
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            return DiscardGraceHoldLocked(connectionId);
+        }
+    }
+
+    /// <summary>
+    /// session-engine/07 + /08: drop and dispose the pending grace hold (if any) keyed by
+    /// <paramref name="connectionId"/> - cancel its timer's <see cref="CancellationTokenSource"/>
+    /// (so a waiting <c>Task.Delay</c> exits without evicting) and dispose it, so a CTS's
+    /// lifetime is never longer than the seat it guards. Returns true if a hold was
+    /// dropped, false if none was pending. MUST be called under <see cref="_gate"/> - it
+    /// is the single shared "retire this connection's grace hold" primitive that
+    /// <see cref="CancelGrace"/>, <see cref="MarkDisconnected"/> (stale-hold cleanup),
+    /// <see cref="RemovePlayer"/> (Gate-1), and <see cref="ReclaimSeat"/> all compose.
+    /// </summary>
+    /// <param name="connectionId">The (dropped) connection whose grace hold to retire.</param>
+    /// <returns>True if a pending hold was dropped and disposed; false if none was pending.</returns>
+    private bool DiscardGraceHoldLocked(string connectionId)
+    {
+        if (!_graceHolds.Remove(connectionId, out var hold))
+        {
+            return false;
+        }
+
+        hold.Cts.Cancel();
+        hold.Cts.Dispose();
+        return true;
+    }
+
+    /// <summary>
+    /// session-engine/07 (AC-03): the DEFERRED eviction - release a held seat once its
+    /// grace window has elapsed with no reconnect. Guarded by <see cref="_gate"/> and
+    /// idempotent-safe: it evicts ONLY if the hold still exists AND carries the SAME
+    /// <paramref name="episode"/> as when the timer started. If the seat reconnected
+    /// (its hold was cancelled) or a newer disconnect superseded this one (a different
+    /// episode), this is a no-op returning false, so a stale timer can never evict a
+    /// live seat. On a real release it removes the seat and retires the hold, exactly
+    /// like the immediate <see cref="RemovePlayer"/> path - just deferred.
+    /// </summary>
+    /// <param name="connectionId">The held (dropped) connection to evict.</param>
+    /// <param name="episode">The disconnect episode the expiring timer was started for.</param>
+    /// <returns>True if the seat was evicted; false if the hold was cancelled or superseded.</returns>
+    public bool TryReleaseSeat(string connectionId, Guid episode) =>
+        TryReleaseSeat(connectionId, episode, out _);
+
+    /// <summary>
+    /// room-start-duplicate-members: the same deferred eviction as
+    /// <see cref="TryReleaseSeat(string, Guid)"/>, additionally reporting whether it handed
+    /// the host flag to a remaining seat (host migration), so the grace-expiry epilogue can
+    /// nudge that connection with "HostGranted". Null means nobody was promoted.
+    /// </summary>
+    /// <param name="connectionId">The held (dropped) connection to evict.</param>
+    /// <param name="episode">The disconnect episode the expiring timer was started for.</param>
+    /// <param name="promotedHostConnectionId">Out: the connection promoted to host by this eviction, or null when none was.</param>
+    /// <returns>True if the seat was evicted; false if the hold was cancelled or superseded.</returns>
+    public bool TryReleaseSeat(string connectionId, Guid episode, out string? promotedHostConnectionId)
+    {
+        promotedHostConnectionId = null;
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (!_graceHolds.TryGetValue(connectionId, out var hold) || hold.Episode != episode)
+            {
+                // Reconnected within grace, or superseded by a newer drop - do NOT evict.
+                return false;
+            }
+
+            _players.RemoveAll(p => p.ConnectionId == connectionId);
+            _graceHolds.Remove(connectionId);
+            hold.Cts.Dispose();
+            // reactions v2 (one-per-user): forget any reaction this evicted seat held
+            // so its count does not linger in the current reveal's tally.
+            ClearReactionLocked(connectionId);
+            // room-start-duplicate-members: a host whose grace window expired is gone for
+            // good, so migrate the host flag to a remaining seat here too (same guarantee
+            // the deliberate-leave RemovePlayer path makes) - see EnsureHostLocked.
+            promotedHostConnectionId = EnsureHostLocked();
+            LastActiveUtc = DateTimeOffset.UtcNow;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// session-engine/08 (AC-01/AC-02/AC-03): reclaim a held seat by its reconnect token
+    /// under a brand-new SignalR connection, and hand back just enough round-phase context
+    /// for the hub to rehydrate the resuming client. SignalR's own
+    /// <c>withAutomaticReconnect</c> always gets a FRESH connection id after a drop, so a
+    /// device spends the token 07 minted (see <see cref="NewReconnectToken"/>) to prove it
+    /// owns the seat and move it to the new connection - the whole reclaim happens
+    /// ATOMICALLY under <see cref="_gate"/>:
+    ///   1. Find the seat whose <see cref="Player.ReconnectToken"/> matches. No match ->
+    ///      <see cref="ReclaimResult.NotFound"/> (unknown, already-evicted-by-grace, or a
+    ///      token for a DIFFERENT room since the caller looked this room up by code): a
+    ///      clean AC-05 miss that mutates NOTHING and never throws.
+    ///   2. Cancel the seat's pending grace-expiry hold via <see cref="DiscardGraceHoldLocked"/>
+    ///      (story 07's cancellation seam). This is the DETERMINISTIC race resolver: this
+    ///      method and the grace-expiry eviction (<see cref="TryReleaseSeat"/>) both take
+    ///      THIS lock, so whichever wins the lock first wins outright - if grace-expiry ran
+    ///      first it already removed the seat (step 1 returns NotFound); if we run first we
+    ///      drop the hold here (the later TryReleaseSeat finds no hold and no-ops).
+    ///   3. Rebuild the immutable <see cref="Player"/> record with the new connection id and
+    ///      <see cref="Player.Connected"/> flipped true (the swap-a-fresh-value pattern, never
+    ///      a field mutation), preserving the token, nickname, and variant.
+    ///   4. If a round is live, rekey THIS seat's blank assignment from the old connection id
+    ///      to the new one (<see cref="RekeyAssignmentLocked"/>) so the resumed player can
+    ///      submit its still-outstanding blanks (<see cref="RecordSubmission"/> matches by
+    ///      connection id). The blank indices and every recorded submission are preserved
+    ///      untouched - only the routing key moves.
+    /// The returned <see cref="ReclaimResult"/> carries the phase, the host flag, and (for a
+    /// "prompting" round) THIS seat's remaining blank indices - never another seat's,
+    /// never any word or PII (AC-03/AC-07). Room-wide progress + the reveal words are read
+    /// by the hub from the EXISTING <see cref="GetProgress"/> / <see cref="GetProgressCounts"/>
+    /// / <see cref="BuildReveal"/> projections, so there is no second parallel bookkeeping.
+    /// </summary>
+    /// <param name="token">The seat's reconnect token, from the caller's own create/join envelope.</param>
+    /// <param name="newConnectionId">The caller's NEW SignalR connection to seat the reclaimed player under.</param>
+    /// <returns>A reclaimed result with phase-data, or <see cref="ReclaimResult.NotFound"/> when nothing matched.</returns>
+    public ReclaimResult ReclaimSeat(string token, string newConnectionId)
+    {
+        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(newConnectionId))
+        {
+            return ReclaimResult.NotFound;
+        }
+
+        lock (_gate)
+        {
+            var index = _players.FindIndex(p =>
+                string.Equals(p.ReconnectToken, token, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                // Unknown token, a seat already evicted when its grace window expired, or a
+                // token minted for a different room - nothing here to reclaim (AC-05). No
+                // mutation of any kind.
+                return ReclaimResult.NotFound;
+            }
+
+            var seat = _players[index];
+
+            // Seat-hijack hardening (child safety, extends story 07's AC-06/AC-07): Rejoin
+            // reclaims a HELD (dropped) seat only. A seat that is still connected is not in a
+            // grace window, so reclaiming it would let a LEAKED token boot the live occupant
+            // and take over the seat - and the booted connection would linger in the room's
+            // SignalR group, still receiving broadcasts. Every legitimate reconnect marks the
+            // seat disconnected (OnDisconnectedAsync fires and MarkDisconnected flips Connected
+            // to false) BEFORE the returning client reaches Rejoin, so this rejects only a
+            // takeover attempt, never a real resume. Friendly no-op failure mapped to the same
+            // envelope as an unknown/expired token (AC-05) - nothing here is mutated.
+            if (seat.Connected)
+            {
+                return ReclaimResult.NotFound;
+            }
+
+            var oldConnectionId = seat.ConnectionId;
+
+            // Cancel the pending grace-expiry hold for the OLD connection (the deterministic
+            // race resolver - see the method summary). No-op when no hold is pending.
+            DiscardGraceHoldLocked(oldConnectionId);
+
+            // Swap in the caller's new connection and mark the seat connected again by
+            // rebuilding the immutable record - token / nickname / variant preserved.
+            _players[index] = seat with { ConnectionId = newConnectionId, Connected = true };
+
+            // Rekey this seat's live-round assignment (if any) so the resumed player owns its
+            // outstanding blanks under the new connection; compute the remaining indices from
+            // the (rekeyed) assignment for the rehydration payload.
+            var assignment = _round is null
+                ? null
+                : RekeyAssignmentLocked(oldConnectionId, newConnectionId);
+
+            LastActiveUtc = DateTimeOffset.UtcNow;
+
+            var phase = _round?.Phase ?? "lobby";
+            var remaining = assignment is null
+                ? Array.Empty<int>()
+                : RemainingBlankIndices(assignment, _round!.Submissions);
+
+            return new ReclaimResult(ReclaimStatus.Reclaimed, phase, seat.IsHost, remaining);
+        }
+    }
+
+    /// <summary>
+    /// session-engine/08: move a live round's blank assignment from <paramref name="oldConnectionId"/>
+    /// to <paramref name="newConnectionId"/> when a seat is reclaimed under a new connection,
+    /// rebuilding the assignment list with just that one entry's immutable record swapped (the
+    /// blank indices, nickname, variant, and host flag all preserved - only the connection key
+    /// moves). Returns the updated assignment, or null when this connection owned no assignment
+    /// (a lobby reclaim, or a seat dealt zero blanks that still has an entry - which is also
+    /// returned). MUST be called under <see cref="_gate"/> with a non-null round.
+    /// </summary>
+    private PlayerAssignment? RekeyAssignmentLocked(string oldConnectionId, string newConnectionId)
+    {
+        if (_round is null)
+        {
+            return null;
+        }
+
+        PlayerAssignment? updated = null;
+        var next = new List<PlayerAssignment>(_round.Assignments.Count);
+        foreach (var assignment in _round.Assignments)
+        {
+            if (assignment.ConnectionId == oldConnectionId)
+            {
+                updated = assignment with { ConnectionId = newConnectionId };
+                next.Add(updated);
+            }
+            else
+            {
+                next.Add(assignment);
+            }
+        }
+
+        if (updated is not null)
+        {
+            _round.Assignments = next;
+        }
+
+        return updated;
+    }
+
+    /// <summary>
+    /// session-engine/08 (AC-03): the small PURE helper behind a "prompting" rejoin - given
+    /// ONE seat's own <paramref name="assignment"/> and the round's <paramref name="submissions"/>,
+    /// return the blank indices it still owes (assigned but not yet in the submission store),
+    /// in ascending blank order. Index-only, no words, no connection id, no PII - it mirrors
+    /// the shape of <see cref="Hubs.YourBlanksDto"/> exactly (the resumed word-collection
+    /// screen shows only what is left, nothing already-answered re-asked). Pure and static:
+    /// it reads only its two arguments, so it is trivially unit-testable and never another
+    /// seat's blanks.
+    /// </summary>
+    /// <param name="assignment">The seat's own blank assignment.</param>
+    /// <param name="submissions">The round's collected submissions, keyed by blank index.</param>
+    /// <returns>The still-outstanding blank indices for this seat (empty when all are submitted).</returns>
+    private static IReadOnlyList<int> RemainingBlankIndices(
+        PlayerAssignment assignment,
+        IReadOnlyDictionary<int, Submission> submissions)
+    {
+        var remaining = new List<int>();
+        foreach (var index in assignment.BlankIndices)
+        {
+            if (!submissions.ContainsKey(index))
+            {
+                remaining.Add(index);
+            }
+        }
+
+        return remaining;
     }
 
     /// <summary>
@@ -613,6 +1093,123 @@ public sealed class Room
     }
 
     /// <summary>
+    /// replay-remix/03 (AC-02/AC-06): move the room's HOST flag from the connection
+    /// that currently holds it to another roster member by NICKNAME ("Pass the
+    /// chisel"). Nickname is the only identity the caller (the hub) has for the
+    /// target - connectionId is a server-side handle never sent to a client
+    /// (no PII) - and nicknames are unique within a room, case-insensitively,
+    /// enforced at join (session-engine/02, AC-06), so matching by nickname is
+    /// unambiguous here.
+    ///
+    /// The hub is responsible for the phase gate (AC-05, "between rounds only")
+    /// and for the initial host-authorization check (AC-04, mirroring
+    /// <see cref="IsHost"/>'s use in <see cref="StartRound"/>/<see cref="BackToLobby"/>)
+    /// BEFORE calling this - this method re-verifies the caller still owns the host
+    /// player UNDER THE LOCK (so a race between the hub's check and this call cannot
+    /// flip a stale host), then looks up the target by nickname and flips both
+    /// records atomically. No new player field is added (AC-06) - IsHost simply
+    /// moves from one existing, already-anonymous <see cref="Player"/> record to
+    /// another via the same immutable with-expression swap every other roster
+    /// mutation here uses.
+    ///
+    /// Returns false (a no-op - nothing is mutated) when: the caller no longer owns
+    /// the host player, the target nickname does not match a CURRENT roster member
+    /// (Out of Scope: passing to someone not in the room), or the target IS the
+    /// current host (passing to yourself is a no-op, not an error worth a distinct
+    /// message). Returns true once the flip is recorded.
+    /// </summary>
+    /// <param name="callerConnectionId">The calling connection, expected to own the host player.</param>
+    /// <param name="targetNickname">The roster member (by nickname, case-insensitive) to become the new host.</param>
+    /// <returns>True if the host flag moved; false if nothing matched or there was nothing to do.</returns>
+    public bool PassHost(string callerConnectionId, string targetNickname)
+    {
+        if (string.IsNullOrEmpty(callerConnectionId) || string.IsNullOrWhiteSpace(targetNickname))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            var hostIndex = _players.FindIndex(p => p.IsHost && p.ConnectionId == callerConnectionId);
+            if (hostIndex < 0)
+            {
+                // The caller no longer owns the host player (a race, or a crafted
+                // client) - nothing to hand off (AC-04).
+                return false;
+            }
+
+            var targetIndex = _players.FindIndex(p =>
+                string.Equals(p.Nickname, targetNickname, StringComparison.OrdinalIgnoreCase));
+            if (targetIndex < 0 || targetIndex == hostIndex)
+            {
+                // Unknown/departed target, or a "pass to myself" no-op (Out of
+                // Scope: the target must be a live roster member).
+                return false;
+            }
+
+            _players[hostIndex] = _players[hostIndex] with { IsHost = false };
+            _players[targetIndex] = _players[targetIndex] with { IsHost = true };
+            LastActiveUtc = DateTimeOffset.UtcNow;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// room-start-duplicate-members: whether ANY seat currently holds the host flag.
+    /// With host migration (<see cref="EnsureHostLocked"/>) a non-empty room is always
+    /// hosted, so this is a belt-and-suspenders read - the hub's StartRound lets any
+    /// remaining player start a room that has somehow ended up hostless rather than
+    /// leaving it permanently unstartable. Read under the lock.
+    /// </summary>
+    public bool HasHost
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _players.Any(p => p.IsHost);
+            }
+        }
+    }
+
+    /// <summary>
+    /// room-start-duplicate-members: keep a non-empty room ALWAYS hosted. Called under
+    /// <see cref="_gate"/> immediately after a seat is removed - the deliberate-leave
+    /// path (<see cref="RemovePlayer"/>) and the grace-window eviction path
+    /// (<see cref="TryReleaseSeat"/>). If the departed seat was the host, the room is
+    /// left with no IsHost seat and its Start CTA vanishes for everyone: the exact
+    /// "creator pressed back, rejoined by code, now nobody can start" dead-end this
+    /// story fixes. Promote the EARLIEST-joined still-CONNECTED seat to host (falling
+    /// back to the earliest seat of any state when every remaining seat is mid-grace),
+    /// so exactly one host always exists. A no-op when a host is still seated (the
+    /// common case - a non-host left) or the room is now empty.
+    ///
+    /// The original creator does NOT get the host flag back if they later rejoin by
+    /// code (that is a fresh non-host seat); whoever stayed inherits it. That is the
+    /// intended toy-scale behavior - the point is that SOMEONE can always start.
+    /// </summary>
+    /// <returns>The connection id of the seat just promoted to host, or null when no promotion was needed (a host is still seated, or the room is now empty).</returns>
+    private string? EnsureHostLocked()
+    {
+        if (_players.Count == 0 || _players.Any(p => p.IsHost))
+        {
+            return null;
+        }
+
+        var index = _players.FindIndex(p => p.Connected);
+        if (index < 0)
+        {
+            // Every remaining seat is mid-grace (disconnected); promote the earliest
+            // anyway so the flag exists - it lands on a real seat once that seat
+            // reconnects, and travels through ReclaimSeat's IsHost on a Rejoin.
+            index = 0;
+        }
+
+        _players[index] = _players[index] with { IsHost = true };
+        return _players[index].ConnectionId;
+    }
+
+    /// <summary>
     /// Opens a new round on this room (group-play/01 + /02). Sets the round state
     /// (round number, selected template id, mode, the "prompting" phase, and the
     /// per-player round-robin blank assignment) under the room lock so a concurrent
@@ -672,13 +1269,17 @@ public sealed class Room
                 CrownedNickname = crownedNickname,
             };
 
-            // reveal-delight/01 (AC-04): reactions are ephemeral per reveal, so a
-            // fresh round starts every reaction count back at zero (the web hook
-            // resets its mirror on the matching RoundStarted broadcast).
+            // reveal-delight/01 (AC-04) + reactions v2 (one-per-user): reactions are
+            // ephemeral per reveal, so a fresh round starts every reaction count back
+            // at zero AND forgets every per-connection hold (a player must re-pick a
+            // reaction each reveal). Both reset together so the tally and the holds can
+            // never drift. The web hook resets its own mirror + local selection on the
+            // matching RoundStarted broadcast.
             foreach (var type in _reactionCounts.Keys.ToArray())
             {
                 _reactionCounts[type] = 0;
             }
+            _reactionByConnection.Clear();
 
             LastActiveUtc = DateTimeOffset.UtcNow;
 
@@ -779,27 +1380,81 @@ public sealed class Room
     }
 
     /// <summary>
-    /// Increments the room-wide count for one reaction type (reveal-delight/01,
-    /// AC-04) and returns a detached snapshot of the whole tally for the hub to
-    /// broadcast. The caller (the hub's React) MUST have already validated
-    /// <paramref name="reactionType"/> against the four allowed types (and
+    /// The UX de-clutter (reactions v2): SELECT this connection's single reaction
+    /// on the CURRENT reveal, then return a detached snapshot of the whole tally for
+    /// the hub to broadcast. This replaces the old free-for-all IncrementReaction
+    /// with a SINGLE-SELECT that fixes the count-inflation bug (a player could
+    /// previously tap the same pill repeatedly to run its count up): a player now
+    /// HOLDS at most one reaction, and the tally reflects exactly what everyone
+    /// currently holds. The three cases, decided against the connection's prior hold:
+    ///   - No prior reaction -> SELECT: increment the new type, record the hold.
+    ///   - A DIFFERENT prior reaction -> MOVE: decrement the old, increment the new,
+    ///     update the hold (the player switched their pick).
+    ///   - The SAME reaction as the prior hold -> TOGGLE OFF: decrement it and clear
+    ///     the hold (a second tap on the pill you already hold removes it).
+    /// The caller (the hub's React) MUST have already validated
+    /// <paramref name="reactionType"/> against the three allowed types (and
     /// lowercased it), so the key is always present - this method never widens the
     /// tally with an arbitrary client-supplied string. A reaction is a TYPE ENUM
-    /// only: no text and no player identity are recorded (AC-06, no PII). The
-    /// counts are ephemeral per reveal and are reset in <see cref="StartRound"/>.
-    /// Mutated only under the room lock so a concurrent reaction cannot corrupt
-    /// the tally, and the returned copy never aliases the live dictionary.
+    /// only, keyed by a server-side connection handle: no text and no PII are recorded
+    /// (AC-06). The counts + per-connection holds are ephemeral per reveal and are
+    /// reset together in <see cref="StartRound"/>. Mutated only under the room lock so
+    /// concurrent reactions cannot corrupt the tally, and the returned copy never
+    /// aliases the live dictionary. A count can never go negative: it is only ever
+    /// decremented for a hold this map actually recorded incrementing.
     /// </summary>
-    /// <param name="reactionType">The already-validated, lowercased reaction type (one of laugh/heart/wow/star).</param>
+    /// <param name="connectionId">The reacting connection (server-side handle; the one-per-user key).</param>
+    /// <param name="reactionType">The already-validated, lowercased reaction type (one of love/wow/nope).</param>
     /// <returns>A detached copy of the updated per-type tally.</returns>
-    public IReadOnlyDictionary<string, int> IncrementReaction(string reactionType)
+    public IReadOnlyDictionary<string, int> SetReaction(string connectionId, string reactionType)
     {
         lock (_gate)
         {
-            _reactionCounts[reactionType] += 1;
+            var hadPrior = _reactionByConnection.TryGetValue(connectionId, out var priorType);
+            if (hadPrior && string.Equals(priorType, reactionType, StringComparison.Ordinal))
+            {
+                // TOGGLE OFF: a second tap on the pill this connection already holds
+                // removes it (decrement its count, drop the hold).
+                _reactionCounts[reactionType] -= 1;
+                _reactionByConnection.Remove(connectionId);
+            }
+            else
+            {
+                // SELECT (no prior) or MOVE (a different prior): drop the old count if
+                // any, then take up the new one and record the hold.
+                if (hadPrior && priorType is not null && _reactionCounts.ContainsKey(priorType))
+                {
+                    _reactionCounts[priorType] -= 1;
+                }
+                _reactionCounts[reactionType] += 1;
+                _reactionByConnection[connectionId] = reactionType;
+            }
+
             LastActiveUtc = DateTimeOffset.UtcNow;
             return new Dictionary<string, int>(_reactionCounts, StringComparer.Ordinal);
         }
+    }
+
+    /// <summary>
+    /// The UX de-clutter (reactions v2, one-per-user): drop the reaction (if any) a
+    /// leaving connection was holding - decrement its counted type and forget the
+    /// per-connection hold - so a departed player's reaction never lingers in the
+    /// tally. Returns true if a held reaction was cleared. MUST be called under
+    /// <see cref="_gate"/>; the shared "forget this connection's reaction" primitive
+    /// that <see cref="RemovePlayer"/> and <see cref="TryReleaseSeat"/> both compose.
+    /// A no-op (returns false) when the connection held no reaction.
+    /// </summary>
+    private bool ClearReactionLocked(string connectionId)
+    {
+        if (!_reactionByConnection.Remove(connectionId, out var priorType))
+        {
+            return false;
+        }
+        if (priorType is not null && _reactionCounts.ContainsKey(priorType))
+        {
+            _reactionCounts[priorType] -= 1;
+        }
+        return true;
     }
 
     /// <summary>
@@ -1089,6 +1744,19 @@ public sealed class Room
     }
 
     /// <summary>
+    /// session-engine/07 (AC-06/AC-07): mint a per-seat, server-side,
+    /// cryptographically random reconnect token. It is an OPAQUE 256-bit value (hex
+    /// so it is a safe string on the wire, no reserved characters) with NO nickname,
+    /// device fingerprint, or cross-room identity encoded - just enough entropy that
+    /// it cannot be guessed or replayed. Scoped to exactly one seat in one ephemeral
+    /// room and discarded with the seat (evicted or the room expires); it is never
+    /// used to correlate a player across rooms or devices (no PII, README section 6 /
+    /// CLAUDE.md section 5).
+    /// </summary>
+    private static string NewReconnectToken() =>
+        Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
+    /// <summary>
     /// A point-in-time snapshot of the current round, or null while the room is in
     /// the lobby. Returns a copy so callers cannot mutate the live round outside
     /// the lock (later group-play stories read this to resume / re-broadcast).
@@ -1304,6 +1972,87 @@ public sealed class Room
             }
 
             return words;
+        }
+    }
+
+    /// <summary>
+    /// The outcome of <see cref="RemixSubmission"/> (replay-remix/02). Mirrors
+    /// <see cref="SubmitOutcome"/>'s friendly-envelope posture: an EXPECTED
+    /// rejection (not in the reveal, or an out-of-range blank index) never throws.
+    /// </summary>
+    public enum RemixOutcome
+    {
+        /// <summary>No round, the round is not in the "reveal" phase (mid-collection or lobby), or the blank index is out of range.</summary>
+        NotFound,
+
+        /// <summary>The caller is not a live, seated member of this room.</summary>
+        NotAMember,
+
+        /// <summary>Recorded: the ONE blank's word was swapped.</summary>
+        Recorded,
+    }
+
+    /// <summary>
+    /// Records a ONE-BLANK remix of an ALREADY-REVEALED round (replay-remix/02,
+    /// AC-04/AC-07): swaps exactly one blank index's stored <see cref="Submission"/>
+    /// for a NEW word, attributed to the REMIXING player (their own nickname +
+    /// variant, so "carved by" attribution follows whoever actually chose the new
+    /// word - reveal-delight/04's existing attribution model, unmodified).
+    ///
+    /// Per the settled Decisions-log call (2026-07-04): ANY live room member may
+    /// remix, NOT host-only - so this checks membership only, no host guard (unlike
+    /// <see cref="RecordSubmission"/>'s "must own this blank" rule, which does not
+    /// apply here: a remix is a deliberate, opt-in re-pick of ANY blank, not a
+    /// normal per-player assignment).
+    ///
+    /// Requires the round to be in the "reveal" phase (AC's "not mid-collection"
+    /// rule) - a round still "prompting" has nothing finished to remix, and once a
+    /// round returns to the lobby there is no round at all. Word content itself is
+    /// NOT vetted here: the caller (GameHub.RemixWord) runs the SAME server-side
+    /// safety check every other submission uses, BEFORE calling this method - this
+    /// method only handles the authoritative swap + membership/phase guards, under
+    /// the room lock.
+    /// </summary>
+    /// <param name="connectionId">The remixing connection - must be a live, seated room member.</param>
+    /// <param name="blankIndex">The blank index (into the round's ordered blanks) to swap.</param>
+    /// <param name="word">The already-safety-vetted new word for that one blank.</param>
+    /// <returns>Whether the remix was rejected (no reveal / bad index), rejected (not a member), or recorded.</returns>
+    public RemixOutcome RemixSubmission(string connectionId, int blankIndex, string word)
+    {
+        lock (_gate)
+        {
+            if (_round is null || !string.Equals(_round.Phase, "reveal", StringComparison.Ordinal))
+            {
+                // Mid-collection or no round at all - nothing finished to remix.
+                return RemixOutcome.NotFound;
+            }
+
+            var blankCount = _round.Assignments.Sum(a => a.BlankIndices.Count);
+            if (blankIndex < 0 || blankIndex >= blankCount)
+            {
+                return RemixOutcome.NotFound;
+            }
+
+            // ANY live room member may remix (2026-07-04 Decisions log) - a simple
+            // membership check, deliberately NOT the host-only pattern StartRound /
+            // BackToLobby use elsewhere in this file.
+            var remixer = _players.FirstOrDefault(p => p.ConnectionId == connectionId);
+            if (remixer is null)
+            {
+                return RemixOutcome.NotAMember;
+            }
+
+            // Swap the ONE blank's stored submission, attributed to the remixer -
+            // mutate a fresh dictionary and swap it in (matches RecordSubmission's
+            // own "never mutate the live dictionary in place" posture).
+            var next = new Dictionary<int, Submission>(_round.Submissions)
+            {
+                [blankIndex] = new Submission(word, remixer.Nickname, remixer.Variant),
+            };
+            _round.Submissions = next;
+            LastActiveUtc = DateTimeOffset.UtcNow;
+
+            return RemixOutcome.Recorded;
         }
     }
 }

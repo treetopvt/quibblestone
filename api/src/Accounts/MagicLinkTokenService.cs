@@ -65,6 +65,13 @@ public sealed class MagicLinkTokenService : IMagicLinkTokenService
     /// <see cref="ConfigKeyName"/>). When the key is null / empty (local dev / CI),
     /// a random ephemeral key is generated so tokens work within the process
     /// lifetime. The key material is never logged or persisted (AC-06).
+    ///
+    /// DEPLOYED ENVIRONMENTS MUST configure a DURABLE key (accounts-identity/04 AC-07):
+    /// once real email delivery is on (a link now travels to an inbox and is followed
+    /// minutes later), the ephemeral per-process key would make a delivered link stop
+    /// verifying the moment the app recycles or scales out. Set a durable Key
+    /// Vault-backed Accounts:TokenSigningKey via an app setting - see
+    /// docs/runbooks/enable-magic-link-email.md.
     /// </summary>
     /// <param name="configuredSigningKey">The Accounts:TokenSigningKey value, or null / empty to use a per-process ephemeral key.</param>
     public MagicLinkTokenService(string? configuredSigningKey)

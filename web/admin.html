@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!--
+      sysadmin-console/01 (#135): the SEPARATE operator back office's OWN HTML entry
+      (its bundle is web/src/admin/main.tsx, wired as a second Rollup input in
+      web/vite.config.ts). This is NOT the kid app shell (that is index.html); there
+      is no import edge, nav, deep link, or service-worker path between the two
+      (AC-04). It is an internal, adult-facing tool - noindex so no crawler surfaces
+      it, and no marketing / OG / PWA metadata.
+    -->
+    <title>QuibbleStone - Operator console</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#6C4BD8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!--
+      Shared design-system fonts (the ONE visual language, web/src/theme.ts): Fredoka
+      for headings / buttons, Nunito for body / labels - the same families the kid
+      app loads. Sharing the visual language is explicitly allowed; sharing kid-app
+      CODE is not (there is none here).
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/admin/main.tsx"></script>
+  </body>
+</html>

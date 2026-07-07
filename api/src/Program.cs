@@ -25,11 +25,15 @@
 // ----------------------------------------------------------------------------
 
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Accounts;
+using QuibbleStone.Api.Admin;
 using QuibbleStone.Api.Ai;
+using QuibbleStone.Api.Billing;
 using QuibbleStone.Api.Ai.Jumble;
+using QuibbleStone.Api.CloudGallery;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
@@ -328,6 +332,24 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             }));
 
+    // sysadmin-console/03 (#137): the OPEN, anonymous "report this tale" endpoint's
+    // per-IP guard - a SIBLING of the PublishTalesRateLimit policy above for the new
+    // report surface, in this SAME registration. Only POST /api/tales/{slug}/report
+    // opts in (via [EnableRateLimiting(ReportTalesRateLimit.PolicyName)]); the rest of
+    // the API (publish, hub, health, moderation) is untouched. It stops one actor from
+    // flooding reports to force-hide a legitimate tale past the threshold or bloating
+    // storage (AC-05). Per-IP behind App Service is honored by ForwardedHeaders below.
+    // 429 on reject.
+    options.AddPolicy(ReportTalesRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ReportTalesRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = ReportTalesRateLimit.PermitLimit,
+                Window = ReportTalesRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
     // accounts-identity/03 (review W-001): the OPEN, unauthenticated magic-link
     // request endpoint's per-IP guard, in this SAME registration alongside the two
     // policies above. Only POST /api/accounts/signin/request opts in (via
@@ -341,6 +363,39 @@ builder.Services.AddRateLimiter(options =>
             {
                 PermitLimit = SignInRateLimit.PermitLimit,
                 Window = SignInRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
+    // keepsake-gallery/05 (#154): the signed-in cloud-gallery SAVE endpoint's per-IP
+    // guard, in this SAME registration alongside the policies above. Only POST
+    // /api/account/gallery opts in (via [EnableRateLimiting(CloudGalleryRateLimit.PolicyName)]);
+    // the gallery read + deletes and the whole game path are untouched. Defense in
+    // depth so a compromised / scripted purchaser credential cannot flood the store.
+    // 429 on reject; per-IP behind App Service via the ForwardedHeaders config below.
+    options.AddPolicy(CloudGalleryRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: CloudGalleryRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = CloudGalleryRateLimit.PermitLimit,
+                Window = CloudGalleryRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
+    // sysadmin-console/01 (#135): the OPEN, unauthenticated operator-login request
+    // endpoint's per-IP guard - a SIBLING of the SignInRateLimit policy above for the
+    // SEPARATE operator surface, in this SAME registration. Only POST
+    // /api/admin/login/request opts in (via [EnableRateLimiting(OperatorLoginRateLimit.PolicyName)]);
+    // verify is bounded by the single-use nonce + short expiry, and the game / purchaser
+    // paths are untouched. Stops an email-bomb / token-mint flood on the admin request
+    // endpoint before an email provider ships. 429 on reject.
+    options.AddPolicy(OperatorLoginRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: OperatorLoginRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = OperatorLoginRateLimit.PermitLimit,
+                Window = OperatorLoginRateLimit.Window,
                 QueueLimit = 0,
             }));
 });
@@ -371,6 +426,33 @@ else
             sp.GetRequiredService<ILogger<TableStoragePublishedTaleStore>>()));
 }
 
+// keepsake-gallery/05 (cloud-synced purchaser gallery, #154): the cloud-gallery
+// store, chosen at STARTUP by whether a storage connection string is configured -
+// the SAME config-presence idiom as the stores above, but with a WORKING in-memory
+// fallback (LIKE the account store, NOT the published-tale disabled no-op) so the
+// whole save -> list -> delete -> revoke-all flow is exercisable with ZERO Azure
+// setup. This is a purchaser-account-scoped surface (CloudGalleryController), kept
+// isolated from GameHub and the round lifecycle (the keepsake-gallery/04 precedent).
+// WITH a connection string (supplied per-environment, NEVER a committed literal),
+// tales persist to the "CloudGalleryTales" table keyed PartitionKey = owner-hash,
+// RowKey = tale id for a single-partition list-by-owner (AC-01/AC-05). WITHOUT one
+// (local dev, CI, a fresh clone), the working in-memory store keeps the flow live.
+// A singleton either way (stateless past construction / holds the process-local map).
+// Availability is gated by the entitlement seam + a valid purchaser credential
+// (AC-04), never a disabled-store flag. Reuses the SAME storage account infra provisions.
+var cloudGalleryConnectionString = builder.Configuration["CloudGallery:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(cloudGalleryConnectionString))
+{
+    builder.Services.AddSingleton<ICloudGalleryStore, InMemoryCloudGalleryStore>();
+}
+else
+{
+    builder.Services.AddSingleton<ICloudGalleryStore>(sp =>
+        new TableStorageCloudGalleryStore(
+            cloudGalleryConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageCloudGalleryStore>>()));
+}
+
 // keepsake-gallery/04 (W-001, deployment hardening): make the per-IP publish
 // limiter actually per-IP behind App Service. The platform terminates TLS at its
 // front end, so Connection.RemoteIpAddress is the load balancer unless we honor
@@ -394,6 +476,17 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // the length of a play session and expire when idle (AC-05).
 builder.Services.AddSingleton<RoomRegistry>();
 
+// session-engine/07 (hold the seat): the ONE scheduled timer in the app. A dropped
+// connection no longer evicts its seat on the spot - GameHub.OnDisconnected holds the
+// seat and hands this singleton a one-shot timer that runs the eventual eviction ONLY
+// if the grace window elapses with no reconnect (AC-03). A SINGLETON (like the
+// RoomRegistry it works with) so the timer never lives on the per-invocation hub, and
+// it uses IHubContext<GameHub> to broadcast the grace-expiry epilogue after the
+// originating invocation has ended. The 30-second window is a single named constant
+// (SeatGraceService.DefaultGraceWindow) for easy tuning. No-ops for a connection that
+// was never seated; story 08's Rejoin cancels a pending timer to keep the seat.
+builder.Services.AddSingleton<SeatGraceService>();
+
 // ai-cost-gate/02 (entitlement at session-creation, #121): the thin, #70-shaped,
 // DEFAULT-UNLOCKED entitlement seam. Registered here beside the room/session
 // domain services (NOT in the AI-cost-gate/01 pipeline block above, to keep this
@@ -404,7 +497,121 @@ builder.Services.AddSingleton<RoomRegistry>();
 // and the AI jumble stays reachable by every session. The real charging /
 // entitlement chain (billing-entitlements/01, #70) later SUBSUMES this SAME
 // contract without any consumer refactor. Singleton: the impl is stateless.
-builder.Services.AddSingleton<IEntitlementService, DefaultUnlockedEntitlementService>();
+//
+// billing-entitlements/01 (#70): the DI swap that lands the REAL stored-value
+// evaluation behind the SAME IEntitlementService contract (AC-02) - GameHub.CreateRoom,
+// SessionEntitlements, and Room.cs are untouched. DefaultUnlockedEntitlementService is
+// now registered as a CONCRETE singleton (the composed default-unlocked BASELINE,
+// AC-03), and StoredValueEntitlementService is the IEntitlementService: baseline +
+// any capabilities a resolved purchaser holds an active grant for. Anonymous sessions
+// (null purchaser - every alpha session) get exactly the baseline, so behavior is
+// unchanged today.
+builder.Services.AddSingleton<DefaultUnlockedEntitlementService>();
+builder.Services.AddSingleton<IEntitlementService, StoredValueEntitlementService>();
+
+// billing-entitlements/01 (#70): the purchaser entitlement-grant store, chosen at
+// STARTUP by whether a storage connection string is configured - EXACTLY the
+// config-presence idiom of the account store below and the telemetry / published-tale
+// stores above. WITH a connection string (supplied per-environment, NEVER a committed
+// literal), grants persist to Azure Table Storage partitioned by a SHA-256 hash of the
+// purchaser identity for a single-partition session-creation read (AC-05). WITHOUT one
+// (local dev, CI, a fresh clone), it degrades to a WORKING in-memory store - NOT a
+// no-op - so the gate and stories 03-05 are exercisable with ZERO Azure setup. A
+// singleton either way. It reuses the SAME storage account infra already provisions.
+var entitlementsConnectionString = builder.Configuration["Entitlements:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IEntitlementGrantStore, InMemoryEntitlementGrantStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IEntitlementGrantStore>(sp =>
+        new TableStorageEntitlementGrantStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageEntitlementGrantStore>>()));
+}
+
+// billing-entitlements/03 (#72): the Stripe billing seam. StripeOptions binds the
+// "Stripe" config section (SecretKey + WebhookSigningSecret are Key Vault-backed
+// SECRETS, never committed / never VITE_*, AC-01). Registered as a singleton so the
+// checkout service and webhook handler share one bound instance.
+var stripeOptions = builder.Configuration.GetSection(StripeOptions.SectionName).Get<StripeOptions>() ?? new StripeOptions();
+builder.Services.AddSingleton(stripeOptions);
+
+// billing-entitlements/06 (live/test mode toggle): the persisted active-mode flag,
+// chosen at STARTUP by whether a storage connection string is configured - EXACTLY the
+// config-presence idiom of the grant store above, and it REUSES the SAME storage account
+// (Entitlements:StorageConnectionString - no new resource). WITH a connection string, the
+// active mode persists to Table Storage (survives a recycle); WITHOUT one (local dev, CI,
+// a fresh clone), the WORKING in-memory store keeps the toggle exercisable with ZERO Azure
+// setup. Either way a fresh store defaults to Test (AC-05). A singleton so the cached
+// context below sees a consistent value.
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IActiveStripeModeStore, InMemoryActiveStripeModeStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IActiveStripeModeStore>(sp =>
+        new TableStorageActiveStripeModeStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageActiveStripeModeStore>>()));
+}
+
+// The single front door every billing consumer uses to get the ACTIVE mode's credentials
+// (billing-entitlements/06). Resolves the active mode (cached briefly for the checkout /
+// products hot paths) and projects StripeOptions.ForMode. A singleton over the store +
+// options so the cache is shared.
+builder.Services.AddSingleton<IActiveStripeContext, ActiveStripeContext>();
+
+// billing-entitlements/06 (AC-06): the INTERIM operator gate for the mode-toggle endpoint
+// - a constant-time compare against a single Key Vault-backed operator secret
+// (Admin:ModeToggleSecret, NEVER a committed literal / VITE_* var). Behind IOperatorGate
+// so swapping to the real sysadmin-console/01 operator session later is a one-file change.
+// No secret configured => the gate denies all, so the toggle endpoint is inert (not open).
+builder.Services.AddSingleton<IOperatorGate>(sp =>
+    new InterimSecretOperatorGate(sp.GetRequiredService<IConfiguration>()[InterimSecretOperatorGate.ConfigKeyName]));
+
+// The checkout service, chosen at STARTUP by whether Stripe is configured in ANY mode (the
+// same config-presence idiom as the AI client / stores above). WITH a secret key, the real
+// StripeCheckoutService resolves the ACTIVE mode's key per call (both payment + subscription
+// modes through one method, AC-02); WITHOUT one (local dev, CI, a fresh clone), the DISABLED
+// no-op so the app runs with ZERO Stripe setup and the tip jar / paywall show a clean "not
+// available" state.
+if (stripeOptions.IsConfigured)
+{
+    builder.Services.AddSingleton<IStripeCheckoutService>(sp =>
+        new StripeCheckoutService(sp.GetRequiredService<IActiveStripeContext>(), sp.GetRequiredService<ILogger<StripeCheckoutService>>()));
+}
+else
+{
+    builder.Services.AddSingleton<IStripeCheckoutService, DisabledStripeCheckoutService>();
+}
+
+// The webhook idempotency ledger (AC-05), config-gated on the SAME storage account as
+// the grant store: a working in-memory ledger locally, Table Storage when configured.
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IProcessedEventStore, InMemoryProcessedEventStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IProcessedEventStore>(sp =>
+        new TableStorageProcessedEventStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageProcessedEventStore>>()));
+}
+
+// The webhook DOMAIN handler (SDK-free, AC-04): applies a normalized BillingEvent to
+// the grant store, idempotently (AC-05), keyed to the purchaser account (AC-06), with
+// the subscription lifecycle lease math (AC-08). A singleton over the stores + options.
+builder.Services.AddSingleton<StripeWebhookHandler>();
+
+// billing-entitlements/04 (#73): the product -> capability-bundle map (the family plan
+// + add-on packs + the goodwill tip), the server-side lookup BillingController uses so
+// the client only ever sends a product id, never capability keys. A singleton - the map
+// is fixed after construction (price ids resolved from StripeOptions).
+builder.Services.AddSingleton<IProductCatalog, ProductCatalog>();
 
 // accounts-identity/02 (lightweight purchaser account, #68): the purchaser-account
 // store, chosen at STARTUP by whether a storage connection string is configured -
@@ -443,6 +650,31 @@ else
 builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
     new MagicLinkTokenService(sp.GetRequiredService<IConfiguration>()[MagicLinkTokenService.ConfigKeyName]));
 
+// accounts-identity/04 (magic-link email delivery, #167): the ONE email transport
+// seam both request endpoints deliver through (AC-02), chosen at STARTUP by whether
+// an email provider is configured - EXACTLY the ITelemetrySink / IAiCompletionClient
+// / IPublishedTaleStore config-presence idiom above. WITH a provider configured
+// (EmailOptions.IsConfigured: a verified from-address PLUS an ACS endpoint for the
+// keyless managed-identity path, or a Key Vault-backed connection string), the real
+// AcsEmailSender emails the already-minted magic link. WITHOUT one (local dev, CI, a
+// fresh clone, today's deployed footprint), it degrades to the NoOpEmailSender so the
+// app builds + runs with ZERO email setup and the controllers' Development-only
+// dev-token echo keeps local walkthroughs working unchanged (AC-03). A singleton
+// either way - the sender is stateless after construction (holds an EmailClient or a
+// logger). The provider secret (only on the connection-string fallback) is Key
+// Vault-backed via an app setting, NEVER committed and NEVER a VITE_* var (AC-05).
+var emailOptions = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>() ?? new EmailOptions();
+builder.Services.AddSingleton(emailOptions);
+if (!emailOptions.IsConfigured)
+{
+    builder.Services.AddSingleton<IEmailSender, NoOpEmailSender>();
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender>(sp =>
+        new AcsEmailSender(emailOptions, sp.GetRequiredService<ILogger<AcsEmailSender>>()));
+}
+
 // accounts-identity/03 (sign-in / restore on a new device, #69): ASP.NET Core
 // Data Protection, used by AccountsController to mint the SHORT-LIVED, purchaser-
 // scoped sign-in credential (a time-limited protector under a dedicated purpose
@@ -465,6 +697,49 @@ builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
 // sign-in / restore surface - it is never required by, nor checked in, GameHub or
 // any player-facing endpoint, so free play stays 100% login-free.
 builder.Services.AddDataProtection();
+
+// accounts-identity/03 + billing-entitlements/05: the ONE purchaser-credential
+// minter+resolver over Data Protection. AccountsController mints it on sign-in;
+// EntitlementsController (the restore/manage read endpoint) resolves it - both share
+// this so the credential purpose + lifetime live in exactly one place (story 05 AC-06:
+// reuse the guard, do not write a second auth check). A singleton over the protector.
+builder.Services.AddSingleton<PurchaserCredentialService>();
+
+// sysadmin-console/01 (#135): the SEPARATE, auth-gated operator back office.
+// Every edit in this block is ADDITIVE and localized here (a parallel feature,
+// billing-entitlements, edits Program.cs in the entitlement-registration region -
+// keep this seam small). This wires: (1) the config-backed operator allowlist, and
+// (2) the FIRST AddAuthentication / AddAuthorization in this app.
+//
+// THE LOAD-BEARING BOUNDARY (AC-03): the "Operator" authorization policy binds ONLY
+// to the "Operator" authentication scheme, whose handler authenticates a request
+// ONLY when it presents a credential that unprotects under the DEDICATED operator
+// Data Protection purpose (distinct from the purchaser purpose) AND carries an
+// allowlisted email. A purchaser credential fails the unprotect by construction, so
+// "signed in as some purchaser" can NEVER satisfy an admin endpoint. There is NO
+// default scheme, so no player-facing / purchaser endpoint (none carry [Authorize])
+// is affected - the game path stays 100% auth-free.
+//
+// The allowlist is operator-only configuration (Operator:AllowedEmails), Key
+// Vault-backed when deployed - NEVER a VITE_* var, never committed, never inferred
+// from player / purchaser data (AC-05). Singleton: it holds only IConfiguration and
+// reads the list live so an operator add / remove is a config change (AC-05).
+builder.Services.AddSingleton<IOperatorAllowlist, ConfigurationOperatorAllowlist>();
+builder.Services.AddAuthentication()
+    .AddScheme<AuthenticationSchemeOptions, OperatorAuthenticationHandler>(
+        OperatorSession.AuthenticationScheme, configureOptions: null);
+builder.Services.AddAuthorization(options =>
+{
+    // NEVER a bare RequireAuthenticatedUser over the default scheme - the policy
+    // pins the Operator scheme explicitly so only an operator credential (not any
+    // future authenticated principal) can satisfy it (AC-03). Admin endpoints
+    // authorize via [Authorize(Policy = OperatorSession.PolicyName)].
+    options.AddPolicy(OperatorSession.PolicyName, policy =>
+    {
+        policy.AddAuthenticationSchemes(OperatorSession.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+    });
+});
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()
@@ -508,6 +783,14 @@ var app = builder.Build();
 app.UseForwardedHeaders();
 
 app.UseCors(webClientCorsPolicy);
+
+// sysadmin-console/01 (#135): authenticate then authorize, in that order, before the
+// endpoints run. Added here (after UseCors, before the endpoints) as the FIRST auth
+// middleware in this app. Both are INERT for every current REST / hub route (none
+// carry [Authorize]); they only engage where an endpoint opts in - today just the
+// operator console's [Authorize(Policy = "Operator")] session echo (AC-03/AC-06).
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Activate the rate-limiter middleware for BOTH named policies registered above
 // (ai-cost-gate/03's per-IP AI guard + keepsake-gallery/04's publish guard). It is

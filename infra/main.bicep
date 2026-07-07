@@ -40,6 +40,12 @@ param environmentName string = 'uat'
 ])
 param appServicePlanSku string = 'F1'
 
+@description('Provision the Azure Communication Services (ACS) Email footprint (accounts-identity/04) for magic-link delivery. OFF by default so the core footprint stays tiny (README section 9): a fresh clone or a UAT that has not turned email on gets NONE of these resources and the API runs on the NoOpEmailSender, exactly as before. The deploy pipeline flips this to true from vars.EMAIL_ENABLED (.github/workflows/deploy.yml).')
+param enableEmail bool = false
+
+@description('ACS data residency for the email resources (where message-processing metadata lives). Only used when enableEmail is true. Valid ACS values include United States, Europe, Australia, UK, Asia Pacific, etc.')
+param emailDataLocation string = 'United States'
+
 // A short, deterministic suffix keeps globally-unique names (storage, vault,
 // SignalR, web apps) stable per resource group without hardcoding them.
 var suffix = uniqueString(resourceGroup().id)
@@ -331,6 +337,75 @@ resource apiKeyVaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04
   }
 }
 
+// --- 7. Magic-link email delivery (accounts-identity/04) ---------------------
+// Azure Communication Services (ACS) Email - the transport the purchaser sign-in
+// and operator-login magic links ride (see api/src/Accounts/AcsEmailSender.cs).
+// GATED behind enableEmail (default false), so the DEFAULT footprint is unchanged
+// (README section 9) and this whole block simply does not exist until email is
+// turned on. When on it provisions a fully KEYLESS, ZERO-DNS email path:
+//   - an Email Communication Service + an AZURE-MANAGED domain (a *.azurecomm.net
+//     sender Azure creates and verifies for you - no SPF/DKIM records to add). The
+//     managed-domain sender is FIXED at DoNotReply@<generated>.azurecomm.net: Azure
+//     does NOT allow custom sender usernames (e.g. no-reply) on a managed domain -
+//     a friendly no-reply@quibblestone.com needs the custom-domain upgrade below;
+//   - the Communication Services resource the app's EmailClient targets, linked to
+//     that domain so it can send from it.
+// The app authenticates KEYLESS via its existing SystemAssigned managed identity
+// (AcsEmailSender prefers the endpoint path, DefaultAzureCredential), so there is NO
+// provider secret to store (AC-05). The identity's "send email" role grant is applied
+// by the deploy workflow (name-resolved, so no role GUID is hardcoded here), and the
+// endpoint + sender address are OUTPUT below for that workflow to wire onto the API.
+//
+// A verified CUSTOM sender domain (no-reply@quibblestone.com with real SPF/DKIM, for
+// production deliverability - AC-09) is a deliberate operator UPGRADE, not automated
+// here: it needs DNS records + a verification wait that cannot live in Bicep (story
+// Out of Scope). Set it up in ACS and point vars.EMAIL_FROM_ADDRESS at it; see
+// docs/runbooks/enable-magic-link-email.md. The Azure-managed domain is the always-safe
+// default so email works end to end the moment enableEmail is true.
+
+// 7a. Email Communication Service - the container for the sending domain. ACS is a
+//     GLOBAL resource type (location must be 'global'); dataLocation sets residency.
+resource emailService 'Microsoft.Communication/emailServices@2023-04-01' = if (enableEmail) {
+  name: '${baseName}-email-${suffix}'
+  location: 'global'
+  tags: commonTags
+  properties: {
+    dataLocation: emailDataLocation
+  }
+}
+
+// 7b. Azure-managed sending domain (a *.azurecomm.net domain Azure provisions AND
+//     verifies automatically - no customer DNS). The child name MUST be the literal
+//     'AzureManagedDomain' for a managed domain. userEngagementTracking stays
+//     Disabled - no open/click tracking, upholding the minimal-data posture (README
+//     section 6).
+resource emailDomain 'Microsoft.Communication/emailServices/domains@2023-04-01' = if (enableEmail) {
+  parent: emailService
+  name: 'AzureManagedDomain'
+  location: 'global'
+  tags: commonTags
+  properties: {
+    domainManagement: 'AzureManaged'
+    userEngagementTracking: 'Disabled'
+  }
+}
+
+// 7c. The Communication Services resource the app's EmailClient talks to (keyless via
+//     the API managed identity). linkedDomains binds the managed domain so this
+//     resource is allowed to send from it. hostName (output below) is the endpoint the
+//     API reads as Email:Endpoint.
+resource communicationService 'Microsoft.Communication/communicationServices@2023-04-01' = if (enableEmail) {
+  name: '${baseName}-acs-${suffix}'
+  location: 'global'
+  tags: commonTags
+  properties: {
+    dataLocation: emailDataLocation
+    linkedDomains: [
+      emailDomain.id
+    ]
+  }
+}
+
 // --- Outputs -----------------------------------------------------------------
 output resourceGroupName string = resourceGroup().name
 output appServicePlanSku string = appServicePlanSku
@@ -343,3 +418,13 @@ output storageAccount string = storage.name
 output keyVault string = keyVault.name
 output appInsightsName string = appInsights.name
 output logAnalyticsWorkspaceName string = logAnalytics.name
+// Magic-link email (accounts-identity/04). Empty strings when enableEmail is false, so
+// the deploy workflow's email-wiring step is a clean no-op unless email is turned on.
+// emailAcsEndpoint -> the API's Email:Endpoint (keyless send target). emailSenderAddress
+// -> the API's Email:FromAddress: the Azure-managed domain's FIXED DoNotReply sender
+// (DoNotReply@<*.azurecomm.net>), which a custom-domain operator override
+// (vars.EMAIL_FROM_ADDRESS) supersedes for a friendly no-reply@quibblestone.com.
+output emailEnabled bool = enableEmail
+output emailAcsEndpoint string = enableEmail ? 'https://${communicationService!.properties.hostName}' : ''
+output emailSenderAddress string = enableEmail ? 'DoNotReply@${emailDomain!.properties.fromSenderDomain}' : ''
+output communicationServiceName string = enableEmail ? communicationService!.name : ''

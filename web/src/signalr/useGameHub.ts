@@ -89,6 +89,51 @@
 //  lengthPref, templateId). Omitting it (or passing undefined, which this hook
 //  maps to `null` on the wire) reproduces today's random-pick behavior exactly
 //  - every existing 3-argument caller keeps working unchanged.
+//
+//  session-engine/07 mints a caller-only reconnect token in CreateRoom/JoinRoom's
+//  own result envelope (a `reconnectToken` field, never broadcast to the rest of
+//  the room) and holds a dropped seat open for a grace window instead of evicting
+//  it right away. session-engine/08 adds the `Rejoin(code, token)` hub method that
+//  spends that token to reclaim the seat under a new connection and returns a
+//  rehydration envelope. session-engine/09 (this file's latest addition) wires the
+//  WEB half up: `../reconnect.ts` remembers the `{code, token}` handle
+//  device-locally (saved on every successful createRoom/joinRoom, cleared on
+//  clearRoom); an internal `rejoin()` helper invokes the hub's Rejoin and applies
+//  a success into the SAME setters the normal join/round flow already populates -
+//  no new parallel state tree. It is wired to BOTH the EXISTING
+//  `connection.onreconnected(...)` handler (a same-tab network blip, AC-02) and a
+//  new one-shot mount-time effect ("connected AND no in-memory room AND a stored
+//  handle exists", AC-03 - covers a full page reload / app relaunch, not just a
+//  same-tab blip). A rejected Rejoin discards the stored handle (AC-04). The hook
+//  exposes `isRejoining` so story 10 can hold the live-route guards open while a
+//  rejoin is in flight, instead of bouncing the player Home first.
+//
+//  session-engine/10 (web, presentation only - no change to this file's rejoin
+//  MECHANICS) adds the `connected` flag to `Player` below (mirroring the hub's
+//  `PlayerDto.Connected` from story 07, already riding along on every roster
+//  broadcast unused until now) and combines `isRejoining` with `status` +
+//  `../reconnect.ts`'s `loadReconnectHandle()` in `App.tsx` to decide whether a
+//  live-route guard should show a calm "reconnecting..." beat instead of
+//  bouncing Home - see App.tsx's `shouldHoldLiveRouteForResume`.
+//
+//  replay-remix/03 adds `passHost` (a host-only, phase-gated invoke - "Pass the
+//  chisel" - that the SERVER rejects for a non-host caller or a mid-round
+//  "prompting" phase, mirroring startRound's posture) on the SAME connection. It
+//  reuses the EXISTING "RosterChanged" handler for its live effect (no new event
+//  type - the moved IsHost flag already rides on every PlayerDto), but that
+//  exposed the ONE nuance this story had to close: `isHost` was, until now, set
+//  ONLY from this client's OWN createRoom/joinRoom action (see the comment on
+//  `isHost` below) - so a client that RECEIVES a handoff (or loses the role) had
+//  no path to learn it. `handleRosterChanged` now ALSO re-derives `isHost` for
+//  THIS client by matching the incoming roster against `myNicknameRef` - the one
+//  identity handle this client already holds locally (the nickname it created/
+//  joined the room with). Nicknames are enforced unique within a room, case-
+//  insensitively, at join (session-engine/02, AC-06) and never change after, so
+//  this match stays valid for the room's whole lifetime. This IS a slightly
+//  fragile handle (a wire-level connection/session id would be more robust, but
+//  that would mean putting connection identity on PlayerDto, which the file's
+//  own existing comment on `isHost` explains we deliberately do NOT do, for no-
+//  PII reasons) - flagged here rather than inventing a new wire field.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -100,13 +145,14 @@ import {
 } from '@microsoft/signalr';
 import type { LengthPreference } from '../content/length';
 import type { ReactionCounts, ReactionType } from '../components/ReactionRow';
+import { clearReconnectHandle, loadReconnectHandle, saveReconnectHandle } from '../reconnect';
 
 const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
 
 // reveal-delight/01 (AC-04): a fresh all-zero reaction tally. Reaction counts are
 // EPHEMERAL per reveal (Out of Scope: no persistence), so this is both the initial
 // value and what the hook resets to whenever a new round starts / the reveal clears.
-const ZERO_REACTIONS: ReactionCounts = { laugh: 0, heart: 0, wow: 0, star: 0 };
+const ZERO_REACTIONS: ReactionCounts = { love: 0, wow: 0, nope: 0 };
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -119,6 +165,15 @@ export interface Player {
   nickname: string;
   variant: string;
   isHost: boolean;
+  /**
+   * session-engine/07 (server) marks a seat's Connected flag false while it is
+   * held through a disconnect grace window (a dropped connection, not a
+   * deliberate leave - a deliberate leave removes the seat entirely rather than
+   * flipping this), true otherwise. Mirrors the hub's `PlayerDto.Connected`.
+   * session-engine/10 renders a dimmed/pulsing "reconnecting..." tile for a
+   * seat with `connected === false` instead of the ordinary READY/HOST chip.
+   */
+  connected: boolean;
 }
 
 /**
@@ -142,6 +197,13 @@ export interface JoinResult {
   ok: boolean;
   room: RoomState | null;
   error: string | null;
+  /**
+   * session-engine/07 (AC-06): this caller's own opaque, server-minted
+   * reconnect handle on success (null on failure). Returned ONLY here - never
+   * broadcast on RoomState/Player - so no other player can see or spend it.
+   * session-engine/09 saves it via `saveReconnectHandle` alongside `room`.
+   */
+  reconnectToken: string | null;
 }
 
 /**
@@ -156,6 +218,13 @@ export interface CreateRoomResult {
   ok: boolean;
   room: RoomState | null;
   error: string | null;
+  /**
+   * session-engine/07 (AC-06): this host's own opaque, server-minted reconnect
+   * handle on success (null on failure). Returned ONLY here - never broadcast
+   * on RoomState/Player. session-engine/09 saves it via `saveReconnectHandle`
+   * alongside `room`.
+   */
+  reconnectToken: string | null;
 }
 
 /**
@@ -296,6 +365,37 @@ export interface RevealInfo {
   words: RevealWord[];
 }
 
+/**
+ * The outcome of invoking the hub's Rejoin(code, token) (session-engine/08's
+ * RejoinResultDto), mirroring its wire contract. Like every other hub result
+ * envelope here (JoinResult, StartRoundResult) this is a friendly result, NOT
+ * an exception channel: an unknown/expired token or an already-evicted seat
+ * comes back as ok:false with a kid-readable error (AC-05), never a throw. On
+ * success (ok:true) it carries EXACTLY what the resuming client needs to pick
+ * up where it left off - the SAME shapes the normal join/round flow already
+ * uses (RoomState, RoundInfo, YourBlanks, CollectProgress, RevealInfo) so
+ * session-engine/09's rejoin() helper can feed them straight into the
+ * existing setters (setRoom, setIsHost, setRound, setAssignedBlankIndices,
+ * setCollectProgress, setReveal) with no new parallel state tree. `round`,
+ * `yourBlanks`, `progress`, and `reveal` are only ever non-null for the phase
+ * that produces them (a "prompting" round -> round + yourBlanks + progress; a
+ * "reveal" round -> round + reveal; the lobby -> just room + isHost + phase).
+ */
+interface RejoinResult {
+  ok: boolean;
+  error: string | null;
+  room: RoomState | null;
+  isHost: boolean;
+  // Carried for wire-contract parity with story 08's RejoinResultDto. rejoin() derives
+  // the resumed screen from round/reveal/progress (the existing routing effect's inputs),
+  // so `phase` itself is not read here - it stays on the type as the server's own label.
+  phase: string | null;
+  round: RoundInfo | null;
+  yourBlanks: YourBlanks | null;
+  progress: CollectProgress | null;
+  reveal: RevealInfo | null;
+}
+
 export interface UseGameHub {
   status: ConnectionStatus;
   /** The current room (code + live roster), or null when not in one. Owned here so RosterChanged updates flow to every screen. */
@@ -306,7 +406,12 @@ export interface UseGameHub {
    * cleared when it leaves. The Lobby gates the host-only "Start game" CTA on
    * this (AC-05). It is tracked from the caller's own action rather than read
    * off the roster, because IsHost on a PlayerDto is not tied to a connection
-   * on the wire (no PII), so a client cannot tell which roster row is "me".
+   * on the wire (no PII), so a client cannot tell which roster row is "me" -
+   * EXCEPT that replay-remix/03's "Pass the chisel" ALSO re-derives it from an
+   * incoming "RosterChanged" broadcast, by matching the roster against the
+   * nickname this client created/joined with (`myNicknameRef`) - the one
+   * additional path a handoff needs, since a client can become (or stop being)
+   * host without ever calling createRoom/joinRoom/startRound itself.
    */
   isHost: boolean;
   /**
@@ -419,6 +524,23 @@ export interface UseGameHub {
    */
   submitWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
   /**
+   * replay-remix/02 (AC-04/AC-06/AC-07): remix ONE blank of the just-finished
+   * reveal. Invokes the hub's RemixWord with the current room code (from
+   * roomCodeRef), the blank INDEX (body-order blank position, the same
+   * convention `submitWord` and the Golden Guardian vote token already use),
+   * and the new word; the SERVER runs the safety filter FIRST (same posture as
+   * `submitWord`) and, on success, re-broadcasts "RevealReady" so EVERY player
+   * (including this one) picks up the swapped word through the EXISTING
+   * `reveal` state / RevealReady handler - this invoke does NOT set `reveal`
+   * itself. ANY live room member may call this (no host guard, per the
+   * 2026-07-04 Decisions-log call) - ask the caller UI, not this hook, to gate
+   * who sees the "Remix a word" affordance if that ever changes. Resolves with
+   * { accepted, message } (the same shape `submitWord` returns, matching
+   * `FillBlank`'s `onSubmitWord` contract). Returns a not-connected failure if
+   * the hub is not ready.
+   */
+  remixWord: (blankIndex: number, word: string) => Promise<{ accepted: boolean; message?: string }>;
+  /**
    * Start a round as the host (group-play/01; story-selection/02 adds the
    * length parameter; group-play/05 adds the host's chosen MODE; story-selection/06
    * adds the optional explicit-template parameter). Invokes the hub's host-only
@@ -452,6 +574,20 @@ export interface UseGameHub {
    * roster preserved. Returns a not-connected failure if the hub is not ready.
    */
   backToLobby: () => Promise<{ ok: boolean; error: string | null }>;
+  /**
+   * replay-remix/03 (AC-01/AC-02/AC-04/AC-05): host-only, phase-gated "Pass the
+   * chisel" - hand the host role to another roster player, BY NICKNAME, between
+   * rounds only. Invokes the hub's PassHost with the current room code (from
+   * roomCodeRef) and the target's nickname; the SERVER re-enforces the host
+   * check and rejects a mid-round ("prompting") attempt (authoritative, same
+   * posture as startRound/backToLobby). Resolves with { ok, error } (a friendly,
+   * kid-readable message on an expected rejection). Does NOT flip `isHost`
+   * itself on success - the server's reused "RosterChanged" broadcast carries
+   * the moved flag to EVERY client (including this one), and the handler above
+   * re-derives `isHost` from it. Returns a not-connected failure if the hub is
+   * not ready.
+   */
+  passHost: (targetNickname: string) => Promise<{ ok: boolean; error: string | null }>;
   /** A friendly notice to show on the lobby when a round was reset (a player left mid-round), or null. */
   roundNotice: string | null;
   /** Dismiss the round-aborted lobby notice. */
@@ -479,6 +615,16 @@ export interface UseGameHub {
    * open for the next game. Safe to call when not in a room (no-op).
    */
   clearRoom: () => void;
+  /**
+   * session-engine/09: true while an auto-rejoin attempt (triggered by either
+   * a same-tab reconnect, AC-02, or the one-shot mount-time check, AC-03) is
+   * in flight on the shared connection - false the rest of the time,
+   * including "no stored handle to try" and "already resolved". This story
+   * adds no UI of its own; story 10 consumes this to hold the live-route
+   * guards open (a brief "reconnecting..." beat) instead of bouncing the
+   * player Home before the rejoin has a chance to land.
+   */
+  isRejoining: boolean;
 }
 
 export function useGameHub(): UseGameHub {
@@ -530,6 +676,134 @@ export function useGameHub(): UseGameHub {
   // player has already gone Home (the post-leave re-entry bug).
   const inRoomRef = useRef(false);
   const roomCodeRef = useRef<string | null>(null);
+  // replay-remix/03: the ONE identity handle this client holds for "which roster
+  // row is me" - the (trimmed) nickname it created/joined the room with. Set on a
+  // successful createRoom/joinRoom, cleared on clearRoom. Nicknames are unique
+  // within a room, case-insensitively, at join (session-engine/02, AC-06) and
+  // never change afterward, so matching by it stays valid for the room's life.
+  // Used ONLY by handleRosterChanged below to re-derive `isHost` when a "Pass the
+  // chisel" handoff makes/unmakes this client the host without it calling
+  // createRoom/joinRoom/startRound itself.
+  const myNicknameRef = useRef<string | null>(null);
+  // room-start-duplicate-members: the latest `isHost` mirrored into a ref so the stable
+  // "HostGranted" handler (registered once, below) reads the current value without
+  // re-binding, and shows the "you're the host now" notice only on a genuine false->true
+  // handover (never twice if a duplicate message ever arrived). Kept in sync with the
+  // state by the effect just below, so every setIsHost site (create/join/rejoin/clear/
+  // promote) flows through it.
+  const isHostRef = useRef(false);
+  // session-engine/09: whether an auto-rejoin attempt is currently in flight.
+  // `rejoiningRef` is the synchronous double-fire guard `rejoin()` checks
+  // FIRST (so the two triggers, AC-02's onreconnected and AC-03's mount-time
+  // effect, can never both invoke Rejoin at once); `isRejoining` mirrors it
+  // into state so the hook can expose it (story 10 holds live-route guards
+  // open while it is true).
+  const rejoiningRef = useRef(false);
+  const [isRejoining, setIsRejoining] = useState(false);
+
+  // room-start-duplicate-members: keep isHostRef in lockstep with the isHost state so the
+  // once-registered "HostGranted" handler always reads the current value.
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
+
+  /**
+   * session-engine/09: attempt to reclaim a previously-held seat on THIS
+   * connection by invoking the hub's Rejoin(code, token) with whatever handle
+   * `reconnect.ts` has stored. Never called directly by the UI - only from the
+   * two triggers below: the EXISTING `connection.onreconnected(...)` handler
+   * (a same-tab network blip, AC-02) and the one-shot mount-time effect
+   * further down (a full page reload / app relaunch, AC-03). A no-op when
+   * there is no stored handle or the connection is not ready.
+   *
+   * On success (ok:true) it applies the rehydrated fields into the SAME
+   * setters the normal join/round flow already populates - no new parallel
+   * state tree - after first checking the room this handle names is still the
+   * one worth resuming: if `inRoomRef` is already true for a DIFFERENT code
+   * (the player deliberately left and created/joined a fresh room, or another
+   * rejoin already landed, while this call was in flight), the stale result
+   * is dropped rather than clobbering what is already live (the file's
+   * existing "post-leave re-entry" guard, reused - not a second mechanism).
+   *
+   * On an explicit rejection (ok:false - unknown/expired token, an evicted
+   * seat) the stored handle is discarded immediately (AC-04) so a later
+   * create/join is never haunted by a stale token. A THROWN invoke (a
+   * transient disconnect / hub error, not a real rejection) leaves the
+   * handle alone so the next trigger can simply try again - no retry loop is
+   * added here (Out of Scope: retrying a FAILED rejoin).
+   *
+   * `rejoiningRef` is a synchronous guard set true before the very first
+   * `await`, so the two triggers can never double-fire even if they land in
+   * the same tick; it also backs the exposed `isRejoining` signal.
+   */
+  const rejoin = useCallback(async (): Promise<void> => {
+    if (rejoiningRef.current) return; // already attempting - never a double-fire
+    const handle = loadReconnectHandle();
+    if (!handle) return;
+
+    const connection = connectionRef.current;
+    if (!connection || connection.state !== HubConnectionState.Connected) return;
+
+    rejoiningRef.current = true;
+    setIsRejoining(true);
+    try {
+      const result = await connection.invoke<RejoinResult>('Rejoin', handle.code, handle.token);
+
+      if (result.ok) {
+        // AC-05 guard: a deliberate leave/Home (clearRoom -> clearReconnectHandle)
+        // or a fresh create/join may have landed while this Rejoin was in flight.
+        // The stored handle is the authoritative "is this still the seat to resume?"
+        // signal: clearRoom clears it, and a fresh create/join overwrites it with a
+        // different code. If it is gone or now names a different room, this result
+        // is stale - dropping it stops a resumed player being yanked back into a room
+        // they explicitly left (server LeaveRoom-vs-Rejoin ordering is nondeterministic,
+        // so the client cannot rely on the server having returned ok:false here).
+        const current = loadReconnectHandle();
+        if (!current || current.code !== handle.code) {
+          return;
+        }
+        // Something else already claimed a DIFFERENT room while this call was
+        // in flight (a second rejoin that landed first) - never resurrect/clobber it.
+        if (inRoomRef.current && roomCodeRef.current !== handle.code) {
+          return;
+        }
+        inRoomRef.current = true;
+        roomCodeRef.current = handle.code;
+        if (result.room) setRoom(result.room);
+        setIsHost(result.isHost);
+        // replay-remix/03: myNicknameRef is normally set by createRoom/joinRoom in
+        // THIS tab session; a rejoin after a full reload/relaunch starts it null
+        // (a fresh component mount). It can only be safely recovered here for the
+        // HOST case - a room has exactly one host, so a rejoin landing as host can
+        // match that one roster entry. A non-host rejoin has no reliable way to
+        // tell which roster row is "me" from this envelope alone (the nickname
+        // handle's known fragility - see the file header and openQuestions), so
+        // myNicknameRef stays null for that case until this client's own
+        // createRoom/joinRoom next runs.
+        if (result.isHost && result.room) {
+          const hostEntry = result.room.players.find((p) => p.isHost);
+          if (hostEntry) {
+            myNicknameRef.current = hostEntry.nickname;
+          }
+        }
+        setRound(result.round);
+        setAssignedBlankIndices(result.yourBlanks ? result.yourBlanks.blankIndices : null);
+        setCollectProgress(result.progress);
+        setReveal(result.reveal);
+      } else {
+        // AC-04: an expected rejection - discard the stale handle so it never
+        // haunts a later create/join.
+        clearReconnectHandle();
+      }
+    } catch {
+      // A thrown invoke (transient disconnect / hub error) is not a
+      // rejection - leave the stored handle alone so the next trigger can
+      // simply retry.
+    } finally {
+      rejoiningRef.current = false;
+      setIsRejoining(false);
+    }
+  }, []);
 
   useEffect(() => {
     const connection = new HubConnectionBuilder()
@@ -570,8 +844,39 @@ export function useGameHub(): UseGameHub {
       // state and bounce a player who just went Home back into the lobby.
       if (cancelled || !inRoomRef.current) return;
       setRoom(state);
+      // replay-remix/03 (AC-02/AC-03): re-derive OUR OWN host flag from the
+      // incoming roster. A "Pass the chisel" handoff can make (or unmake) this
+      // client the host WITHOUT it having called createRoom/joinRoom/startRound
+      // itself, so `isHost` must also flip here, live, for both the newly-made
+      // host AND the outgoing one. Matched by the one identity handle this
+      // client holds - the nickname it created/joined with (see myNicknameRef's
+      // own comment for why nickname, not a wire identity field).
+      const myNickname = myNicknameRef.current;
+      if (myNickname) {
+        const mine = state.players.find(
+          (p) => p.nickname.toLowerCase() === myNickname.toLowerCase(),
+        );
+        if (mine) {
+          setIsHost(mine.isHost);
+        }
+      }
     };
     connection.on('RosterChanged', handleRosterChanged);
+
+    // Host handover (room-start-duplicate-members): the server sends this ONLY to the
+    // connection it just promoted to host after another player left (Room.EnsureHostLocked),
+    // so the promoted client can turn its host-only Start CTA on - the room is otherwise
+    // hosted but this client has no way to know it (the roster DTO carries no identity).
+    // Guarded by inRoomRef so a message racing our own leave cannot revive host state after
+    // we have gone Home, and by isHostRef so the friendly notice fires only on a genuine
+    // false->true handover (a no-op if we somehow already hold the flag).
+    const handleHostGranted = () => {
+      if (cancelled || !inRoomRef.current || isHostRef.current) return;
+      isHostRef.current = true;
+      setIsHost(true);
+      setRoundNotice("You're the host now - tap Start game when your crew's ready.");
+    };
+    connection.on('HostGranted', handleHostGranted);
 
     // Round start (group-play/01): the hub broadcasts "RoundStarted" to the whole
     // room group when the host starts a round, so every player - host and joiners
@@ -637,13 +942,18 @@ export function useGameHub(): UseGameHub {
     };
     connection.on('RevealReady', handleRevealReady);
 
-    // Reaction tally (reveal-delight/01, AC-04): the hub broadcasts
+    // Reaction tally (reveal-delight/01, AC-04; reactions v2): the hub broadcasts
     // "ReactionCountsChanged" to the whole room group whenever any player reacts,
     // so every client's reaction row shows the updated count in near-real-time.
-    // The payload is the full tally ({ laugh, heart, wow, star }) - server-
-    // authoritative, so no client double-counts. Registered ONCE, guarded by
+    // The payload is the full tally ({ love, wow, nope }) - server-authoritative,
+    // and the server now de-dupes ONE REACTION PER CONNECTION (a tap selects, a
+    // different tap moves, the same tap toggles off), so no client can inflate. The
+    // camelCased wire fields (love/wow/nope) match the ReactionCounts keys exactly,
+    // so the payload feeds the row straight through. Registered ONCE, guarded by
     // inRoomRef so a broadcast racing a leave cannot revive state for a gone-Home
     // client. Reset to all-zero on a fresh RoundStarted / BackToLobby (ephemeral).
+    // The client tracks its OWN current selection locally (GroupReveal's myReaction)
+    // for the highlight - the hub is authoritative for counts, not the selection.
     const handleReactionCountsChanged = (payload: ReactionCounts) => {
       if (cancelled || !inRoomRef.current) return;
       setReactionCounts(payload);
@@ -715,6 +1025,11 @@ export function useGameHub(): UseGameHub {
     });
     connection.onreconnected(() => {
       if (!cancelled) setStatus('connected');
+      // session-engine/09 (AC-02): a same-tab automatic reconnect just
+      // succeeded on a NEW connection id - if a seat is still held, reclaim
+      // it right away with no user action. `rejoin()` itself no-ops when
+      // there is no stored handle, so this is safe to call unconditionally.
+      if (!cancelled) void rejoin();
     });
     connection.onclose(() => {
       if (!cancelled) setStatus('disconnected');
@@ -733,6 +1048,7 @@ export function useGameHub(): UseGameHub {
     return () => {
       cancelled = true;
       connection.off('RosterChanged', handleRosterChanged);
+      connection.off('HostGranted', handleHostGranted);
       connection.off('RoundStarted', handleRoundStarted);
       connection.off('YourBlanks', handleYourBlanks);
       connection.off('CollectProgress', handleCollectProgress);
@@ -746,6 +1062,21 @@ export function useGameHub(): UseGameHub {
     };
   }, []);
 
+  // session-engine/09 (AC-03): the app (re)mounted with no in-memory room but
+  // a stored reconnect handle - once the connection reaches `connected`,
+  // attempt the SAME Rejoin automatically (covers a full page reload / app
+  // relaunch mid-game, not just AC-02's same-tab network blip). Deliberately
+  // one-shot: a successful rejoin flips `inRoomRef.current` true, and a
+  // failed one clears the stored handle (inside `rejoin()`, AC-04) - either
+  // way this effect's own guard condition goes false on the next run, so no
+  // separate "already attempted" ref is needed to stop it from retrying.
+  useEffect(() => {
+    if (status !== 'connected') return;
+    if (inRoomRef.current) return;
+    if (!loadReconnectHandle()) return;
+    void rejoin();
+  }, [status, rejoin]);
+
   const createRoom = useCallback(
     async (displayName: string, variant: string): Promise<CreateRoomResult> => {
       const connection = connectionRef.current;
@@ -754,6 +1085,7 @@ export function useGameHub(): UseGameHub {
           ok: false,
           room: null,
           error: "We're not connected yet - give it a moment and try again.",
+          reconnectToken: null,
         };
       }
       // build/host-identity: the host name + variant travel to the hub, which
@@ -765,14 +1097,30 @@ export function useGameHub(): UseGameHub {
         if (result.ok && result.room) {
           inRoomRef.current = true;
           roomCodeRef.current = result.room.code;
+          // replay-remix/03: remember the nickname we created with - the identity
+          // handle that handleRosterChanged needs to re-derive `isHost` if a later
+          // "Pass the chisel" handoff moves the role off this client.
+          myNicknameRef.current = displayName.trim();
           setRoom(result.room);
           setIsHost(true); // the creator is the host (AC-05)
+          // session-engine/09 (AC-01): remember this seat's {code, token} handle
+          // device-locally so a later drop / reload can auto-rejoin it. A no-op
+          // (never throws) when the server did not mint a token or storage is
+          // unavailable.
+          if (result.reconnectToken) {
+            saveReconnectHandle(result.room.code, result.reconnectToken);
+          }
         }
         return result;
       } catch {
         // A thrown invoke (transient disconnect / hub error) must surface as a
         // friendly envelope, never an unhandled rejection (Copilot review).
-        return { ok: false, room: null, error: "Something went off - give it a moment and try again." };
+        return {
+          ok: false,
+          room: null,
+          error: "Something went off - give it a moment and try again.",
+          reconnectToken: null,
+        };
       }
     },
     [],
@@ -786,6 +1134,7 @@ export function useGameHub(): UseGameHub {
           ok: false,
           room: null,
           error: "We're not connected yet - give it a moment and try again.",
+          reconnectToken: null,
         };
       }
       try {
@@ -793,13 +1142,27 @@ export function useGameHub(): UseGameHub {
         if (result.ok && result.room) {
           inRoomRef.current = true;
           roomCodeRef.current = result.room.code;
+          // replay-remix/03: remember the nickname we joined with - the identity
+          // handle that handleRosterChanged needs to re-derive `isHost` if a later
+          // "Pass the chisel" handoff makes this client the new host.
+          myNicknameRef.current = displayName.trim();
           setRoom(result.room);
           setIsHost(false); // a joiner is never the host (AC-05)
+          // session-engine/09 (AC-01): remember this seat's {code, token} handle
+          // device-locally so a later drop / reload can auto-rejoin it.
+          if (result.reconnectToken) {
+            saveReconnectHandle(result.room.code, result.reconnectToken);
+          }
         }
         return result;
       } catch {
         // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
-        return { ok: false, room: null, error: "Something went off - give it a moment and try again." };
+        return {
+          ok: false,
+          room: null,
+          error: "Something went off - give it a moment and try again.",
+          reconnectToken: null,
+        };
       }
     },
     [],
@@ -885,6 +1248,38 @@ export function useGameHub(): UseGameHub {
     [],
   );
 
+  const passHost = useCallback(
+    async (targetNickname: string): Promise<{ ok: boolean; error: string | null }> => {
+      const connection = connectionRef.current;
+      const code = roomCodeRef.current;
+      if (
+        !connection ||
+        connection.state !== HubConnectionState.Connected ||
+        !code
+      ) {
+        return {
+          ok: false,
+          error: "We're not connected yet - give it a moment and try again.",
+        };
+      }
+      // The SERVER enforces the host check + the between-rounds phase gate
+      // (replay-remix/03, AC-04/AC-05) - we never set `isHost` here on success;
+      // the reused "RosterChanged" broadcast (handled above) carries the moved
+      // flag to EVERY client, including this one.
+      try {
+        return await connection.invoke<{ ok: boolean; error: string | null }>(
+          'PassHost',
+          code,
+          targetNickname,
+        );
+      } catch {
+        // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
+        return { ok: false, error: "Something went off - give it a moment and try again." };
+      }
+    },
+    [],
+  );
+
   const submitWord = useCallback(
     async (blankIndex: number, word: string): Promise<{ accepted: boolean; message?: string }> => {
       const connection = connectionRef.current;
@@ -911,6 +1306,36 @@ export function useGameHub(): UseGameHub {
         // The skip path calls this fire-and-forget, so a thrown invoke would be an
         // unhandled rejection; return a friendly failure instead (Copilot review).
         return { accepted: false, message: "Something went off - give it a moment and try again." };
+      }
+    },
+    [],
+  );
+
+  const remixWord = useCallback(
+    async (blankIndex: number, word: string): Promise<{ accepted: boolean; message?: string }> => {
+      const connection = connectionRef.current;
+      const code = roomCodeRef.current;
+      if (
+        !connection ||
+        connection.state !== HubConnectionState.Connected ||
+        !code
+      ) {
+        return {
+          accepted: false,
+          message: "We're not connected yet - give it a moment and try again.",
+        };
+      }
+      // The SERVER runs the safety filter FIRST and swaps the one blank only on
+      // pass (AC-06); we never set `reveal` here - the re-broadcast "RevealReady"
+      // drives that for everyone (AC-07), reusing the same handler `submitWord`'s
+      // round-complete broadcast already triggers.
+      try {
+        const result = await connection.invoke<SubmitWordResult>('RemixWord', code, blankIndex, word);
+        return result.ok
+          ? { accepted: true }
+          : { accepted: false, message: result.error ?? 'That word is not allowed here. Try another!' };
+      } catch {
+        return { accepted: false, message: 'Something went off - give it a moment and try again.' };
       }
     },
     [],
@@ -966,6 +1391,7 @@ export function useGameHub(): UseGameHub {
     // Mark "left" BEFORE anything else so an in-flight RosterChanged is ignored.
     inRoomRef.current = false;
     roomCodeRef.current = null;
+    myNicknameRef.current = null; // replay-remix/03: forget our identity handle on leave.
     setRoom(null);
     setIsHost(false);
     setRound(null); // group-play/01: drop any in-progress round on leave.
@@ -980,6 +1406,9 @@ export function useGameHub(): UseGameHub {
     setGoldenGuardianWinningBlankId(null);
     setCrownedSessionId(null);
     setRoundNotice(null); // group-play recovery: drop any round-aborted notice on leave.
+    // session-engine/09 (AC-05): a deliberate leave / Home must never auto-resume
+    // later, so the stored reconnect handle is discarded immediately here too.
+    clearReconnectHandle();
     // Tell the server so this connection leaves the room group and drops off the
     // roster for everyone else (AC-04). Fire-and-forget: returning Home must not
     // block on the network, and a failure (e.g. already disconnected) is harmless.
@@ -1006,12 +1435,15 @@ export function useGameHub(): UseGameHub {
     castGoldenGuardianVote,
     closeGoldenGuardianVoting,
     submitWord,
+    remixWord,
     createRoom,
     joinRoom,
     startRound,
     backToLobby,
+    passHost,
     roundNotice,
     dismissRoundNotice,
     clearRoom,
+    isRejoining,
   };
 }
