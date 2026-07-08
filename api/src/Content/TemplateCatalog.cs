@@ -19,9 +19,10 @@
 //  make an authoritative, safety-aware selection:
 //    - Id         : the stable key the client resolves full content from.
 //    - FamilySafe : the ONLY signal the family-safe gate acts on (child-safety/02,
-//                   AC-04). Every current seed template is family-safe:true, so a
-//                   family-safe round is structurally correct even though the
-//                   filtered set does not visibly differ yet - that is expected.
+//                   AC-04). The catalog now carries BOTH a family-safe set and a
+//                   non-family-safe (teen-plus) tier, so the gate meaningfully
+//                   narrows a family-safe round to the FamilySafe:true subset and
+//                   only opens the rest when the host turns the toggle off.
 //    - BlankCount : carried NOW (group-play/01) so group-play/02's index-based
 //                   blank distribution / attribution does not have to reshape this
 //                   catalog later. group-play/01 itself does not read it.
@@ -59,15 +60,16 @@ public sealed record TemplateCatalogEntry(string Id, bool FamilySafe, int BlankC
 public sealed class TemplateCatalog
 {
     // Mirrors web/src/content/seedLibrary.ts (id, tags.familySafe, blank count).
-    // Every current seed template is family-safe. The FULL stories run 9-10
-    // blanks (long on purpose, so round-robin distribution gives every player in
-    // a full room multiple blanks; see the seedLibrary.ts header). The QUICK
-    // stories (story-selection/01) run 4-6 blanks - the LengthContentSelector
-    // classifies quick (<= 6) vs full (>= 7) from these counts, so keeping each
-    // BlankCount exact here is what keeps the server length filter in lockstep
-    // with the web one. If a NON-family-safe template is ever added to
-    // seedLibrary, add it here with FamilySafe: false so the family-safe gate
-    // filters it correctly (AC-04).
+    // The library ships two tiers: a family-safe set (FamilySafe: true) and a
+    // non-family-safe "toggle off" set (FamilySafe: false, ageRating teen-plus in
+    // seedLibrary). The FULL stories run 8-10 blanks (long on purpose, so
+    // round-robin distribution gives every player in a full room multiple blanks;
+    // see the seedLibrary.ts header). The QUICK stories (story-selection/01) run
+    // 4-6 blanks - the LengthContentSelector classifies quick (<= 6) vs full
+    // (>= 7) from these counts, so keeping each BlankCount exact here is what
+    // keeps the server length filter in lockstep with the web one. Non-family-safe
+    // templates carry FamilySafe: false so the family-safe gate filters them out
+    // of a family-safe round and offers them only when the toggle is off (AC-04).
     private static readonly IReadOnlyList<TemplateCatalogEntry> Catalog =
     [
         // Full stories (9-10 blanks).
@@ -91,6 +93,45 @@ public sealed class TemplateCatalog
         new TemplateCatalogEntry("invisible-sandwich", FamilySafe: true, BlankCount: 5),
         new TemplateCatalogEntry("grumpy-goldfish", FamilySafe: true, BlankCount: 4),
         new TemplateCatalogEntry("dancing-broom", FamilySafe: true, BlankCount: 6),
+        // Wave 2 family-safe stories (mixed quick + full) - see seedLibrary.ts.
+        new TemplateCatalogEntry("fa-penguin-heat-wave", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("fa-squirrel-acorn-heist", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("fa-polite-bear-picnic", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("fa-chameleon-cant-hide", FamilySafe: true, BlankCount: 5),
+        new TemplateCatalogEntry("fa-dog-thinks-cat", FamilySafe: true, BlankCount: 6),
+        new TemplateCatalogEntry("fs-alien-exchange-student", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("fs-vacuum-rebellion", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("fs-lost-spaceship-gps", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("fs-lunchtime-time-machine", FamilySafe: true, BlankCount: 6),
+        new TemplateCatalogEntry("fs-ufo-county-fair", FamilySafe: true, BlankCount: 6),
+        new TemplateCatalogEntry("fc-traveling-sourdough", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("fc-school-bake-off-chaos", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("fc-pizza-wrong-planet", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("fc-veggie-protest", FamilySafe: true, BlankCount: 5),
+        new TemplateCatalogEntry("fc-wild-smoothie", FamilySafe: true, BlankCount: 6),
+        new TemplateCatalogEntry("fl-messiest-bedroom-cleanup", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("fl-goose-soccer-showdown", FamilySafe: true, BlankCount: 10),
+        new TemplateCatalogEntry("fl-tooth-fairy-negotiation", FamilySafe: true, BlankCount: 8),
+        new TemplateCatalogEntry("fl-picture-day-disaster", FamilySafe: true, BlankCount: 9),
+        new TemplateCatalogEntry("fl-snow-day-master-plan", FamilySafe: true, BlankCount: 5),
+        new TemplateCatalogEntry("fl-lemonade-empire", FamilySafe: true, BlankCount: 6),
+        // Non-family-safe "toggle off" stories (ageRating teen-plus in seedLibrary).
+        // FamilySafe: false so the family-safe gate filters them OUT of a
+        // family-safe round and offers them ONLY when the toggle is off (AC-04).
+        new TemplateCatalogEntry("ad-worst-first-date", FamilySafe: false, BlankCount: 10),
+        new TemplateCatalogEntry("ad-dating-profile", FamilySafe: false, BlankCount: 10),
+        new TemplateCatalogEntry("ad-meet-the-parents", FamilySafe: false, BlankCount: 10),
+        new TemplateCatalogEntry("ad-just-friends-text", FamilySafe: false, BlankCount: 6),
+        new TemplateCatalogEntry("ad-group-chat-ex", FamilySafe: false, BlankCount: 6),
+        new TemplateCatalogEntry("ao-monday-all-hands", FamilySafe: false, BlankCount: 9),
+        new TemplateCatalogEntry("ao-holiday-party-chaos", FamilySafe: false, BlankCount: 10),
+        new TemplateCatalogEntry("ao-performance-review", FamilySafe: false, BlankCount: 8),
+        new TemplateCatalogEntry("ao-wfh-mute-fail", FamilySafe: false, BlankCount: 5),
+        new TemplateCatalogEntry("ao-breakroom-fridge-note", FamilySafe: false, BlankCount: 6),
+        new TemplateCatalogEntry("ap-what-happened-last-night", FamilySafe: false, BlankCount: 9),
+        new TemplateCatalogEntry("ap-vegas-blackout", FamilySafe: false, BlankCount: 10),
+        new TemplateCatalogEntry("ap-new-years-resolution", FamilySafe: false, BlankCount: 5),
+        new TemplateCatalogEntry("ap-karaoke-showdown", FamilySafe: false, BlankCount: 6),
     ];
 
     /// <summary>The full catalog (host first ordering is irrelevant - selection is random).</summary>

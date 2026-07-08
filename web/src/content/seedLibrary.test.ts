@@ -20,9 +20,9 @@ import { classifyLength } from './length';
 import { seedLibrary } from './seedLibrary';
 
 describe('seedLibrary', () => {
-  it('has between 10 and 20 templates', () => {
+  it('has between 10 and 120 templates', () => {
     expect(seedLibrary.length).toBeGreaterThanOrEqual(10);
-    expect(seedLibrary.length).toBeLessThanOrEqual(20);
+    expect(seedLibrary.length).toBeLessThanOrEqual(120);
   });
 
   it('carries at least 4 quick templates (4-6 blanks) for story-selection', () => {
@@ -40,11 +40,30 @@ describe('seedLibrary', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('tags every template family-safe and all-ages', () => {
+  it('pairs each template family-safe flag with a consistent age rating', () => {
+    // Two content tiers now ship: the family-safe set (surfaced whenever the
+    // family-safe toggle is on) and a non-family-safe "toggle off" set. The gate
+    // (familySafe.ts / server FamilySafeContentSelector) acts ONLY on
+    // tags.familySafe, but we still keep ageRating consistent with it so the
+    // metadata never lies: family-safe => all-ages, non-family-safe => teen-plus.
     for (const template of seedLibrary) {
-      expect(template.tags.familySafe, `${template.id} must be familySafe`).toBe(true);
-      expect(template.tags.ageRating, `${template.id} must be all-ages`).toBe('all-ages');
+      if (template.tags.familySafe) {
+        expect(template.tags.ageRating, `${template.id} (family-safe) must be all-ages`).toBe('all-ages');
+      } else {
+        expect(template.tags.ageRating, `${template.id} (not family-safe) must be teen-plus`).toBe('teen-plus');
+      }
     }
+  });
+
+  it('ships both a family-safe set and a non-family-safe (toggle-off) set', () => {
+    // The family-safe toggle only does something visible when the library
+    // actually carries content on BOTH sides of the gate: a generous family-safe
+    // set for the default-on posture, and a non-family-safe set that appears only
+    // when a host turns the toggle off (selectTemplates(..., false)).
+    const safe = seedLibrary.filter((t) => t.tags.familySafe);
+    const adult = seedLibrary.filter((t) => !t.tags.familySafe);
+    expect(safe.length, 'family-safe templates').toBeGreaterThanOrEqual(20);
+    expect(adult.length, 'non-family-safe (toggle-off) templates').toBeGreaterThanOrEqual(8);
   });
 
   it('gives every blank exactly 3 spark words and non-empty copy', () => {

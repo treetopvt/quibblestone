@@ -91,22 +91,25 @@ give 2 or 4 words - this is intentional (it keeps the prompt card layout
 consistent). Pick 3 fun, family-safe example words that show a stuck player
 what kind of answer fits.
 
-## The family-safe bar (read this before writing jokes)
+## Content tiers and the safety bar (read this before writing jokes)
 
-Every template in `seedLibrary.ts` MUST have:
+The library ships in **two tiers**, and the ONE thing that separates them is
+`tags.familySafe`. The family-safe toggle (`../content/familySafe.ts`, and the
+server's `FamilySafeContentSelector`) reads only that flag: toggle **on** offers
+just the family-safe set; toggle **off** offers everything. Keep `ageRating`
+consistent with the flag so the metadata never lies (`themes` is free-form
+discovery tags and does not affect gating).
+
+### Family-safe tier (the default)
 
 ```ts
 tags: { familySafe: true, ageRating: 'all-ages', themes: [...] }
 ```
 
-`themes` is free-form discovery tags (e.g. `['animals', 'space']`) - it does
-NOT affect safety gating, only `familySafe` / `ageRating` do.
-
-The bar for what you write here is **the same bar a player's submitted word
-has to pass at play time** (the runtime profanity/safety filter is a separate
-feature, `child-safety`, that checks player-submitted free text - it does not
-review this file, so nothing you write here gets a second chance to be
-caught). Concretely:
+The bar here is **the same bar a player's submitted word has to pass at play
+time** (the runtime profanity/safety filter is a separate feature,
+`child-safety`, that checks player-submitted free text - it does not review this
+file, so nothing you write here gets a second chance to be caught). Concretely:
 
 - **Passes:** silly, absurd, cartoon-silly content. Talking llamas, a sock-eating
   dragon, a snowman with a summer job, a robot that short-circuits confetti.
@@ -118,6 +121,33 @@ caught). Concretely:
 
 If you are unsure whether a word or scenario clears the bar, it doesn't - pick
 something else. The goal is "my family is laughing in the car," not edgy.
+
+### Non-family-safe tier ("toggle off" / adult)
+
+```ts
+tags: { familySafe: false, ageRating: 'teen-plus', themes: [...] }
+```
+
+These live at the END of the `seedLibrary` array and appear ONLY when a host
+turns the family-safe toggle off. Register is **cheeky / grown-up** - dating,
+nightlife, office life, parties, hangovers, adulting - built on innuendo and
+adult THEMES, not shock. The comedy is in the setup and in the spicy answers a
+player can now supply; keep the authored prose clever. Still-firm limits, even
+here:
+
+- **Passes:** suggestive humor, mild language (`hell`, `damn`, `crap`), drunken
+  chaos, awkward romance, workplace misery, morning-after regret.
+- **Does not pass:** explicit or graphic sexual content, slurs, hate or
+  demeaning content about any group, anything sexual involving minors, graphic
+  violence, real-person targeting, or how-to for illegal/dangerous activity.
+
+This tier is NOT a licence to be gross - it is a party-game register for adults.
+When in doubt, dial it back.
+
+> **Keep the server mirror in sync.** Every template - either tier - must be
+> mirrored into `api/src/Content/TemplateCatalog.cs` by `{ Id, FamilySafe,
+> BlankCount }` (non-family-safe entries with `FamilySafe: false`), or group play
+> will pick a template the client cannot resolve, or the gate will mis-filter it.
 
 ## Optional: a wordBank
 
@@ -151,9 +181,14 @@ Steps:
 2. Copy the starter template below, paste it as a new entry in the
    `seedLibrary` array (comma-separated, like its neighbors).
 3. Give it a unique `id`, write your story in `text()` / `blank()` segments,
-   fill in all blank fields (don't forget exactly 3 `sparkWords` per blank),
-   and keep `tags.familySafe: true` / `tags.ageRating: 'all-ages'`.
-4. Run `npm run test:unit` from `web/` - the validation test in
+   fill in all blank fields (don't forget exactly 3 `sparkWords` per blank), and
+   pick a tier: `tags.familySafe: true` / `ageRating: 'all-ages'` for the default
+   set, or `tags.familySafe: false` / `ageRating: 'teen-plus'` for the "toggle
+   off" adult set (drop non-family-safe entries in the adult block at the end of
+   the array).
+4. Mirror the new entry into `api/src/Content/TemplateCatalog.cs`
+   (`{ Id, FamilySafe, BlankCount }`) - the server catalog is hand-synced.
+5. Run `npm run test:unit` from `web/` - the validation test in
    `seedLibrary.test.ts` checks your new template assembles cleanly and meets
    the safety/shape bar.
 
@@ -194,8 +229,12 @@ Steps:
 `seedLibrary.test.ts` (co-located in this folder) runs under Vitest
 (`npm run test:unit` from `web/`) and checks:
 
-- The library has 10 to 15 templates.
-- Every template is `familySafe: true` / `ageRating: 'all-ages'`.
+- The library size is within the expected range, and carries both a family-safe
+  set and a non-family-safe (toggle-off) set.
+- Every template's `familySafe` flag is consistent with its `ageRating`
+  (family-safe => `all-ages`, non-family-safe => `teen-plus`).
+- The family-safe gate over the real library never surfaces a non-family-safe
+  template when the toggle is on (see `familySafe.test.ts`).
 - Every template `id` is unique.
 - Every blank has exactly 3 `sparkWords`, and non-empty `prompt` / `subHint` /
   `categoryLabel`.

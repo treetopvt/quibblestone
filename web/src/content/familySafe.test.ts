@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { blank, text, type Template } from '../engine/template';
 import { isFamilySafe, selectTemplates } from './familySafe';
+import { seedLibrary } from './seedLibrary';
 
 function makeTemplate(id: string, familySafe: boolean): Template {
   return {
@@ -72,5 +73,25 @@ describe('selectTemplates', () => {
   it('returns an empty array for empty input, regardless of toggle position', () => {
     expect(selectTemplates([], true)).toEqual([]);
     expect(selectTemplates([], false)).toEqual([]);
+  });
+});
+
+describe('selectTemplates over the real seed library', () => {
+  // The synthetic tests above prove the pure rule; these prove the SHIPPED
+  // content is actually gated - that the non-family-safe ("toggle off") stories
+  // never leak into a family-safe session, and really do appear when the toggle
+  // is off. This is the child-safety-critical regression guard for the adult tier.
+  it('never surfaces a non-family-safe template when the toggle is on', () => {
+    const onResult = selectTemplates(seedLibrary, true);
+    expect(onResult.every(isFamilySafe), 'every family-safe-on result must be family-safe').toBe(true);
+    expect(onResult.length).toBe(seedLibrary.filter(isFamilySafe).length);
+  });
+
+  it('surfaces the whole library, including the adult tier, when the toggle is off', () => {
+    const offResult = selectTemplates(seedLibrary, false);
+    expect(offResult.length).toBe(seedLibrary.length);
+    // The adult tier is real content, not just a schema possibility.
+    const adultCount = offResult.filter((t) => !isFamilySafe(t)).length;
+    expect(adultCount, 'the toggle-off set must include non-family-safe stories').toBeGreaterThan(0);
   });
 });

@@ -65,7 +65,7 @@ public class GameHubStartRoundTests
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
         var quickIds = Catalog.Entries
-            .Where(e => e.BlankCount <= LengthContentSelector.QuickMaxBlanks)
+            .Where(e => e.FamilySafe && e.BlankCount <= LengthContentSelector.QuickMaxBlanks)
             .Select(e => e.Id)
             .ToHashSet();
         Assert.NotEmpty(quickIds); // sanity: the seed catalog has quick entries today
@@ -124,14 +124,15 @@ public class GameHubStartRoundTests
     public async Task StartRound_repeated_calls_never_repeat_a_template_until_the_eligible_pool_is_exhausted()
     {
         // story-selection/03, AC-02: repeated StartRound on ONE room, filtered to
-        // the small "quick" length class, must serve every eligible template
+        // the family-safe "quick" length class (the eligible pool for a
+        // familySafe:true + quick round), must serve every eligible template
         // exactly once before any of them repeats.
         var (hub, registry, _, _, _) = BuildHub("conn-host");
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
         var quickIds = Catalog.Entries
-            .Where(e => e.BlankCount <= LengthContentSelector.QuickMaxBlanks)
+            .Where(e => e.FamilySafe && e.BlankCount <= LengthContentSelector.QuickMaxBlanks)
             .Select(e => e.Id)
             .ToHashSet();
         Assert.True(quickIds.Count > 1); // sanity: need more than one to prove no-repeat
@@ -162,7 +163,7 @@ public class GameHubStartRoundTests
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
         var quickIds = Catalog.Entries
-            .Where(e => e.BlankCount <= LengthContentSelector.QuickMaxBlanks)
+            .Where(e => e.FamilySafe && e.BlankCount <= LengthContentSelector.QuickMaxBlanks)
             .Select(e => e.Id)
             .ToHashSet();
 
