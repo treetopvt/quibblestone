@@ -2,9 +2,19 @@
 
 ## Summary
 Formalizes and extends QuibbleStone's tiered identity model: players stay
-anonymous forever (join code + nickname + Guardian, no PII), and a lightweight
-account exists only for a purchaser, created only at the moment they buy. This
-is the auth seam that `billing-entitlements` hangs off of.
+anonymous forever (join code + nickname + Guardian, no PII); a lightweight
+account exists for anyone who wants things to persist, and a purchaser is an
+account that also holds paid grants. This is the auth seam that
+`billing-entitlements` hangs off of.
+
+**Amended 2026-07-08 ([ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md),
+Layer 0 - the identity spine):** the "account exists only at purchase" framing
+above predates ADR 0003 and is superseded, not erased - see the Decisions log.
+Stories 01-04 (Complete) still stand exactly as shipped; stories 05-09 add a
+stable `AccountId` spine, finally wire ADR 0002 Decision F's purchaser proof at
+`CreateRoom`, decouple account creation from purchase into a free "family
+account," and add kid seat presets + a family device link on top of it -
+without ever touching player anonymity.
 
 ## README reference
 README section 3 (Monetization - "Identity model (tiered)": players anonymous
@@ -22,6 +32,11 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 | 02 | #68 | Lightweight purchaser account | Complete |
 | 03 | #69 | Sign-in and restore on a new device | Complete |
 | 04 | #167 | Magic-link email delivery | Complete |
+| 05 | #TBD | Stable account id spine | Not Started |
+| 06 | #TBD | Purchaser proof at CreateRoom (ADR 0002 Decision F, finally wired) | Not Started |
+| 07 | #TBD | The free family account | Not Started |
+| 08 | #TBD | Kid seat presets | Not Started |
+| 09 | #TBD | Family device link | Not Started |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:
@@ -37,10 +52,14 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   is documentation-and-hardening of a contract that is already true, so the
   session-creation code path can assume "no account" without a special case.
   Adding accounts must be additive, never a prerequisite for play.
-- **One account type, one purpose.** The purchaser account exists solely to
-  own entitlements and let a purchase survive a device change. It is not a
-  player profile, not a friends list, not a leaderboard identity - none of
-  that is in scope for Phase 2.
+- **One account type, one purpose.** The account exists solely to own
+  entitlements (when any) and let a purchase, or simply a wish to persist
+  something, survive a device change. It is not a player profile, not a
+  friends list, not a leaderboard identity - none of that is in scope for
+  Phase 2. **Amended 2026-07-08 (ADR 0003 Amendment 1):** "own entitlements"
+  is no longer the account's ONLY reason to exist - an account with zero
+  grants (a free family account, story 07) is now a normal, expected shape,
+  not a transitional or degenerate one.
 - **Minimum viable account.** An email (the magic-link identity, ADR 0002
   Decision A - resolved 2026-07-03) is the only required field. No display
   name, no avatar, no date of birth, no address, no password, no OAuth SDK.
@@ -48,23 +67,31 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   checkout), so no age-gating flow is needed for the account itself - the
   age/safety posture that matters is about the **kids playing**, who never
   touch this account.
-- **The account belongs to the buyer, not the kids playing.** A parent buys
-  the family plan on their own phone; the kids in the back seat still join
-  with just a code and a nickname. The purchaser's sign-in state never flows
-  down into a player's join experience - a signed-out room plays exactly like
-  today.
-- **Where it lives:** the account record is a small row keyed by the
-  purchaser's email identity (magic-link, ADR 0002 Decision A), stored
-  alongside entitlements in Azure Table Storage (README section 4). No new
-  datastore is introduced.
+- **The account belongs to the adult, not the kids playing.** A parent buys
+  the family plan (or simply creates a free family account) on their own
+  phone; the kids in the back seat still join with just a code and a
+  nickname. The account holder's sign-in state never flows down into a
+  player's join experience - a signed-out room plays exactly like today.
+  **Amended 2026-07-08 (ADR 0003):** a kid's OWN device can also carry the
+  family's capabilities, via the family device link (story 09) - but that
+  device link is an attribute of the DEVICE, never an identity the kid holds
+  or logs into; the child remains anonymous, forever (accounts-identity/01).
+- **Where it lives:** the account record is a small row, keyed by a stable
+  `AccountId` (story 05) with the email identity as a mutable lookup index
+  (magic-link, ADR 0002 Decision A), stored alongside entitlements in Azure
+  Table Storage (README section 4). No new datastore is introduced.
 - **Session-creation is still the only place identity matters for gameplay.**
   A room does not care who is signed in mid-session; the signed-in state is
   read once, at session-creation, by the entitlement check in
   billing-entitlements/01 - never per-request or per-answer.
 
 ## Parked - Phase 3+
-- Player-side profiles (remembered nickname/Guardian across devices,
-  friends/repeat-crew list) - explicitly out of scope; players stay anonymous.
+- Player-side profiles (a PLAYER remembering their own nickname/Guardian
+  across devices, a friends/repeat-crew list, per-player history) - explicitly
+  out of scope; players stay anonymous. NOTE (2026-07-08): this is distinct
+  from story 08's kid seat presets, which are a FAMILY-ACCOUNT-held join-time
+  convenience, never a player identity - see story 08's "kid-profile boundary"
+  for the line between the two.
 - Social/OAuth sign-in of any kind (ADR 0002 Decision A resolved the identity
   provider to magic-link email only) - and, within that, multi-provider
   linking or account merge, should the mechanism ever change.
@@ -72,6 +99,14 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   with separate logins) - Phase 2 ships one purchaser, one account.
 - Any UI beyond the minimum checkout/sign-in/restore flow (account settings
   page, purchase history beyond "what's unlocked" - see billing-entitlements/05).
+- **Per-device capability scoping (PARKED 2026-07-08, ADR 0003).** Letting a
+  parent choose WHICH capabilities a linked device (story 09) carries -
+  rejected for now: the free tier is generous, add-on packs apply family-wide
+  at no extra cost, and the AI cost gate bounds spend per session/month
+  regardless of who plays. A linked device always carries the WHOLE family
+  grant set; only the family-safe content state is ever device-scoped (story
+  09's kid-device flag, a content-safety concern, not an entitlement).
+  Revisit only on a demonstrated need.
 
 ## Decisions
 - 2026-07-01: Scoped to exactly the three stories above (anonymous contract,
@@ -142,3 +177,39 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   link. Note: the 2026-07-01 "exactly the three stories above" scoping decision
   predates story 04's decomposition - the feature is now four stories, all
   Complete.
+- 2026-07-08: **[ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md)
+  (the admin platform: identity spine, free family accounts, the keepsake
+  vault, the control plane, the operator console) accepted - Layer 0 decomposed
+  into stories 05-09.** ADR 0003 amends ADR 0002 in exactly one place this
+  feature owns: **Amendment 1, accounts are no longer purchase-only.** The
+  account becomes "an adult who wants things to persist"; a purchaser is an
+  account that ALSO holds paid grants. This does NOT reopen anything else ADR
+  0002 decided (the load-bearing invariant, Decision F's design, the magic-link
+  provider choice) - it only widens WHO may hold an account and WHEN it is
+  created. Five new stories:
+  - **05 - Stable account id spine (foundation).** Mints a durable `AccountId`
+    (GUID); email becomes a mutable login attribute; `PurchaserAccounts`,
+    `EntitlementGrants`, and `CloudGalleryTales` re-key off it. Trivial UAT-only
+    migration (near-zero real rows).
+  - **06 - Purchaser proof at CreateRoom, finally wired.** ADR 0002 Decision F
+    was decided 2026-07-03 but never built (`GameHub.CreateRoom` still passes
+    `purchaserIdentity: null` unconditionally) - this story closes that gap
+    using plumbing that already exists.
+  - **07 - The free family account.** Amendment 1's actual account-creation
+    change: a sign-up flow decoupled from purchase, same magic-link plumbing,
+    zero grants.
+  - **08 - Kid seat presets.** A named (nickname + Guardian variant) preset
+    picker, held to a firm boundary: exactly equivalent to typing a nickname
+    by hand, never a kid identity (see story 08's quoted "kid-profile
+    boundary"). Ships with a documented degraded path (parent's device only)
+    until 09 lands.
+  - **09 - Family device link.** The mechanism making a kid's OWN device count
+    toward family entitlements, PLUS (owner refinement, same date) the
+    kid-device flag that server-enforces family-safe content on a room created
+    from a flagged device - the content-exposure gap independent kid play
+    opens. Per-device capability scoping is explicitly parked (see Parked
+    section) - a linked device always carries the whole family grant set.
+  This feature's `implementation.md` is updated with the reuse map and Wave
+  Plan for all five; see ADR 0003's "Cross-feature build order" for how this
+  feature's stories interleave with the new `keepsake-vault` and
+  `control-plane` features.

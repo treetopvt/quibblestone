@@ -2,8 +2,10 @@
   Implementation plan for the accounts-identity feature. Bridges feature.md + stories to orchestration.
   Refreshed 2026-07-03 against shipped reality: ADR 0002 Decision A resolved the identity provider to
   magic-link email (no OAuth), and ai-cost-gate/02 (#121, PR #132) already ships the entitlement-capture
-  seam (Room.Entitlements) story 01 used to have to NAME as a placeholder. Use hyphens/colons/parentheses,
-  never em dashes.
+  seam (Room.Entitlements) story 01 used to have to NAME as a placeholder.
+  Refreshed again 2026-07-08 for ADR 0003 Layer 0 (stories 05-09): the AccountId spine, ADR 0002
+  Decision F finally wired, the free family account, kid seat presets, and the family device link
+  (with its kid-device flag). Use hyphens/colons/parentheses, never em dashes.
 -->
 
 # Implementation Plan: Accounts & Identity
@@ -34,6 +36,25 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
   (which reuses the SAME token issuer/verifier against a separate allowlist).
 - `web/src/pages/Account.tsx` (or similar; naming TBD at build time) - the purchaser-only sign-in/restore entry
   point (story 03), reachable only from a settings-style affordance, never from the kid play-flow.
+
+### ADR 0003 Layer 0 additions (stories 05-09) - reuse map extension
+
+| Concern | Reuse | Where |
+|---|---|---|
+| The account record + store (re-keyed, not replaced) | `Account` / `IAccountStore` (story 05 adds `AccountId`; do not build a second account type) | `api/src/Accounts/Account.cs`, `IAccountStore.cs`, `TableStorageAccountStore.cs`, `InMemoryAccountStore.cs` |
+| Email normalization / hashing (now an INDEX key, not a primary key) | `AccountIdentity.Normalize` / `.KeyFor` | `api/src/Accounts/AccountIdentity.cs` |
+| Magic-link issue/verify (story 07 reuses for sign-up, never a second implementation) | `IMagicLinkTokenService` / `MagicLinkTokenService` | `api/src/Accounts/IMagicLinkTokenService.cs`, `MagicLinkTokenService.cs` |
+| Email copy selection (story 07 adds a `FamilySignUp` purpose) | `MagicLinkPurpose` enum + `IEmailSender` | `api/src/Accounts/IEmailSender.cs`, `AcsEmailSender.cs`, `NoOpEmailSender.cs` |
+| The purchaser session credential (story 06 supplies it as the hub `accessTokenFactory` value; story 09 mirrors its resolve-and-discard shape for the device token) | `PurchaserCredentialService` | `api/src/Accounts/PurchaserCredentialService.cs` |
+| The entitlement seam (unchanged contract; story 05 changes what feeds it, story 06 changes what CALLS it with a real value) | `IEntitlementService` / `StoredValueEntitlementService` / `EntitlementCatalog` | `api/src/Entitlements/IEntitlementService.cs`, `StoredValueEntitlementService.cs` |
+| The grant store (re-keyed by story 05, read unchanged by 06/07) | `IEntitlementGrantStore` / `TableStorageEntitlementGrantStore` | `api/src/Entitlements/IEntitlementGrantStore.cs`, `TableStorageEntitlementGrantStore.cs` |
+| The cloud gallery store (re-keyed by story 05, untouched otherwise) | `ICloudGalleryStore` / `TableStorageCloudGalleryStore` / `CloudTale.OwnerKey` | `api/src/CloudGallery/` |
+| The room's one capture-once entitlement seam (story 06 finally calls it with a real identity; story 09 adds a SIBLING capture-once boolean, `FamilySafeForced`, never folded into it) | `Room.Entitlements` / `Room.CaptureEntitlements` | `api/src/Rooms/Room.cs` |
+| The family-safe content gate (story 09's kid-device flag forces it on server-side; never reimplemented) | `FamilySafeContentSelector` | `api/src/Hubs/GameHub.cs` (field `_familySafe`), the child-safety feature |
+| The nickname + Guardian variant fields every join/create screen already shares (story 08's preset picker sits ABOVE these, never forks them) | `PlayerIdentityFields` | `web/src/components/PlayerIdentityFields.tsx`, used by `web/src/pages/Join.tsx`, `HostSetup.tsx` |
+| The live, in-memory purchaser sign-in state (story 06's `accessTokenFactory`, story 08's device check) | `usePurchaserSession` / `PurchaserSessionProvider` | `web/src/account/PurchaserSession.tsx` |
+| The one SignalR connection (story 06 adds `accessTokenFactory`; story 09 extends it to also consider a stored device token) | `useGameHub` | `web/src/signalr/useGameHub.ts` |
+| Room-code-style short code generation (story 09's link-code minter matches this shape, not the magic-link token's) | the join-code alphabet/generator | `api/src/Rooms/RoomRegistry.cs` (precedent only - story 09 builds its OWN small minter, scoped to link codes) |
 
 ## Wave Plan (DAG)
 
