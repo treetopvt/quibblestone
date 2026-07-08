@@ -54,10 +54,10 @@ public sealed record CloudTalePart(bool IsWord, string Text);
 /// <summary>
 /// A single cloud-synced keepsake tale owned by a purchaser account
 /// (keepsake-gallery/05). Immutable. Carries only what the gallery renders: the
-/// owner key (a hash of the purchaser email, never the raw email), a minted tale
-/// id, the title, the ordered body parts (literal text + coral player-words), the
-/// byline of in-session nicknames, and a created stamp. NO PII beyond the byline
-/// nickname(s) (AC-05).
+/// owner key (the account's stable id, never the raw email - accounts-identity/05),
+/// a minted tale id, the title, the ordered body parts (literal text + coral
+/// player-words), the byline of in-session nicknames, and a created stamp. NO PII
+/// beyond the byline nickname(s) (AC-05).
 /// </summary>
 /// <param name="OwnerKey">
 /// The owner partition key: the account's stable id (account.Id.ToString(), a
