@@ -15,15 +15,17 @@
 ## The model
 
 ```
-main merges ─(auto)─▶  QA  (quibblestone-qa-rg, its own data + AI + budget)
+main merges ─(auto)─▶  QA  (Playground/PAYG: quibblestone-qa-rg + quibblestone-ai-qa-rg)
                         │
-                  git tag v* ─(deliberate)─▶  BETA  (quibblestone-uat-rg + quibblestone.com)
+                  git tag v* ─(deliberate)─▶  BETA  (student sub: quibblestone-uat-rg + quibblestone.com)
 ```
 
 - **QA** auto-deploys on every push to `main` (`.github/workflows/deploy-qa.yml`).
-  Its own resource group, so its Storage / Key Vault / App Insights and its own AI
-  cost-gate RG + budget are fully isolated - the infra overhaul is shaken out here
-  and cannot touch testers.
+  Its whole footprint lives on the **Playground PAYG subscription**
+  (`quibblestone-qa-rg` for the app, `quibblestone-ai-qa-rg` for AI) - the student
+  sub that hosts beta cannot fit a second App Service plan (see Cost). Its own
+  Storage / Key Vault / App Insights + its own AI budget are fully isolated, so the
+  infra overhaul is shaken out here and cannot touch testers.
 - **BETA** is today's site, physically unchanged (still `environmentName=uat` in
   `quibblestone-uat-rg`, keeps `quibblestone.com`). It deploys ONLY when you push a
   `v*` tag (`.github/workflows/promote-beta.yml`), which checks out the tagged
@@ -40,20 +42,25 @@ main merges ─(auto)─▶  QA  (quibblestone-qa-rg, its own data + AI + budget
 
 ## Cost at a glance
 
-QA roughly **doubles hosting** while it is scaled up: the only real cost is the
-App Service Plan, and QA defaults to `B1` (~$13/mo) so multiplayer is realistic
-during testing. Drop QA to `F1` ($0) when idle (set its `APP_SERVICE_PLAN_SKU` var
-to `F1` and re-run, or use Provision UAT-style scaling). QA AI has its own small
-budget (default `$10`/mo, separate from beta's `$20`). Everything else (SWA,
-SignalR, Storage, Key Vault) is Free/near-zero per lane.
+QA's app runs on the **Playground PAYG subscription**, not the student sub that
+hosts beta - because the student sub caps App Service at ONE plan (B1 quota is 1,
+held by beta; F1 quota is 0), so any second plan fails preflight with
+`SubscriptionIsOverQuotaForSku`. On Playground, QA defaults to **`F1` (Free, $0)**,
+so it costs nothing to stand up. F1 has no Always On (cold starts) and a 5-WebSocket
+cap (a 6-player room cannot form) - fine for validating the lane, the pipeline, and
+infra changes. To load-test real multiplayer on QA, bump its `APP_SERVICE_PLAN_SKU`
+var to `B1` (PAYG allows it, ~$13/mo). QA AI has its own small budget (default
+`$10`/mo, separate from beta's `$20`); everything else (SWA, SignalR, Storage, Key
+Vault) is Free/near-zero.
 
 ## Part 1 - One-time QA bootstrap (owner-only)
 
 Prerequisite: the original OIDC bootstrap from
 [`deploy-to-uat.md`](./deploy-to-uat.md) Part 1 is already done (the app
-registration `quibblestone-github-oidc`, the three repo secrets, subscription
-Contributor). We are only adding QA's resource groups, role grants, and one
-federated subject.
+registration `quibblestone-github-oidc` and the three repo secrets). We add QA's
+two resource groups - both on the **Playground PAYG sub**, since the student sub
+that hosts beta cannot fit a second App Service plan - plus the role grants there
+and one federated subject. Beta is untouched.
 
 > Windows note: with two subscriptions in play, isolate the local `az` session so a
 > parallel shell cannot flip your active subscription mid-run
@@ -62,44 +69,44 @@ federated subject.
 > `az-cli-on-windows-gotchas`.
 
 ```bash
-# The app registration GitHub logs in as (its appId == the AZURE_CLIENT_ID secret).
+# The app registration GitHub logs in as (its appId == the AZURE_CLIENT_ID secret)
+# and its service-principal object id (the grant target).
 APP_ID="$(az ad app list --display-name quibblestone-github-oidc --query '[0].appId' -o tsv)"
+SP_ID="$(az ad sp show --id "$APP_ID" --query id -o tsv)"
 
-# --- 1a. QA app footprint (student/app subscription - the default sub) ---------
-APP_SUB="$(az account show --query id -o tsv)"   # af7f9e54... (Azure for Students)
-az group create -n quibblestone-qa-rg -l eastus2
+PLAY="52bec743-..."   # Playground (PAYG) - hosts the ENTIRE QA footprint (app + AI)
 
-# The identity already has subscription Contributor (from the original bootstrap),
-# which covers creating the QA RG + its resources. main.bicep ALSO creates a role
-# assignment (the API identity -> Key Vault Secrets User), which needs role-grant
-# rights - add them, scoped to the QA RG (least privilege, mirrors the UAT RG):
-az role assignment create --assignee "$APP_ID" \
-  --role "User Access Administrator" \
-  --scope "/subscriptions/${APP_SUB}/resourceGroups/quibblestone-qa-rg"
+# --- 1a. QA app footprint RG (Playground) --------------------------------------
+az group create -n quibblestone-qa-rg -l eastus2 --subscription "$PLAY"
+# Contributor to create the resources; RBAC-admin because main.bicep assigns the API
+# identity "Key Vault Secrets User" (a role assignment needs role-grant rights).
+az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
+  --role "Contributor" \
+  --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-qa-rg"
+az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
+  --role "Role Based Access Control Administrator" \
+  --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-qa-rg"
 
-# Trust GitHub Actions running in the QA environment (beta reuses the existing
-# environment:uat subject, so no new subject is needed for it).
+# --- 1b. QA AI cost-gate RG (Playground) ---------------------------------------
+az group create -n quibblestone-ai-qa-rg -l eastus2 --subscription "$PLAY"
+az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
+  --role "Contributor" \
+  --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-ai-qa-rg"
+az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
+  --role "Role Based Access Control Administrator" \
+  --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-ai-qa-rg"
+
+# --- 1c. Trust GitHub Actions running in the QA environment --------------------
+# (beta reuses the existing environment:uat subject, so it needs no new subject.)
 az ad app federated-credential create --id "$APP_ID" --parameters '{
   "name": "quibblestone-env-qa",
   "issuer": "https://token.actions.githubusercontent.com",
   "subject": "repo:treetopvt/quibblestone:environment:qa",
   "audiences": ["api://AzureADTokenExchange"]
 }'
-
-# --- 1b. QA AI cost-gate footprint (PAYG "Playground" subscription) ------------
-AI_SUB="52bec743-..."   # the Pay-As-You-Go sub that hosts Azure OpenAI
-az account set -s "$AI_SUB"
-az group create -n quibblestone-ai-qa-rg -l eastus2
-# Contributor to create the Azure OpenAI account + model deployment; role-grant
-# rights for the cross-sub "Cognitive Services OpenAI User" assignment ai.bicep makes.
-az role assignment create --assignee "$APP_ID" --role Contributor \
-  --scope "/subscriptions/${AI_SUB}/resourceGroups/quibblestone-ai-qa-rg"
-az role assignment create --assignee "$APP_ID" --role "User Access Administrator" \
-  --scope "/subscriptions/${AI_SUB}/resourceGroups/quibblestone-ai-qa-rg"
-az account set -s "$APP_SUB"   # back to the app sub
 ```
 
-### 1c. The QA GitHub Environment + its vars
+### 1d. The QA GitHub Environment + its vars
 
 GitHub -> Settings -> Environments -> **New environment** named `qa`. Then add
 these **Environment variables** (Settings -> Environments -> qa -> Environment
@@ -107,10 +114,12 @@ variables). They override the repo-level defaults ONLY for the QA lane:
 
 | Variable | Value | Why |
 |---|---|---|
-| `APP_SERVICE_PLAN_SKU` | `B1` | Always On + WebSockets so QA multiplayer is realistic (set `F1` to park at $0) |
+| `APP_SERVICE_PLAN_SKU` | `F1` | Free/$0 on Playground (PAYG). F1 has no Always On + a 5-WebSocket cap - fine for lane/pipeline validation. Bump to `B1` (~$13/mo) for a real 6-player load test |
 | `STRIPE_ENABLED` | `false` | QA stays minimal - overrides the repo-level `true` so QA needs no Stripe Key Vault secrets |
 | `EMAIL_ENABLED` | `false` | Same - no magic-link/ACS email footprint in QA (overrides repo `true`) |
 | `AI_MONTHLY_BUDGET_USD` | `10` | QA's own smaller AI budget, isolated from beta's $20 |
+| `VITE_GA4_MEASUREMENT_ID` | `" "` (single space) | Disables GA4 on qa (the build's `readId` trims it to empty) so qa test traffic never pollutes the shared analytics |
+| `VITE_CLARITY_PROJECT_ID` | `" "` (single space) | Same - disables Clarity session recording on qa |
 
 Everything else (the three `AZURE_*` secrets, `AI_SUBSCRIPTION_ID`,
 `AI_ALERT_EMAIL`) is repo-level and shared - QA inherits it automatically. The QA
@@ -118,7 +127,7 @@ AI RG is fixed by the workflow (`quibblestone-ai-qa-rg`), not a var.
 
 **Part 1 met** when: both QA resource groups exist, the CI identity has the grants
 above, the `environment:qa` federated credential exists, and the `qa` Environment
-has its four vars.
+has its six vars.
 
 ## Part 2 - First QA deploy + smoke check
 
@@ -128,7 +137,9 @@ UAT had) and deploys. Then check:
 
 - The `Deploy QA` run is green; its environment URL (the QA SWA hostname) loads and
   shows **Connected** (the SignalR hub handshake).
-- `GET https://<qa-api-host>/health` returns healthy (B1+ only).
+- `GET https://<qa-api-host>/health` returns healthy (the app route responds on any
+  SKU; App Service's own health-check *monitoring* is paid-tier only, so on F1 the
+  route works but Azure does not auto-probe it).
 - Two phones/tabs can create + join a QA room and complete a round.
 - **Verify CORS** on the QA API (a saved note once claimed only `__0` was set):
   ```bash

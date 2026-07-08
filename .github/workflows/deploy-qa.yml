@@ -36,4 +36,7 @@ jobs:
       bicepEnvironmentName: qa
       resourceGroup: quibblestone-qa-rg
       aiResourceGroup: quibblestone-ai-qa-rg
+      # The student sub caps App Service at one plan (beta's), so qa's app footprint
+      # runs on the PAYG "Playground" sub - where qa's AI cost-gate RG also lives.
+      appSubscriptionId: '52bec743-2f2c-4472-99ea-732614d3a70d'
     secrets: inherit

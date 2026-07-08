@@ -60,6 +60,11 @@ on:
         required: false
         type: string
         default: 'quibblestone-ai-rg'
+      appSubscriptionId:
+        description: 'Azure subscription for the APP footprint. Empty = the AZURE_SUBSCRIPTION_ID secret (beta on the student sub); set it for a lane whose app lives elsewhere (qa runs on the PAYG sub because the student sub caps App Service at one plan).'
+        required: false
+        type: string
+        default: ''
       ref:
         description: 'Optional git ref to check out. Empty = the ref that triggered the caller (main for qa, the tag for a promotion). Set to roll beta back to an earlier tag/SHA.'
         required: false
@@ -83,6 +88,10 @@ jobs:
       # falling back to repo-level defaults.
       AZURE_RESOURCE_GROUP: ${{ inputs.resourceGroup }}
       BICEP_ENV_NAME: ${{ inputs.bicepEnvironmentName }}
+      # Subscription hosting the APP footprint. Empty input => the default
+      # AZURE_SUBSCRIPTION_ID secret (beta on the student sub); qa overrides it to
+      # the PAYG sub, because the student sub caps App Service at ONE plan (beta's).
+      APP_SUBSCRIPTION_ID: ${{ inputs.appSubscriptionId != '' && inputs.appSubscriptionId || secrets.AZURE_SUBSCRIPTION_ID }}
       # First-deploy auto-provision knobs (both default to $0 / a SWA-supported
       # region). Set APP_SERVICE_PLAN_SKU on the lane's Environment to stand a new
       # lane up scaled (e.g. B1 for QA multiplayer testing).
@@ -132,7 +141,7 @@ jobs:
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          subscription-id: ${{ env.APP_SUBSCRIPTION_ID }}
 
       # --- Provision on EVERY deploy (idempotent) -----------------------------
       # The Bicep is incremental and idempotent, so a no-change deploy is a fast
@@ -241,7 +250,7 @@ jobs:
           AI_MONTHLY_BUDGET_USD: ${{ vars.AI_MONTHLY_BUDGET_USD }}
         run: |
           set -euo pipefail
-          app_sub="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          app_sub="$APP_SUBSCRIPTION_ID"
           api="${{ steps.discover.outputs.api_name }}"
 
           # Read the API app's managed-identity principal WHILE still on the app
