@@ -1,0 +1,55 @@
+# Promote to Beta - ship a validated release to the beta site, on purpose.
+#
+# Beta is the site the friends-and-family testers use (the existing
+# quibblestone-uat-rg footprint + quibblestone.com). It is NOT auto-deployed:
+# main flows to QA continuously, and beta only moves when you DELIBERATELY promote
+# a release here. That is what insulates testers from the infra overhaul churning
+# on main.
+#
+# TRIGGER: pushing a version tag (v*). Tag from the CLI:
+#     git tag v1.2.0 <sha-you-validated-in-qa> && git push origin v1.2.0
+# or cut a GitHub Release with a new `v*` tag (creating the tag fires this). The
+# workflow checks out the TAGGED commit, so beta ships exactly what the tag points
+# at - not whatever main happens to be at promotion time.
+#
+# ROLLBACK / re-run: use the manual "Run workflow" button with a `ref` (an older
+# tag or a SHA) to re-promote a previous release without moving any tags.
+#
+# BETA reuses the existing 'uat' GitHub Environment and the physical 'uat' Azure
+# names (the site is not renamed - see docs/features/platform-devops/07). So it
+# inherits today's repo-level vars unchanged and needs no new OIDC subject. All the
+# work lives in the reusable core (deploy-env.yml).
+name: Promote to Beta
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or SHA to promote to beta (e.g. v1.2.0). Use to re-run a promotion or roll back to an earlier release.'
+        required: true
+        type: string
+
+# Share the legacy deploy.yml concurrency group so beta deploys serialize on the
+# same resources during the interim before deploy.yml is retired at cutover.
+concurrency:
+  group: deploy-uat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC federated login to Azure (capped onto the reusable core)
+
+jobs:
+  beta:
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      githubEnvironment: uat # BETA reuses the existing 'uat' Environment (physically uat; labelled beta)
+      bicepEnvironmentName: uat
+      resourceGroup: quibblestone-uat-rg
+      aiResourceGroup: quibblestone-ai-rg
+      # Manual dispatch pins an explicit ref (rollback); a tag push promotes the
+      # tag itself (github.ref_name is the tag name for a tag-triggered run).
+      ref: ${{ inputs.ref || github.ref_name }}
+    secrets: inherit

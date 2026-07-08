@@ -6,8 +6,10 @@ infrastructure, a test harness, and observability. Kept intentionally tiny
 (README section 9). The walking-skeleton PR delivered its first cut; since then
 the test harness (01), continuous delivery to UAT (03), and both observability
 stories (04-05, PR #110) have shipped, and the separate dev-environment deploy
-(02) was superseded by 03's single auto-provisioned UAT environment
-(status refreshed 2026-07-07).
+(02) was superseded by 03's single auto-provisioned UAT environment. Story 06
+repairs the drifted e2e suite and gates it in CI; story 07 splits deployment into
+a QA auto-deploy lane sitting in front of a tag-promoted beta site (status
+refreshed 2026-07-08).
 
 ## README reference
 README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
@@ -22,6 +24,7 @@ README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
 | 04 | #106 | Operational observability (App Insights) | Complete |
 | 05 | #107 | Anonymous product-usage metrics | Complete |
 | 06 | - | Repair the drifted e2e suite and gate it in CI | Not Started |
+| 07 | - | QA lane + tag-based promotion to beta | In Progress |
 
 ## Dependencies
 - None for the Slice-1 stories (01-03) - this is the base of the stack.

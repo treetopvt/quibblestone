@@ -1,0 +1,551 @@
+# Deploy (reusable core) - build, then deploy both projects to ONE Azure lane.
+#
+# This is the parameterized engine shared by every deployment lane. It is called
+# (workflow_call) by the thin trigger workflows, each of which fixes WHICH lane:
+#   - deploy-qa.yml     -> QA   (auto on every push to main)
+#   - promote-beta.yml  -> BETA (only on a version tag / Release, deliberate)
+#
+# WHY A REUSABLE CORE: the env-specific wiring below (auto-provision, resource
+# discovery, CORS, the AI cost gate, Stripe, magic-link email) is long and fiddly.
+# Keeping it in ONE file means a change lands identically in every lane instead of
+# drifting between copies - which is exactly the class of bug that bites at the
+# worst time. The lanes differ only by the inputs passed in.
+#
+# HOW LANES DIFFER (inputs + environment-scoped config):
+#   - inputs.githubEnvironment    - the GitHub Environment the job runs under. This
+#       is what makes vars.* / environment secrets resolve PER-LANE: a var set on
+#       the 'qa' Environment overrides the repo-level default; an unset one falls
+#       back to the repo value. BETA reuses the existing 'uat' Environment (so it
+#       inherits today's repo-level vars unchanged and needs no new OIDC subject).
+#   - inputs.bicepEnvironmentName - the moniker Bicep composes resource names from
+#       ('qa' or 'uat'). BETA stays physically 'uat' (its resources + custom domain
+#       are not renamed); "beta" is a lane label, not an Azure name.
+#   - inputs.resourceGroup        - the app footprint RG for this lane.
+#   - inputs.aiResourceGroup      - the AI cost-gate RG for this lane (separate sub).
+#   - inputs.ref                  - optional checkout ref. Empty = the ref that
+#       triggered the caller (main for qa; the tag for a promotion). Set it on a
+#       manual promote to roll beta back to an earlier tag/SHA.
+#
+# Auth is OIDC (federated); callers pass `secrets: inherit` so the three Azure
+# identifiers (client/tenant/subscription) and the optional AI_ALERT_EMAIL flow
+# through. No long-lived publish profiles or SWA tokens are ever stored. Because
+# we log into Azure, the workflow DISCOVERS resource names/URLs from the group at
+# run time (they carry a uniqueString() suffix), so there is nothing to hand-copy.
+#
+# Optional integrations are wired ONLY when their gating var is set for the lane,
+# so a lane without them (e.g. a minimal QA) deploys cleanly:
+#   vars.AI_SUBSCRIPTION_ID  - the PAYG sub hosting Azure OpenAI (enables the AI step)
+#   vars.STRIPE_ENABLED      - 'true' to wire Stripe (per-mode secrets live in Key Vault)
+#   vars.EMAIL_ENABLED       - 'true' to provision + wire magic-link ACS email
+# See docs/runbooks/deploy-qa-and-promote-beta.md and deploy-to-uat.md.
+name: Deploy (reusable core)
+
+on:
+  workflow_call:
+    inputs:
+      githubEnvironment:
+        description: 'GitHub Environment to run under (drives per-lane vars/secrets + protection rules).'
+        required: true
+        type: string
+      bicepEnvironmentName:
+        description: "Bicep environment moniker used to compose resource names ('qa' | 'uat')."
+        required: true
+        type: string
+      resourceGroup:
+        description: 'App footprint resource group for this lane.'
+        required: true
+        type: string
+      aiResourceGroup:
+        description: 'AI cost-gate resource group for this lane (separate subscription).'
+        required: false
+        type: string
+        default: 'quibblestone-ai-rg'
+      ref:
+        description: 'Optional git ref to check out. Empty = the ref that triggered the caller (main for qa, the tag for a promotion). Set to roll beta back to an earlier tag/SHA.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC federated login to Azure
+
+jobs:
+  deploy:
+    name: Build + deploy (${{ inputs.githubEnvironment }})
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.githubEnvironment }}
+      url: ${{ steps.discover.outputs.web_url }}
+    env:
+      # Lane identity comes from the caller's inputs; tunable knobs come from
+      # environment-scoped vars (resolved under the environment declared above),
+      # falling back to repo-level defaults.
+      AZURE_RESOURCE_GROUP: ${{ inputs.resourceGroup }}
+      BICEP_ENV_NAME: ${{ inputs.bicepEnvironmentName }}
+      # First-deploy auto-provision knobs (both default to $0 / a SWA-supported
+      # region). Set APP_SERVICE_PLAN_SKU on the lane's Environment to stand a new
+      # lane up scaled (e.g. B1 for QA multiplayer testing).
+      PROVISION_SKU: ${{ vars.APP_SERVICE_PLAN_SKU || 'F1' }}
+      PROVISION_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
+      # AI cost gate (separate subscription). The AI step is skipped entirely
+      # unless AI_SUBSCRIPTION_ID is set. The RG is per-lane (inputs).
+      AI_SUBSCRIPTION_ID: ${{ vars.AI_SUBSCRIPTION_ID }}
+      AI_RESOURCE_GROUP: ${{ inputs.aiResourceGroup }}
+      AI_LOCATION: ${{ vars.AI_LOCATION || 'eastus2' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Empty ref => the ref that triggered the caller (main for qa; the tag
+          # for a promotion). A non-empty ref (manual promote) pins an exact
+          # tag/SHA so beta ships precisely that commit - the rollback lever.
+          ref: ${{ inputs.ref }}
+
+      # --- Build + test gate (mirrors CI so we never deploy an unbuilt tree) ---
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build + test API
+        run: |
+          dotnet restore QuibbleStone.slnx
+          dotnet build QuibbleStone.slnx --configuration Release --no-restore
+          dotnet test QuibbleStone.slnx --configuration Release --no-build
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web unit tests
+        working-directory: web
+        run: |
+          npm ci
+          npm run test:unit
+
+      # --- Publish the API package (built above) ------------------------------
+      - name: Publish API
+        run: dotnet publish api/QuibbleStone.Api.csproj -c Release -o ./publish --no-build
+
+      # --- Log into Azure via OIDC (no stored secret) -------------------------
+      - name: Azure login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # --- Provision on EVERY deploy (idempotent) -----------------------------
+      # The Bicep is incremental and idempotent, so a no-change deploy is a fast
+      # no-op - but running it every time means a Bicep change (a new resource, a
+      # new app setting) actually LANDS in the lane on the run that ships it,
+      # instead of silently drifting until someone provisions by hand.
+      #
+      # SKU is PRESERVED from the live plan so a routine deploy never downgrades a
+      # scaled-up plan (e.g. B1 -> the F1 default). First deploy (no plan yet)
+      # falls back to PROVISION_SKU.
+      #
+      # NOTE: the Bicep sets the API's appSettings (telemetry connection strings),
+      # which replaces the settings array - so it drops the CORS origins. That is
+      # fine here because the "Set API CORS origins" step below runs AFTER this and
+      # re-applies them; keep that ordering.
+      - name: Ensure the lane is provisioned
+        id: provision
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          az group create -n "$rg" -l "$PROVISION_LOCATION" --output none
+
+          current_sku="$(az appservice plan list -g "$rg" --query "[?contains(name, 'quibblestone')] | [0].sku.name" -o tsv 2>/dev/null || true)"
+          sku="${current_sku:-$PROVISION_SKU}"
+
+          # enableEmail (accounts-identity/04): provision the managed-domain ACS Email
+          # footprint only when email is on for this lane (vars.EMAIL_ENABLED) AND no
+          # external ACS is supplied (vars.EMAIL_ENDPOINT). A minimal lane leaves
+          # EMAIL_ENABLED unset/false and gets NONE of the email footprint.
+          enable_email=${{ vars.EMAIL_ENABLED == 'true' && vars.EMAIL_ENDPOINT == '' }}
+
+          echo "Provisioning infra/main.bicep (env $BICEP_ENV_NAME, SKU $sku, $PROVISION_LOCATION; email=$enable_email) into $rg..."
+          outputs="$(az deployment group create \
+            -g "$rg" \
+            -n "provision-${{ github.run_number }}" \
+            -f infra/main.bicep \
+            -p namePrefix=quibblestone \
+               environmentName="$BICEP_ENV_NAME" \
+               appServicePlanSku="$sku" \
+               location="$PROVISION_LOCATION" \
+               enableEmail="$enable_email" \
+            --query properties.outputs -o json)"
+
+          # Surface the email outputs (empty unless enableEmail) for the wiring step.
+          email_ep="$(echo "$outputs" | jq -r '.emailAcsEndpoint.value // empty')"
+          email_from="$(echo "$outputs" | jq -r '.emailSenderAddress.value // empty')"
+          {
+            echo "email_acs_endpoint=$email_ep"
+            echo "email_sender_address=$email_from"
+          } >> "$GITHUB_OUTPUT"
+          echo "Provisioned (SKU $sku)."
+
+      # --- Discover the resources in the group (names carry a unique suffix) ---
+      # The lane's resource group holds exactly one App Service and one Static Web
+      # App (infra/main.bicep), both tagged app=quibblestone. We read their names +
+      # hostnames rather than storing them, so re-provisioning never requires
+      # touching repo config.
+      - name: Discover Azure resources
+        id: discover
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+
+          api_name="$(az webapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv)"
+          web_name="$(az staticwebapp list -g "$rg" --query "[?tags.app=='quibblestone'] | [0].name" -o tsv)"
+          if [ -z "$api_name" ] || [ -z "$web_name" ]; then
+            echo "::error::Could not find the API/web resources in '$rg' even after auto-provision. Check the 'Ensure the lane is provisioned' step and the OIDC role assignment (see docs/runbooks/deploy-qa-and-promote-beta.md)."
+            exit 1
+          fi
+
+          api_host="$(az webapp show -g "$rg" -n "$api_name" --query defaultHostName -o tsv)"
+          web_host="$(az staticwebapp show -g "$rg" -n "$web_name" --query defaultHostname -o tsv)"
+
+          {
+            echo "api_name=$api_name"
+            echo "web_name=$web_name"
+            echo "api_base=https://$api_host"
+            echo "web_origin=https://$web_host"
+            echo "web_url=https://$web_host"
+          } >> "$GITHUB_OUTPUT"
+          echo "API -> https://$api_host  |  Web -> https://$web_host"
+
+      # --- Provision the AI cost gate footprint (SEPARATE subscription) --------
+      # The Azure OpenAI account cannot live in the app's subscription (students
+      # sub); it lives in its own RG on a PAYG sub in the SAME tenant, reached
+      # cross-subscription + KEYLESS via a role assignment in infra/ai.bicep. Each
+      # lane has its OWN AI RG (inputs.aiResourceGroup) so QA load never spends
+      # against or trips the BETA budget/breaker. SKIPPED unless AI_SUBSCRIPTION_ID
+      # is configured.
+      #
+      # apiPrincipalId is DISCOVERED at run time (the API identity differs per lane)
+      # rather than read from a committed *.bicepparam GUID; model config comes from
+      # ai.bicep's defaults, and the (optional) per-lane budget from
+      # vars.AI_MONTHLY_BUDGET_USD. alertEmail is a SECRET; omit it and only the
+      # budget + action group are skipped.
+      #
+      # main.bicep (the provision step) REPLACED the API appSettings array, dropping
+      # Ai__Endpoint/Ai__Deployment - so we re-set them here from ai.bicep's outputs.
+      # appsettings set is additive, so it does not disturb the CORS origins applied
+      # below. The AI resource group must pre-exist (the OIDC identity is scoped to
+      # it) - see the runbook.
+      - name: Provision AI cost gate (separate subscription)
+        if: ${{ vars.AI_SUBSCRIPTION_ID != '' }}
+        env:
+          AI_ALERT_EMAIL: ${{ secrets.AI_ALERT_EMAIL }}
+          AI_MONTHLY_BUDGET_USD: ${{ vars.AI_MONTHLY_BUDGET_USD }}
+        run: |
+          set -euo pipefail
+          app_sub="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          api="${{ steps.discover.outputs.api_name }}"
+
+          # Read the API app's managed-identity principal WHILE still on the app
+          # subscription (that is where the identity lives). It is the cross-sub
+          # keyless grant target in ai.bicep, so no per-lane principal GUID is ever
+          # committed - qa and beta have different API identities.
+          principal="$(az webapp identity show -g "$AZURE_RESOURCE_GROUP" -n "$api" --query principalId -o tsv)"
+
+          az account set -s "$AI_SUBSCRIPTION_ID"
+
+          # Build the param list inline (no *.bicepparam file): ai.bicep's defaults
+          # supply the model name/version/SKU/capacity; we vary only what is per-lane.
+          extra=(-p "environmentName=$BICEP_ENV_NAME" "apiPrincipalId=$principal" "location=$AI_LOCATION")
+          if [ -n "${AI_ALERT_EMAIL:-}" ]; then
+            extra+=(-p "alertEmail=${AI_ALERT_EMAIL}")
+          else
+            echo "::warning::AI_ALERT_EMAIL not set - the AI budget + action group will be skipped."
+          fi
+          [ -n "${AI_MONTHLY_BUDGET_USD:-}" ] && extra+=(-p "monthlyBudgetUsd=${AI_MONTHLY_BUDGET_USD}")
+
+          echo "Provisioning infra/ai.bicep into $AI_RESOURCE_GROUP ($AI_SUBSCRIPTION_ID) for env '$BICEP_ENV_NAME'..."
+          outputs="$(az deployment group create \
+            -g "$AI_RESOURCE_GROUP" \
+            -n "ai-provision-${{ github.run_number }}" \
+            -f infra/ai.bicep \
+            "${extra[@]}" \
+            --query properties.outputs -o json)"
+
+          ai_endpoint="$(echo "$outputs" | jq -r '.aiEndpoint.value')"
+          ai_deployment="$(echo "$outputs" | jq -r '.aiDeploymentNameOut.value')"
+
+          # Back to the app subscription for the rest of the deploy, and wire the
+          # endpoint + deployment name onto the API app (re-applying what the
+          # main.bicep provision dropped).
+          az account set -s "$app_sub"
+          az webapp config appsettings set -g "$AZURE_RESOURCE_GROUP" -n "$api" \
+            --settings "Ai__Endpoint=${ai_endpoint}" "Ai__Deployment=${ai_deployment}" \
+            --output none
+          echo "AI gate provisioned: ${ai_deployment} @ ${ai_endpoint}"
+
+      # --- Let the API accept every web origin for REST + the SignalR hub -----
+      # AllowCredentials is on for the hub transport, so CORS cannot use a
+      # wildcard - it must list each exact origin (see api/src/Program.cs). We
+      # allow the SWA default origin PLUS every custom domain bound to the SWA
+      # (apex, www, and any future qa./uat.), discovered at run time so binding a
+      # new domain in Azure needs no change here. The list is cleared and re-set
+      # each run so a removed domain does not linger as an allowed origin.
+      - name: Set API CORS origins
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          api="${{ steps.discover.outputs.api_name }}"
+          web="${{ steps.discover.outputs.web_name }}"
+
+          # SWA default origin + every Ready custom domain bound to the SWA.
+          origins=("${{ steps.discover.outputs.web_origin }}")
+          while IFS= read -r domain; do
+            [ -n "$domain" ] && origins+=("https://$domain")
+          done < <(az staticwebapp hostname list -g "$rg" -n "$web" \
+                     --query "[?status=='Ready'].domainName" -o tsv)
+
+          # Drop any previous Cors__AllowedOrigins__* first, so a domain that was
+          # removed from the SWA does not survive as a stale allowed origin.
+          stale="$(az webapp config appsettings list -g "$rg" -n "$api" \
+                     --query "[?starts_with(name, 'Cors__AllowedOrigins__')].name" -o tsv)"
+          if [ -n "$stale" ]; then
+            az webapp config appsettings delete -g "$rg" -n "$api" \
+              --setting-names $stale --output none
+          fi
+
+          # Re-set the full allow-list as Cors__AllowedOrigins__0..N.
+          settings=(); i=0
+          for origin in "${origins[@]}"; do
+            settings+=("Cors__AllowedOrigins__${i}=${origin}")
+            i=$((i + 1))
+          done
+          az webapp config appsettings set -g "$rg" -n "$api" \
+            --settings "${settings[@]}" --output none
+
+          echo "CORS origins allowed:"; printf '  %s\n' "${origins[@]}"
+
+      # --- Wire Stripe billing (optional, lane-variable-gated) ----------------
+      # billing-entitlements/03 + /06. The billing seam ships DISABLED (no secret
+      # key => no-op checkout + 503 webhook), so a lane without this configured
+      # deploys unchanged. Re-applies the Stripe settings AFTER the provision step
+      # (which REPLACES the appSettings array); appsettings set is additive.
+      # MODE-AWARE: the app holds Live AND Test credentials; an operator toggle
+      # picks the active one. Every Stripe SECRET (per mode) lives in the lane's Key
+      # Vault (set once, out of band) and is wired as a @Microsoft.KeyVault
+      # reference - no secret ever touches GitHub or a VITE_ var. Price ids are
+      # non-secret repo/Environment vars. SKIPPED unless vars.STRIPE_ENABLED=='true'
+      # (a minimal QA leaves it off). See docs/runbooks/enable-stripe-billing.md.
+      - name: Wire Stripe billing (optional)
+        if: ${{ vars.STRIPE_ENABLED == 'true' }}
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          api="${{ steps.discover.outputs.api_name }}"
+          web="${{ steps.discover.outputs.web_name }}"
+
+          vault="$(az keyvault list -g "$rg" --query "[0].name" -o tsv)"
+          if [ -z "$vault" ]; then
+            echo "::error::STRIPE_ENABLED is true but no Key Vault was found in '$rg'. Provision must run first."
+            exit 1
+          fi
+          kv() { echo "@Microsoft.KeyVault(VaultName=${vault};SecretName=$1)"; }
+
+          # ClientBaseUrl: prefer the first Ready custom domain bound to the SWA (the
+          # public face), else the SWA default host - so Stripe's success/cancel
+          # redirects go to the real site, not localhost.
+          client_base="${{ steps.discover.outputs.web_origin }}"
+          custom="$(az staticwebapp hostname list -g "$rg" -n "$web" \
+                      --query "[?status=='Ready'].domainName" -o tsv | head -n1)"
+          [ -n "$custom" ] && client_base="https://$custom"
+
+          # Always set: the mode-independent client base + the operator console gate
+          # secrets (the operator sign-in allowlist rides this gated step next to the
+          # mode-toggle gate). Values are KV refs; unset => empty => fail closed.
+          settings=(
+            "Stripe__ClientBaseUrl=${client_base}"
+            "Admin__ModeToggleSecret=$(kv OperatorModeToggleSecret)"
+            "Operator__AllowedEmails=$(kv OperatorAllowedEmails)"
+          )
+          have_price=0
+
+          # LEGACY flat wiring (pre-/06 single-mode), kept for back-compat.
+          if [ -n "${{ vars.STRIPE_TIP_PRICE_ID }}" ]; then
+            settings+=(
+              "Stripe__SecretKey=$(kv StripeSecretKey)"
+              "Stripe__WebhookSigningSecret=$(kv StripeWebhookSigningSecret)"
+              "Stripe__PriceIds__tip=${{ vars.STRIPE_TIP_PRICE_ID }}"
+            )
+            [ -n "${{ vars.STRIPE_FAMILY_PLAN_PRICE_ID }}" ] && settings+=("Stripe__PriceIds__family-plan=${{ vars.STRIPE_FAMILY_PLAN_PRICE_ID }}")
+            [ -n "${{ vars.STRIPE_PACK_SPOOKY_PRICE_ID }}" ] && settings+=("Stripe__PriceIds__pack.spooky=${{ vars.STRIPE_PACK_SPOOKY_PRICE_ID }}")
+            have_price=1
+          fi
+
+          # TEST mode (billing-entitlements/06) - wired when its tip price is configured.
+          if [ -n "${{ vars.STRIPE_TEST_TIP_PRICE_ID }}" ]; then
+            settings+=(
+              "Stripe__Test__SecretKey=$(kv StripeTestSecretKey)"
+              "Stripe__Test__WebhookSigningSecret=$(kv StripeTestWebhookSigningSecret)"
+              "Stripe__Test__PriceIds__tip=${{ vars.STRIPE_TEST_TIP_PRICE_ID }}"
+            )
+            [ -n "${{ vars.STRIPE_TEST_FAMILY_PLAN_PRICE_ID }}" ] && settings+=("Stripe__Test__PriceIds__family-plan=${{ vars.STRIPE_TEST_FAMILY_PLAN_PRICE_ID }}")
+            [ -n "${{ vars.STRIPE_TEST_PACK_SPOOKY_PRICE_ID }}" ] && settings+=("Stripe__Test__PriceIds__pack.spooky=${{ vars.STRIPE_TEST_PACK_SPOOKY_PRICE_ID }}")
+            have_price=1
+          fi
+
+          # LIVE mode (billing-entitlements/06) - wired when its tip price is configured.
+          if [ -n "${{ vars.STRIPE_LIVE_TIP_PRICE_ID }}" ]; then
+            settings+=(
+              "Stripe__Live__SecretKey=$(kv StripeLiveSecretKey)"
+              "Stripe__Live__WebhookSigningSecret=$(kv StripeLiveWebhookSigningSecret)"
+              "Stripe__Live__PriceIds__tip=${{ vars.STRIPE_LIVE_TIP_PRICE_ID }}"
+            )
+            [ -n "${{ vars.STRIPE_LIVE_FAMILY_PLAN_PRICE_ID }}" ] && settings+=("Stripe__Live__PriceIds__family-plan=${{ vars.STRIPE_LIVE_FAMILY_PLAN_PRICE_ID }}")
+            [ -n "${{ vars.STRIPE_LIVE_PACK_SPOOKY_PRICE_ID }}" ] && settings+=("Stripe__Live__PriceIds__pack.spooky=${{ vars.STRIPE_LIVE_PACK_SPOOKY_PRICE_ID }}")
+            have_price=1
+          fi
+
+          if [ "$have_price" -eq 0 ]; then
+            echo "::error::STRIPE_ENABLED is true but no price id is configured (set STRIPE_TEST_TIP_PRICE_ID and/or STRIPE_LIVE_TIP_PRICE_ID, or the legacy STRIPE_TIP_PRICE_ID)."
+            exit 1
+          fi
+
+          az webapp config appsettings set -g "$rg" -n "$api" \
+            --settings "${settings[@]}" --output none
+          echo "Stripe billing wired (${#settings[@]} settings) via Key Vault '$vault'; ClientBaseUrl=$client_base."
+
+      # --- Wire magic-link email delivery (optional, lane-variable-gated) ------
+      # accounts-identity/04. The email seam ships DISABLED (no Email:* => the
+      # NoOpEmailSender), so a lane without this deploys unchanged. When
+      # EMAIL_ENABLED=='true' the provision step stood up the ACS Email footprint
+      # (Azure-managed *.azurecomm.net domain + no-reply sender + Communication
+      # Services) and OUTPUT the endpoint + sender, consumed here. This step also
+      # grants the API identity the ACS send role (keyless, no provider secret) and
+      # re-applies the Email settings AFTER the provision replaced the appSettings
+      # array. OVERRIDES: vars.EMAIL_FROM_ADDRESS (verified custom sender) and
+      # vars.EMAIL_ENDPOINT (a different ACS you manage) win over the provisioned
+      # defaults. Also wires a durable Key Vault Accounts__TokenSigningKey so a
+      # delivered link survives an app recycle. See
+      # docs/runbooks/enable-magic-link-email.md.
+      - name: Wire magic-link email delivery (optional)
+        if: ${{ vars.EMAIL_ENABLED == 'true' }}
+        env:
+          EMAIL_ENDPOINT_OVERRIDE: ${{ vars.EMAIL_ENDPOINT }}
+          EMAIL_FROM_ADDRESS_OVERRIDE: ${{ vars.EMAIL_FROM_ADDRESS }}
+          PROVISIONED_ENDPOINT: ${{ steps.provision.outputs.email_acs_endpoint }}
+          PROVISIONED_FROM_ADDRESS: ${{ steps.provision.outputs.email_sender_address }}
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          api="${{ steps.discover.outputs.api_name }}"
+          web="${{ steps.discover.outputs.web_name }}"
+
+          vault="$(az keyvault list -g "$rg" --query "[0].name" -o tsv)"
+          if [ -z "$vault" ]; then
+            echo "::error::EMAIL_ENABLED is true but no Key Vault was found in '$rg'. Provision must run first."
+            exit 1
+          fi
+          kv() { echo "@Microsoft.KeyVault(VaultName=${vault};SecretName=$1)"; }
+
+          # LinkBaseUrl: the public web origin (first Ready custom domain if bound,
+          # else the SWA default host) so the emailed link points at the real site.
+          link_base="${{ steps.discover.outputs.web_origin }}"
+          custom="$(az staticwebapp hostname list -g "$rg" -n "$web" \
+                      --query "[?status=='Ready'].domainName" -o tsv | head -n1)"
+          [ -n "$custom" ] && link_base="https://$custom"
+
+          # Endpoint + from-address: an explicit override wins, else fall back to
+          # what infra/main.bicep just provisioned (the Azure-managed domain).
+          endpoint="${EMAIL_ENDPOINT_OVERRIDE:-$PROVISIONED_ENDPOINT}"
+          from_address="${EMAIL_FROM_ADDRESS_OVERRIDE:-$PROVISIONED_FROM_ADDRESS}"
+
+          if [ -z "$from_address" ]; then
+            echo "::error::EMAIL_ENABLED is true but no from-address is available (the provision output none and vars.EMAIL_FROM_ADDRESS is unset). Confirm enableEmail provisioned the ACS Email domain, or set EMAIL_FROM_ADDRESS."
+            exit 1
+          fi
+
+          # Keyless send-role grant (recommended path): give the API identity
+          # permission to send on the PROVISIONED ACS resource, so no connection
+          # string is needed. Idempotent. Only on the provisioned keyless path - an
+          # EMAIL_ENDPOINT override points at an ACS you own and grant out of band.
+          if [ -z "$EMAIL_ENDPOINT_OVERRIDE" ] && [ -n "$endpoint" ]; then
+            acs_id="$(az resource list -g "$rg" \
+                        --resource-type Microsoft.Communication/communicationServices \
+                        --query "[0].id" -o tsv)"
+            if [ -n "$acs_id" ]; then
+              principal="$(az webapp identity show -g "$rg" -n "$api" --query principalId -o tsv)"
+              existing="$(az role assignment list --assignee "$principal" --scope "$acs_id" \
+                            --role "Communication and Email Service Owner" --query "[0].id" -o tsv 2>/dev/null || true)"
+              if [ -z "$existing" ]; then
+                az role assignment create \
+                  --assignee-object-id "$principal" --assignee-principal-type ServicePrincipal \
+                  --role "Communication and Email Service Owner" \
+                  --scope "$acs_id" --output none
+                echo "Granted the API identity 'Communication and Email Service Owner' on the ACS resource."
+              else
+                echo "API identity already holds the ACS send role (idempotent skip)."
+              fi
+            else
+              echo "::warning::EMAIL_ENABLED is true but no Communication Services resource was found to grant the send role on. Confirm the provision step created it (enableEmail)."
+            fi
+          fi
+
+          # A durable, Key Vault-backed magic-link signing key (survives recycle),
+          # plus the always-required non-secret from-address + link base.
+          settings=(
+            "Accounts__TokenSigningKey=$(kv AccountsTokenSigningKey)"
+            "Email__FromAddress=${from_address}"
+            "Email__LinkBaseUrl=${link_base}"
+          )
+          if [ -n "$endpoint" ]; then
+            settings+=("Email__Endpoint=${endpoint}")
+          else
+            settings+=("Email__ConnectionString=$(kv EmailConnectionString)")
+          fi
+
+          az webapp config appsettings set -g "$rg" -n "$api" \
+            --settings "${settings[@]}" --output none
+          echo "Magic-link email wired (${#settings[@]} settings) via Key Vault '$vault'; from=$from_address; LinkBaseUrl=$link_base; endpoint=${endpoint:-<connection-string fallback>}."
+
+      # --- Deploy the API (uses the OIDC session, no publish profile) ---------
+      - name: Deploy API to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.discover.outputs.api_name }}
+          package: ./publish
+
+      # --- Build the web bundle pointed at the DEPLOYED API (AC-04) -----------
+      # SIGNALR hub URL is derived from the API base (the /hubs/game route).
+      - name: Build web
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: ${{ steps.discover.outputs.api_base }}
+          VITE_SIGNALR_HUB_URL: ${{ steps.discover.outputs.api_base }}/hubs/game
+          # Product analytics (analytics/01): PUBLIC measurement ids (they ship in
+          # the browser bundle, so NOT secrets). Baked as defaults so monitoring is
+          # on; a repo/Environment VARIABLE of the same name OVERRIDES the default -
+          # set it to a single space on a lane to disable there (e.g. QA, so its test
+          # traffic never pollutes the shared GA4/Clarity project). Two operator steps
+          # before go-live (see web/src/telemetry/analytics.ts): Clarity Masking =
+          # Mask (child safety), and GA4 Enhanced Measurement "page changes on history
+          # events" OFF (privacy - the app sends its own scrubbed page_views).
+          VITE_GA4_MEASUREMENT_ID: ${{ vars.VITE_GA4_MEASUREMENT_ID || 'G-J1LTY3KMBF' }}
+          VITE_CLARITY_PROJECT_ID: ${{ vars.VITE_CLARITY_PROJECT_ID || 'xiw7t8csoi' }}
+        run: npm run build
+
+      # --- Deploy the web bundle; fetch the SWA token at run time via OIDC ----
+      - name: Get Static Web Apps token
+        id: swa
+        run: |
+          token="$(az staticwebapp secrets list \
+            -g "$AZURE_RESOURCE_GROUP" \
+            -n "${{ steps.discover.outputs.web_name }}" \
+            --query "properties.apiKey" -o tsv)"
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy web to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
+          action: upload
+          app_location: web/dist
+          skip_app_build: true
