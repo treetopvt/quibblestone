@@ -53,6 +53,11 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
   ships.
 - An operator-facing mode screen (location depends on whether `sysadmin-console/01` has landed - see story 07
   Technical Notes) - story 07.
+- `GrantId`/`PlanId`/`StripeSubscriptionId` on `EntitlementGrant` (ADR 0003 Layer 2) - story 08 ADDS these fields
+  to the ALREADY-SHIPPED `api/src/Entitlements/EntitlementGrant.cs` / `TableStorageEntitlementGrantStore.cs`
+  rather than creating a new store type. A new `IStripeReconciliationService` (or similarly named) + its live
+  implementation in `api/src/Billing/`, and a new `Operator`-policy admin endpoint (`sysadmin-console/07`'s future
+  support-verb call target) - story 08.
 
 ## Wave Plan (DAG)
 
@@ -73,6 +78,7 @@ not session-engine (the session-creation call site is already wired by the shipp
 | 05 restore-and-manage | #74 | `web/src/pages/` restore/manage view (near accounts-identity/03's screen), a read-only API endpoint | 01, accounts-identity/03 | - (needs 03/04 landed to have anything real to show, though its empty state is independently testable) | 4 | medium |
 | 06 live-test-mode-toggle | TBD | `api/src/Billing/StripeOptions.cs` (reshaped), new `IActiveStripeModeStore` + Table/InMemory impls, new `Controllers/StripeModeController.cs`, edits to `StripeCheckoutService`, `StripeWebhookController`, `ProductCatalog` | 03 (reshapes its output), sysadmin-console/01 (soft - see Technical Notes interim gate) | - | 5 | medium-high |
 | 07 operator-mode-toggle-ui | TBD | a new operator-facing screen (location per Technical Notes - `sysadmin-console`'s back office if landed, else a temporary standalone route) | 06 (hard - calls its endpoint), sysadmin-console/01 (soft, same interim-gate posture) | - | 6 | small |
+| 08 grant-metadata-and-stripe-reconciliation (ADR 0003 Layer 2) | TBD | EDITS `api/src/Entitlements/EntitlementGrant.cs` + `TableStorageEntitlementGrantStore.cs` (new columns), `api/src/Billing/BillingEvent.cs`, `StripeEventMapper.cs`, `IStripeCheckoutService.cs` (`BillingMetadata`), `CheckoutModels.cs`, `StripeWebhookHandler.cs`; NEW `api/src/Billing/IStripeReconciliationService.cs` + implementation + a new admin endpoint | 01, 03, 06, accounts-identity/02, sysadmin-console/01; soft: accounts-identity/05 (see story's degraded path) | - | 7 | high |
 
 **Concurrency per wave:** Wave 1 = 1 (01, extending the shipped seam - must land first, everything else imports its
 shape; the `IEntitlementService` interface itself is already shipped, so this wave is narrower than a from-scratch
@@ -86,7 +92,11 @@ display, and needs accounts-identity/03's sign-in to exist as its auth guard). W
 edits the same files 03 created, not because 03 is otherwise a blocker). Wave 6 = 07 (calls 06's endpoint; cannot
 usefully start before 06's contract exists). Waves 5-6 are independent of 02/04/05's product-purchase surfaces
 (disjoint files) and could in principle run alongside them if scheduled earlier, but are numbered after because they
-were requested and specified after 01-05 shipped.
+were requested and specified after 01-05 shipped. Wave 7 = 08 (ADR 0003, 2026-07-08) - edits files 01/03/06 already
+created (the grant record, the store, the webhook handler/mapper, the checkout metadata), so it is serial-after all
+three even though each is independently shipped; its soft dependency on `accounts-identity/05` (a DIFFERENT feature's
+story, not yet built) does not block scheduling within this feature - see story 08's Technical Notes for the
+degraded (email-keyed) path if it lands first.
 
 **Cross-feature order:** accounts-identity/02 (magic-link + `IAccountStore`) is upstream of story 01's
 purchaser-lookup piece (AC-06) - schedule it first across features. Story 01's catalog-extension and grant-store
@@ -176,6 +186,24 @@ build time (its back office if so, else a clearly-marked temporary standalone ro
 Notes). **Gotcha:** do not over-invest in polish if built before `sysadmin-console/01` lands - it is meant to
 relocate, not become a second design system.
 
+### 08 - Grant metadata + Stripe reconciliation (ADR 0003 Layer 2)
+**Approach:** `EntitlementGrant` gains `GrantId` (`Guid`, freshly minted per write), `PlanId` (`string?`, the
+`ProductCatalog` product id), and `StripeSubscriptionId` (`string?`, populated for subscription grants). A new
+`qs_product` metadata key (alongside the existing `qs_capabilities`/`qs_purchaser`) rides the same
+`CheckoutRequest`/`BillingMetadata`/`StripeEventMapper`/`BillingEvent` pipeline stories 03/04 already built, so
+`StripeWebhookHandler` can populate all three fields on every grant write without a second lookup. A new
+per-account resync service resolves a purchaser's Stripe customer + subscriptions in the ACTIVE mode
+(`IActiveStripeContext`, story 06) and rewrites subscription-sourced grants to match Stripe's current state -
+reusing the SAME lease-math helper the webhook handler already has (extract it to a shared method rather than
+duplicate it), and the SAME upsert-by-capability-key write path (idempotency is inherited, not reinvented).
+**Exports:** the extended `EntitlementGrant` shape (consumed by `sysadmin-console/02`'s existing grant/revoke
+screen, which should start displaying `PlanId` once available) and the resync endpoint (`sysadmin-console/07`'s
+future support-verb call target). **Gotcha:** a pre-existing grant row (written before this story) has none of the
+three new columns - `TableStorageEntitlementGrantStore.FromEntity` must degrade this to a fresh `GrantId` + null
+`PlanId`/`StripeSubscriptionId` rather than throw, mirroring its existing defensive handling of a missing `Source`.
+Resync only ever rewrites SUBSCRIPTION-sourced grants - a one-time pack has no ongoing Stripe state to reconcile
+against and must be left untouched.
+
 ## Cross-cutting concerns
 
 - **The interface is shipped; the stored-value side is not.** `IEntitlementService`, `SessionEntitlements`, the
@@ -206,6 +234,10 @@ relocate, not become a second design system.
   ships, migrating onto real operator auth is a small, contract-stable edit - mirroring how `sysadmin-console/01`
   itself and `sysadmin-console/02` each name a thin, contract-compatible stand-in for their own unbuilt upstream
   dependencies. Do not let the interim gate quietly become permanent; revisit promptly once #135 lands.
+- **Resync is a recovery action, never a routine path (story 08, ADR 0003).** Webhooks remain the routine source of
+  truth for every grant write; the per-account resync service is operator-triggered only - no schedule, no
+  automatic run, no per-request call. This is the same "session-creation-time only, never per-request" discipline
+  applied to a support tool: an operator explicitly asks "reconcile this one purchaser," nothing more.
 - **Single public environment footgun (stories 06-07).** `quibblestone.com` is the one live site - there is no
   separate staging Stripe-mode surface. AC-05's safe default (Test) and AC-06's confirmation-gating (story 06),
   plus AC-02/AC-03's asymmetric-friction confirmation (story 07), exist specifically so "go live" is always the
