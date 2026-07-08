@@ -32,6 +32,10 @@
 //                     user cancel (AbortError) or any other rejection is
 //                     swallowed, never surfaced as an error.
 //    - `copied`     - true while the post-copy confirmation should show.
+//    - `emailAvailable` / `sendEmail` - session-engine/12's THIRD channel: probe
+//                     (once, on mount) whether an email provider is configured, and
+//                     email the SAME join link + code to one address. Fails toward
+//                     hidden and never throws (mirrors copy/share). See ./emailInvite.ts.
 //
 //  Child safety / privacy (AC-06): the payload carries only the room code (via
 //  the deep link) and the human-readable "Room code: XXXX" text - no nickname,
@@ -48,6 +52,7 @@ import { useEffect, useRef, useState } from 'react';
 import { buildJoinLink } from './joinLink';
 import { trackEvent } from '../telemetry/analytics';
 import { ANALYTICS_EVENTS } from '../telemetry/analyticsEvents';
+import { fetchEmailInviteAvailable, sendEmailInvite, type EmailInviteSendResult } from './emailInvite';
 
 /**
  * How long the post-copy confirmation (e.g. a "Copied!" label) stays up before
@@ -68,6 +73,18 @@ export interface RoomInvite {
   copy: () => Promise<void>;
   /** Invoke the Web Share API with the deep link; a cancel/rejection is swallowed, never thrown. */
   share: () => Promise<void>;
+  /**
+   * session-engine/12: whether the email-invite control should be shown - true only
+   * when an email provider is configured (probed once on mount; fails toward false so
+   * the control stays hidden when email is off). AC-06.
+   */
+  emailAvailable: boolean;
+  /**
+   * session-engine/12: email the room's join link + code to one address via the shared
+   * REST client. Resolves a typed result (never throws) - mirrors copy/share's
+   * swallow-and-continue posture. Any player may call it (AC-01/AC-07).
+   */
+  sendEmail: (toEmail: string) => Promise<EmailInviteSendResult>;
 }
 
 /**
@@ -106,6 +123,21 @@ export function useRoomInvite(code: string): RoomInvite {
   useEffect(() => {
     return () => {
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    };
+  }, []);
+
+  // session-engine/12 (AC-06): whether email invites can be sent right now. Probed once
+  // on mount via the shared REST client; defaults to false and fails toward false, so the
+  // Lobby's email-invite control stays hidden unless email is actually configured. Guarded
+  // so we never setState after the owning component unmounts.
+  const [emailAvailable, setEmailAvailable] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void fetchEmailInviteAvailable().then((available) => {
+      if (active) setEmailAvailable(available);
+    });
+    return () => {
+      active = false;
     };
   }, []);
 
@@ -156,5 +188,9 @@ export function useRoomInvite(code: string): RoomInvite {
     }
   };
 
-  return { joinLink, canShare, copied, copy, share };
+  // session-engine/12 (AC-01/AC-07): email the invite to one address. Delegates to the
+  // shared REST client with THIS room's code; any player may call it (no host gate).
+  const sendEmail = (toEmail: string) => sendEmailInvite(code, toEmail);
+
+  return { joinLink, canShare, copied, copy, share, emailAvailable, sendEmail };
 }

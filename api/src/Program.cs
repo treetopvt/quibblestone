@@ -37,6 +37,7 @@ using QuibbleStone.Api.CloudGallery;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
+using QuibbleStone.Api.Invite;
 using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
@@ -396,6 +397,24 @@ builder.Services.AddRateLimiter(options =>
             {
                 PermitLimit = OperatorLoginRateLimit.PermitLimit,
                 Window = OperatorLoginRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
+    // session-engine/12 (#180): the OPEN, anonymous email-game-invite endpoint's per-IP
+    // guard - a SIBLING of the SignInRateLimit policy above for the new invite surface,
+    // in this SAME registration. Only POST /api/invite/email opts in (via
+    // [EnableRateLimiting(EmailInviteRateLimit.PolicyName)]); the GET availability probe,
+    // the game path, and the rest of the API are untouched. Generous for a family
+    // inviting a handful of relatives in one sitting, tight enough that it cannot become
+    // a scripted email-bombing relay. 429 on reject; per-IP behind App Service via the
+    // ForwardedHeaders config below.
+    options.AddPolicy(EmailInviteRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: EmailInviteRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = EmailInviteRateLimit.PermitLimit,
+                Window = EmailInviteRateLimit.Window,
                 QueueLimit = 0,
             }));
 });

@@ -1,6 +1,7 @@
 // ----------------------------------------------------------------------------
-//  AcsEmailSender - the real magic-link email transport, backed by Azure
-//  Communication Services (ACS) Email (accounts-identity/04, issue #167).
+//  AcsEmailSender - the real email transport (magic-link sign-in AND game invite),
+//  backed by Azure Communication Services (ACS) Email (accounts-identity/04, issue
+//  #167; the game-invite method is session-engine/12, issue #180).
 //
 //  WHY ACS (ADR 0002 Decision A + this story's Technical Notes): it is Azure-native
 //  (fits the footprint), and it authenticates KEYLESS via the App Service managed
@@ -135,6 +136,53 @@ public sealed class AcsEmailSender : IEmailSender
         // WaitUntil.Started: accept-and-return, no blocking on downstream delivery and
         // no resend loop (AC-08). A provider fault throws out of here; the caller
         // catches it and returns the neutral acknowledgement.
+        await _client.SendAsync(WaitUntil.Started, message, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task SendGameInviteAsync(
+        string toEmail,
+        string joinLink,
+        string roomCode,
+        CancellationToken cancellationToken = default)
+    {
+        // session-engine/12: a FIXED game-invite template - no token, no MagicLinkPurpose.
+        // The copy mirrors the Lobby's Copy/Share text (useRoomInvite.share) so the email
+        // reads like the SAME product, not a different copy deck (AC-01). The only
+        // substitutions are the room code and the server-built join link; there is no
+        // sender free text anywhere, so nothing here needs the safety filter (AC-04).
+        const string subject = "You're invited to a QuibbleStone game!";
+
+        var plainText =
+            $"Join my QuibbleStone game! Room code: {roomCode}\n\n{joinLink}\n\n" +
+            "Tap the link to hop straight into the room, or type the room code on the join " +
+            "screen. See you round the stone!";
+
+        // The join link is server-built from a shape-validated code (never client HTML),
+        // but HTML-encode both substitutions anyway so the email stays safe and correct if
+        // either ever gains a user-influenced segment (defensive, mirrors the magic-link body).
+        var encodedLink = System.Net.WebUtility.HtmlEncode(joinLink);
+        var encodedCode = System.Net.WebUtility.HtmlEncode(roomCode);
+        var html =
+            $"<p>Join my QuibbleStone game! Room code: <strong>{encodedCode}</strong></p>" +
+            $"<p><a href=\"{encodedLink}\">Tap here to join the game</a></p>" +
+            $"<p>Or paste this link into your browser:<br>{encodedLink}</p>" +
+            "<p>See you round the stone!</p>";
+
+        var content = new EmailContent(subject)
+        {
+            PlainText = plainText,
+            Html = html,
+        };
+
+        // Addressed to the entered address ONLY.
+        var message = new EmailMessage(_fromAddress, toEmail, content);
+
+        // Anonymous breadcrumb only - never the recipient / link / code / body.
+        _logger.LogDebug("Sending game-invite email via ACS.");
+
+        // WaitUntil.Started: accept-and-return, no resend loop. A provider fault throws;
+        // the caller (EmailInviteController) catches it and returns a friendly result.
         await _client.SendAsync(WaitUntil.Started, message, cancellationToken);
     }
 }
