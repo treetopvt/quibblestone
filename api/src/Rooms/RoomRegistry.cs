@@ -54,7 +54,15 @@ public sealed class RoomRegistry
     // sliding ~30 minute window: generous enough for a lull between rounds, but
     // bounded so abandoned rooms do not accumulate. This is a toy, so a simple
     // lazy sweep on access is sufficient - no background service.
-    private static readonly TimeSpan InactivityWindow = TimeSpan.FromMinutes(30);
+    //
+    // session-engine/13 (AC-03/W1): made public (was private) so it is the DI
+    // default a test can compare against, mirroring SeatGraceService's
+    // DefaultGraceWindow. The window itself lives on an instance field below
+    // (_inactivityWindow) so a test can construct a RoomRegistry with a
+    // millisecond-scale window instead of waiting the real 30 minutes; every
+    // existing `new RoomRegistry()` call site (DI included) still gets this
+    // 30-minute default, untouched.
+    public static readonly TimeSpan DefaultInactivityWindow = TimeSpan.FromMinutes(30);
 
     // Bound the collision-retry loop. With a 31-char alphabet ^ 4 (~923k codes)
     // this is astronomically more than enough headroom for a family word game;
@@ -64,6 +72,33 @@ public sealed class RoomRegistry
     // Key = uppercase room code. ConcurrentDictionary because hub invocations on
     // different connections can create/look up rooms at the same time.
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
+
+    // session-engine/13 (AC-03/W1): the window in force for THIS registry
+    // instance. Defaults to DefaultInactivityWindow via the parameterless
+    // constructor; the test constructor overload below stores an explicit,
+    // typically tiny, window instead - mirroring SeatGraceService's exact
+    // dual-constructor shape.
+    private readonly TimeSpan _inactivityWindow;
+
+    /// <summary>The DI constructor: the 30-minute <see cref="DefaultInactivityWindow"/>.</summary>
+    public RoomRegistry()
+        : this(DefaultInactivityWindow)
+    {
+    }
+
+    /// <summary>
+    /// The test constructor: an explicit (typically tiny) inactivity window so a
+    /// spec can verify the idle sweep without waiting the full 30 minutes. Mirrors
+    /// <see cref="SeatGraceService"/>'s test constructor.
+    /// </summary>
+    /// <param name="inactivityWindow">The idle window this registry's sweep enforces.</param>
+    public RoomRegistry(TimeSpan inactivityWindow)
+    {
+        _inactivityWindow = inactivityWindow;
+    }
+
+    /// <summary>The inactivity window in force (30 minutes by default; a test may shorten it).</summary>
+    public TimeSpan InactivityWindow => _inactivityWindow;
 
     /// <summary>
     /// Creates a new room with a fresh unique code and the given connection as
@@ -297,12 +332,18 @@ public sealed class RoomRegistry
 
     // Lazily remove rooms idle past the inactivity window (AC-05). Cheap enough
     // to run on each create/lookup at toy scale; no background timer needed.
+    //
+    // session-engine/13 (AC-03/W1): a room with at least one still-CONNECTED seat
+    // is exempt no matter how stale LastActiveUtc gets - a long, chatty session
+    // must never be pulled out from under players who are still there. A room
+    // where every seat has disconnected is still swept exactly as before once
+    // past the window - this narrows WHEN the sweep fires, it does not remove it.
     private void SweepExpired()
     {
-        var cutoff = DateTimeOffset.UtcNow - InactivityWindow;
+        var cutoff = DateTimeOffset.UtcNow - _inactivityWindow;
         foreach (var pair in _rooms)
         {
-            if (pair.Value.LastActiveUtc < cutoff)
+            if (pair.Value.LastActiveUtc < cutoff && !pair.Value.SnapshotPlayers().Any(p => p.Connected))
             {
                 _rooms.TryRemove(pair.Key, out _);
             }
