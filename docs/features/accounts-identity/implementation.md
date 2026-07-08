@@ -67,19 +67,45 @@ mostly-serial chain (account exists before you can sign into it) with no meaning
 | 02 lightweight-purchaser-account | #68 | `api/src/Accounts/Account.cs`, `IAccountStore.cs`, `AccountStore.cs`, the magic-link one-time-token issuer/verifier; `Program.cs` (one DI line) | 01, infra (Table Storage) | - | 2 | medium |
 | 03 sign-in-and-restore | #69 | `api/src/Controllers/AccountsController.cs` (or similar); `web/src/pages/Account.tsx` | 02 | - | 3 | medium |
 | 04 magic-link-email-delivery | #167 | new `api/src/Accounts/IEmailSender.cs` + a real sender (e.g. `AcsEmailSender.cs`) + `NoOpEmailSender.cs`; `Program.cs` (one config-presence block); inject into `AccountsController` + `OperatorLoginController` (api/src/Admin/); `appsettings.json` (`Email` section); `infra/main.bicep` (ACS Email resource + verified domain if ACS; a KV secret only for a keyed provider) + `.github/workflows/deploy.yml` (app-setting wiring) | 02, 03, sysadmin-console/01 | - | 4 | medium |
+| 05 stable-account-id-spine (ADR 0003 Layer 0, foundation) | #TBD | `api/src/Accounts/Account.cs`, `AccountIdentity.cs`, `IAccountStore.cs`, `InMemoryAccountStore.cs`, `TableStorageAccountStore.cs`; `api/src/Entitlements/EntitlementGrant.cs`, `IEntitlementGrantStore.cs`, `InMemoryEntitlementGrantStore.cs`, `TableStorageEntitlementGrantStore.cs`, `StoredValueEntitlementService.cs`; `api/src/CloudGallery/CloudTale.cs`, `ICloudGalleryStore.cs`, `InMemoryCloudGalleryStore.cs`, `TableStorageCloudGalleryStore.cs`, `CloudGalleryController.cs` (ownerKey computation only) | 02, 03, 04, billing-entitlements/01, keepsake-gallery/05 (all Complete - this story re-keys their stores in place) | - | 5 | high |
+| 06 purchaser-proof-at-create-room (ADR 0002 Decision F) | #TBD | `api/src/Hubs/GameHub.cs` (connect-time credential resolve + `CreateRoom`'s `purchaserIdentity` argument), `web/src/signalr/useGameHub.ts` (`accessTokenFactory`) | 05 | 07 | 6 | medium |
+| 07 free-family-account | #TBD | `api/src/Controllers/AccountsController.cs` (sign-up purpose/path), `api/src/Accounts/IEmailSender.cs` (`MagicLinkPurpose.FamilySignUp`) + `AcsEmailSender.cs`/`NoOpEmailSender.cs` copy, `web/src/pages/Account.tsx` (reframe + create-account affordance) | 05 | 06 | 6 | medium |
+| 08 kid-seat-presets | #TBD | new `api/src/Accounts/SeatPreset.cs` + `ISeatPresetStore.cs` + Table/in-memory implementations; `api/src/Controllers/AccountsController.cs` (preset endpoints); `web/src/pages/Account.tsx` (presets manager); `web/src/components/PlayerIdentityFields.tsx` (or a thin wrapper); `web/src/pages/Join.tsx`, `HostSetup.tsx` | 07 | - (serialize before 09 - shared footprint, see below) | 7 | medium |
+| 09 family-device-link (+ the kid-device flag) | #TBD | new `api/src/Accounts/FamilyDeviceToken.cs` + `IFamilyDeviceTokenStore.cs`/implementations + the link-code minter; `api/src/Controllers/AccountsController.cs` (generate/redeem/list/revoke + the kid-device toggle); `api/src/Hubs/GameHub.cs` (extend 06's resolver; `Room.CaptureFamilySafeForced` + `StartRound` enforcement); `web/src/pages/Account.tsx` (linked-devices UI); a new small web redeem screen/route; `web/src/signalr/useGameHub.ts` (device-token fallback) | 06, 07 | - | 8 | medium |
 
 **Concurrency per wave:** Wave 1 = 1 (01, low-effort contract pass - unblocks nothing else technically but should
 land first so its guarantee is verifiable before 02 is built). Wave 2 = 1 (02, the account record + store). Wave 3
 = 1 (03, the sign-in surface + endpoint, consumes 02's store). Wave 4 = 1 (04, the email-delivery transport - it
 consumes 02's issuer + the request endpoints and makes 03's purchaser sign-in and sysadmin-console/01's operator
-login actually completable in a deployed/Production environment). No wave has genuine parallelism: this is a short
-serial chain because each story's output is the next story's input, not a fan-out.
+login actually completable in a deployed/Production environment). No wave has genuine parallelism through wave 4:
+this is a short serial chain because each story's output is the next story's input, not a fan-out.
+
+**ADR 0003 Layer 0 (waves 5-8):** Wave 5 = 1 (05, the foundation - re-keys three existing stores, so it is
+deliberately solo and high-effort; nothing else in this arc starts before it lands). Wave 6 = {06, 07} in parallel
+- disjoint footprints (06 touches only `GameHub.cs` + `useGameHub.ts`; 07 touches only `AccountsController.cs` +
+the email-copy seam + `Account.tsx`'s reframe), both depending only on 05. Wave 7 = 1 (08 - depends on 07; its
+Account-page and `AccountsController.cs` footprint OVERLAPS what 09 will touch, so it is sized alone in its slot
+rather than paired with 09, even though 09 does not strictly block 08 shipping - see AC-06 of story 08's degraded-
+but-shippable path). Wave 8 = 1 (09 - depends on 06 AND 07; deliberately serialized AFTER 08 because both stories
+edit `web/src/pages/Account.tsx` and `api/src/Controllers/AccountsController.cs` - landing 09 second means it is
+the one that resolves any merge overlap against 08's already-landed preset endpoints/UI).
 
 **Cross-feature order:** story 02 (magic-link + `IAccountStore`) is upstream of `billing-entitlements/01`'s (#70)
 purchaser-lookup piece (that story's AC-06) - 02 must land before #70's stored-value evaluation can resolve a real
 purchaser identity, though #70's catalog-extension and grant-store work do not themselves depend on this feature.
 Story 02's magic-link token issuer/verifier is also upstream of `sysadmin-console/01`'s (#135) operator login,
 which reuses the SAME plumbing against a separate allowlist.
+
+**Cross-feature order (ADR 0003, 2026-07-08):** per ADR 0003's "Cross-feature build order" table, this feature's
+05 lands in the PROGRAM's Wave 1 alongside `keepsake-vault/01`, `control-plane/01`, `sysadmin-console/04`, and
+`platform-devops/07-08` - all of these except platform-devops's second-environment story register services in
+`Program.cs`, so land them as SEPARATE, small, serially-rebased PRs rather than batching. This feature's 06 and 07
+land in the PROGRAM's Wave 2 alongside `control-plane/02` - **06 and `control-plane/02` BOTH touch
+`api/src/Entitlements/` (06 changes what `CreateRoom` passes into `EvaluateForSession`; `control-plane/02` adds the
+system-scope check ahead of the account-grant check inside the SAME evaluation path) - serialize those two across
+features, not just within this one.** This feature's 08 and 09 land in the PROGRAM's Wave 3 alongside
+`keepsake-vault/03-04` and `control-plane/03` (the knob migration - schedule it, per ADR 0003, "when the tree is
+quiet," since it touches many files across every feature).
 
 ## Per-story tech notes
 
@@ -136,6 +162,55 @@ response (identical shape/timing whether an account/operator exists and whether 
 failure returns the neutral 200 and is logged without the token / link / secret. Keep the `IsDevelopment()` echo so
 local walkthroughs still run with zero email config.
 
+### 05 - Stable account id spine (ADR 0003 Layer 0, foundation)
+**Approach:** re-key three already-shipped stores in place - no new seam, no new service interface. `Account` gains
+a `Guid Id`; `TableStorageAccountStore`/`InMemoryAccountStore` move to a primary-row-plus-email-index shape (see the
+story's Technical Notes for the exact two-row pattern); `TableStorageEntitlementGrantStore`/
+`TableStorageCloudGalleryStore` (and their in-memory siblings) partition by `account.Id` instead of
+`AccountIdentity.KeyFor(account.Email)`; `StoredValueEntitlementService` and `CloudGalleryController` update their
+few call sites accordingly. **Exports:** the stable `AccountId` every later story in this arc (06-09) and every
+Layer-1/2 ADR-0003 feature (`keepsake-vault`, `control-plane`) keys off - plus a NEW `IAccountStore.GetByIdAsync`
+lookup for callers that already hold an id. **Gotcha:** this is the ONE story in the arc allowed to touch
+`api/src/Entitlements/` and `api/src/CloudGallery/` alongside `api/src/Accounts/` - land it alone (wave 5) so
+nothing else re-keys against a moving target.
+
+### 06 - Purchaser proof at CreateRoom (ADR 0002 Decision F, finally wired)
+**Approach:** a small connect-time credential resolution step in `GameHub` (NOT a full ASP.NET Core auth scheme -
+`PurchaserCredentialService`'s credential is a Data-Protection payload, not a JWT) plus one `accessTokenFactory`
+line on the web hub connection. **Exports:** the per-connection resolved-identity lookup `CreateRoom` reads (and
+story 09 extends to also recognize a family-device token, rather than forking a second resolver). **Gotcha:** this
+is the story every future reviewer checks against ADR 0002's load-bearing invariant - no field on `Room`/`Player`,
+ever. Must serialize with `control-plane/02` (cross-feature, both touch `api/src/Entitlements/` - see the Wave Plan
+note above), even though within THIS feature it can run alongside 07.
+
+### 07 - The free family account
+**Approach:** widen the EXISTING `AccountsController`'s request/verify pair with a sign-up purpose, so a "no-account"
+verify outcome creates (via `IAccountStore.CreateOrGetAsync`, already idempotent) instead of only guiding to
+purchase. **Exports:** the "family account with zero grants" shape every later story (08, 09, and `keepsake-vault`'s
+claim flow) assumes is a normal, expected account state. **Gotcha:** must not regress the no-enumeration contract -
+the request endpoint stays neutral regardless of purpose; only the VERIFY-time "no account" branch's behavior
+changes (create vs guide-to-purchase), and only on the sign-up purpose.
+
+### 08 - Kid seat presets
+**Approach:** a small new preset store keyed by `AccountId` (05), a presets-manager panel on the Account page, and a
+one-tap picker layered ABOVE `PlayerIdentityFields` on Join/HostSetup - never a new submit path. **Exports:** the
+device-holds-a-family-credential check, built as one small shared helper so story 09 only has to extend it (add a
+second credential type) rather than touch the picker component. **Gotcha:** the hard boundary (ADR 0003's
+kid-profile boundary, quoted in the story) is the single most important thing a reviewer checks - a preset must be
+indistinguishable, server-side, from a manually typed name.
+
+### 09 - Family device link
+**Approach:** a link-code minter + a `FamilyDeviceToken` store (opaque, revocable-by-row - deliberately NOT a Data-
+Protection payload, since it must be revocable before its own TTL), a redeem/list/revoke REST surface, and an
+extension of story 06's connect-time resolver to also recognize a device token. PLUS the kid-device flag: a boolean
+on the SAME token row that, when set, makes `CreateRoom` capture a sibling `Room.FamilySafeForced` boolean (never
+folded into `Room.Entitlements`), which `StartRound` then honors server-side regardless of the client's submitted
+`familySafe` value. **Exports:** nothing further downstream within this feature - this is the last story in the
+arc. **Gotcha:** two DISTINCT invariants apply here, not one - (a) the entitlement invariant (identity resolved and
+discarded at `CreateRoom`, exactly like 06) and (b) the NEW content-safety invariant (a kid-flagged device can never
+get an unfiltered room, enforced server-side at `StartRound`, independent of any client toggle state). Do not
+conflate the two capture-once booleans (`SessionEntitlements` vs `FamilySafeForced`) into one field.
+
 ## Cross-cutting concerns
 
 - **No account state ever gates or touches gameplay directly.** Every story in this feature stops at "does a
@@ -155,3 +230,19 @@ local walkthroughs still run with zero email config.
 - **No i18n** (plain strings). **No em dashes.** Big tap targets and the stone-tablet/Guardian visual language
   extend to the purchaser-only screens too, even though they are adult-facing - the whole app is one visual
   language, not two.
+- **ADR 0003 Layer 0 (stories 05-09) - the invariant is unchanged, only who may hold an account widens.** Every
+  story in this arc is reviewed against the SAME load-bearing invariant ADR 0002 established: entitlement identity
+  is resolved to capabilities at `CreateRoom` and discarded at that boundary; only `SessionEntitlements` (and, as of
+  story 09, the sibling `FamilySafeForced` boolean) ever lands on `Room` - never an `AccountId`, email, device-token
+  id, or preset id.
+- **`Program.cs` is the systemic hotspot for this arc, as it is for every ADR 0003 Wave-1/2 story across the whole
+  program.** Story 05 touches no NEW registration (same interfaces, re-keyed implementations); stories 08 and 09 DO
+  add new store registrations (`ISeatPresetStore`, `IFamilyDeviceTokenStore`) - land those as small, separately
+  rebased PRs rather than batching with any concurrent feature's `Program.cs` edit.
+- **The kid-profile boundary (story 08) and the kid-device flag (story 09) are both content/UX conveniences, never
+  identity.** No story in this arc may add a field to `Room`/`Player` beyond the two capture-once booleans already
+  named above - if a future idea needs one, that is a new ADR (ADR 0003's own words), not a slide in one of these
+  stories.
+- **Per-device capability scoping stays parked (ADR 0003, recorded in feature.md's Parked section).** A linked
+  device (story 09) always resolves the WHOLE family grant set - never a subset chosen per device. Only the
+  family-safe content state is ever device-scoped.

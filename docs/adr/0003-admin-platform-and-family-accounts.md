@@ -139,7 +139,9 @@ Two refinements follow from independent kid play:
 
 - **The kid-device flag (in scope, story `accounts-identity/09`).** A linked device can be marked
   as a kid device by the parent, which locks the family-safe toggle ON for rooms that device
-  creates (server-enforced at `CreateRoom`, not a client hint). Without it, an unsupervised kid
+  creates (server-enforced, not a client hint: the forced state is captured at `CreateRoom` and
+  overrides whatever `familySafe` value the client submits at `StartRound`, since family-safe is
+  chosen per round today). Without it, an unsupervised kid
   host could flip family-safe off and reveal the teen-plus content tier - the gap independent play
   opens is content exposure, not capability misuse. The flag lives on the link (a device
   attribute), never on a player, so the invariant is untouched.
