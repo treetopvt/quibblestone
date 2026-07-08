@@ -155,9 +155,8 @@ blocker/high item (B1-B5) and W5 are resolved - the alpha gate is closed.**
 | W5 | Warn | With no `Email:*` config, magic-link flows silently send nothing - so the operator console (incl. the tale review queue) is unreachable on UAT | configure ACS email per the runbook before the test, or accept no admin console during it | **Resolved** - ACS email is live on UAT, confirmed via a tested magic-link round trip |
 
 Notes-tier items (hub-method rate limits, tale-link revoke ownership, quota-key
-rotation, unmetered telemetry endpoints, all-family-safe seed content making the
-toggle a no-op, Google Fonts as the one external runtime dependency) are recorded
-in the audit and can ride until after the test.
+rotation, unmetered telemetry endpoints, Google Fonts as the one external runtime
+dependency) are recorded in the audit and can ride until after the test.
 
 ## The paths, by horizon
 
@@ -180,11 +179,13 @@ in the audit and can ride until after the test.
 ### 2. Polish the laughs (during / after the test)
 - Triage what the telemetry and the family actually surface - this list is a
   guess until then.
-- **Content is the likely first complaint**: the seed library is 185 templates,
-  all family-safe (the toggle currently gates nothing in the library, only the AI
-  jumble's grown-up mode). Author more seeds - including genuinely grown-up ones -
-  or pull `ai-content-factory/01-03` forward (batch generate -> vet -> publish is
-  the content-velocity moat, and its stories are written: #78-#80).
+- **Content depth**: the seed library is now 54 templates across two tiers - 40
+  family-safe plus a 14-story grown-up set (`familySafe: false` / `teen-plus`)
+  the family-safe toggle reveals only when a host turns it off, so the toggle now
+  gates real library content, not just the AI jumble's grown-up mode. Keep
+  authoring seeds, or pull `ai-content-factory/01-03` forward (batch generate ->
+  vet -> publish is the content-velocity moat, and its stories are written:
+  #78-#80).
 - **Group Progressive Story** - the one missing mode in group; write + build the
   "story so far" broadcast story.
 - **Orientation/landscape** (`design-system/03`) and any W-tier paper cuts that
