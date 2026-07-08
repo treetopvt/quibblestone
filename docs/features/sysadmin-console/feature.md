@@ -82,14 +82,14 @@ actually possible. See `implementation.md` for the DAG-ready Wave Plan.
   reimplement moderation logic.
 - `billing-entitlements/06` (#TBD, Complete "interim gate") - the `IActiveStripeContext` domain model
   and the interim `IOperatorGate` scheme story 04 deletes in favor of the real Operator policy.
-- `control-plane/01` (ADR 0003 Layer 1, new feature, not yet decomposed) - the runtime settings
+- `control-plane/01` (ADR 0003 Layer 1, new feature, decomposed the same day) - the runtime settings
   endpoint story 05's Operations-tab settings panel is dependency-tolerant of.
-- `accounts-identity/05` and `/09` (ADR 0003 Layer 0, not yet decomposed) - the `AccountId` spine and
+- `accounts-identity/05` and `/09` (ADR 0003 Layer 0, decomposed the same day) - the `AccountId` spine and
   the family device link story 07's account detail panel surfaces, dependency-tolerant until they
   land.
-- `keepsake-vault/01-04` (ADR 0003 Layer 2, new feature, not yet decomposed) - the claim code, vault
+- `keepsake-vault/01-04` (ADR 0003 Layer 2, new feature, decomposed the same day) - the claim code, vault
   counts, and soft-delete/restore seam story 07 consumes, dependency-tolerant until it lands.
-- `billing-entitlements/08` (ADR 0003 Layer 2, not yet decomposed) - the grant metadata and
+- `billing-entitlements/08` (ADR 0003 Layer 2, decomposed the same day) - the grant metadata and
   per-account Stripe resync story 07 triggers, dependency-tolerant until it lands.
 
 ## Design notes
