@@ -298,8 +298,13 @@ earlier dev-environment procedure is preserved at
   Key Vault - see api/src/Program.cs).
 - A provisioned **alert action group / alert stack** for App Insights - the alert
   seam is documented above (`platform-devops/04` AC-07), not provisioned.
-- Environments beyond UAT, and a manual approval gate before UAT deploy (add a
-  required reviewer on the `uat` GitHub Environment - no code change).
+- Production hardening beyond the lanes we run. Two cloud lanes now exist - **QA**
+  (`quibblestone-qa-rg`, auto-deployed from `main`) and **beta** (the existing
+  `quibblestone-uat-rg`, promoted only on a version tag); see
+  `docs/features/platform-devops/07-qa-promotion-lane.md` and
+  `docs/runbooks/deploy-qa-and-promote-beta.md`. A manual approval gate before a
+  beta promotion is still optional (add a required reviewer on the `uat` GitHub
+  Environment - no code change).
 
 The Static Web App / App Service are now bound to the GitHub deploy workflow
 (`.github/workflows/deploy.yml`, OIDC, auto on merge to main).

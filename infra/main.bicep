@@ -28,7 +28,7 @@ param location string = resourceGroup().location
 @description('Short prefix used to name resources.')
 param namePrefix string = 'quibblestone'
 
-@description('Environment moniker (dev, uat, prod).')
+@description('Environment moniker (dev, qa, uat, prod). Composes resource names, so each lane in its own resource group gets distinct, isolated resources.')
 param environmentName string = 'uat'
 
 @description('App Service Plan SKU. F1 (Free, $0) is the default so UAT costs nothing to stand up; scale up to B1/B2/S1 for Always On + reliable WebSockets (a working real-time game). Change here, in the *.bicepparam file, or pass -p appServicePlanSku=B1 at deploy time.')
