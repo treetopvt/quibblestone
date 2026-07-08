@@ -30,7 +30,9 @@ Design notes for the config-presence-vs-settings razor this story enforces.
 - [ ] AC-03: Given an override is written (PUT) or cleared (DELETE), when that override is read back
       (individually or via the GET-all endpoint), then it carries a `changedBy` (the operator's
       identity, from the existing operator session credential) and a `changedAt` (UTC timestamp) stamp;
-      a key with no override present shows no stamp.
+      a key with no override present shows no stamp. This row-level stamp is a display convenience,
+      NOT the audit trail (see AC-08 - the two are different mechanisms with different failure modes:
+      the stamp is overwritable by the next PUT, the log row is append-only history).
 - [ ] AC-04: Given an operator DELETEs an override for a key, when the key is next read (after the
       cache window), then it returns to the code default, and the GET-all response no longer lists an
       override for that key.
@@ -48,6 +50,46 @@ Design notes for the config-presence-vs-settings razor this story enforces.
       declared type (schema drift, a hand-edited row), when the service reads that key, then it
       degrades to the code default rather than throwing - the same "a storage hiccup never crashes the
       app" posture as `TableStorageActiveStripeModeStore.GetAsync`'s 404-and-unparseable handling.
+- [ ] AC-08 (bounds, not just type - closes the adversarial-review finding): Given a `SettingDefinition`
+      declares a numeric `Min`/`Max` (see Technical Notes' `Bounds`), when a PUT value type-parses
+      correctly but falls outside `[Min, Max]`, then the endpoint rejects it with 400 and writes NO
+      override - a type-only check is not sufficient. Boolean kill switches use the separate
+      `RequiresConfirmation` gate (AC-10), not a numeric bound. Concretely: an operator cannot
+      set `ai.spend.monthlyCeilingUsd` above its declared `Max` (uncapping AI spend), cannot set
+      `tales.ttlDays` to `0` or below its declared `Min` (mass-expiring the vault/tale store), and
+      cannot set a rate-limit-permit key (e.g. `admin.operatorLogin.rateLimitPermitPerMinute`, and any
+      key story 03 migrates) to a value that would defeat the limiter (an absurdly large permit count) -
+      each such key's `Max` is chosen to keep the limiter meaningful, not merely non-crashing.
+- [ ] AC-09 (every settings change is logged NOW, not deferred): Given a successful PUT (write or
+      change an override) or DELETE (clear an override), when the call completes, then the service
+      appends exactly one row to the operator action log via `IOperatorActionLog` (the seam
+      `sysadmin-console/06` owns), recording the operator, the action (`settings.put` /
+      `settings.delete`), the target (the settings key), and a note carrying the old and new value (or
+      `"reverted to default"` for a DELETE) - a failed PUT (rejected by AC-08's bounds check, or a
+      malformed value) writes NO row, mirroring `sysadmin-console/06`'s AC-05 "only completed, effectful
+      actions are logged." This requirement is THIS story's (it resolves the ADR-flagged contradiction
+      between this feature and Amendment 2); the STORE is `sysadmin-console/06`'s. Wire this through a
+      thin internal seam (see Technical Notes) so building this story does not hard-block on
+      `sysadmin-console/06` landing first.
+- [ ] AC-10 (a flipped kill switch or ceiling change is confirmation-gated): Given a PUT targets a key
+      marked `RequiresConfirmation` in its `SettingDefinition` (the `*.enabled` system flags this
+      feature and story 02 register, and `ai.spend.monthlyCeilingUsd`), when the request body omits an
+      explicit `confirm: true` field, then the endpoint rejects it with 400 and writes no override and
+      no log row; when `confirm: true` is present AND the value passes AC-08's bounds check, the write
+      proceeds normally (AC-02/AC-09). This is a request-shape gate (an explicit, deliberate flag on the
+      same call), not a second approval workflow or a second operator - it exists so a flip of one of
+      these load-bearing switches can never be an accidental one-field PUT.
+
+## Cross-feature dependency note
+This story's action-log write (AC-09) depends on `IOperatorActionLog`, the seam
+`sysadmin-console/06` defines and backs with `TableStorageOperatorActionLog`. Per that story's own
+Technical Notes, the WRITE seam has no technical dependency on `sysadmin-console/05`'s shell and can
+land independently of the console UI. This story does NOT hard-depend on `sysadmin-console/06`
+merging first: register a local `IOperatorActionLog` seam (an interface this story defines or a
+narrow reference to the one `06` defines, whichever lands first) with a no-op/in-memory
+implementation until `06` lands, then swap in the real store with zero call-site change - see
+Technical Notes. If `06` lands first, this story simply depends on and calls its concrete
+`IOperatorActionLog`.
 
 ## Out of Scope
 - The settings console PAGE (an Operations tab list + edit affordance) - that is `sysadmin-console`'s
@@ -60,9 +102,17 @@ Design notes for the config-presence-vs-settings razor this story enforces.
 - Seeding the actual business keys this feature will eventually carry (`publishing.enabled`,
   `ai.quota.perSession`, etc.) - those are story 02's and story 03's job. This story may register one or
   two scaffolding/example keys purely to prove the mechanism end to end, but owns no production knob.
-- The action log (ADR 0003 Decision 3) - that is `sysadmin-console`'s job; this story's PUT/DELETE
-  responses carry `changedBy`/`changedAt` on the row itself (AC-03), which is sufficient for THIS
-  feature's own correctness but is not an append-only audit trail.
+- The action log's STORE and STORAGE mechanics (`IOperatorActionLog`'s Table Storage implementation,
+  its retention cap, and its console view) - that is `sysadmin-console/06`'s job. What IS in scope for
+  this story is the REQUIREMENT to call that seam on every successful settings change (AC-09) - this
+  story does not build the log, but it is one of the log's writers, on day one, same as the other four
+  money/moderation call sites `sysadmin-console/06` names. The row-level `changedBy`/`changedAt` stamp
+  (AC-03) remains a separate, overwritable display convenience on the settings row itself - it is not a
+  substitute for the append-only log entry.
+- A second approval workflow, a distinct approver identity, or any multi-operator sign-off for
+  confirmation-gated keys (AC-10). Confirmation is a same-request, same-operator explicit flag, not a
+  maker-checker process - this feature has exactly one operator identity today (ADR 0003 Layer 3 notes
+  RBAC as later work).
 
 ## Technical Notes
 New folder `api/src/Settings/` (mirrors the shape of `api/src/Billing/` and `api/src/Entitlements/`):
@@ -72,10 +122,22 @@ New folder `api/src/Settings/` (mirrors the shape of `api/src/Billing/` and `api
   a runtime branch.
 - **`SettingDefinition`** - a record: `Key` (string, dotted namespacing like `EntitlementCatalog`'s
   capability keys, e.g. `moderation.tale.autoHideThreshold`), `Type` (`SettingType`), `CodeDefault`
-  (the typed default value), `Description` (a short operator-facing string). Definitions live in a
-  static `SettingsCatalog` list (mirrors `EntitlementCatalog`'s static-const-list shape) - story 02 and
-  story 03 each APPEND to this list when they add their keys (same file, different waves; the feature's
-  Wave Plan schedules them serially so this never conflicts).
+  (the typed default value), `Description` (a short operator-facing string), plus two new fields that
+  close the adversarial-review gap:
+  - `Bounds` (nullable, numeric keys only: `Min`/`Max` of the same underlying type as `Int`/`Decimal`
+    keys) - `null` for `Bool`/`String` keys that have no natural range. Every numeric key story 02 or
+    story 03 registers MUST supply a `Bounds` that keeps the knob meaningful (e.g.
+    `ai.spend.monthlyCeilingUsd` gets a `Max` an operator cannot exceed to uncap spend; `tales.ttlDays`
+    gets a `Min` of `1` so it can never mass-expire the store; a rate-limit-permit key gets a `Max` that
+    keeps the limiter meaningful) - a definition that omits `Bounds` for a numeric key is a review
+    blocker in story 02/03, not this story's job to police at runtime beyond enforcing whatever
+    `Bounds` is declared.
+  - `RequiresConfirmation` (bool, default `false`) - set `true` on `*.enabled` system-flag keys (story
+    02) and on `ai.spend.monthlyCeilingUsd` (story 03). A confirmation-gated PUT (AC-10) is otherwise
+    identical to any other PUT.
+  Definitions live in a static `SettingsCatalog` list (mirrors `EntitlementCatalog`'s static-const-list
+  shape) - story 02 and story 03 each APPEND to this list when they add their keys (same file, different
+  waves; the feature's Wave Plan schedules them serially so this never conflicts).
 - **`IRuntimeSettingsStore`** - the storage seam, generalizing `IActiveStripeModeStore`'s single-fixed-
   row shape into one row per key: `GetAllOverridesAsync()`, `GetOverrideAsync(key)`,
   `SetOverrideAsync(key, value, changedBy, changedAtUtc)`, `DeleteOverrideAsync(key, changedBy,
@@ -102,18 +164,34 @@ New folder `api/src/Settings/` (mirrors the shape of `api/src/Billing/` and `api
   surface, consistent with that controller's location): three actions, all
   `[Authorize(Policy = OperatorSession.PolicyName)]` (AC-06):
   - `GET /api/admin/settings` - the full catalog with defaults + overrides (AC-01/AC-03).
-  - `PUT /api/admin/settings/{key}` - body `{ value }`; writes an override, stamping `changedBy` from
-    `User.Identity?.Name` (the operator email claim `OperatorAuthenticationHandler` already sets via
-    `ClaimTypes.Name`) and `changedAt` from `DateTimeOffset.UtcNow` (AC-02/AC-03). Rejects (400) a key
-    not in the catalog or a value that fails to parse against the key's declared type.
-  - `DELETE /api/admin/settings/{key}` - clears the override, reverting to the code default (AC-04).
+  - `PUT /api/admin/settings/{key}` - body `{ value, confirm? }`; validates in order: (1) key exists in
+    the catalog, (2) value parses against the key's declared `SettingType`, (3) if `Bounds` is declared,
+    value falls within `[Min, Max]` (AC-08), (4) if `RequiresConfirmation` is `true`, `confirm === true`
+    is present (AC-10) - any failure is a 400 with no write and no log row. On success: writes the
+    override, stamps `changedBy` from `User.Identity?.Name` (the operator email claim
+    `OperatorAuthenticationHandler` already sets via `ClaimTypes.Name`) and `changedAt` from
+    `DateTimeOffset.UtcNow` (AC-02/AC-03), then calls `IOperatorActionLog.AppendAsync` (AC-09) with
+    action `settings.put`, target the key, and a note of `"{oldValue} -> {newValue}"`.
+  - `DELETE /api/admin/settings/{key}` - clears the override, reverting to the code default (AC-04),
+    then calls `IOperatorActionLog.AppendAsync` with action `settings.delete`, target the key, and a
+    note of `"reverted to default"` (AC-09). A DELETE against a key with no existing override is a
+    no-op (mirrors the log's own "no row on a no-op" rule) - no write, no log row.
+- **The action-log seam (AC-09), buildable before `sysadmin-console/06` lands:** declare a narrow
+  `IOperatorActionLog` interface (`AppendAsync(operatorEmail, action, target, note, ct)`) in this
+  story's own `api/src/Settings/` folder (or reference `sysadmin-console/06`'s if it has already landed
+  - same shape, one interface, no duplicate contract). Register a working no-op/in-memory
+  implementation in `Program.cs` alongside this story's other wiring so `SettingsController` always has
+  something to call; when `sysadmin-console/06` merges its `TableStorageOperatorActionLog`, the DI
+  registration swaps to the real store with no change to `SettingsController`'s call sites. This keeps
+  AC-09 satisfiable on this story's own schedule without a hard build-blocking dependency on `06`.
 - **Program.cs wiring**: config-presence split on the SAME `Entitlements:StorageConnectionString` the
   entitlement grant store and the Stripe-mode store already read (no new connection string, no new
   Azure resource) - `TableStorageRuntimeSettingsStore` when present, `InMemoryRuntimeSettingsStore`
-  otherwise; `IRuntimeSettingsService` registered as a singleton. This is the story's one edit outside
-  `api/src/Settings/` (and, if the controller lands in `api/src/Admin/`, that folder) - per ADR 0003's
-  cross-feature note, `Program.cs` is a systemic hotspot; keep this a small, focused diff and expect to
-  merge it serially against the other wave-1 stories touching the same file.
+  otherwise; `IRuntimeSettingsService` registered as a singleton; the `IOperatorActionLog` seam
+  registered per the bullet above. This is the story's one edit outside `api/src/Settings/` (and, if the
+  controller lands in `api/src/Admin/`, that folder) - per ADR 0003's cross-feature note, `Program.cs`
+  is a systemic hotspot; keep this a small, focused diff and expect to merge it serially against the
+  other wave-1 stories touching the same file.
 
 ## Tests
 | AC | Test |
@@ -125,6 +203,11 @@ New folder `api/src/Settings/` (mirrors the shape of `api/src/Billing/` and `api
 | AC-05 | same file, constructed over `InMemoryRuntimeSettingsStore` - identical assertions with no storage configured |
 | AC-06 | `SettingsControllerTests.cs` - unauthenticated/non-operator caller gets 401/403 on all three verbs |
 | AC-07 | `TableStorageRuntimeSettingsStoreTests.cs` - missing row and an unparseable stored value both degrade to the code default |
+| AC-08 | `SettingsControllerTests.cs` - a value type-parses but falls outside `Bounds` on a scaffolding numeric key gets 400, writes no override |
+| AC-09 | `SettingsControllerTests.cs` - a fake `IOperatorActionLog` captures exactly one row per successful PUT/DELETE; zero rows on a rejected PUT (AC-08/AC-10) |
+| AC-10 | `SettingsControllerTests.cs` - a `RequiresConfirmation` key without `confirm: true` gets 400, no write, no log row; with `confirm: true` and an in-bounds value, the write and log proceed |
 
 ## Dependencies
-none (foundation story for this feature).
+none (foundation story for this feature) for build purposes; the settings mechanism itself has no
+prerequisite. AC-09's action-log write depends on the `IOperatorActionLog` seam - see "Cross-feature
+dependency note" above for why that is not a hard build-blocking dependency on `sysadmin-console/06`.

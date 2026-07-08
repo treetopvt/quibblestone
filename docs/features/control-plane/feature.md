@@ -32,8 +32,13 @@ and-family-accounts.md`, "Layer 1 - control plane (`control-plane/01-03`)".
 `IActiveStripeContext`'s pattern (`api/src/Billing/`) and reuses its `Entitlements:StorageConnectionString`
 Table Storage account - no new Azure resource. `IEntitlementService` / `EntitlementCatalog` /
 `SessionEntitlements` (already shipped, `api/src/Entitlements/IEntitlementService.cs`) is the contract
-story 02 extends without changing its shape. `sysadmin-console` is a downstream consumer (the Operations
-tab console page reads this feature's admin endpoints) - not a dependency of this feature.
+story 02 extends without changing its shape. `accounts-identity/05` (ADR 0003 Wave 1, re-keys
+`StoredValueEntitlementService.cs` onto `AccountId`) is a HARD dependency of story 02 specifically -
+corrected 2026-07-08 per the adversarial review; see the Decisions entry below. `sysadmin-console/06`
+(the operator action-log store) is a soft, dependency-tolerant dependency of story 01 (AC-09) - the
+write is wired through a seam that no-ops until `06` lands, so this feature does not hard-block on it.
+`sysadmin-console` overall remains a downstream CONSUMER (the Operations tab console page reads this
+feature's admin endpoints) - not a dependency of this feature.
 
 ## Design notes
 **The razor:** config-presence stays for infrastructure wiring (connection strings, endpoints - decided
@@ -60,9 +65,11 @@ thin so `sysadmin-console` slots a page in later without any change to this feat
 
 Story 02 does not change `IEntitlementService`'s public contract or the capture-once discipline
 (README section 3, ADR 0002's retained invariant) - only what feeds the evaluation changes: a system
-scope, sourced from this feature's settings keys, is composed BEFORE account grants. A system flag is a
-force-disable-only override; the moment nothing has been overridden, evaluation is bit-for-bit identical
-to today.
+scope, sourced from this feature's settings keys, WINS OVER account grants in precedence (a force-off
+cannot be reopened by a grant), implemented as a post-compose FILTER applied after the existing
+baseline+grant composition, not as an evaluate-system-first branch (see story 02's Context for why that
+distinction matters to a builder). A system flag is a force-disable-only override; the moment nothing
+has been overridden, evaluation is bit-for-bit identical to today.
 
 Story 03 (knob migration) is explicitly the highest-file-footprint story in this feature and, per ADR
 0003's cross-feature build order, must be scheduled ALONE in its wave slot - not just within this
@@ -93,3 +100,34 @@ features also touch (`Program.cs`, `api/src/Rooms/SeatGraceService.cs`, `api/src
   across the whole ADR also touches - merge serially, small PRs, never batched; (b) story 02 edits
   `api/src/Entitlements/` and must serialize with `accounts-identity/06` (ADR 0002 Decision F wiring),
   which touches the same folder in the same ADR wave.
+- **2026-07-08 (adversarial review resolutions)** - a five-lens adversarial review of ADR 0003 (run the
+  same day, before any code) named this feature in its "Security posture" section and its corrected
+  Cross-feature build order table. Stories 01-03 are revised to fold in the review's findings:
+  - **Story 01** gains: per-key numeric `Bounds` enforced on PUT (a type-only check let an operator
+    uncap AI spend, mass-expire the tale/vault store via `tales.ttlDays=0`, or disable a rate limiter
+    via a huge permit count - AC-08); a requirement to append an operator action-log row on every
+    settings PUT/DELETE via the `IOperatorActionLog` seam, satisfiable before `sysadmin-console/06`
+    lands (AC-09) - this resolves the prior contradiction between this feature's Out of Scope and ADR
+    0003 Amendment 2; and confirmation-gating (`RequiresConfirmation`) for the `*.enabled` kill switches
+    and the AI monthly spend ceiling, so a flip of a load-bearing switch cannot be an accidental
+    one-field PUT (AC-10).
+  - **Story 02** now states PRECEDENCE ("system force-off wins over grants") and IMPLEMENTATION
+    ("a post-compose filter, not an evaluate-first branch") as two separate things, correcting
+    ambiguous ordering language that could have led a builder to an unnecessary early-branch structure.
+    Its dependency is corrected: a HARD depends-on `accounts-identity/05` (which re-keys
+    `StoredValueEntitlementService.cs`, the file this story edits) is added; the prior "serialize with
+    `accounts-identity/06`" hazard is retracted as stale (06 does not touch `api/src/Entitlements/`).
+    The three config-presence conditions this story ANDs against are documented as NOT already
+    reusable booleans (they are inline `if` conditions at three different `Program.cs` call sites) -
+    the story now calls for extracting them into a `SystemConfigPresence` value, and notes that
+    `StoredValueEntitlementService`'s constructor gaining dependencies ripples into its existing test
+    fixtures, not just a wiring line.
+  - **Story 03** gains a read-site CLAMP (`[1, sane-max]`) on every rate-limit-permit knob, inside the
+    partition-creation factory lambda, independent of story 01's catalog-level bounds check - because
+    `FixedWindowRateLimiterOptions.PermitLimit <= 0` throws inside that lambda, which would otherwise
+    turn a bad settings value into a 500 on every request (AC-08). It also records a `PublishedTales/`
+    ordering hazard with `keepsake-vault/04` (both touch that folder in Wave 3) and restates that
+    `Program.cs` is a four-story Wave 3 hotspot, not a two-story one.
+  See `docs/adr/0003-admin-platform-and-family-accounts.md`, "Security posture (from the 2026-07-08
+  adversarial review)" for the source findings, and `implementation.md`'s Wave Plan / per-story tech
+  notes for where each resolution lands.

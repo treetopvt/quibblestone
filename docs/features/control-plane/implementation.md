@@ -26,14 +26,24 @@
 | Admin-endpoint shape precedent (GET/PUT-by-key/verb pattern, operator-only) | `AdminEntitlementsController` | `api/src/Admin/AdminEntitlementsController.cs` |
 | Table storage client | `Azure.Data.Tables` (already a project dependency - no new NuGet) | `api/src/Billing/`, `api/src/Entitlements/` (existing `TableStorage*Store` classes) |
 | Hardcoded knobs story 03 migrates | see story 03's table | `api/src/PublishedTales/PublishedTalesController.cs`, `api/src/Program.cs`, `api/src/Ai/AiOptions.cs` / `AiQuota.cs` / `AiSpendBreaker.cs`, `api/src/Rooms/SeatGraceService.cs`, `api/src/Admin/OperatorLoginRateLimit.cs` |
+| Operator action-log seam (story 01 AC-09, dependency-tolerant) | `IOperatorActionLog` (`sysadmin-console/06`'s contract - `AppendAsync(operatorEmail, action, target, note, ct)`); if `06` has not landed yet, story 01 declares its own narrow copy of the same shape and a no-op/in-memory implementation, swapped for the real store with no call-site change once `06` merges | `sysadmin-console/06-operator-action-log.md`; the seam is registered in `Program.cs` alongside story 01's other wiring |
+| `AccountId` re-key story 02 depends on | `StoredValueEntitlementService.cs`'s constructor and internals after `accounts-identity/05` re-keys it onto `AccountId` (ADR 0003 Wave 1) - story 02's filter step is added on top of the re-keyed class, not the pre-05 shape | `api/src/Entitlements/StoredValueEntitlementService.cs`; `docs/features/accounts-identity/05-*.md` |
 
 New surfaces this feature introduces:
-- `api/src/Settings/` (new folder) - `SettingType`, `SettingDefinition`, `SettingsCatalog`,
+- `api/src/Settings/` (new folder) - `SettingType`, `SettingDefinition` (now carrying `Bounds` and
+  `RequiresConfirmation`, per the 2026-07-08 adversarial-review revision), `SettingsCatalog`,
   `IRuntimeSettingsStore` + `TableStorageRuntimeSettingsStore` / `InMemoryRuntimeSettingsStore`,
   `IRuntimeSettingsService` / `RuntimeSettingsService` - story 01. Story 02 and story 03 each append
-  entries to `SettingsCatalog`'s static list (serialized by wave, not concurrent).
+  entries to `SettingsCatalog`'s static list (serialized by wave, not concurrent), and each numeric entry
+  MUST supply `Bounds`.
 - `api/src/Admin/SettingsController.cs` (or `api/src/Settings/SettingsController.cs`) - the three admin
-  endpoints - story 01.
+  endpoints, now validating bounds and confirmation before write and calling `IOperatorActionLog` on
+  every successful write - story 01.
+- `IOperatorActionLog` seam (interface + a no-op/in-memory implementation until `sysadmin-console/06`
+  lands its Table Storage-backed store) - story 01, registered in `Program.cs`.
+- `SystemConfigPresence` (`AiConfigured` / `PublishingConfigured` / `EmailConfigured`) - a small
+  record/struct extracted from three previously-inline `Program.cs` conditions (see story 02's tech
+  notes) - story 02.
 
 ## Wave Plan (DAG)
 
@@ -44,30 +54,43 @@ outside this feature entirely.
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
-| 01 - runtime settings service | #TBD | NEW `api/src/Settings/` (catalog, store, service); NEW `api/src/Admin/SettingsController.cs`; one small `Program.cs` DI-wiring edit | - | - (outside this feature: other ADR 0003 wave-1 stories also touch `Program.cs` - see hazard (a) below) | 1 | high |
-| 02 - capability scopes (system flags) | #TBD | EDITS `api/src/Entitlements/StoredValueEntitlementService.cs` (system-flag composition step); EDITS `api/src/Settings/SettingsCatalog.cs` (appends 3 keys); one small `Program.cs` DI-wiring edit (threads 3 config-presence booleans through) | 01 | - (outside this feature: must serialize with `accounts-identity/06` - see hazard (b) below) | 2 | medium |
-| 03 - knob migration | #TBD | EDITS `api/src/PublishedTales/PublishedTalesController.cs`, `api/src/Program.cs` (rate-limiter factories), `api/src/Ai/AiOptions.cs`, `api/src/Ai/AiQuota.cs`, `api/src/Ai/AiSpendBreaker.cs`, `api/src/Rooms/SeatGraceService.cs`, `api/src/Admin/OperatorLoginRateLimit.cs`; EDITS `api/src/Settings/SettingsCatalog.cs` (appends 7 keys); possibly `api/src/Admin/ReportedTalesController.cs` if it also reads `AutoHideThreshold` directly | 01 | - (widest footprint in the feature; ADR 0003 requires it run ALONE in its slot, not just within this feature) | 3 | high |
+| 01 - runtime settings service | #TBD | NEW `api/src/Settings/` (catalog with `Bounds`/`RequiresConfirmation`, store, service); NEW `api/src/Admin/SettingsController.cs` (bounds + confirmation validation, action-log write); NEW `IOperatorActionLog` seam (interface + no-op/in-memory impl, swappable for `sysadmin-console/06`'s real store); one small `Program.cs` DI-wiring edit | - (soft: `sysadmin-console/06`'s real action-log store, dependency-tolerant per the seam above) | - (outside this feature: other ADR 0003 wave-1 stories also touch `Program.cs` - see hazard (a) below) | 1 | high |
+| 02 - capability scopes (system flags) | #TBD | EDITS `api/src/Entitlements/StoredValueEntitlementService.cs` (post-compose system-flag filter step; ctor gains `IRuntimeSettingsService` + `SystemConfigPresence`); EDITS `api/src/Settings/SettingsCatalog.cs` (appends 3 keys, each with `Bounds`/`RequiresConfirmation` as applicable); EDITS `tests/QuibbleStone.Api.Tests/Entitlements/StoredValueEntitlementServiceTests.cs` (ctor fixture update - not optional); one `Program.cs` edit extracting `SystemConfigPresence` from three previously-inline conditions (~163 AI, ~436 publishing, ~688 email) | 01 (concrete API: `IRuntimeSettingsService.GetBoolAsync`, `SettingsCatalog`); **`accounts-identity/05`** (HARD - re-keys the exact class this story edits; corrected 2026-07-08, was previously missing) | - (does NOT collide with `accounts-identity/06` - corrected 2026-07-08, see hazard (b) below; coordinate, not hard-depend, with `billing-entitlements/08` on the same folder) | 2 | medium |
+| 03 - knob migration | #TBD | EDITS `api/src/PublishedTales/PublishedTalesController.cs`, `api/src/Program.cs` (rate-limiter factories, each clamped `[1, sane-max]` in its factory lambda), `api/src/Ai/AiOptions.cs`, `api/src/Ai/AiQuota.cs`, `api/src/Ai/AiSpendBreaker.cs`, `api/src/Rooms/SeatGraceService.cs`, `api/src/Admin/OperatorLoginRateLimit.cs`; EDITS `api/src/Settings/SettingsCatalog.cs` (appends 7 keys, each with `Bounds`); possibly `api/src/Admin/ReportedTalesController.cs` if it also reads `AutoHideThreshold` directly | 01 | - (widest footprint in the feature; ADR 0003 requires it run ALONE in its slot, not just within this feature; coordinate - not hard-depend - with `keepsake-vault/04` on `api/src/PublishedTales/` ordering, see hazard (c) below) | 3 | high |
 
 **Concurrency per wave:** Wave 1 = 01 alone (foundation - everything imports its `IRuntimeSettingsService`
-shape). Wave 2 = 02 alone. Wave 3 = 03 alone. There is no wave in this feature with more than one story
-running concurrently - both because 02/03 each depend on 01's contract, and because 02 and 03 both touch
-`Program.cs` (rate-limiter registrations for 03, the config-presence-boolean wiring for 02), so even
-absent the two cross-feature hazards below they would not be safe to run in parallel with each other.
+shape). Wave 2 = 02 alone (and gated on `accounts-identity/05` landing first). Wave 3 = 03 alone. There is
+no wave in this feature with more than one story running concurrently - both because 02/03 each depend on
+01's contract, and because 02 and 03 both touch `Program.cs` (rate-limiter registrations for 03, the
+`SystemConfigPresence` extraction for 02), so even absent the cross-feature hazards below they would not
+be safe to run in parallel with each other.
 
-**Cross-feature hazards (ADR 0003), reproduced here for a builder who only reads this file:**
-- **(a) `Program.cs` is a systemic hotspot.** Nearly every ADR 0003 wave-1 story
-  (`accounts-identity/05`, `keepsake-vault/01`, `control-plane/01`, `sysadmin-console/04`) adds a service
-  registration to `Program.cs`. The rule: stories touching `Program.cs` merge one at a time, small
-  rebased PRs, never batched - even when everything else about them is otherwise parallel-safe. Story
-  01's `Program.cs` edit (wiring `IRuntimeSettingsService`'s config-presence split) must be scheduled
-  with this in mind relative to the OTHER wave-1 stories outside this feature, not just the two stories
-  inside it.
-- **(b) `api/src/Entitlements/` is a two-feature hotspot in ADR 0003's Wave 2.** `accounts-identity/06`
-  (Decision F wiring: the hub connection carries the purchaser/family credential, `CreateRoom` resolves
-  it to capabilities) and `control-plane/02` (this feature's system-flag composition) BOTH edit
-  `StoredValueEntitlementService.cs` / `api/src/Entitlements/` in the same ADR wave. These two stories
-  MUST serialize - schedule one to land and merge before the other starts, regardless of which team or
-  builder is available first.
+**Cross-feature hazards (ADR 0003), reproduced here for a builder who only reads this file (corrected
+2026-07-08 per the adversarial review):**
+- **(a) `Program.cs` is a systemic hotspot - FOUR stories touch it in Wave 3 alone.** Nearly every ADR
+  0003 wave-1 story (`accounts-identity/05`, `keepsake-vault/01`, `control-plane/01`, `sysadmin-
+  console/04`) adds a service registration to `Program.cs` in Wave 1; in Wave 3, `accounts-identity/08`,
+  `accounts-identity/09`, `control-plane/03`, and `sysadmin-console/06` all touch it too. The rule:
+  stories touching `Program.cs` merge one at a time, small rebased PRs, never batched - even when
+  everything else about them is otherwise parallel-safe. Story 01's Wave-1 `Program.cs` edit (wiring
+  `IRuntimeSettingsService`'s config-presence split plus the `IOperatorActionLog` seam registration) and
+  story 03's Wave-3 edit (rate-limiter factories) must each be scheduled with this in mind relative to
+  the OTHER stories outside this feature touching `Program.cs` in the same wave.
+- **(b) `api/src/Entitlements/` hazard, CORRECTED 2026-07-08: it is `accounts-identity/05`, not `06`.**
+  The prior version of this table named `accounts-identity/06` (Decision F wiring) as the story
+  `control-plane/02` must serialize with on `StoredValueEntitlementService.cs`. That was stale: `06` only
+  edits the `CreateRoom` call site in `GameHub.cs` (the `EvaluateForSession(purchaserIdentity, ...)`
+  signature already accepts the argument) and never touches `api/src/Entitlements/`. The real chain is
+  **`accounts-identity/05` (Wave 1, re-keys the class onto `AccountId`) -> `control-plane/02` (Wave 2,
+  adds the system-flag filter step)** - a hard depends-on, reflected in the Wave Plan table above.
+  `billing-entitlements/08` (grant metadata + resync) also co-occupies `api/src/Entitlements/` in Wave 2
+  (it edits `EntitlementGrant.cs` + the grant store) - sequence its record-shape change relative to
+  story 02's edit, though neither is a hard code dependency on the other.
+- **(c) `api/src/PublishedTales/` hazard, NEW 2026-07-08: shared with `keepsake-vault/04` in Wave 3.**
+  `keepsake-vault/04` changes `ConfirmHiddenAsync` to a soft-delete; `control-plane/03` migrates
+  `AutoHideThreshold`/`TaleTtl` onto settings keys and may touch `ReportedTalesController.cs`, the
+  caller. Decide and record ordering between the two before either starts building - see story 03's
+  Technical Notes.
 
 ## Per-story tech notes
 
@@ -76,25 +99,44 @@ absent the two cross-feature hazards below they would not be safe to run in para
 settings key in a new `RuntimeSettings` table (same `Entitlements:StorageConnectionString` account, no
 new resource), with `ActiveStripeContext`'s short cache precedent covering the read path. **Exports:**
 `IRuntimeSettingsService` (the typed `GetBoolAsync`/`GetIntAsync`/`GetDecimalAsync`/`GetStringAsync`/
-`GetAllAsync` surface every later story - inside and outside this feature - injects) and
-`SettingsCatalog` (the static, append-only key registry). **Gotcha:** keep the admin endpoints'
-authorization identical to `AdminEntitlementsController`'s existing pattern (`[Authorize(Policy =
-OperatorSession.PolicyName)]`) - do not invent a new admin auth scheme for this one surface; scoping
-(support/content/ops) is explicitly `sysadmin-console`'s later work, not this story's.
+`GetAllAsync` surface every later story - inside and outside this feature - injects), `SettingsCatalog`
+(the static, append-only key registry, now carrying `Bounds` and `RequiresConfirmation` per definition),
+and the `IOperatorActionLog` seam (a narrow interface plus a no-op/in-memory implementation, superseded
+in-place once `sysadmin-console/06` merges its Table Storage-backed store). **Gotcha (revised
+2026-07-08):** keep the admin endpoints' authorization identical to `AdminEntitlementsController`'s
+existing pattern (`[Authorize(Policy = OperatorSession.PolicyName)]`) - do not invent a new admin auth
+scheme for this one surface; scoping (support/content/ops) is explicitly `sysadmin-console`'s later
+work, not this story's. Two NEW gotchas from the adversarial review: (1) a type-parse-only PUT check is
+not enough - every numeric key needs a `Bounds` check and every `*.enabled`/spend-ceiling key needs
+`RequiresConfirmation`, both enforced BEFORE the write, not after; (2) the action-log write (AC-09) must
+happen inside the same PUT/DELETE handler, immediately after a successful write and never on a rejected
+one - do not defer it to `sysadmin-console` as "someone else's problem," even though the STORE itself is
+`06`'s to build.
 
 ### 02 - Capability scopes: system flags in the entitlement evaluation
-**Approach:** insert one composition step into `StoredValueEntitlementService.EvaluateForSession`,
-between the existing baseline+grant composition and the final `SessionEntitlements` construction, that
-force-removes any capability whose owning system flag reads `false` (settings value AND the existing
-config-presence boolean for that infrastructure). Only `ai.enabled` -> `EntitlementCatalog.AiOnDemand`
-has a live consumer in this story; `publishing.enabled` / `email.enabled` are registered and
-effective-value-correct but unconsumed until a future capability references them. **Exports:** nothing
-new for other stories to import - this is an internal composition change behind the unchanged
-`IEntitlementService` contract. **Gotcha:** the ONLY files this story touches are inside
-`api/src/Entitlements/` (plus the one `Program.cs` wiring line for the three config-presence booleans) -
-resist the temptation to also wire `PublishedTalesController` or `IEmailSender` here; that is
-deliberately Out of Scope so this story's footprint stays confined to the file that must serialize with
-`accounts-identity/06` (hazard (b) above).
+**Approach:** insert one composition step into `StoredValueEntitlementService.EvaluateForSession`, AFTER
+the existing baseline+grant composition completes unchanged and BEFORE the final `SessionEntitlements`
+construction, that force-removes any capability whose owning system flag reads `false` (settings value
+AND the corresponding field of the injected `SystemConfigPresence`). This is a POST-COMPOSE FILTER, not
+an evaluate-system-first branch - precedence ("system wins") and implementation ("filter after, not
+branch before") are deliberately stated as two different things in the story so a builder does not reach
+for an unnecessary early-branch structure (see the story's Context). Only `ai.enabled` ->
+`EntitlementCatalog.AiOnDemand` has a live consumer in this story; `publishing.enabled` /
+`email.enabled` are registered and effective-value-correct but unconsumed until a future capability
+references them. **Exports:** nothing new for other stories to import - this is an internal composition
+change behind the unchanged `IEntitlementService` contract. **Gotchas (revised 2026-07-08):** (1) the
+three config-presence checks this story needs are NOT reusable booleans today - they are inline
+`string.IsNullOrWhiteSpace(...)` conditions at `Program.cs` ~163 (AI) and ~436 (publishing), and
+`emailOptions.IsConfigured` at ~688 (email); extracting these into one `SystemConfigPresence` value is
+real work in this story, not a wiring line; (2) `StoredValueEntitlementService`'s constructor gains
+`IRuntimeSettingsService` and `SystemConfigPresence` as new parameters, which means
+`StoredValueEntitlementServiceTests`' existing fixtures need updating too - budget for that, not just a
+new test file; (3) the ONLY files this story touches are inside `api/src/Entitlements/` (plus the
+`Program.cs` extraction) - resist the temptation to also wire `PublishedTalesController` or
+`IEmailSender` here; that is deliberately Out of Scope; (4) this story hard-depends on
+`accounts-identity/05` landing first (it re-keys the exact class this story edits) - it does NOT
+serialize with `accounts-identity/06` (that story never touches `api/src/Entitlements/` - the earlier
+hazard note naming `06` was stale, see hazard (b) above).
 
 ### 03 - Knob migration
 **Approach:** for each of the seven named knobs, keep the existing hardcoded value as the settings key's
@@ -105,11 +147,17 @@ the story, not just adding catalog entries). Rate-limiter policies (`Program.cs`
 inside their partition-creation factory lambda, resolving `IRuntimeSettingsService` from
 `HttpContext.RequestServices` rather than a value closed over at `AddRateLimiter` registration time.
 **Exports:** nothing new for other stories - this is a pure migration of value SOURCE, not a new
-capability. **Gotcha:** this is explicitly the widest-footprint story in the whole feature and, per ADR
-0003, must be scheduled ALONE in its wave slot - not merely within `control-plane`, but relative to
-every other ADR 0003 feature touching `Program.cs`, `api/src/Rooms/`, `api/src/PublishedTales/`,
-`api/src/Ai/`, or `api/src/Admin/` at the same time. Do not batch it with anything, even something that
-looks file-disjoint on paper.
+capability. **Gotchas (revised 2026-07-08):** (1) every rate-limit-permit knob's read site must CLAMP
+into `[1, sane-max]` (e.g. `Math.Clamp`) immediately before constructing `FixedWindowRateLimiterOptions`,
+independent of story 01's catalog `Bounds` check - `PermitLimit <= 0` throws inside the factory lambda,
+which the rate-limiter middleware turns into a 500 on every request against that partition, not a
+graceful degrade; (2) `api/src/PublishedTales/` is shared with `keepsake-vault/04` in Wave 3 (that story
+changes `ConfirmHiddenAsync` to a soft-delete) - decide ordering between the two before either starts,
+see hazard (c) above; (3) this is explicitly the widest-footprint story in the whole feature and, per
+ADR 0003, must be scheduled ALONE in its wave slot - not merely within `control-plane`, but relative to
+every other ADR 0003 feature touching `Program.cs` (a four-story Wave-3 hotspot, see hazard (a)),
+`api/src/Rooms/`, `api/src/PublishedTales/`, `api/src/Ai/`, or `api/src/Admin/` at the same time. Do not
+batch it with anything, even something that looks file-disjoint on paper.
 
 ## Cross-cutting concerns
 
@@ -124,6 +172,16 @@ looks file-disjoint on paper.
   feature's Design notes.
 - **Operator-only, no player-facing surface.** Every endpoint in this feature sits behind the existing
   `OperatorSession.PolicyName` policy. Nothing here is ever reachable from the anonymous play plane.
-- **No console UI, no action log, no RBAC scopes.** All three are explicitly `sysadmin-console`'s later
-  work (parked in `feature.md`); this feature's job is the mechanism and its admin API only.
+- **No console UI, no RBAC scopes.** Both are explicitly `sysadmin-console`'s later work (parked in
+  `feature.md`); this feature's job is the mechanism and its admin API only. The ACTION LOG is a
+  different story: this feature is a REQUIRED WRITER of it (story 01, AC-09) from day one - only the
+  log's storage/retention/console-view mechanics belong to `sysadmin-console/06` (revised 2026-07-08;
+  do not read the older "no action log" framing as license to skip the write).
+- **The control plane cannot disable its own safety rails (2026-07-08 adversarial-review finding, binding
+  on stories 01 and 03).** Every numeric setting has a min/max `Bounds` enforced on PUT - a type-parse
+  alone is not sufficient. Rate-limit permits are additionally clamped to a sane floor/ceiling at the
+  read site (story 03) so a bad value can neither disable nor zero a limiter even if it somehow reaches
+  the read path. The AI monthly spend ceiling and the `*.enabled` kill switches are bounded AND
+  confirmation-gated (`RequiresConfirmation`) - never freely settable to an arbitrary value by a single
+  PUT.
 - **No i18n** (plain strings). **Never em dashes** in any file this feature touches or creates.

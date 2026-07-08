@@ -62,6 +62,19 @@ them onto this same pattern in its own story, noted in its `feature.md`.
 - [ ] AC-07: Given no storage is configured (the in-memory settings fallback, story 01 AC-05), when any
       of these seven knobs is read, then it behaves identically to the Table-Storage-backed path (code
       default, or an in-process override) - local dev / CI need zero setup.
+- [ ] AC-08 (rate-limit permits are CLAMPED at the read site, closing the adversarial-review finding):
+      Given a rate-limit-permit knob (AI per-IP, operator-login, and any future rate-limit key this
+      story or a later one migrates), when the partition-creation factory lambda reads the current
+      effective settings value, then it clamps that value into `[1, sane-max]` (a per-knob constant
+      chosen alongside its settings key, e.g. `1..10_000`) BEFORE constructing
+      `FixedWindowRateLimiterOptions` - never passing the raw settings value straight through. This
+      matters independently of story 01's AC-08 catalog-level bounds check (belt AND suspenders): a
+      zero-or-negative value must never reach `FixedWindowRateLimiterOptions.PermitLimit` (it throws
+      inside the factory lambda, which ASP.NET Core's rate limiter middleware surfaces as a 500 on every
+      request against that partition - an outage, not a graceful degrade) and an absurdly large value
+      must never silently disable the limiter. The clamp lives in the factory lambda itself, not only in
+      story 01's catalog `Bounds` - so this knob is safe even if a bad value somehow reaches the read
+      site (a stale cache, a race, a future key added without a catalog bound).
 
 ## Out of Scope
 - The keepsake vault's TTL / restore window (conditional, deferred - see Context).
@@ -103,20 +116,48 @@ settings service's short cache (story 01) keeps this cheap - it is not a storage
   `IRuntimeSettingsService` from the request's `HttpContext.RequestServices`, not a value closed over at
   `AddRateLimiter` registration time) so a newly-created partition picks up the latest override; an
   already-open partition keeps its own options until its window resets (AC-06's documented lag).
+  **Clamp inside the lambda, not just at the settings layer (AC-08):** `FixedWindowRateLimiterOptions`
+  throws when constructed with `PermitLimit <= 0` - the exception surfaces from inside the rate-limiter
+  middleware's partition-factory call, which ASP.NET Core turns into a 500 on every request hitting that
+  new partition, not a friendly 400. Clamp the value read from `IRuntimeSettingsService` into
+  `[1, sane-max]` immediately before constructing `FixedWindowRateLimiterOptions`, right there in the
+  lambda (e.g. `Math.Clamp(effectivePermits, 1, 10_000)`) - do not rely solely on story 01's catalog-level
+  `Bounds` check to have prevented a bad value from ever being stored; the read-site clamp is the actual
+  safety net for this specific crash mode and must exist independent of the write-time validation.
 - `PublishedTalesController.AutoHideThreshold` and `TaleTtl`: read via `IRuntimeSettingsService` at the
   point each is used (the report-count comparison; the `ExpiresUtc = now + ttl` stamp on publish) rather
   than as `public const`/`static readonly` fields. `ReportedTalesController.cs` (which likely also
   references `AutoHideThreshold` for its own auto-hide check) needs the same read-site change if it
-  currently reads the constant directly - confirm at build time.
+  currently reads the constant directly - confirm at build time. **`api/src/PublishedTales/` is also
+  touched by `keepsake-vault/04` (soft-delete + restore) in the same ADR wave** - see the cross-feature
+  hazard below for the ordering constraint between the two.
 - `OperatorLoginRateLimit.PermitLimit`: becomes the settings key's code default; the live value is read
-  the same way as the AI per-IP policy above.
+  the same way as the AI per-IP policy above (clamped at the read site, same as AC-08).
 
 **Cross-feature hazard (ADR 0003), the load-bearing one for this story:** this is explicitly called out
 in ADR 0003's cross-feature build order as the story that "touches many files across the API" and "must
 be scheduled ALONE in its wave slot" - not just within `control-plane`, but across every feature in
 flight under ADR 0003 (and, practically, any other feature touching `Program.cs`,
 `api/src/Rooms/SeatGraceService.cs`, `api/src/PublishedTales/`, `api/src/Ai/`, or `api/src/Admin/` at
-the same time). Schedule it when the tree is otherwise quiet in those areas.
+the same time). Schedule it when the tree is otherwise quiet in those areas. Two concrete instances of
+that general rule, corrected/added 2026-07-08:
+
+- **`Program.cs` is a four-story Wave 3 hotspot, not just a general risk.** ADR 0003's cross-feature
+  table names FOUR Wave-3 stories touching `Program.cs`: `accounts-identity/08` (preset store),
+  `accounts-identity/09` (device-token store), `control-plane/03` (this story - rate-limiter factories),
+  and `sysadmin-console/06` (action-log store). "Run alone in its slot" is necessary but not sufficient
+  on its own - even scheduled alone within `control-plane`, this story's `Program.cs` diff must still
+  merge serially (small, rebased PRs) against whichever of the other three lands adjacent to it in time,
+  same as every other wave's `Program.cs` touch.
+- **`api/src/PublishedTales/` is shared with `keepsake-vault/04` in Wave 3.** `keepsake-vault/04`
+  changes `ConfirmHiddenAsync` to a soft-delete (a semantic change to what "hidden" means for a tale);
+  this story (`control-plane/03`) migrates `AutoHideThreshold` and `TaleTtl` onto settings keys and may
+  touch `ReportedTalesController.cs`, the caller that decides WHEN `ConfirmHiddenAsync` fires. These are
+  not the same edit, but they are close enough in the same files that ORDER matters: decide and record,
+  at scheduling time, whether `keepsake-vault/04`'s semantic change to hidden/soft-delete lands before or
+  after this story's read-site migration, so the auto-hide threshold check this story touches is reading
+  against the CURRENT (not stale) definition of "hidden." Do not build these two concurrently without
+  that ordering decision made first.
 
 ## Tests
 | AC | Test |
@@ -128,7 +169,10 @@ the same time). Schedule it when the tree is otherwise quiet in those areas.
 | AC-05 | `tests/QuibbleStone.Api.Tests/Ai/AiQuotaTests.cs`, `AiSpendBreakerTests.cs` - overridden quota/ceiling governs a check made after the override |
 | AC-06 | manual: exercise the AI per-IP and operator-login rate limits before/after an override, noting the documented partition-creation-time lag |
 | AC-07 | same test files, constructed over `InMemoryRuntimeSettingsStore` - identical assertions with no storage configured |
+| AC-08 | rate-limiter partition tests (AI per-IP, operator-login) - a settings value of `0`, a negative value, and an absurdly large value each produce a clamped, working `FixedWindowRateLimiterOptions` (no exception, no effectively-disabled limiter) |
 
 ## Dependencies
 `control-plane/01` (the runtime settings service every read site in this story calls through). Does
-not depend on `control-plane/02`.
+not depend on `control-plane/02`. Coordinate (not a hard code dependency) with `keepsake-vault/04` on
+`api/src/PublishedTales/` ordering per the cross-feature hazard above - schedule which of the two lands
+first before starting either.
