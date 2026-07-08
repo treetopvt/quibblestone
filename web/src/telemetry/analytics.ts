@@ -111,10 +111,18 @@ function ensureGtag(): void {
     return;
   }
   window.dataLayer = window.dataLayer ?? [];
-  window.gtag = (...args: unknown[]): void => {
-    // gtag.js reads each dataLayer entry positionally when it loads; queue the args.
-    window.dataLayer?.push(args);
-  };
+  // gtag.js drains window.dataLayer when it loads and replays each queued entry as a
+  // gtag() call - and it expects each entry to be that call's ARGUMENTS object, the
+  // exact form of Google's canonical snippet (`function gtag(){dataLayer.push(arguments)}`).
+  // An earlier version pushed a plain rest-param ARRAY, which gtag.js's queue drain
+  // does not always replay - the tag loaded but recorded nothing (Clarity, which uses
+  // its own queue, was unaffected). Pushing `arguments` requires a classic function
+  // (arrow functions have no `arguments`).
+  function gtag(): void {
+    // eslint-disable-next-line prefer-rest-params
+    window.dataLayer?.push(arguments);
+  }
+  window.gtag = gtag;
 }
 
 /** Load Clarity once (only ever called when consent is granted). Never unmasks. */
