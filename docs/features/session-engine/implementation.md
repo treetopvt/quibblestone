@@ -37,6 +37,7 @@ half exists; the web half (09, 10) is where a human sees the payoff.
 | Device-local, versioned, try/catch-everywhere storage pattern (the WEB stories 09-10 reuse this shape for the reconnect handle; 07-08 are server-side) | `identity.ts`'s load/save/clear + shape-validation posture | `web/src/identity.ts` |
 | Operational telemetry (optional grace-window events, 07) | the App Insights client + `HubAbnormalDisconnect` posture (platform-devops/04) | `api/src/Hubs/GameHub.cs`'s `_appInsights` field |
 | Roster tile visual idioms (10's "reconnecting" tile) | the existing pulsing-ring / dashed-border language | `web/src/pages/Lobby.tsx` (`PlayerTile`, `EmptySlot`) |
+| Email delivery (an EXISTING seam owned by a different feature - reuse the transport, never the sign-in-specific token/purpose machinery, 12) | `IEmailSender` + `AcsEmailSender` / `NoOpEmailSender` + `EmailOptions`'s config-presence gate (**accounts-identity/04**) | `api/src/Accounts/` |
 
 What this feature **exports** that others import:
 - The **room model + registry** (ephemeral, in-memory) and the hub's room methods (`createRoom`, `joinRoom`, roster
@@ -63,6 +64,7 @@ serial (the hub signature is the contract; there is no codegen step).
 | 09 web-remember-and-rejoin | #143 | new `web/src/reconnect.ts`, edits `web/src/signalr/useGameHub.ts` (rejoin invoke + wiring to `onreconnected` + mount-time check, save/clear the handle) | se/08 | - | 8 | medium-high |
 | 10 web-resume-live-screen | #144 | edits `web/src/App.tsx` (live-route guards wait on an in-flight rejoin), `web/src/pages/Lobby.tsx` (`PlayerTile`/`Player` type gain `connected`, a "reconnecting" tile treatment) | se/09 | - | 9 | medium |
 | 11 invite-slot-action | - (no issue filed) | edits `web/src/pages/Lobby.tsx` (`InviteSlot` gains an `onClick`; `ShareWidget`'s Copy/Share closures are lifted into a shared helper/hook both call) | se/04, se/06, design-system/05 | - | 10 | low |
+| 12 email-game-invite | #180 | new `api/src/Controllers/EmailInviteController.cs`, new `api/src/Invites/EmailInviteRateLimit.cs` (or `api/src/Rooms/`, builder's call); edits `api/src/Accounts/IEmailSender.cs` / `AcsEmailSender.cs` / `NoOpEmailSender.cs` (new send method + template), `api/src/Program.cs` (new rate-limit policy registration); edits `web/src/pages/useRoomInvite.ts` (new `sendEmail` / `emailAvailable`), new `web/src/pages/emailInvite.ts` (REST client), edits `web/src/pages/Lobby.tsx` (`ShareWidget` gains the email control) | se/04, se/06, se/11, accounts-identity/04 (shipped) | - | 11 | medium |
 
 **Concurrency per wave:** 1 at every wave. The chain is `01 -> 02 -> 05 -> 03 -> 04 -> 06` (all shipped), then the
 reconnect hardening chain `07 -> 08 -> 09 -> 10` (all shipped), then the standalone follow-on `11` (shipped - web-only,
@@ -76,7 +78,12 @@ until 05 lands, which keeps 02 shippable on its own. The whole feature runs **in
 `the-reveal` chains** (those touch the pure engine + FillBlank/Reveal screens, never the hub) - EXCEPT that any
 in-flight `group-play`/`reveal-delight` story touching `GameHub.cs`'s disconnect/round-abort path or `Room.cs`'s
 `RoundState` should NOT run concurrently with 07/08 (same files); check `git log` for open work there before
-fanning out waves 6-7.
+fanning out waves 6-7. Story 12 (email invite, Not Started) is a further standalone follow-on after 11 - it touches
+neither `GameHub.cs` nor `Room.cs`/`RoomRegistry.cs` at all (a plain REST endpoint, deliberately decoupled from the
+hub chain), so its only real serialization concerns are file-level: `api/src/Accounts/*` (shared with
+accounts-identity, already shipped - no active conflict today) and `Program.cs`'s rate-limiter block (shared with
+every other rate-limited endpoint in the repo) - check for open work on either before building it, same as any
+other `Program.cs` edit.
 
 ## Per-story tech notes
 
@@ -247,6 +254,27 @@ fanning out waves 6-7.
   `navigator.canShare()`). Not host-gated (AC-04) - the room code is already visible to everyone on this screen. Out
   of scope: changing the share payload/wording (04/06 own that), a QR code, or any visual redesign of the slot.
 
+### 12 - Email a game invite to a friend
+- **Approach:** a third invite channel alongside Copy/Share, added as a NEW, stateless REST endpoint (no hub method,
+  no `Room.cs` / `RoomRegistry.cs` touch) that shape-validates a room code (the same alphabet/length
+  `RoomRegistry.GenerateCode` mints from) and an email address, builds the `/join/:code` link server-side (reusing
+  an existing "public web app origin" config value - `EmailOptions.LinkBaseUrl` recommended - never a
+  client-supplied URL), and sends a FIXED-template invite email through a NEW method on the EXISTING `IEmailSender`
+  seam (accounts-identity/04) - both `AcsEmailSender` and `NoOpEmailSender` gain that method, but the sign-in-specific
+  `MagicLinkPurpose` / `IMagicLinkTokenService` machinery is untouched and unused here. The web side extends
+  `useRoomInvite(code)` (session-engine/11) with an `emailAvailable` flag (read before rendering the control,
+  mirroring `GET /api/billing/products`'s `enabled` posture) and a `sendEmail(toEmail)` action, surfaced as a new
+  input + button in `Lobby.tsx`'s `ShareWidget`.
+- **Owns / exports:** the new send endpoint + its rate-limit policy; the `IEmailSender` interface's second method
+  (any future feature that wants a plain notification email, not a magic link, can now reuse it too); `useRoomInvite`'s
+  `sendEmail` / `emailAvailable`.
+- **Gotchas:** never accept a client-supplied link to embed in the email body (open-relay / phishing smell) - the
+  server builds it from a shape-validated code. Never call `SendMagicLinkAsync` / pass a `MagicLinkPurpose` for this -
+  it is a different method with its own template. Per-IP rate limit only (mirrors every existing limiter in this
+  codebase; no per-room counter). Not host-gated (mirrors story 11 AC-04). No free-text field (no profanity-filter
+  surface) unless a personal note is added later, which would need its own AC. Out of scope: multi-recipient sends, a
+  resend/retry action, delivery-status tracking, validating the room still exists before sending.
+
 ## Cross-cutting concerns
 
 - **Inter-feature ordering (prerequisites, assumed merged before this feature orchestrates):** `child-safety/01`
@@ -265,3 +293,8 @@ fanning out waves 6-7.
   `session-engine` concern grown on the SAME room/round model - it must never fork by mode ("one engine, many thin
   modes"). Before fanning out waves 6-9, check for any OPEN `group-play`/`reveal-delight` work touching
   `GameHub.cs`'s disconnect/round-abort path or `Room.cs`'s `RoundState` (same files, must not run concurrently).
+- **Email invite (story 12):** reuses accounts-identity/04's `IEmailSender` seam but NEVER its sign-in-specific
+  `MagicLinkPurpose` / `IMagicLinkTokenService` machinery (a game invite is not a sign-in flow and mints no token),
+  and never accepts a client-supplied link to embed in the sent email (builds it server-side from a shape-validated
+  room code only, to avoid an open-relay / phishing smell) - see the story's own Technical Notes for the full
+  reasoning.

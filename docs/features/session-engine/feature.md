@@ -33,6 +33,7 @@ reconnect + rejoin" (shipped via PR #151).
 | 09 | #143 | Web: remember this seat and rejoin automatically | Complete |
 | 10 | #144 | Web: resume the live screen, don't bounce Home | Complete |
 | 11 | - | Wire the "+ invite" roster slot to the share action | Complete |
+| 12 | #180 | Email a game invite to a friend | Not Started |
 
 ## Dependencies
 - platform-devops (the real-time backbone must be deployable and reachable).
