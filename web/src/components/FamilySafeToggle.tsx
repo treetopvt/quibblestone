@@ -168,7 +168,7 @@ export function FamilySafeToggle({ checked, onChange }: FamilySafeToggleProps) {
                 alignItems: 'flex-start',
               }}
             >
-              <Box sx={{ color: 'coral.main', display: 'flex', mt: '2px' }}>
+              <Box sx={{ color: 'coral.main', display: 'flex', mt: 0.25 }}>
                 <FontAwesomeIcon icon="triangle-exclamation" />
               </Box>
               <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600 }}>

@@ -72,7 +72,9 @@ public sealed class TemplateCatalog
     // of a family-safe round and offers them only when the toggle is off (AC-04).
     private static readonly IReadOnlyList<TemplateCatalogEntry> Catalog =
     [
-        // Full stories (9-10 blanks).
+        // Full stories, 7+ blanks (this original alpha set runs 9-10; wave 2 below
+        // adds full stories as short as 8 blanks - "full" is any story over
+        // LengthContentSelector.QuickMaxBlanks).
         new TemplateCatalogEntry("wobbly-wizard", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("space-llama", FamilySafe: true, BlankCount: 10),
         new TemplateCatalogEntry("road-trip-disaster", FamilySafe: true, BlankCount: 10, HasWordBank: true),
