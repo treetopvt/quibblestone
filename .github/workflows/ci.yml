@@ -57,9 +57,80 @@ jobs:
       - name: Install
         run: npm ci
       # Unit tests (Vitest) gate the build: a failing pure-logic spec fails the
-      # run (platform-devops/01 AC-03). Playwright e2e is NOT in CI yet - the
-      # smoke test needs the API hub running; that lands with a runnable stack.
+      # run (platform-devops/01 AC-03). Playwright e2e runs in the separate `e2e`
+      # job below (it needs the full stack - the API hub + the Vite server).
       - name: Unit tests
         run: npm run test:unit
       - name: Build
         run: npm run build
+
+  # Full-stack browser e2e (platform-devops/06). Split from `web` because it
+  # needs a runnable stack (the API SignalR hub on :5180 + the Vite dev server
+  # the specs drive), not just a built artifact. It `needs: [api, web]` so a
+  # broken build or a failing unit test never pays for a full-stack e2e run.
+  e2e:
+    name: E2E (Playwright, full stack)
+    runs-on: ubuntu-latest
+    needs: [api, web]
+    # A genuine hang (e.g. the hub never comes up) fails here within minutes
+    # instead of exhausting the whole run's budget.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+      # Chromium is pre-provisioned in the dev image (PLAYWRIGHT_BROWSERS_PATH ->
+      # /opt/pw-browsers, per playwright.config.ts) but NOT on a GitHub-hosted
+      # runner, so install just the pinned Chromium here - the story's own
+      # contingency (platform-devops/06 AC-07). The config still owns retries,
+      # trace, and the reporter; we do not re-implement them in the workflow.
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Build API
+        run: dotnet build api/QuibbleStone.Api.csproj --configuration Release
+      # Boot the API and gate on GET /health via a BOUNDED retry loop (not a fixed
+      # `sleep N`): a slow or broken boot fails this job clearly instead of flaking
+      # downstream in Playwright. The API is started and the suite is run in the
+      # SAME step so the background process stays alive across the run. Playwright
+      # boots and awaits its OWN Vite server via the config's `webServer` block, so
+      # this job never separately starts or waits on :5173.
+      - name: Boot API (health-gated) and run e2e
+        run: |
+          dotnet run --project api/QuibbleStone.Api.csproj --configuration Release --no-build --urls http://localhost:5180 > api.log 2>&1 &
+          API_PID=$!
+          echo "Waiting for the API to report healthy on :5180 ..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5180/health > /dev/null; then
+              echo "API healthy after $((i * 2))s"; break
+            fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::API process exited before becoming healthy"; cat api.log; exit 1
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "::error::API did not become healthy within 120s"; cat api.log; exit 1
+            fi
+            sleep 2
+          done
+          npm --prefix web run test:e2e
+      # A red run is triageable without a blind local re-run: the config writes a
+      # trace on first retry (test-results/) and any HTML report to
+      # playwright-report/. Upload whatever exists.
+      - name: Upload Playwright report and traces
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/**
+            test-results/**
+          if-no-files-found: ignore
