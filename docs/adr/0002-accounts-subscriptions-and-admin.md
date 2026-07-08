@@ -11,7 +11,11 @@
 
 # ADR 0002: Purchaser accounts, family subscriptions, and the sys-admin surface (keeping players anonymous)
 
-- **Status:** Accepted (exploration; the owner resolved open decisions A-F on 2026-07-03 - see Decision)
+- **Status:** Accepted (exploration; the owner resolved open decisions A-F on 2026-07-03 - see Decision).
+  **Amended by [ADR 0003](./0003-admin-platform-and-family-accounts.md)** (2026-07-08) in two
+  places: accounts are no longer purchase-only (the free family account), and a minimal operator
+  action log now exists for money/moderation operations. The load-bearing invariant and every
+  other decision here (including Decision F, which ADR 0003 finally builds) still stand.
 - **Date:** 2026-07-03
 - **Context features:** `accounts-identity` (#67-69), `billing-entitlements` (#70-74),
   `ai-cost-gate` (#121), and a NEW `sysadmin-console` exploration (this ADR's companion)

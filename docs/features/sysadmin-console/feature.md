@@ -44,6 +44,10 @@ monetization seam). Full rationale + the load-bearing invariant:
 | [01](./01-operator-login-and-admin-boundary.md) | #135 | Operator login and admin boundary (separate surface) | foundation - build first | Complete |
 | [02](./02-operator-grant-revoke-entitlement.md) | #136 | Operator grant / revoke an entitlement by purchaser email | pairs with real charging (`billing-entitlements/03-04`) | Complete |
 | [03](./03-report-and-takedown-public-tale.md) | #137 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | Complete |
+| [04](./04-one-console-one-auth.md) | #TBD | One console, one auth (relocate the Stripe toggle behind the real Operator policy) | ADR 0003 Layer 3 - independent, build first of the four | Not Started |
+| [05](./05-jobs-shell-and-scoped-authz.md) | #TBD | The jobs shell (Support / Content / Operations) + scoped authz | ADR 0003 Layer 3 - depends on 04 | Not Started |
+| [06](./06-operator-action-log.md) | #TBD | The operator action log (ADR 0003 Decision 3 / Amendment 2) | ADR 0003 Layer 3 - depends on 05 for its view | Not Started |
+| [07](./07-support-lookup-and-verbs.md) | #TBD | Support lookup + verbs | ADR 0003 Layer 3 - depends on 06 (dependency-tolerant on other features' seams) | Not Started |
 
 Recorded on purpose, and deliberately NOT stories in this feature (feature.md's job is as much to say
 what is NOT this feature as what is):
@@ -59,6 +63,12 @@ Rebuilding cost dashboards or a second vetting queue here would be the smell. Bu
 already exist; story 02 (grant/revoke) lands alongside real charging, when a stuck paying customer is
 actually possible. See `implementation.md` for the DAG-ready Wave Plan.
 
+> **ADR 0003 Layer 3 (2026-07-08).** Stories 04-07 implement ADR 0003's "reshaped operator console":
+> one bundle/one auth (04, closing the `billing-entitlements/07` interim-gate follow-up), a jobs-not-
+> feature-tabs shell with scoped authz (05), the operator action log (06, ADR 0003 Decision 3 /
+> Amendment 2), and the Support job's full lookup + verbs (07). See each story file and the Decisions
+> entry below.
+
 ## Dependencies
 - `billing-entitlements/01` (#70) - the grant store + full capability catalog that story 02
   (grant/revoke) writes to. The `IEntitlementService` interface + its `CreateRoom` capture already
@@ -70,12 +80,29 @@ actually possible. See `implementation.md` for the DAG-ready Wave Plan.
   oversight this feature deliberately does NOT rebuild.
 - child-safety - story 03's takedown honors the same authoritative filter posture; it does not
   reimplement moderation logic.
+- `billing-entitlements/06` (#TBD, Complete "interim gate") - the `IActiveStripeContext` domain model
+  and the interim `IOperatorGate` scheme story 04 deletes in favor of the real Operator policy.
+- `control-plane/01` (ADR 0003 Layer 1, new feature, decomposed the same day) - the runtime settings
+  endpoint story 05's Operations-tab settings panel is dependency-tolerant of.
+- `accounts-identity/05` and `/09` (ADR 0003 Layer 0, decomposed the same day) - the `AccountId` spine and
+  the family device link story 07's account detail panel surfaces, dependency-tolerant until they
+  land.
+- `keepsake-vault/01-04` (ADR 0003 Layer 2, new feature, decomposed the same day) - the claim code, vault
+  counts, and soft-delete/restore seam story 07 consumes, dependency-tolerant until it lands.
+- `billing-entitlements/08` (ADR 0003 Layer 2, decomposed the same day) - the grant metadata and
+  per-account Stripe resync story 07 triggers, dependency-tolerant until it lands.
 
 ## Design notes
 - **Still not a monolith - three thin stories, and a firm boundary on what is out.** Standing the
   back office up now (Decision B) does not mean absorbing everything: cost/abuse stays on App
   Insights + budget emails; content vetting stays the content-factory queue; refunds stay Stripe's
   dashboard. This feature is only the operator jobs no other feature owns.
+- **AMENDED 2026-07-08 (ADR 0003 Layer 3): "not a monolith" now means jobs, not feature tabs, and
+  scoped, not flat.** The console reorganizes around three operator JOBS - Support, Content,
+  Operations (story 05) - rather than growing one tab per shipped story; admin endpoints carry a
+  scope tag (`support`/`content`/`ops`, story 05) so a future moderator is an allowlist entry with a
+  scope list, not a controller rewrite. The single-operator behavior is unchanged today - this is
+  structure for later, not a role hierarchy shipped now (still explicitly Parked below).
 - **Where it lives: a SEPARATE, auth-gated back office (option A, Decision B), never the kid PWA.**
   Its own bundle/route tree with its own auth - it handles PII-adjacent purchaser data and
   moderation actions and must never share a surface with the anonymous, kid-facing app (blast
@@ -105,22 +132,53 @@ actually possible. See `implementation.md` for the DAG-ready Wave Plan.
 - **Operator, not audit ceremony.** This is a toy, not a system of record (CLAUDE.md preamble): the
   admin surface is minimal operator convenience, not a compliance/audit console. Resist growing it
   into role hierarchies, audit trails, or dashboards that Azure already provides.
+- **AMENDED 2026-07-08 (ADR 0003 Decision 3 / Amendment 2), REVISED 2026-07-08 (adversarial review):
+  a narrow, deliberate exception now exists on the money/moderation/settings plane.** Story 06 adds a
+  minimal append-only action log (operator, action, target, timestamp, optional note) for six actions
+  today - grant, revoke, takedown confirm/restore, the Stripe mode flip, and (once `control-plane/01`
+  lands and calls the same seam) a settings override change - and story 07's support verbs once they
+  land. This is **dispute insurance, not compliance ceremony**: no immutability guarantee, no
+  legal-hold - but it is now built to actually SERVE as dispute insurance: the log row is written
+  BEFORE the effectful action proceeds (never best-effort after), and retention is age-based with a
+  HARD FLOOR no operator setting can lower below, so the log cannot be silently skipped by a failed
+  append or evicted (by volume or by config) by the party a dispute concerns. Gameplay and content
+  stay exactly as ceremony-free as the bullet above still states; the console still does not grow role
+  hierarchies or compliance dashboards - only this one narrow, dispute-insurance log exists, and only
+  for money/moderation/settings-affecting operator actions.
+- **REVISED 2026-07-08 (adversarial review): the Support surface's cross-plane firewall is structural,
+  not a review discipline.** Story 07's account lookup resolves an email (or `AccountId`) only - a
+  vault claim code and a public-tale slug are permanently removed as account-lookup inputs, and the
+  vault/tale figure it shows is a bare count sourced from a contract that cannot return a byline or
+  timestamp. Claim-code recovery is a player-facing capability `keepsake-vault` owns directly on the
+  player's own device, never routed through an operator lookup. See story 07 and ADR 0003's "Security
+  posture" section ("the support console cannot bridge the planes").
 
 ## Parked - later
 - Multi-operator / role-based access (a human moderator distinct from the owner) - alpha has one
-  operator; RBAC is a Phase 3+ concern if the team grows.
+  operator; RBAC is a Phase 3+ concern if the team grows. **Story 05 (2026-07-08, ADR 0003) wires the
+  SCOPE-CHECKING mechanism (`support`/`content`/`ops` as policy/attribute metadata) so a future
+  restricted operator is a config entry, not a rework - but it does not ship any role-management UI
+  or a restricted operator; that stays parked here.**
 - A bespoke cost/spend dashboard - deferred indefinitely; App Insights + Cost Management cover it
-  until they demonstrably do not.
+  until they demonstrably do not. Story 05's Operations tab still only links out to it.
 - Purchaser self-service beyond `billing-entitlements/05` (restore/manage) - the operator surface is
   for the cases self-service cannot handle, not a replacement for it.
 - Any audit-trail / immutability ceremony - explicitly out (CLAUDE.md: toy, not a system of record).
+  **Story 06 (2026-07-08, ADR 0003 Decision 3 / Amendment 2) is the one narrow, deliberate exception:
+  a minimal append-only action log for money/moderation-affecting operator actions only, with no
+  immutability guarantee and a pragmatic retention cap - see the amended Design note above. Gameplay
+  and content stay exactly this ceremony-free; nothing broader is parked-and-reopened here.**
 
 ## Open decisions
 The cross-cutting decisions A-F are all resolved in
-[ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)'s Decision section. The remaining
-open item is a story-level detail, not a blocker:
+[ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md)'s Decision section, and ADR 0003's
+Decisions 1-5 (2026-07-08) are resolved too. The remaining open items are story-level details, not
+blockers:
 - **The auto-hide threshold N** (story 03) - the number of reports that hides a tale pending review.
   Pick a small starting value at build time and make it a config constant; tune from real signal.
+- **The action-log retention cap** (story 06) - a pragmatic newest-N-rows or newest-M-months cap.
+  Pick a small starting constant at build time; flag it as a `control-plane/03` knob-migration
+  candidate for later tuning.
 
 ## Decisions
 - 2026-07-03: Created as an exploration alongside ADR 0002. The owner then resolved ADR 0002 A-F the
@@ -145,3 +203,17 @@ open item is a story-level detail, not a blocker:
   and the real grant store - no fallback stand-ins. The one open follow-up: relocate the
   billing-mode toggle (`billing-entitlements/07`) from the kid bundle's `/admin/billing-mode` route
   into the operator console behind the Operator scheme.
+- 2026-07-08: **ADR 0003 accepted** (owner decisions 1-5); this feature is named as `sysadmin-console`
+  Layer 3 of that ADR's admin platform, decomposed into four new stories (`04-07`). 04 (one console,
+  one auth) finally closes the 2026-07-07 follow-up above - the interim `IOperatorGate` shared-secret
+  scheme and the kid-bundle `/admin/billing-mode` route are deleted, and `StripeModeController` moves
+  behind the real Operator policy. 05 reorganizes the console shell from two feature-tabs into three
+  operator jobs (Support / Content / Operations) and adds scope-tagged authorization (`support` /
+  `content` / `ops`), unchanged in behavior for today's single operator. 06 adds the minimal
+  append-only operator action log ADR 0003 Decision 3 / Amendment 2 calls for - the narrow, explicit
+  exception to this feature's own "no audit ceremony" stance, amended (not reversed) in Design notes
+  above. 07 builds out the Support job into a full lookup (email / vault claim code / tale slug) plus
+  five verbs, written dependency-tolerant against three other features' still-unbuilt Layer 0/2 seams
+  (`accounts-identity/05` and `/09`, the new `keepsake-vault` feature, `billing-entitlements/08`) so it
+  is not hard-blocked on any of them landing first. Wave order (04 independent, 05 depends on 04, 06
+  depends on 05 for its view only, 07 depends on 06): see `implementation.md`'s extended Wave Plan.

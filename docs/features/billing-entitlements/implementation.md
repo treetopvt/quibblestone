@@ -36,6 +36,7 @@
 | `TableStorage*Store` pairing pattern (real store + in-memory fallback, config-presence idiom) - story 06 mirrors this for the active-mode flag | `TableStorageEntitlementGrantStore` / `InMemoryEntitlementGrantStore` | `api/src/Entitlements/` |
 | Stripe checkout/webhook surface story 06 reshapes into mode-aware form | `StripeOptions`, `StripeCheckoutService`, `StripeWebhookController`, `ProductCatalog` | `api/src/Billing/`, `api/src/Controllers/StripeWebhookController.cs` |
 | Operator auth boundary story 06/07 sit behind (once it lands; interim gate until then, see story 06 Technical Notes) | `sysadmin-console/01`'s `[Authorize(Policy = "Operator")]` | `docs/features/sysadmin-console/01-operator-login-and-admin-boundary.md` (not yet built) |
+| Fixed-window rate-limit policy shape (story 08's resync endpoint reuses this pattern, not a new one) | `OperatorLoginRateLimit`, `CloudGalleryRateLimit` | `api/src/Admin/OperatorLoginRateLimit.cs`, `api/src/CloudGallery/CloudGalleryRateLimit.cs` |
 
 New surfaces this feature introduces (not yet reuse targets, become them once built):
 - `EntitlementGrant` + a grant-store type (`IEntitlementGrantStore` or similar) - story 01 ADDS these to the
@@ -53,6 +54,11 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
   ships.
 - An operator-facing mode screen (location depends on whether `sysadmin-console/01` has landed - see story 07
   Technical Notes) - story 07.
+- `GrantId`/`PlanId`/`StripeSubscriptionId` on `EntitlementGrant` (ADR 0003 Layer 2) - story 08 ADDS these fields
+  to the ALREADY-SHIPPED `api/src/Entitlements/EntitlementGrant.cs` / `TableStorageEntitlementGrantStore.cs`
+  rather than creating a new store type. A new `IStripeReconciliationService` (or similarly named) + its live
+  implementation in `api/src/Billing/`, and a new `Operator`-policy admin endpoint (`sysadmin-console/07`'s future
+  support-verb call target) - story 08.
 
 ## Wave Plan (DAG)
 
@@ -73,20 +79,37 @@ not session-engine (the session-creation call site is already wired by the shipp
 | 05 restore-and-manage | #74 | `web/src/pages/` restore/manage view (near accounts-identity/03's screen), a read-only API endpoint | 01, accounts-identity/03 | - (needs 03/04 landed to have anything real to show, though its empty state is independently testable) | 4 | medium |
 | 06 live-test-mode-toggle | TBD | `api/src/Billing/StripeOptions.cs` (reshaped), new `IActiveStripeModeStore` + Table/InMemory impls, new `Controllers/StripeModeController.cs`, edits to `StripeCheckoutService`, `StripeWebhookController`, `ProductCatalog` | 03 (reshapes its output), sysadmin-console/01 (soft - see Technical Notes interim gate) | - | 5 | medium-high |
 | 07 operator-mode-toggle-ui | TBD | a new operator-facing screen (location per Technical Notes - `sysadmin-console`'s back office if landed, else a temporary standalone route) | 06 (hard - calls its endpoint), sysadmin-console/01 (soft, same interim-gate posture) | - | 6 | small |
+| 08 grant-metadata-and-stripe-reconciliation (ADR 0003 Layer 2) | TBD | EDITS `api/src/Entitlements/EntitlementGrant.cs` + `TableStorageEntitlementGrantStore.cs` (new columns incl. `Mode`), `api/src/Billing/BillingEvent.cs`, `StripeEventMapper.cs`, `IStripeCheckoutService.cs` (`BillingMetadata`), `CheckoutModels.cs`, `StripeWebhookHandler.cs`; NEW `api/src/Billing/IStripeReconciliationService.cs` + implementation + `StripeResyncRateLimit.cs` + a new admin endpoint | 01, 03, 06, accounts-identity/02, sysadmin-console/01; soft: accounts-identity/05 (see story's degraded path) | - | **2 (ADR canonical)** | high |
 
-**Concurrency per wave:** Wave 1 = 1 (01, extending the shipped seam - must land first, everything else imports its
-shape; the `IEntitlementService` interface itself is already shipped, so this wave is narrower than a from-scratch
-build but still gates everything downstream). Wave 2 = 1 (03, the shared Stripe plumbing - technically could start
-once 01's grant-store shape is stable, even before 01 is fully merged, but treat as serial-after-01 for safety since
-03 writes into 01's store). Wave 3 = {02, 04} in parallel (disjoint web/API files; both consume 03's
-`StripeCheckoutService` but call it with different parameters - a pack/subscription price for 04, a one-time
-no-entitlement price for 02). Wave 4 = 05 (benefits from 03/04 having granted at least one real entitlement to
-display, and needs accounts-identity/03's sign-in to exist as its auth guard). Wave 5 = 06 (reshapes 03's
-`StripeOptions`/`StripeCheckoutService`/`StripeWebhookController` into mode-aware form - serial-after-03 since it
-edits the same files 03 created, not because 03 is otherwise a blocker). Wave 6 = 07 (calls 06's endpoint; cannot
-usefully start before 06's contract exists). Waves 5-6 are independent of 02/04/05's product-purchase surfaces
-(disjoint files) and could in principle run alongside them if scheduled earlier, but are numbered after because they
-were requested and specified after 01-05 shipped.
+**Local build-order history (Waves 1-6, stories 01-07, all shipped/Complete).** Wave 1 = 1 (01, extending the shipped
+seam - had to land first, everything else imports its shape; the `IEntitlementService` interface itself was already
+shipped, so this wave was narrower than a from-scratch build but still gated everything downstream). Wave 2 = 1 (03,
+the shared Stripe plumbing - serial-after-01 since it writes into 01's store). Wave 3 = {02, 04} in parallel (disjoint
+web/API files; both consumed 03's `StripeCheckoutService` but called it with different parameters). Wave 4 = 05
+(benefited from 03/04 having granted at least one real entitlement to display). Wave 5 = 06 (reshaped 03's
+`StripeOptions`/`StripeCheckoutService`/`StripeWebhookController` into mode-aware form). Wave 6 = 07 (called 06's
+endpoint). These are historical local sequencing labels only - stories 01-07 are all Complete and do not appear in
+any future orchestration run, so they carry no cross-feature meaning.
+
+**Story 08's Wave is the ADR 0003 canonical number, not a continuation of the local sequence above.** The 2026-07-08
+adversarial review flagged this feature's earlier "Wave 7" label for story 08 as misleading: an orchestrator reading
+across features groups by the ADR's own numbering (ADR 0003's "Canonical wave numbers" note), where story 08 sits in
+**Wave 2** alongside `accounts-identity/06`, `accounts-identity/07`, `keepsake-vault/02`, `control-plane/02`, and
+`sysadmin-console/05`. This is not a contradiction of story 08's real prerequisites: 01, 03, and 06 (its true
+in-feature blockers) are already Complete, so by the time ADR 0003 work begins, story 08's only REMAINING dependency
+is the soft, cross-feature one on `accounts-identity/05` (ADR Wave 1) - exactly consistent with it running in ADR
+Wave 2. Use `2` when scheduling story 08 against other features' work; the file-footprint list above (01, 03, 06,
+accounts-identity/02, sysadmin-console/01) documents its already-satisfied in-feature history, not a remaining
+same-feature blocker.
+
+**Cross-feature file hazard in Wave 2 (ADR 0003, 2026-07-08):** story 08 edits
+`api/src/Entitlements/EntitlementGrant.cs` (the record shape) in the SAME wave that `control-plane/02` (a DIFFERENT
+feature) edits `api/src/Entitlements/StoredValueEntitlementService.cs` (a consumer of that same folder, composing the
+system-flag scope ahead of an account grant). They are not disjoint at the FOLDER level even though they touch
+different files: land story 08's record-shape change (`EntitlementGrant.cs` gaining `GrantId`/`PlanId`/
+`StripeSubscriptionId`/`Mode`) either fully BEFORE or fully AFTER `control-plane/02`'s edit to the consumer that reads
+that record, not concurrently - a mid-flight rebase of one against a moving record shape underneath the other is the
+failure mode to avoid. See `control-plane/implementation.md`'s own Wave Plan for its side of this hazard.
 
 **Cross-feature order:** accounts-identity/02 (magic-link + `IAccountStore`) is upstream of story 01's
 purchaser-lookup piece (AC-06) - schedule it first across features. Story 01's catalog-extension and grant-store
@@ -176,6 +199,36 @@ build time (its back office if so, else a clearly-marked temporary standalone ro
 Notes). **Gotcha:** do not over-invest in polish if built before `sysadmin-console/01` lands - it is meant to
 relocate, not become a second design system.
 
+### 08 - Grant metadata + Stripe reconciliation (ADR 0003 Layer 2)
+**Approach:** `EntitlementGrant` gains `GrantId` (`Guid`, freshly minted per write), `PlanId` (`string?`, the
+`ProductCatalog` product id), `StripeSubscriptionId` (`string?`, populated for subscription grants), and `Mode`
+(`StripeMode?`, reusing story 06's enum - the mode that verified the write, `null` only for an operator comp). A new
+`qs_product` metadata key (alongside the existing `qs_capabilities`/`qs_purchaser`) rides the same
+`CheckoutRequest`/`BillingMetadata`/`StripeEventMapper`/`BillingEvent` pipeline stories 03/04 already built, so
+`StripeWebhookHandler` can populate all four fields on every grant write without a second lookup. A new per-account
+resync service resolves a purchaser's Stripe customer(s) + subscriptions in the ACTIVE mode (`IActiveStripeContext`,
+story 06), CROSS-CHECKS each candidate subscription's `qs_purchaser` metadata against the target account's identity
+(never trusting the Stripe customer's bare `Email` field alone - **revised 2026-07-08 after the adversarial review**,
+which found the original "most-recent customer wins" email tiebreak steerable by an attacker who creates a Stripe
+customer under a victim's email), and rewrites only the matching subscription-sourced grants whose stored `Mode`
+equals the active mode (a mismatch is skipped and logged, never overwritten - the review's "mode-aware store" fix,
+so a Test-mode resync can never touch a Live-derived grant) - reusing the SAME lease-math helper the webhook handler
+already has (extract it to a shared method rather than duplicate it), and the SAME upsert-by-capability-key write
+path (idempotency is inherited, not reinvented). The endpoint sits behind a new fixed-window rate limiter
+(`StripeResyncRateLimit`, mirroring `OperatorLoginRateLimit`/`CloudGalleryRateLimit`) so a scripted or repeated call
+cannot fan out unbounded Stripe API traffic. **Exports:** the extended `EntitlementGrant` shape (consumed by
+`sysadmin-console/02`'s existing grant/revoke screen, which should start displaying `PlanId`/`Mode` once available)
+and the resync endpoint (`sysadmin-console/07`'s future support-verb call target). **Gotcha:** a pre-existing grant
+row (written before this story) has none of the four new columns - `TableStorageEntitlementGrantStore.FromEntity`
+must degrade this to a fresh `GrantId`, null `PlanId`/`StripeSubscriptionId`, and `Mode = Test` (factually correct -
+no grant in this store predates Stripe Live ever going active) rather than throw, mirroring its existing defensive
+handling of a missing `Source`. Resync only ever rewrites SUBSCRIPTION-sourced grants whose stored `Mode` matches
+the active mode - a one-time pack has no ongoing Stripe state to reconcile against, an operator comp has no Stripe
+mode at all, and a cross-mode row is left untouched by the AC-08 guard; all three must be left byte-for-byte as they
+were. **Cross-feature hazard:** this story's `EntitlementGrant.cs` record-shape edit and `control-plane/02`'s edit to
+`StoredValueEntitlementService.cs` (a different feature, same Wave 2) both touch `api/src/Entitlements/` - land one
+fully before the other, not concurrently (see this file's Wave Plan section).
+
 ## Cross-cutting concerns
 
 - **The interface is shipped; the stored-value side is not.** `IEntitlementService`, `SessionEntitlements`, the
@@ -206,6 +259,19 @@ relocate, not become a second design system.
   ships, migrating onto real operator auth is a small, contract-stable edit - mirroring how `sysadmin-console/01`
   itself and `sysadmin-console/02` each name a thin, contract-compatible stand-in for their own unbuilt upstream
   dependencies. Do not let the interim gate quietly become permanent; revisit promptly once #135 lands.
+- **Resync is a recovery action, never a routine path (story 08, ADR 0003).** Webhooks remain the routine source of
+  truth for every grant write; the per-account resync service is operator-triggered only - no schedule, no
+  automatic run, no per-request call. This is the same "session-creation-time only, never per-request" discipline
+  applied to a support tool: an operator explicitly asks "reconcile this one purchaser," nothing more.
+- **Resync cannot corrupt grants across Stripe modes or be steered by a spoofed identity (story 08, revised
+  2026-07-08 after the adversarial review).** Three binding rules: (a) the grant row is mode-aware (`Mode`) and a
+  resync run refuses to write any grant whose stored `Mode` differs from the currently active mode - a Test-mode
+  resync can never overwrite a Live-derived grant, or vice versa; (b) reconciliation matches Stripe subscriptions by
+  the `qs_purchaser` checkout metadata this app itself stamped, never by the Stripe customer's bare `Email` field -
+  an attacker's self-created Stripe customer under a victim's email carries no matching metadata and is never
+  picked; (c) the resync endpoint is rate-limited (`StripeResyncRateLimit`, the same fixed-window pattern as
+  `OperatorLoginRateLimit`/`CloudGalleryRateLimit`) so it cannot fan out unbounded Stripe API traffic and disrupt
+  live webhook processing.
 - **Single public environment footgun (stories 06-07).** `quibblestone.com` is the one live site - there is no
   separate staging Stripe-mode surface. AC-05's safe default (Test) and AC-06's confirmation-gating (story 06),
   plus AC-02/AC-03's asymmetric-friction confirmation (story 07), exist specifically so "go live" is always the

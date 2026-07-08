@@ -28,6 +28,10 @@ stories are independent and file-disjoint, so both can run in the first foundati
 | Smoke target (what the E2E asserts) | the skeleton landing page reaching "Connected" | `web/src/App.tsx`, `web/src/components/ConnectionStatus.tsx` |
 | Web config at build time | `import.meta.env` (`VITE_*`) | `web/src/signalr/useGameHub.ts`, `web/.env.development` |
 | Test-strategy guidance | the testing agent brief | `.claude/agents/testing-agent.md` |
+| Config-presence idiom (story 07 extends it to Data Protection) | the existing Telemetry/Stripe/Email wiring pattern in `Program.cs` | `api/src/Program.cs` |
+| Keyless Azure auth (story 07 reuses for Blob/Key Vault access) | the API's SystemAssigned managed identity + `DefaultAzureCredential` (already used by `AcsEmailSender`) | `api/src/Accounts/AcsEmailSender.cs`, `api/src/Program.cs` |
+| Key Vault secret app-setting reference pattern (story 07's auto-provisioned signing key) | the existing `@Microsoft.KeyVault(...)` app-setting wiring | `infra/main.bicep`, `.github/workflows/deploy.yml` |
+| Parameterized environment provisioning (story 08 reuses, does not fork) | `infra/main.bicep`'s `namePrefix`/`environmentName` parameters + tag-based resource discovery | `infra/main.bicep`, `infra/main.uat.bicepparam`, `.github/workflows/provision.yml`, `.github/workflows/deploy.yml` |
 
 What this feature **enables** for others:
 - A **test harness** (Vitest for pure logic, Playwright for the real-time flow) that every later feature writes its
@@ -46,6 +50,8 @@ Sizing rule: a builder owns files **disjoint** from its concurrent siblings.
 | 02 deploy-to-dev | #19 | edits `.github/workflows/deploy.yml` (secrets/vars wiring), `infra/main.bicepparam`; deploy runbook notes | none | 01 (disjoint files) | 1 | medium |
 | 04 operational-observability | #106 | `infra/main.bicep` (App Insights + Log Analytics + Key Vault secret + app setting), `infra/README.md`, `api/QuibbleStone.Api.csproj` (package), `api/src/Program.cs` (`AddApplicationInsightsTelemetry` + PII scrubber), `api/src/Hubs/GameHub.cs` (hub exception/disconnect telemetry), light web error beacon | 02 (a deployed env to emit from), infra Key Vault, child-safety/01 | - | 2 | medium |
 | 05 anonymous-usage-metrics | #107 | usage custom events in `api/src/Hubs/GameHub.cs` (RoundStarted/complete) + a minimal solo client wrapper (`web/src/`), anonymous device id (reuse `identity.ts`) | 04 (reuses its App Insights pipeline + scrubber), game-modes, single-player/group-play, story-selection/04 (coordinate) | - | 3 | low |
+| 07 qa-promotion-lane | - | shipped on `main` (#192/#193) - QA auto-deploy lane + tag-promoted beta; delivers ADR 0003 Decision 4's second environment | - | - | done | - |
+| 08 durable-data-protection-key-ring (ADR 0003 Layer 0) | TBD | `infra/main.bicep` (new Blob container + Key Vault key + 2 role assignments + a CSPRNG `deploymentScripts` signing-key provision), `infra/README.md`, EDITS `api/src/Program.cs` (`AddDataProtection()` chain + fail-closed guard), `api/QuibbleStone.Api.csproj` (2 new NuGet packages), a new `IConsumedNonceStore` seam in `api/src/Accounts/`, `.github/workflows/deploy.yml` (comment update only) | none | other-feature Wave-1 stories (disjoint except `Program.cs`) | 1 | medium |
 
 **Concurrency per wave:** Wave 1 = 2 (stories 01 and 02 in parallel). They are disjoint: 01 touches `ci.yml` +
 `web/` test config + `web/package.json`; 02 touches `deploy.yml` + `infra/`. No shared file. Both are otherwise
@@ -58,6 +64,15 @@ even if reordered they cannot run truly concurrently without a disjointness chec
 
 *(2026-07-07: stories 04 and 05 shipped together via PR #110 (issues #106/#107); story 03 - continuous delivery
 to UAT, added after this plan was written - is documented in [feature.md](./feature.md).)*
+
+**Story 08 (added 2026-07-08, ADR 0003; renumbered from 07 in the merge reconciliation - see feature.md
+Decisions):** Wave 1 - independent of the Slice-1/observability stories above AND of every other ADR 0003 feature
+per the ADR's own cross-feature table. (ADR 0003 Decision 4's "second environment" is NOT a story here - `main`'s
+already-shipped story 07, the QA lane, delivers it; the planning branch's standalone second-environment story was
+dropped as superseded.) **Serial-merge hazard:** story 08's `Program.cs` edit lands in the SAME systemic hotspot several OTHER
+ADR 0003 features' Wave-1 stories also touch (`accounts-identity/05`, `keepsake-vault/01`, `control-plane/01`,
+`sysadmin-console/04` each add a service registration there) - the ADR's own rule applies: land story 08's
+`Program.cs` edit as its own small, promptly-rebased PR, even though everything else about it is parallel-safe.
 
 ## Per-story tech notes
 
@@ -112,6 +127,38 @@ to UAT, added after this plan was written - is documented in [feature.md](./feat
   (AC-06). No entitlement gate, no player-facing UI. Unique-PERSON counting is explicitly deferred to accounts
   (Phase 2).
 
+### 08 - Durable Data Protection key ring + token signing key posture
+- **Approach:** chain `.PersistKeysToAzureBlobStorage(...)` + `.ProtectKeysWithAzureKeyVault(...)` onto the existing
+  bare `AddDataProtection()` call in `Program.cs`, gated on the same config-presence idiom every other
+  environment-dependent wiring in that file already uses (storage connection string + a Key Vault key identifier
+  both present -> durable chain; in `Development` only, either absent -> today's bare default; in any deployed
+  environment, absent -> FAIL CLOSED / refuse to start, never a silent ephemeral fallback). Reuse the
+  API's existing `SystemAssigned` identity + `DefaultAzureCredential` (no new credential type). Separately,
+  auto-provision a durable `Accounts:TokenSigningKey` Key Vault secret from Bicep using a CSPRNG value (a
+  `Microsoft.Resources/deploymentScripts` random generator, or an out-of-band operator-set secret) - NEVER a
+  `guid()`/`uniqueString()`-derived value (reproducible from public inputs -> operator-login forgery), created only
+  if absent so a redeploy never invalidates outstanding magic links. Also move `MagicLinkTokenService`'s single-use
+  nonce set to a durable shared store (an `IConsumedNonceStore` seam) so single-use holds across instances.
+- **Key files it owns:** `infra/main.bicep` (new Blob container on the existing storage account, new Key Vault key
+  on the existing vault, 2 role assignments, the auto-provisioned `AccountsTokenSigningKey` secret), `infra/README.md`
+  (documents the addition), `api/src/Program.cs` (the `AddDataProtection()` edit), `api/QuibbleStone.Api.csproj`
+  (the two new NuGet packages).
+- **Exports:** nothing new to import - this story changes WHERE existing Data Protection key material and the
+  existing `Accounts:TokenSigningKey` config value live, not any new contract. `PurchaserCredentialService` and
+  `MagicLinkTokenService` are unchanged.
+- **Gotcha:** the `Program.cs` edit is a serial-merge hazard shared with other ADR 0003 features' Wave-1 stories
+  (see "Concurrency per wave" above) - land it as its own small PR. The auto-provisioned signing-key secret must be
+  created ONLY IF ABSENT so a redeploy never invalidates outstanding magic links.
+
+### (ADR 0003 Decision 4's second environment - delivered by story 07, not a story here)
+The planning branch originally had a standalone "second environment (beta rebadge + platform instance)" tech note
+here. It was DROPPED as superseded: `main`'s already-shipped story 07 (QA lane + tag-based promotion to beta,
+#192/#193) rebadges the existing UAT site as "beta" and stands up an isolated `quibblestone-qa-rg` lane that
+auto-deploys on merge to `main` - which is exactly Decision 4's second environment. Later ADR 0003 stories deploy
+onto that qa lane (auto on merge) and promote to beta on a version tag; no separate platform instance is stood up.
+Story 08 (the key ring) ensures each of those lanes provisions its Data Protection key ring + signing key durably
+and isolated per environment.
+
 ## Cross-cutting concerns
 
 - **Observability is no-PII / no-content by construction.** Stories 04-05 add telemetry to an app whose players are
@@ -126,3 +173,12 @@ to UAT, added after this plan was written - is documented in [feature.md](./feat
   deployable, not to grow infrastructure.
 - **No new excluded deps** (no Azure Functions, etc.) - the test tooling is Vitest + Playwright only.
 - **No em dashes** in workflow comments, runbooks, or docs.
+- **ADR 0003 story 08 stays infra + wiring only.** It adds durability, not a new credential shape or
+  purpose string - `PurchaserCredentialService`/`MagicLinkTokenService`/the `Operator` scheme are untouched (only
+  WHERE the keys and the consumed-nonce set live changes). Decision 4's second environment is delivered by the
+  already-shipped story 07 (QA lane), not a template fork or a branch-per-environment GitOps rework (README section
+  9: keep it tiny).
+- **`Program.cs` is the one systemic hotspot across ADR 0003's Wave 1** (see the ADR's own cross-feature table):
+  story 08 shares it with `accounts-identity/05`, `keepsake-vault/01`, `control-plane/01`, and
+  `sysadmin-console/04` - each a DIFFERENT feature's story. Coordinate at orchestration time so these land as
+  separate, small, serially-rebased PRs rather than a batch.

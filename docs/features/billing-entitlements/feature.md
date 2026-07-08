@@ -40,11 +40,13 @@ even if the UI is minimal").
 | 05 | #74 | Restore / manage entitlements | Complete |
 | 06 | TBD | Live/test Stripe mode - mode-aware config + toggle endpoint | Complete (interim gate) |
 | 07 | TBD | Live/test Stripe mode - operator toggle UI | Complete (interim gate) |
+| 08 | #TBD | Grant metadata + Stripe reconciliation | Not Started |
 
 ## Dependencies
 - accounts-identity (a purchase needs the lightweight purchaser account from
   accounts-identity/02; restore, story 05, is the read side of
-  accounts-identity/03).
+  accounts-identity/03; story 08's resync soft-depends on accounts-identity/05's
+  AccountId spine - see story 08's Technical Notes for the degraded path).
 - session-engine (the gate in story 01 hooks the moment a room is created).
 - child-safety (any purchase-adjacent surface stays out of the kid play-flow
   and collects no data on minors).
@@ -52,7 +54,10 @@ even if the UI is minimal").
   purchase UI, kept visually consistent and friendly).
 - sysadmin-console/01 (#135, operator login + admin boundary) - story 07 (the
   toggle UI) belongs behind real operator auth once it lands; see story 06 and
-  07's Technical Notes for the interim gate used until then.
+  07's Technical Notes for the interim gate used until then. Story 08's resync
+  endpoint sits behind the same `Operator` policy from day one (no interim gate
+  needed - it lands after #135 already shipped) and is the future
+  `sysadmin-console/07` support verb's call target.
 
 ## Design notes
 - **The seam is the whole point of Phase 2 (story 01).** A single service/hook
@@ -201,3 +206,38 @@ even if the UI is minimal").
   any UI, and 07's placement depends on `sysadmin-console/01` landing (see
   06's and 07's Technical Notes "dependency reality" for the interim gate
   used until real operator auth exists).
+- 2026-07-08: [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md)
+  (the admin platform - family accounts, the keepsake vault, the control plane,
+  and the operator console) amends ADR 0002 in two places (accounts are no
+  longer purchase-only; a minimal operator action log now exists for
+  money/moderation operations) and assigns this feature Layer 2's grant-metadata
+  item as story 08: `EntitlementGrant` gains `GrantId`, `PlanId`, and
+  `StripeSubscriptionId`; the webhook handler populates them; a per-account,
+  operator-triggered "resync from Stripe" service becomes the recovery path
+  when a webhook was missed or a subscription was edited directly in the Stripe
+  dashboard - exposed as an `Operator`-policy endpoint the future
+  `sysadmin-console/07` support verb calls. Webhooks remain the routine source
+  of truth; resync is never scheduled or automatic. Story 08 soft-depends on
+  `accounts-identity/05` (the new `AccountId` spine, ADR 0003 Layer 0) - see its
+  Technical Notes for the degraded (email-keyed) path if built first. This
+  feature is otherwise unaffected by ADR 0003: the entitlement seam, the
+  capture-once discipline, and stories 01-07 are untouched.
+- 2026-07-08: a five-lens adversarial review of ADR 0003's plan ("Stripe resync
+  cannot corrupt grants," ADR 0003 Security posture) found story 08's original
+  resync design unsafe in three ways and all three are now fixed in the story:
+  (1) the grant store is a single store, not partitioned by Stripe mode - a
+  resync run while Test mode is active could overwrite a Live-derived grant;
+  fixed by adding a `Mode` dimension to the grant row and a guard that refuses
+  to write a grant whose stored `Mode` differs from the currently active mode
+  (new AC-08). (2) reconciling by the Stripe customer's raw `Email` field with
+  a "most-recent, non-deleted customer wins" tiebreak is attacker-steerable (a
+  Stripe customer's email is not verified, so an attacker can create one under
+  a victim's email); fixed by matching on the `qs_purchaser` checkout metadata
+  this app itself stamps, never on the bare customer email (revised AC-04). (3)
+  the resync endpoint fanned out unthrottled Stripe API calls; fixed with a
+  fixed-window rate limiter mirroring the existing `OperatorLoginRateLimit`/
+  `CloudGalleryRateLimit` pattern (revised AC-06). The Wave Plan in
+  implementation.md is also corrected: story 08 is ADR-canonical Wave 2 (it was
+  previously mislabeled "wave 7" in this feature's own numbering, which the
+  review flagged as misleading for an orchestrator reading across features -
+  see ADR 0003's "Canonical wave numbers" note).

@@ -130,6 +130,7 @@ of the 2026-07-04 view and predates this update.)
 | ~~Orientation / landscape readability~~ (done) | `design-system/03` | **Shipped** (commit ead9ae4); story + feature status trued up 2026-07-08. PWA manifest prefers portrait + the Reveal reflows in landscape (the `48vh` cap is gone). A manual landscape spot-check on a real phone is still worth doing before the beta. |
 | Billing-mode toggle relocation | `billing-entitlements/07` follow-up | move `/admin/billing-mode` out of the kid bundle into the operator console, behind the real Operator scheme |
 | E2E suite repair + CI | `platform-devops/06` (written 2026-07-08) | 3 of 8 Playwright specs fail on stale selectors (mode picker moved into Game settings; Home play-solo pill dropped its "Or " prefix); e2e is not in CI so drift goes unnoticed. The story empirically reproduced all 3 failures and specs the per-spec repair + a readiness-gated CI job (boot API on :5180, gate on `/health`, no `playwright install`) |
+| The admin platform (ADR 0003) | `docs/adr/0003-admin-platform-and-family-accounts.md` + stories in `accounts-identity/05-09`, `keepsake-vault/01-04` (new), `control-plane/01-03` (new), `sysadmin-console/04-07`, `billing-entitlements/08`, `platform-devops/08` (specced 2026-07-08) | the future-proof admin capability: stable AccountId spine + free family accounts (kid seat presets, family device link), the server-side keepsake vault (fixes "where are my saved stories"), the runtime control plane (settings + system-scope flags), and the reshaped operator console (one auth, jobs shell, action log, support lookup). The second environment (ADR Decision 4) is already delivered by the shipped `platform-devops/07` QA lane; Layers 0-1 gate Stripe live. Cross-feature build order lives in the ADR |
 | Public-tale TTL sweep | #150 | reap never-read expired tales; low urgency by design |
 | Group Progressive Story | `game-modes/05` x group | deferred: needs the live cross-player "story so far" broadcast (its own story) |
 | Bicep validation gap | carry-forward | `az bicep build` is not gated in CI (local `ci-check` skill covers it); serve-log client (`serveLog.ts`) still has no Vitest spec |
@@ -195,6 +196,29 @@ dependency) are recorded in the audit and can ride until after the test.
   `design-system/03`, has since shipped - status trued up 2026-07-08.)
 - Decide on the parked **Versus/Duel** mode (#55) once `vote.ts` + group modes
   have proven out - it is the engine's one real stretch.
+
+### 2.5 The admin platform (ADR 0003 - specced 2026-07-08, runs alongside the beta)
+- **Why now:** the two support scenarios the alpha will surface first - "where are my
+  saved stories?" (today: device-local IndexedDB, unrecoverable, invisible to the
+  operator) and subscription support (today: no stable account id, bare grant rows,
+  no Stripe reconciliation, and `CreateRoom` never actually receives a purchaser
+  identity - ADR 0002 Decision F was decided but unbuilt).
+- **What it is:** four layers per [ADR 0003](./adr/0003-admin-platform-and-family-accounts.md):
+  (0) the identity spine - stable AccountId, free family accounts, kid seat presets,
+  the family device link, Decision F wired, durable key ring; (1) the runtime control
+  plane - one settings service + system-scope capability flags (kill switches without
+  redeploys); (2) recovery - the keepsake vault (auto-save every reveal, claim codes,
+  soft delete) + grant metadata and per-account Stripe resync; (3) the console - one
+  auth, a jobs shell (Support / Content / Operations), the operator action log, and
+  support lookup + verbs.
+- **Posture changes (amending ADR 0002, invariant intact):** accounts decouple from
+  purchase; a minimal action log covers money/moderation ops. No PII ever lands on
+  the play plane; kids stay anonymous.
+- **Sequencing:** UAT rebadges as BETA and keeps running the friends-and-family test;
+  this work lands on the qa lane already shipped by `platform-devops/07` (auto-deploy
+  on merge, tag-promote to beta); `platform-devops/08` makes each lane's key ring
+  durable; Layers 0-1 must land before Stripe live. The cross-feature wave plan
+  (including the Program.cs serial-merge rule) is in the ADR.
 
 ### 3. Spread the word + charge for it (for real)
 - **Provision Table Storage for the public tale page** (it ships disabled behind
