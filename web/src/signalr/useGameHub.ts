@@ -1640,6 +1640,12 @@ export function useGameHub(): UseGameHub {
         // guards return the player Home instead of a frozen screen.
         if (isRoomNotFoundError(result.error)) {
           resetRoomState();
+          // The room is gone server-side, so any persisted reconnect handle for
+          // it is now stale - drop it too (Copilot review) so a later reload /
+          // auto-reconnect does not attempt a doomed Rejoin into an
+          // already-evicted room. Mirrors clearRoom's reset+clear pairing (the
+          // server-side LeaveRoom is moot here: the room no longer exists).
+          clearReconnectHandle();
         }
         return result;
       } catch {
@@ -1673,6 +1679,12 @@ export function useGameHub(): UseGameHub {
         // session-engine/13 (AC-03/W1): see startRound's matching comment above.
         if (isRoomNotFoundError(result.error)) {
           resetRoomState();
+          // The room is gone server-side, so any persisted reconnect handle for
+          // it is now stale - drop it too (Copilot review) so a later reload /
+          // auto-reconnect does not attempt a doomed Rejoin into an
+          // already-evicted room. Mirrors clearRoom's reset+clear pairing (the
+          // server-side LeaveRoom is moot here: the room no longer exists).
+          clearReconnectHandle();
         }
         return result;
       } catch {
@@ -1710,6 +1722,12 @@ export function useGameHub(): UseGameHub {
         // session-engine/13 (AC-03/W1): see startRound's matching comment above.
         if (isRoomNotFoundError(result.error)) {
           resetRoomState();
+          // The room is gone server-side, so any persisted reconnect handle for
+          // it is now stale - drop it too (Copilot review) so a later reload /
+          // auto-reconnect does not attempt a doomed Rejoin into an
+          // already-evicted room. Mirrors clearRoom's reset+clear pairing (the
+          // server-side LeaveRoom is moot here: the room no longer exists).
+          clearReconnectHandle();
         }
         return result;
       } catch {
@@ -1742,6 +1760,12 @@ export function useGameHub(): UseGameHub {
         // session-engine/13 (AC-03/W1): see startRound's matching comment above.
         if (isRoomNotFoundError(result.error)) {
           resetRoomState();
+          // The room is gone server-side, so any persisted reconnect handle for
+          // it is now stale - drop it too (Copilot review) so a later reload /
+          // auto-reconnect does not attempt a doomed Rejoin into an
+          // already-evicted room. Mirrors clearRoom's reset+clear pairing (the
+          // server-side LeaveRoom is moot here: the room no longer exists).
+          clearReconnectHandle();
         }
         return result.ok
           ? { accepted: true }
@@ -1778,6 +1802,12 @@ export function useGameHub(): UseGameHub {
         // session-engine/13 (AC-03/W1): see startRound's matching comment above.
         if (isRoomNotFoundError(result.error)) {
           resetRoomState();
+          // The room is gone server-side, so any persisted reconnect handle for
+          // it is now stale - drop it too (Copilot review) so a later reload /
+          // auto-reconnect does not attempt a doomed Rejoin into an
+          // already-evicted room. Mirrors clearRoom's reset+clear pairing (the
+          // server-side LeaveRoom is moot here: the room no longer exists).
+          clearReconnectHandle();
         }
         return result.ok
           ? { accepted: true }
