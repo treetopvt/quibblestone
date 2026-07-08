@@ -71,13 +71,18 @@ public class GameHubStartRoundTests
         Assert.NotEmpty(quickIds); // sanity: the seed catalog has quick entries today
 
         // Repeat StartRound (a fresh round each call, same room) many times so a
-        // single lucky random draw cannot mask a broken filter (AC-03).
+        // single lucky random draw cannot mask a broken filter (AC-03). Each
+        // round is returned to the lobby afterward (session-engine/13, AC-01):
+        // a live "prompting" round now blocks a re-start, so this loop mirrors
+        // the real "play another round" flow (start, then back to lobby) rather
+        // than double-starting mid-round.
         for (var i = 0; i < 25; i++)
         {
             var result = await hub.StartRound(room.Code, familySafe: true, lengthPref: "quick");
 
             Assert.True(result.Ok, result.Error);
             Assert.Contains(room.CurrentRound!.TemplateId, quickIds);
+            room.BackToLobby();
         }
     }
 
@@ -98,6 +103,9 @@ public class GameHubStartRoundTests
             // The family-safe gate runs FIRST, unconditionally (AC-05): the length
             // stage only ever sees what that gate already allowed.
             Assert.Contains(room.CurrentRound!.TemplateId, familySafeIds);
+            // session-engine/13 (AC-01): back to the lobby so the next iteration's
+            // StartRound is not blocked by the new "prompting" re-start guard.
+            room.BackToLobby();
         }
     }
 
@@ -146,6 +154,9 @@ public class GameHubStartRoundTests
             var served = room.CurrentRound!.TemplateId;
             Assert.Contains(served, quickIds);
             Assert.True(servedInFirstPass.Add(served), $"template '{served}' repeated before the eligible pool ran dry");
+            // session-engine/13 (AC-01): back to the lobby so the next iteration's
+            // StartRound is not blocked by the new "prompting" re-start guard.
+            room.BackToLobby();
         }
 
         // Every eligible template was served exactly once across the full pass.
@@ -174,6 +185,9 @@ public class GameHubStartRoundTests
 
             Assert.True(result.Ok, result.Error);
             Assert.Contains(room.CurrentRound!.TemplateId, quickIds);
+            // session-engine/13 (AC-01): back to the lobby so the next iteration's
+            // StartRound is not blocked by the new "prompting" re-start guard.
+            room.BackToLobby();
         }
 
         // The room's played history never grows past the number of DISTINCT
@@ -300,6 +314,80 @@ public class GameHubStartRoundTests
             propertyNames);
     }
 
+    // --- session-engine/13 (AC-01/W3): StartRound's phase guard ---
+
+    [Fact]
+    public async Task StartRound_rejects_a_second_start_while_the_round_is_prompting()
+    {
+        // A host double-tap (or any other caller) mid-deal must not re-deal or
+        // discard anything already collected.
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var first = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any");
+        Assert.True(first.Ok, first.Error);
+
+        // The host submits its first assigned blank so there is something
+        // collected to protect from a re-deal.
+        var hostBlank = room.CurrentRound!.Assignments.Single(a => a.ConnectionId == "conn-host").BlankIndices[0];
+        var submit = await hub.SubmitWord(room.Code, hostBlank, "banana");
+        Assert.True(submit.Ok, submit.Error);
+
+        var before = room.CurrentRound!;
+
+        // The host double-taps Start mid-deal.
+        var second = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any");
+
+        Assert.False(second.Ok);
+        Assert.NotNull(second.Error);
+
+        var after = room.CurrentRound!;
+        Assert.Equal("prompting", after.Phase);
+        Assert.Equal(before.TemplateId, after.TemplateId);
+        Assert.Equal(before.RoundNumber, after.RoundNumber);
+        Assert.Equal(before.StartedUtc, after.StartedUtc);
+        Assert.Equal(before.Assignments.Count, after.Assignments.Count);
+        // Nothing already collected was discarded.
+        Assert.True(after.Submissions.ContainsKey(hostBlank));
+        Assert.Equal("banana", after.Submissions[hostBlank].Word);
+        Assert.Equal(before.Submissions.Count, after.Submissions.Count);
+    }
+
+    [Fact]
+    public async Task StartRound_from_reveal_phase_still_starts_a_fresh_round()
+    {
+        // A "reveal"-phase restart is the shipped "Play another round" flow
+        // (BackToLobby's own doc comment: "the replay counterpart is just
+        // StartRound again on the same room") and must be unaffected by the
+        // "prompting"-only guard.
+        var (hub, registry, _, _, _) = BuildHub("conn-host");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var started = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any");
+        Assert.True(started.Ok, started.Error);
+
+        // Submit every assigned blank (host, then joiner) so the round completes.
+        foreach (var assignment in room.CurrentRound!.Assignments)
+        {
+            hub.Context = new FakeHubCallerContext(assignment.ConnectionId);
+            foreach (var blankIndex in assignment.BlankIndices)
+            {
+                var submit = await hub.SubmitWord(room.Code, blankIndex, "banana");
+                Assert.True(submit.Ok, submit.Error);
+            }
+        }
+        Assert.Equal("reveal", room.CurrentRound!.Phase);
+
+        hub.Context = new FakeHubCallerContext("conn-host");
+        var restarted = await hub.StartRound(room.Code, familySafe: true, lengthPref: "any");
+
+        Assert.True(restarted.Ok, restarted.Error);
+        Assert.Equal("prompting", room.CurrentRound!.Phase);
+        Assert.Equal(2, room.CurrentRound!.RoundNumber);
+    }
+
     // --- group-play/05: host-chosen mode selection ---
 
     [Fact]
@@ -354,6 +442,9 @@ public class GameHubStartRoundTests
             Assert.True(result.Ok, result.Error);
             Assert.Equal("word-bank", room.CurrentRound!.Mode);
             Assert.Contains(room.CurrentRound!.TemplateId, bankIds);
+            // session-engine/13 (AC-01): back to the lobby so the next iteration's
+            // StartRound is not blocked by the new "prompting" re-start guard.
+            room.BackToLobby();
         }
     }
 

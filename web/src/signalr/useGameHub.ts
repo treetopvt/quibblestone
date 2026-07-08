@@ -187,6 +187,33 @@ const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
 const ZERO_REACTIONS: ReactionCounts = { love: 0, wow: 0, nope: 0 };
 
 /**
+ * session-engine/13 (AC-03/W1): the exact "unknown or expired room code"
+ * string the hub's `RoomNotFoundMessage` const returns (api/src/Hubs/GameHub.cs)
+ * whenever an in-room call looks a room up by code and it is gone (the idle
+ * sweep evicted it, or - belt and suspenders - any other code-lookup miss).
+ * Mirrored here so {@link isRoomNotFoundError} can recognize it reliably. A
+ * plain string comparison is admittedly a little brittle to a future copy
+ * change on the server - acceptable for this story's scope; a structured
+ * error code is the fuller fix if this pattern grows.
+ */
+const ROOM_NOT_FOUND_MESSAGE =
+  "We couldn't find a game with that code - double-check and try again.";
+
+/**
+ * session-engine/13 (AC-03/W1): true when a room-scoped call's error is the
+ * server's "we couldn't find a game with that code" message - the signal that
+ * the room the client believed it was still in is gone server-side (most
+ * often the 30-minute idle sweep, since a still-connected seat now exempts a
+ * room from it). Pure and exported so it is unit-testable without a live
+ * HubConnection, alongside this file's other small pure helpers
+ * (`manualReconnectDelayMs`, `withReconnectJitter`). Null (no error, or a call
+ * that never returns one) is never a match.
+ */
+export function isRoomNotFoundError(error: string | null): boolean {
+  return error === ROOM_NOT_FOUND_MESSAGE;
+}
+
+/**
  * B1 (alpha-gate hardening): the manual reconnect loop's backoff schedule, in
  * milliseconds, once the automatic-reconnect policy has given up (`onclose`)
  * or the very first `connection.start()` fails outright. `attempt` is 0-based
@@ -1599,7 +1626,7 @@ export function useGameHub(): UseGameHub {
         // the wire (the server treats blank as "no pick" too, but normalizing here
         // avoids ever sending an ambiguous value from a corrupted favorite id).
         const explicitTemplateId = templateId && templateId.trim().length > 0 ? templateId : null;
-        return await connection.invoke<StartRoundResult>(
+        const result = await connection.invoke<StartRoundResult>(
           'StartRound',
           code,
           familySafe,
@@ -1607,12 +1634,20 @@ export function useGameHub(): UseGameHub {
           mode,
           explicitTemplateId,
         );
+        // session-engine/13 (AC-03/W1): the room this client believed it was
+        // still in is gone server-side (most often the idle sweep) - reset
+        // local state back to "not in a room" so the existing live-route
+        // guards return the player Home instead of a frozen screen.
+        if (isRoomNotFoundError(result.error)) {
+          resetRoomState();
+        }
+        return result;
       } catch {
         // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
         return { ok: false, error: "Something went off - give it a moment and try again." };
       }
     },
-    [],
+    [resetRoomState],
   );
 
   const backToLobby = useCallback(
@@ -1634,13 +1669,18 @@ export function useGameHub(): UseGameHub {
       // that for EVERYONE (host included) so all players fall back to the Lobby
       // together, with the code + roster preserved.
       try {
-        return await connection.invoke<{ ok: boolean; error: string | null }>('BackToLobby', code);
+        const result = await connection.invoke<{ ok: boolean; error: string | null }>('BackToLobby', code);
+        // session-engine/13 (AC-03/W1): see startRound's matching comment above.
+        if (isRoomNotFoundError(result.error)) {
+          resetRoomState();
+        }
+        return result;
       } catch {
         // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
         return { ok: false, error: "Something went off - give it a moment and try again." };
       }
     },
-    [],
+    [resetRoomState],
   );
 
   const passHost = useCallback(
@@ -1662,17 +1702,22 @@ export function useGameHub(): UseGameHub {
       // the reused "RosterChanged" broadcast (handled above) carries the moved
       // flag to EVERY client, including this one.
       try {
-        return await connection.invoke<{ ok: boolean; error: string | null }>(
+        const result = await connection.invoke<{ ok: boolean; error: string | null }>(
           'PassHost',
           code,
           targetNickname,
         );
+        // session-engine/13 (AC-03/W1): see startRound's matching comment above.
+        if (isRoomNotFoundError(result.error)) {
+          resetRoomState();
+        }
+        return result;
       } catch {
         // A thrown invoke must surface as a friendly envelope, not a rejection (Copilot review).
         return { ok: false, error: "Something went off - give it a moment and try again." };
       }
     },
-    [],
+    [resetRoomState],
   );
 
   const submitWord = useCallback(
@@ -1694,6 +1739,10 @@ export function useGameHub(): UseGameHub {
       // for everyone. Map the SubmitWordResult envelope to FillBlank's contract.
       try {
         const result = await connection.invoke<SubmitWordResult>('SubmitWord', code, blankIndex, word);
+        // session-engine/13 (AC-03/W1): see startRound's matching comment above.
+        if (isRoomNotFoundError(result.error)) {
+          resetRoomState();
+        }
         return result.ok
           ? { accepted: true }
           : { accepted: false, message: result.error ?? 'That word is not allowed here. Try another!' };
@@ -1703,7 +1752,7 @@ export function useGameHub(): UseGameHub {
         return { accepted: false, message: "Something went off - give it a moment and try again." };
       }
     },
-    [],
+    [resetRoomState],
   );
 
   const remixWord = useCallback(
@@ -1726,6 +1775,10 @@ export function useGameHub(): UseGameHub {
       // round-complete broadcast already triggers.
       try {
         const result = await connection.invoke<SubmitWordResult>('RemixWord', code, blankIndex, word);
+        // session-engine/13 (AC-03/W1): see startRound's matching comment above.
+        if (isRoomNotFoundError(result.error)) {
+          resetRoomState();
+        }
         return result.ok
           ? { accepted: true }
           : { accepted: false, message: result.error ?? 'That word is not allowed here. Try another!' };
@@ -1733,7 +1786,7 @@ export function useGameHub(): UseGameHub {
         return { accepted: false, message: 'Something went off - give it a moment and try again.' };
       }
     },
-    [],
+    [resetRoomState],
   );
 
   const react = useCallback((type: ReactionType) => {

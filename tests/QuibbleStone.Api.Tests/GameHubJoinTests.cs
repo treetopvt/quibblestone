@@ -218,6 +218,64 @@ public class GameHubJoinTests
         Assert.DoesNotContain(registry.TryGet(code)!.SnapshotPlayers(), p => p.Nickname == "OneTooMany");
     }
 
+    // --- session-engine/13 (AC-02/W4): JoinRoom's mid-round guard -------------
+
+    [Fact]
+    public async Task JoinRoom_rejects_a_join_while_the_round_is_prompting()
+    {
+        var (hub, registry, clients, groups) = BuildHub("conn-newcomer");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+        room.StartRound("wobbly-wizard", "classic-blind", 2);
+
+        var result = await hub.JoinRoom(room.Code, "Newcomer", "teal");
+
+        Assert.False(result.Ok);
+        Assert.Null(result.Room);
+        Assert.NotNull(result.Error);
+        Assert.Equal(2, room.PlayerCount); // no partial seat
+        Assert.Empty(groups.Added);        // never subscribed
+        Assert.Null(clients.LastMethod);   // no RosterChanged broadcast
+    }
+
+    [Fact]
+    public async Task JoinRoom_rejects_a_join_while_the_round_is_in_reveal()
+    {
+        var (hub, registry, clients, groups) = BuildHub("conn-newcomer");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+        room.StartRound("wobbly-wizard", "classic-blind", 2);
+        Assert.Equal(Room.SubmitOutcome.Recorded, room.RecordSubmission("conn-host", 0, "banana"));
+        Assert.Equal(Room.SubmitOutcome.RoundComplete, room.RecordSubmission("conn-joiner", 1, "wobbly"));
+        Assert.Equal("reveal", room.CurrentRound!.Phase);
+
+        var result = await hub.JoinRoom(room.Code, "Newcomer", "teal");
+
+        Assert.False(result.Ok);
+        Assert.Null(result.Room);
+        Assert.NotNull(result.Error);
+        Assert.Equal(2, room.PlayerCount);
+        Assert.Empty(groups.Added);
+        Assert.Null(clients.LastMethod);
+    }
+
+    [Fact]
+    public async Task JoinRoom_succeeds_again_once_the_round_returns_to_lobby()
+    {
+        var (hub, registry, _, _) = BuildHub("conn-newcomer");
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+        room.StartRound("wobbly-wizard", "classic-blind", 2);
+        room.BackToLobby();
+
+        var result = await hub.JoinRoom(room.Code, "Newcomer", "teal");
+
+        Assert.True(result.Ok);
+        Assert.NotNull(result.Room);
+        Assert.Null(result.Error);
+        Assert.Equal(3, room.PlayerCount);
+    }
+
     // --- Minimal SignalR fakes ------------------------------------------------
 
     // Records group broadcasts. Every Group(...)/All/etc. returns the same proxy

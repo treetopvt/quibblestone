@@ -13,9 +13,13 @@
 //       name + variant it picked on HostSetup (no longer an empty nickname), IsHost
 //       true (still no PII beyond the anonymous in-session record).
 //
-//  Expiry (AC-05) is time-based (a 30-minute sliding window) and is left to a
-//  manual/integration check rather than a clock-dependent unit test - the sweep
-//  logic is small and lazy; wiring a fake clock is out of scope for Slice 1.
+//  Expiry (AC-05) is time-based (a 30-minute sliding default window). Session-
+//  engine/13 (AC-03/W1) put the sweep itself back in scope for a fast,
+//  deterministic xUnit test by adding a test constructor that takes an explicit
+//  (typically millisecond-scale) inactivity window - see
+//  RoomRegistrySweepTests.cs, which also covers that story's connected-seat
+//  exemption (a room with any still-connected seat is exempt from the sweep no
+//  matter how stale LastActiveUtc gets).
 // ----------------------------------------------------------------------------
 
 using QuibbleStone.Api.Rooms;

@@ -17,6 +17,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AUTO_RECONNECT_BASE_MS,
+  isRoomNotFoundError,
   jitteredAutoReconnectDelayMs,
   jitteredManualReconnectDelayMs,
   manualReconnectDelayMs,
@@ -210,5 +211,31 @@ describe('startWithTimeout (B1 follow-up: the connect-hang fix)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('isRoomNotFoundError (session-engine/13, AC-03/W1)', () => {
+  it('matches the exact server "unknown or expired room code" message', () => {
+    expect(
+      isRoomNotFoundError("We couldn't find a game with that code - double-check and try again."),
+    ).toBe(true);
+  });
+
+  it('does not match null (no error)', () => {
+    expect(isRoomNotFoundError(null)).toBe(false);
+  });
+
+  it('does not match a DIFFERENT hub error message', () => {
+    expect(isRoomNotFoundError('Only the host can start the game.')).toBe(false);
+    expect(isRoomNotFoundError("This tale's already being carved - wait for the reveal before starting a new one.")).toBe(false);
+  });
+
+  it('is case-sensitive and does not fuzzy-match a near-miss copy change', () => {
+    expect(
+      isRoomNotFoundError("we couldn't find a game with that code - double-check and try again."),
+    ).toBe(false);
+    expect(
+      isRoomNotFoundError("We couldn't find a game with that code - double-check and try again"),
+    ).toBe(false);
   });
 });

@@ -350,6 +350,14 @@ public sealed class GameHub : Hub
     // client's "n/14" counter (web/src/pages/Join.tsx). Names are trimmed first.
     private const int MaxDisplayNameLength = 14;
 
+    // session-engine/13 (AC-03/W1): the single source of truth for the "unknown
+    // or expired room code" message every code-lookup hub method returns on a
+    // miss. Was duplicated six times (JoinRoom, StartRound, BackToLobby, PassHost,
+    // SubmitWord, RemixWord) with no shared constant - collapsed here so the web
+    // client (useGameHub.ts's isRoomNotFoundError) can reliably recognize it and
+    // reset local room state on a room the server no longer has.
+    private const string RoomNotFoundMessage = "We couldn't find a game with that code - double-check and try again.";
+
     // session-engine/05: the only six Guardian variants the client can offer
     // (web/src/components/Guardian.tsx GuardianVariant). A malformed or
     // malicious client could send any string as `variant`, so this is the
@@ -578,7 +586,23 @@ public sealed class GameHub : Hub
             return new JoinResultDto(
                 false,
                 null,
-                "We couldn't find a game with that code - double-check and try again.");
+                RoomNotFoundMessage);
+        }
+
+        // 1b. session-engine/13 (AC-02/W4): a round already live (either
+        //     "prompting" or "reveal" - RoomStateDto carries no phase field, so a
+        //     joining client cannot detect a live round on its own) blocks a
+        //     BRAND-NEW seat. Checked here, before the name-length check and the
+        //     async safety filter, so a blocked joiner never pays for that
+        //     round-trip on a join that was always going to fail, and is never
+        //     partially seated. Does NOT affect Rejoin (a resume of an ALREADY-held
+        //     seat, session-engine/08) - that stays working mid-round by design.
+        if (room.CurrentRound is not null)
+        {
+            return new JoinResultDto(
+                false,
+                null,
+                "This crew's mid-tale right now - hang tight and you'll be seated for the next round.");
         }
 
         // 2. Basic shape of the display name (AC-03). Trim first so " " is empty
@@ -932,7 +956,7 @@ public sealed class GameHub : Hub
         {
             return new StartRoundResultDto(
                 false,
-                "We couldn't find a game with that code - double-check and try again.");
+                RoomNotFoundMessage);
         }
 
         // 2. Server-enforced host check (AC-03): while the room HAS a host, only the
@@ -951,6 +975,23 @@ public sealed class GameHub : Hub
             return new StartRoundResultDto(
                 false,
                 "Only the host can start the game.");
+        }
+
+        // 2b. session-engine/13 (AC-01/W3): reject a re-start while a round is
+        //     still "prompting" (a host double-tap, or any other caller) BEFORE the
+        //     player-count check, mode resolution, the template-selection pipeline,
+        //     or dealing - nothing already collected is discarded and nobody is
+        //     re-dealt. Mirrors PassHost's exact phase-check style. Guards
+        //     "prompting" ONLY: a "reveal"-phase restart is the shipped "Play
+        //     another round" flow (BackToLobby's own doc comment: "the replay
+        //     counterpart is just StartRound again on the same room") and a lobby
+        //     (no round at all) must both keep starting a round normally.
+        var currentRound = room.CurrentRound;
+        if (currentRound is not null && string.Equals(currentRound.Phase, "prompting", StringComparison.Ordinal))
+        {
+            return new StartRoundResultDto(
+                false,
+                "This tale's already being carved - wait for the reveal before starting a new one.");
         }
 
         // 3. Need the host plus at least one other player (AC-01).
@@ -1271,7 +1312,7 @@ public sealed class GameHub : Hub
         {
             return new StartRoundResultDto(
                 false,
-                "We couldn't find a game with that code - double-check and try again.");
+                RoomNotFoundMessage);
         }
 
         // 2. Server-enforced host check (AC-05): only the host may move the whole
@@ -1332,7 +1373,7 @@ public sealed class GameHub : Hub
         {
             return new StartRoundResultDto(
                 false,
-                "We couldn't find a game with that code - double-check and try again.");
+                RoomNotFoundMessage);
         }
 
         // 2. Server-enforced host check (AC-04): only the connection that owns the
@@ -1579,7 +1620,7 @@ public sealed class GameHub : Hub
         {
             return new SubmitWordResultDto(
                 false,
-                "We couldn't find a game with that code - double-check and try again.");
+                RoomNotFoundMessage);
         }
 
         var round = room.CurrentRound;
@@ -1690,7 +1731,7 @@ public sealed class GameHub : Hub
         {
             return new SubmitWordResultDto(
                 false,
-                "We couldn't find a game with that code - double-check and try again.");
+                RoomNotFoundMessage);
         }
 
         // SAFETY FILTER FIRST (AC-06), exactly like SubmitWord: a blocked word is
