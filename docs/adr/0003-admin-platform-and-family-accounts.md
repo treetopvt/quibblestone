@@ -79,11 +79,36 @@ Beyond the two scenarios, the audit found three structural gaps:
 
 ## The invariant retained, and the two amendments
 
-**Retained, verbatim from ADR 0002:** entitlement travels with the session, not identity. Purchaser
-or family identity is resolved to capabilities at `CreateRoom` and discarded at that boundary; only
-`SessionEntitlements` lands on `Room`; no PII, account id, or device link ever lands on `Room`/
-`Player`, is broadcast, or is joined to a nickname. Kids join with a code + nickname, forever. Every
-story below is reviewed against this exactly as before.
+**Retained on the play plane, exactly as ADR 0002 states it:** entitlement travels with the
+session, not identity. Purchaser or family identity is resolved to capabilities at `CreateRoom` and
+discarded at that boundary; only `SessionEntitlements` lands on `Room`; no PII, account id, or
+device link ever lands on `Room`/`Player`, is broadcast, or is joined to a nickname *in the game
+itself*. Kids join with a code + nickname, forever. Every story below is reviewed against this
+exactly as before.
+
+**Honest carve-out (added 2026-07-08 after the adversarial review - Decision 2/finding #5).** The
+invariant governs the PLAY plane. It does NOT and cannot mean "a nickname string never co-resides
+with an account anywhere," because the features the owner chose - family accounts, kid seat presets,
+and vault claiming - deliberately place chosen nicknames under a family `AccountId` on the
+ACCOUNT/consented plane (a preset is `accountId -> {nickname, variant}`; a claimed vault carries the
+tale bylines). This is adult-owned, adult-consented household data, created only by an adult signing
+in and claiming - never harvested from play, never surfaced to co-players, never on `Room`/`Player`.
+The two planes and the firewall between them:
+
+- **Play plane (the invariant, absolute):** `Room`/`Player`, broadcasts, telemetry, and the AI-gate
+  attribution carry no identity and no account linkage. A preset join is byte-for-byte
+  indistinguishable from a manual join. This is enforced structurally (no field exists to hold it).
+- **Account plane (consented household data):** presets and claimed-vault bylines may associate a
+  nickname with a family account, because an adult put it there. This is treated as household PII
+  under the privacy posture, minimized and TTL'd, not as a violation of the play-plane invariant.
+- **The firewall (structurally enforced, finding #2/#6):** nothing may bridge the two planes. In
+  particular the operator support console (sysadmin-console/07) MUST NOT resolve a public slug or a
+  vault claim code to an account email, and MUST NOT project nickname/byline/timestamp content -
+  only counts and account-plane facts. That guard is a code-review-enforced structural rule, not an
+  assertion (see the review-driven revisions below).
+
+Do not, anywhere below, describe the invariant as "retained verbatim" - it is retained on the play
+plane, with this explicit account-plane carve-out.
 
 **Amendment 1 - accounts are no longer purchase-only.** ADR 0002 Decision A's account ("created
 only at purchase") becomes the **family account**: creatable free, still email + created-at (plus
@@ -137,14 +162,32 @@ then does NOT hand-hold - the kid plays independently on their own device. The l
 set-and-forget: buy once, link once, every later room the kid creates carries the family grants.
 Two refinements follow from independent kid play:
 
-- **The kid-device flag (in scope, story `accounts-identity/09`).** A linked device can be marked
-  as a kid device by the parent, which locks the family-safe toggle ON for rooms that device
-  creates (server-enforced, not a client hint: the forced state is captured at `CreateRoom` and
-  overrides whatever `familySafe` value the client submits at `StartRound`, since family-safe is
-  chosen per round today). Without it, an unsupervised kid
-  host could flip family-safe off and reveal the teen-plus content tier - the gap independent play
-  opens is content exposure, not capability misuse. The flag lives on the link (a device
-  attribute), never on a player, so the invariant is untouched.
+- **Teen-plus content is gated behind an affirmative adult signal (redesigned 2026-07-08 after the
+  adversarial review - Decision 1/finding #1).** The review found the original kid-device design
+  defended the wrong gate: the teen-plus tier is gated ONLY by the per-round `familySafe` flag and
+  by NO entitlement (`TemplateCatalog.cs` / `FamilySafeContentSelector`), and the "lock" rode an
+  optional, client-held, clearable device token - so an unsupervised kid could reach teen-plus
+  simply by playing in a fresh/incognito browser (no token presented -> no forced state), at zero
+  cost because the content was free. A lock that rides a credential its own holder can shed is not
+  enforcement. The fix inverts the default posture: **teen-plus content requires an affirmative
+  adult signal that a token-less session cannot obtain, and is family-safe by default otherwise.**
+  Concretely (story `accounts-identity/09` + a child-safety touch to the content selector):
+  - The teen-plus tier is served only when the room's session carries an explicit adult unlock -
+    resolved server-side at `CreateRoom` from a signed-in adult credential or an adult-confirmed
+    device, captured onto the room like an entitlement. A room with no such signal (anonymous play,
+    incognito, cleared storage, a kid device) is family-safe regardless of any client `familySafe`
+    value at `StartRound`.
+  - Host-migration cannot open the gate: the adult-unlock state is a property of the room's
+    captured session, not of whoever currently holds the host role, so promoting a kid to host
+    (`EnsureHostLocked`) never flips it on.
+  - A redeemed device defaults to family-safe-locked (`IsKidDevice` effectively defaults to the
+    SAFE state); reaching teen-plus is an opt-IN an adult performs, not an opt-out a kid can skip.
+  - The device flag still lives on the link (a device attribute), never on a player, so the
+    play-plane invariant is untouched. What changed is that content safety no longer depends on the
+    presence of a client-held token - the safe state is the default and the unlock is the exception.
+  This is a deliberate scope addition to story 09 and a small child-safety change to the content
+  selector; it supersedes the "force the flag on / override StartRound" mechanism described in the
+  earlier draft of this section.
 - **Per-device capability scoping (parked).** Letting a parent choose WHICH grants a linked device
   carries adds a second entitlement dimension for little value: the free tier is generous, packs
   applying family-wide cost nothing, and the AI cost gate bounds spend per session and per month
@@ -211,16 +254,82 @@ Two refinements follow from independent kid play:
 Decompositions live in each feature folder; every feature has its own DAG-ready implementation.md.
 The cross-feature ordering constraints, chosen so parallel builders own disjoint files:
 
+**Canonical wave numbers.** The `Wave` column here is authoritative. Each feature's own
+implementation.md MUST use these same numbers (or add an explicit `ADR-Wave` column that maps to
+them) - do NOT let a feature renumber locally (the 2026-07-08 review found accounts-identity using
+"waves 5-8" and billing "wave 7" for stories that are ADR Waves 1-3, which would mislead an
+orchestrator grouping by the local number). sysadmin-console must also keep its historical 01-03
+wave table out of the DAG-parsed section so "wave 1" is unambiguous.
+
 | Wave | Stories (parallel within a wave unless noted) | Shared-file hazard |
 |---|---|---|
-| 1 | `accounts-identity/05` (AccountId spine), `keepsake-vault/01` (vault store + auto-save), `control-plane/01` (settings service), `sysadmin-console/04` (auth unification), `platform-devops/07` (key ring), `platform-devops/08` (second environment) | all but 08 register services in `Program.cs` - land as separate small PRs, rebase serially; do not batch |
-| 2 | `accounts-identity/06` (Decision F wiring), `accounts-identity/07` (free family account), `keepsake-vault/02` (gallery over vault), `control-plane/02` (capability scopes), `sysadmin-console/05` (jobs shell), `billing-entitlements/08` (grant metadata + resync) | 06 and control-plane/02 both touch `api/src/Entitlements/` - serialize those two |
-| 3 | `accounts-identity/08` (kid seat presets), `accounts-identity/09` (family device link), `keepsake-vault/03` (claim + recovery), `keepsake-vault/04` (soft delete + restore), `control-plane/03` (knob migration - touches many files, run it alone in its slot), `sysadmin-console/06` (action log) | knob migration overlaps whatever else is in flight - schedule it when the tree is quiet |
+| 1 | `accounts-identity/05` (AccountId spine), `keepsake-vault/01` (vault store + auto-save), `control-plane/01` (settings service), `sysadmin-console/04` (auth unification), `platform-devops/07` (key ring), `platform-devops/08` (second environment) | (a) all but 08 register services in `Program.cs` - separate small PRs, rebase serially, do not batch. (b) **07 and 08 both edit `.github/workflows/deploy.yml`** (07 a comment/wiring touch, 08 the target-environment input) - they are NOT disjoint; serialize them on that file (correcting the earlier "disjoint" claim). (c) `accounts/05` re-keys `api/src/Entitlements/StoredValueEntitlementService.cs` - see Wave 2 note. |
+| 2 | `accounts-identity/06` (Decision F wiring), `accounts-identity/07` (free family account), `keepsake-vault/02` (gallery over vault), `control-plane/02` (capability scopes), `sysadmin-console/05` (jobs shell), `billing-entitlements/08` (grant metadata + resync) | **Corrected 2026-07-08:** the `api/src/Entitlements/` hotspot is NOT 06<->02. Story 06 only edits the `CreateRoom` call site in `GameHub.cs` (the `EvaluateForSession(purchaserIdentity, ...)` signature already accepts the arg) - it does not touch `api/src/Entitlements/`. The real chain on `StoredValueEntitlementService.cs` is **`accounts/05` (Wave 1 re-key) -> `control-plane/02` (Wave 2 system-flag composition)**, so control-plane/02 has a hard depends-on `accounts/05` (not just control-plane/01). Additionally **`billing/08` co-occupies the folder** (`EntitlementGrant.cs` + the grant store) - its record-shape change should land before or after control-plane/02's edit to that consumer, not concurrently. |
+| 3 | `accounts-identity/08` (kid seat presets), `accounts-identity/09` (family device link + teen-plus gate + kid-device), `keepsake-vault/03` (claim + recovery), `keepsake-vault/04` (soft delete + restore), `control-plane/03` (knob migration - run alone in its slot), `sysadmin-console/06` (action log) | (a) **`Program.cs` is touched by FOUR W3 stories** (08 preset store, 09 device-token store, control-plane/03 limiter factories, sysadmin-console/06 log store) - the serial-merge rule applies here at higher concurrency than W1/W2. (b) `accounts/09` also edits **`web/src/App.tsx`** (a redeem route - add it to 09's footprint; it collides with `sysadmin-console/04`'s App.tsx route deletion if 09 is cut before 04 merges). (c) **`keepsake-vault/04` and `control-plane/03` both touch `api/src/PublishedTales/`** (04 changes `ConfirmHiddenAsync` to soft-delete; 03 migrates `AutoHideThreshold` and may touch `ReportedTalesController.cs`, the caller) - order 04's semantic change vs 03's read. |
 | 4 | `sysadmin-console/07` (support lookup + verbs - consumes vault claim codes, grant metadata, the action log) | none new |
 
-`Program.cs` is the one systemic hotspot: nearly every wave-1/2 story adds a service registration.
+`Program.cs` is the one systemic hotspot: stories in Waves 1, 2, AND 3 add service registrations.
 The rule for orchestration: stories touching `Program.cs` merge one at a time (small, rebased PRs),
 even when everything else about them is parallel-safe.
+
+## Security posture (from the 2026-07-08 adversarial review)
+
+A five-lens adversarial review (invariant, abuse/security, wave-plan, scope, cold-builder) ran
+against the plan before any code. Findings #1 (teen-plus gate) and #5 (nickname carve-out) are
+resolved above; the wave-plan corrections are in the table above. The remaining findings are
+binding requirements on the named stories - every affected story must satisfy the matching bullet:
+
+- **Handles are secrets, and are treated as secrets (keepsake-vault/01, /03; accounts-identity/09).**
+  A vault id, a claim code, and a family-device token are bearer credentials. Therefore:
+  (a) they are carried in a request HEADER or BODY, never in the URL PATH (the existing
+  `PiiScrubbingTelemetryInitializer` strips only the query string, so a path segment leaks to App
+  Insights, access logs, `Referer`, and history); (b) reads are authorized by possession AND
+  rate-limited (the vault READ endpoint, not just write); (c) ids/codes are server-minted with a
+  crypto entropy floor (no `Math.random` fallback), and codes are single-use or short-TTL with
+  rotation + revocation; (d) enumerable codes get a per-CODE attempt burn and a GLOBAL ceiling, not
+  only a per-IP limiter (per-IP is defeated by IP rotation).
+- **Identity is discarded at the boundary, structurally (accounts-identity/06, /09).** The
+  per-connection resolution stores ONLY the resolved capability set (and the adult-unlock boolean),
+  never the purchaser/family email or identity string. It is a singleton service (SignalR builds a
+  fresh hub per invocation, so it cannot be a hub field - see the cold-builder note in that story),
+  registered in `Program.cs`, cleared on disconnect. No identity string is ever keyed by
+  `ConnectionId` alongside the roster.
+- **The support console cannot bridge the planes (sysadmin-console/07).** Structural, not asserted:
+  the support controller does not inject nickname/byline-bearing stores in a way that lets a lookup
+  project them; slug/claim-code lookups resolve to account-plane facts and COUNTS only, never to a
+  byline, a timestamp, or a room. Restoring a moderation takedown carries stronger friction than
+  restoring a user's own delete.
+- **The control plane cannot disable its own safety rails (control-plane/01, /03).** Every numeric
+  setting has a min/max bound enforced on PUT (type-parse is not enough); rate-limit permits are
+  clamped to a sane floor at the read site so a bad value can neither disable nor zero a limiter.
+  The AI monthly spend ceiling and the `*.enabled` kill switches are NOT freely runtime-flippable to
+  arbitrary values (bounded, and flips are confirmation-gated). Every settings change appends an
+  action-log row NOW (this resolves the contradiction where control-plane/01 had the log
+  out-of-scope while Amendment 2 requires it).
+- **The action log is trustworthy dispute insurance (sysadmin-console/06).** The log row is written
+  before (or transactionally with) the effectful action, not best-effort after, so an action cannot
+  succeed with no trail. Retention is age-based with a hard floor that an operator setting cannot
+  lower below (so it cannot be volume- or config-evicted by the party a dispute is about).
+- **Stripe resync cannot corrupt grants (billing-entitlements/08).** The grant store is
+  mode-aware (or resync refuses to write grants whose origin mode differs from the active mode), so
+  a Test-mode resync can never overwrite live-derived grants; reconciliation keys by Stripe customer
+  id / `AccountId`, not raw email; the resync endpoint is rate-limited/debounced.
+- **Credentials survive scale-out safely (platform-devops/07, /08).** The durable signing key is
+  generated from a CSPRNG (a `deploymentScripts` random value or an out-of-band Key Vault secret) -
+  NEVER derived deterministically from `guid(resourceGroup().id, "<literal>")` (that is reproducible
+  from public inputs and forges operator logins). The magic-link single-use nonce set moves to the
+  same durable shared store as the key ring (a per-process set replays once per instance under
+  scale-out). The key ring fails CLOSED in a deployed environment (refuse to start without durable
+  backing) rather than silently reverting to per-instance keys. Each environment gets a DISTINCT
+  key-ring backing store (a shared one would let a beta-minted credential validate in the platform
+  environment). The new environment must sit behind the same single-hop trusted edge as beta, or
+  the app's `X-Forwarded-For` trust (`KnownProxies`/`KnownNetworks` cleared, `ForwardLimit=1`) makes
+  every per-IP limiter spoofable.
+- **Telemetry knows the new identifiers (platform-devops or a child-safety touch).** Add
+  `email`, `accountId`, `vaultId`, `claimCode`, `token`/`access_token`, `deviceToken` to
+  `PiiScrubbingTelemetryInitializer`'s `SensitivePropertyKeys`, and forbid interpolating any of
+  these into exception messages in the new Accounts/Vault/Support code (the scrubber cannot clean
+  exception message text).
 
 ## Consequences
 
