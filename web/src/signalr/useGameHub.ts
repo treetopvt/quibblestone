@@ -138,12 +138,15 @@
 //  Alpha-gate hardening (pre-friends-and-family audit) adds two resilience fixes
 //  on this SAME connection, no parallel state machine:
 //    - B1: `withAutomaticReconnect()`'s default policy retries a dropped connection
-//      a few times (~0/2/10/30s) then permanently gives up and fires `onclose`, and
+//      a few times (~0/2/10/30s, each delay now jittered per-client - see
+//      `withReconnectJitter`) then permanently gives up and fires `onclose`, and
 //      the very first `connection.start()` below was a single attempt with no retry
 //      of its own (a cold app-service start, or opening the PWA before wifi
 //      associates, could both fail outright). Either terminal case now falls into a
 //      manual reconnect loop (`manualReconnectDelayMs` below is its pure backoff
-//      schedule - 2s, 5s, 10s, 30s, then repeating at 30s) that keeps calling
+//      schedule - 2s, 5s, 10s, 30s, then repeating at 30s, spread per-client by
+//      `withReconnectJitter` so a mass reconnect does not stampede the hub in
+//      lockstep - see docs/load-testing/findings.md) that keeps calling
 //      `connection.start()` again while the app is foregrounded, plus an immediate
 //      extra attempt on `document.visibilitychange` (back to `'visible'`) and
 //      `window.online` - both realistic "phone was locked/out of signal, now isn't"
@@ -197,6 +200,67 @@ export function manualReconnectDelayMs(attempt: number): number {
   const scheduleSeconds = [2, 5, 10, 30];
   const index = Math.min(Math.max(attempt, 0), scheduleSeconds.length - 1);
   return scheduleSeconds[index] * 1000;
+}
+
+/**
+ * Equal-jitter transform (the AWS "equal jitter" recipe) over a base backoff:
+ * a random point in [base/2, base]. Bounded on BOTH ends on purpose - never
+ * longer than `baseMs` (so jitter can never regress the worst-case recovery
+ * time or creep toward the seat-grace window) and never shorter than half (so
+ * it cannot collapse into a tight retry loop).
+ *
+ * Why jitter at all: after a hub restart or a shared-network blip, every
+ * client's reconnect fires on the SAME fixed schedule and stampedes the connect
+ * path in lockstep - the thundering herd that pegged the UAT B1 to ~98-99% CPU
+ * in the load test (docs/load-testing/findings.md, "Ceiling probe"). Spreading
+ * each client across a per-client window smears that arrival instead of spiking
+ * it, at zero cost to a lone reconnecting client.
+ *
+ * `random` is injected (default `Math.random`) ONLY so tests are deterministic;
+ * production always uses `Math.random`. A base of 0 (SignalR's immediate first
+ * auto-reconnect attempt) stays 0 - the fast first retry is left intact.
+ */
+export function withReconnectJitter(baseMs: number, random: () => number = Math.random): number {
+  if (baseMs <= 0) return 0;
+  const half = baseMs / 2;
+  return Math.round(half + random() * half);
+}
+
+/**
+ * The manual reconnect loop's actual wait: `manualReconnectDelayMs`'s fixed
+ * 2s/5s/10s/30s schedule spread per-client by {@link withReconnectJitter}. The
+ * bare schedule stays exported as the pre-jitter reference (and its own test).
+ */
+export function jitteredManualReconnectDelayMs(
+  attempt: number,
+  random: () => number = Math.random,
+): number {
+  return withReconnectJitter(manualReconnectDelayMs(attempt), random);
+}
+
+/**
+ * SignalR's DEFAULT automatic-reconnect delays (retry at 0, 2s, 10s, 30s of
+ * elapsed downtime, then give up). Made explicit so {@link jitteredAutoReconnectDelayMs}
+ * can jitter each delay while reproducing the schedule's LENGTH exactly.
+ */
+export const AUTO_RECONNECT_BASE_MS: readonly number[] = [0, 2000, 10000, 30000];
+
+/**
+ * The jittered next-delay for `withAutomaticReconnect`. Mirrors the default
+ * four-attempt schedule ({@link AUTO_RECONNECT_BASE_MS}) with per-client jitter,
+ * and returns `null` once the schedule is exhausted so SignalR gives up on
+ * EXACTLY the same attempt it does today - preserving the give-up -> `onclose`
+ * -> manual-loop handoff the B1 hardening relies on. `previousRetryCount` is
+ * SignalR's 0-based count of retries already made (from its `RetryContext`).
+ */
+export function jitteredAutoReconnectDelayMs(
+  previousRetryCount: number,
+  random: () => number = Math.random,
+): number | null {
+  if (previousRetryCount < 0 || previousRetryCount >= AUTO_RECONNECT_BASE_MS.length) {
+    return null;
+  }
+  return withReconnectJitter(AUTO_RECONNECT_BASE_MS[previousRetryCount], random);
 }
 
 /**
@@ -1015,7 +1079,16 @@ export function useGameHub(): UseGameHub {
   useEffect(() => {
     const connection = new HubConnectionBuilder()
       .withUrl(HUB_URL)
-      .withAutomaticReconnect()
+      // Jittered automatic reconnect: the default policy's fixed 0/2/10/30s
+      // schedule makes every client stampede the hub in lockstep after a
+      // restart (the herd that pegged the UAT B1 to ~98-99% CPU - see
+      // docs/load-testing/findings.md). This custom policy jitters each delay
+      // and returns null after the SAME four attempts, so the give-up ->
+      // onclose -> manual-loop handoff (below) is unchanged.
+      .withAutomaticReconnect({
+        nextRetryDelayInMilliseconds: (retryContext) =>
+          jitteredAutoReconnectDelayMs(retryContext.previousRetryCount),
+      })
       .configureLogging(LogLevel.Information)
       .build();
 
@@ -1231,8 +1304,9 @@ export function useGameHub(): UseGameHub {
     // `withAutomaticReconnect()`'s own policy has given up (`onclose`, below)
     // or the very first `start()` fails outright (`.catch`, below) - SignalR
     // retries neither case on its own. `scheduleManualReconnect` arms the next
-    // attempt on `manualReconnectDelayMs`'s backoff (2s/5s/10s/30s, then 30s
-    // forever); `attemptManualReconnect` is the attempt itself, reused
+    // attempt on `jitteredManualReconnectDelayMs`'s backoff (2s/5s/10s/30s base,
+    // jittered per-client, then 30s forever); `attemptManualReconnect` is the
+    // attempt itself, reused
     // verbatim by the `visibilitychange`/`online` listeners below for an
     // IMMEDIATE extra try (bypassing whatever wait is left) the moment the app
     // is plausibly back - "phone was locked/out of signal, now isn't".
@@ -1246,7 +1320,7 @@ export function useGameHub(): UseGameHub {
       manualReconnectTimerRef.current = setTimeout(() => {
         manualReconnectTimerRef.current = null;
         void attemptManualReconnect();
-      }, manualReconnectDelayMs(attempt));
+      }, jitteredManualReconnectDelayMs(attempt));
     };
 
     const attemptManualReconnect = async () => {
