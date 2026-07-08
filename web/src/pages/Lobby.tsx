@@ -132,7 +132,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, keyframes, useTheme } from '@mui/material/styles';
-import { Box, Button, Stack, Typography } from '@mui/material';
+import { Box, Button, Stack, TextField, Typography } from '@mui/material';
 import {
   AppBar,
   BottomActionBar,
@@ -152,6 +152,7 @@ import { FavoritesList } from './Favorites';
 import { ModePicker } from './ModePicker';
 import { DEFAULT_GROUP_MODE, GROUP_MODES, type GameMode } from './modeRegistry';
 import { useRoomInvite } from './useRoomInvite';
+import type { EmailInviteSendResult } from './emailInvite';
 
 // Room capacity for Slice 1: the roster tops out at six carvers (AC-01). The
 // live count chip still reads "{n} of {MAX_PLAYERS}" even though the redesign
@@ -584,6 +585,97 @@ function InviteSlot({ code }: { code: string }) {
 }
 
 /**
+ * session-engine/12: the THIRD invite channel - email a friend the room's join link
+ * directly. Rendered by ShareWidget ONLY when `emailAvailable` (the availability probe
+ * in useRoomInvite) is true, so it never appears when no email provider is configured
+ * (AC-06). One address at a time, a fixed templated email built server-side (AC-04: no
+ * free-text note here), open to any player (AC-07). The send resolves a typed result and
+ * never throws, so a failure shows a friendly line rather than breaking the widget -
+ * mirroring Copy/Share's swallow-and-continue.
+ */
+function EmailInviteField({
+  sendEmail,
+}: {
+  sendEmail: (toEmail: string) => Promise<EmailInviteSendResult>;
+}) {
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Guard against a state update after unmount: this field can unmount mid-send (the
+  // round starts, the player leaves the Lobby, or emailAvailable flips), and handleSend
+  // sets state after an await. Mirrors useRoomInvite's `active` flag. (React 19 no longer
+  // warns on a post-unmount setState, but this keeps the async tail a clean no-op.)
+  const mounted = useRef(true);
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const trimmed = email.trim();
+  const canSend = trimmed.length > 0 && status !== 'sending';
+
+  const handleSend = async () => {
+    if (!canSend) return;
+    setStatus('sending');
+    setErrorMessage(null);
+    const result = await sendEmail(trimmed);
+    if (!mounted.current) return;
+    if (result.ok) {
+      setStatus('sent');
+      setEmail('');
+    } else {
+      setStatus('error');
+      setErrorMessage(result.message ?? 'We could not send that invite just now.');
+    }
+  };
+
+  return (
+    <Stack spacing={1} sx={{ mt: 2.5 }}>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <TextField
+          type="email"
+          value={email}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            if (status !== 'idle') setStatus('idle');
+          }}
+          placeholder="friend@email.com"
+          size="small"
+          fullWidth
+          inputProps={{ 'aria-label': "A friend's email address", inputMode: 'email' }}
+          sx={{ flex: 1 }}
+        />
+        <Button
+          variant="outlined"
+          onClick={() => void handleSend()}
+          disabled={!canSend}
+          sx={{ height: 40, minWidth: 96, gap: 1, flexShrink: 0 }}
+        >
+          <FontAwesomeIcon icon="envelope" style={{ width: 15, height: 15 }} />
+          {status === 'sending' ? 'Sending' : 'Email'}
+        </Button>
+      </Stack>
+      {status === 'sent' && (
+        <Typography
+          sx={{ fontFamily: '"Nunito", sans-serif', fontWeight: 700, fontSize: 12, color: 'teal.main' }}
+        >
+          Invite on its way! They'll get a link to join.
+        </Typography>
+      )}
+      {status === 'error' && errorMessage && (
+        <Typography
+          sx={{ fontFamily: '"Nunito", sans-serif', fontWeight: 700, fontSize: 12, color: 'coral.main' }}
+        >
+          {errorMessage}
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
+/**
  * The stone-tablet share widget (session-engine/04, docs/design/Lobby.dc.html):
  * the room code in big purple type plus Copy + Share actions. The code is
  * already local client state (useGameHub's `room.code`) so both actions are
@@ -615,7 +707,7 @@ function InviteSlot({ code }: { code: string }) {
  */
 function ShareWidget({ code }: { code: string }) {
   const theme = useTheme();
-  const { canShare, copied, copy, share } = useRoomInvite(code);
+  const { canShare, copied, copy, share, emailAvailable, sendEmail } = useRoomInvite(code);
 
   return (
     <Box
@@ -692,6 +784,11 @@ function ShareWidget({ code }: { code: string }) {
           </Button>
         )}
       </Stack>
+
+      {/* session-engine/12: the third invite channel - email a friend directly.
+          Rendered only when an email provider is configured (AC-06); otherwise the
+          widget is exactly as before (Copy/Share only). */}
+      {emailAvailable && <EmailInviteField sendEmail={sendEmail} />}
 
       {/* Helper line (product-owner-preferred): a coral people glyph + the
           "gather round the stone" invitation, set off by a dashed rule. */}

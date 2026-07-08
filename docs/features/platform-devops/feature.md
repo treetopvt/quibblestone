@@ -21,6 +21,7 @@ README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
 | 03 | - | Continuous delivery to UAT on merge to main | Complete |
 | 04 | #106 | Operational observability (App Insights) | Complete |
 | 05 | #107 | Anonymous product-usage metrics | Complete |
+| 06 | - | Repair the drifted e2e suite and gate it in CI | Not Started |
 
 ## Dependencies
 - None for the Slice-1 stories (01-03) - this is the base of the stack.

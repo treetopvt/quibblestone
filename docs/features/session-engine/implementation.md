@@ -65,6 +65,7 @@ serial (the hub signature is the contract; there is no codegen step).
 | 10 web-resume-live-screen | #144 | edits `web/src/App.tsx` (live-route guards wait on an in-flight rejoin), `web/src/pages/Lobby.tsx` (`PlayerTile`/`Player` type gain `connected`, a "reconnecting" tile treatment) | se/09 | - | 9 | medium |
 | 11 invite-slot-action | - (no issue filed) | edits `web/src/pages/Lobby.tsx` (`InviteSlot` gains an `onClick`; `ShareWidget`'s Copy/Share closures are lifted into a shared helper/hook both call) | se/04, se/06, design-system/05 | - | 10 | low |
 | 12 email-game-invite | #180 | new `api/src/Controllers/EmailInviteController.cs`, new `api/src/Invites/EmailInviteRateLimit.cs` (or `api/src/Rooms/`, builder's call); edits `api/src/Accounts/IEmailSender.cs` / `AcsEmailSender.cs` / `NoOpEmailSender.cs` (new send method + template), `api/src/Program.cs` (new rate-limit policy registration); edits `web/src/pages/useRoomInvite.ts` (new `sendEmail` / `emailAvailable`), new `web/src/pages/emailInvite.ts` (REST client), edits `web/src/pages/Lobby.tsx` (`ShareWidget` gains the email control) | se/04, se/06, se/11, accounts-identity/04 (shipped) | - | 11 | medium |
+| 13 lifecycle-guards | #186 | edits `api/src/Hubs/GameHub.cs` (`StartRound` + `JoinRoom` phase guards + a shared `RoomNotFoundMessage` const), `api/src/Rooms/RoomRegistry.cs` (`SweepExpired` connected-seat exemption + a `SeatGraceService`-style test-window constructor), `web/src/signalr/useGameHub.ts` (wire the existing `resetRoomState()` into the in-room call wrappers on a room-not-found) | se/01, se/02, se/07, group-play/01 (all shipped) | - | 12 | medium |
 
 **Concurrency per wave:** 1 at every wave. The chain is `01 -> 02 -> 05 -> 03 -> 04 -> 06` (all shipped), then the
 reconnect hardening chain `07 -> 08 -> 09 -> 10` (all shipped), then the standalone follow-on `11` (shipped - web-only,
@@ -83,7 +84,12 @@ neither `GameHub.cs` nor `Room.cs`/`RoomRegistry.cs` at all (a plain REST endpoi
 hub chain), so its only real serialization concerns are file-level: `api/src/Accounts/*` (shared with
 accounts-identity, already shipped - no active conflict today) and `Program.cs`'s rate-limiter block (shared with
 every other rate-limited endpoint in the repo) - check for open work on either before building it, same as any
-other `Program.cs` edit.
+other `Program.cs` edit. Story 13 (lifecycle guards, Not Started) is a standalone hardening follow-on (Wave 12,
+concurrency 1): its three ACs (W3 `StartRound` guard, W4 `JoinRoom` guard, W1 idle-sweep exemption + client
+fallback) all share `api/src/Hubs/GameHub.cs` (AC-01/AC-02 both edit it; AC-03 adds a shared not-found const there),
+so they build as ONE unit, not fanned out - plus `RoomRegistry.cs` and `useGameHub.ts`. Because it edits the hub +
+registry + hook, it must NOT run concurrently with any OPEN `group-play`/`reveal-delight` work touching those files
+(all such work is shipped today - check `git log` before fanning out, same as waves 6-9).
 
 ## Per-story tech notes
 
@@ -274,6 +280,27 @@ other `Program.cs` edit.
   codebase; no per-room counter). Not host-gated (mirrors story 11 AC-04). No free-text field (no profanity-filter
   surface) unless a personal note is added later, which would need its own AC. Out of scope: multi-recipient sends, a
   resend/retry action, delivery-status tracking, validating the room still exists before sending.
+
+### 13 - Round and room lifecycle guards (StartRound, JoinRoom, idle sweep)
+- **Approach:** three small, server-authoritative guards closing the roadmap's W3/W4/W1 alpha-gate warnings, all on
+  EXISTING live code (no new surface, no new free-text field, no new player data). AC-01 (W3): reject `StartRound`
+  (`GameHub.cs`) while `CurrentRound.Phase == "prompting"` - mirror `PassHost`'s exact phase-check, guard
+  "prompting" ONLY (a "reveal"-phase restart is the shipped "Play another round" flow and must keep working).
+  AC-02 (W4): reject `JoinRoom` (`GameHub.cs`) whenever `CurrentRound is not null` (BOTH "prompting" and "reveal"),
+  checked first, before the name-length + async safety-filter work. AC-03 (W1): narrow `RoomRegistry.SweepExpired()`'s
+  cull to also require no connected seat (`!SnapshotPlayers().Any(p => p.Connected)`), plus wire the existing
+  `resetRoomState()` into `useGameHub.ts`'s in-room call wrappers when the server returns the room-not-found message.
+- **Owns / exports:** the two hub-method phase guards; a shared `RoomNotFoundMessage` const on `GameHub` (collapsing
+  today's six duplicated literals); a public `RoomRegistry` test-window constructor + `DefaultInactivityWindow`
+  (mirroring `SeatGraceService`'s dual-constructor) that finally makes the idle sweep xUnit-testable; a small pure
+  `isRoomNotFoundError` classifier on the web side.
+- **Gotchas:** AC-01 must NOT gate on "any round exists" (that breaks the reveal-phase replay). AC-02 must cover BOTH
+  non-lobby phases (`RoomStateDto` carries no phase, so a joining client cannot self-detect a live round) and must
+  NOT touch `Rejoin` (a resume, not a new join). AC-03 picks the exemption over lengthening the window; keep the
+  30-minute default for every other `new RoomRegistry()` call site untouched; wire `resetRoomState()` ONLY into the
+  AFTER-join wrappers (`startRound`/`backToLobby`/`passHost`/`submitWord`/`remixWord`), never `joinRoom`/`createRoom`
+  (pre-join validation) or `rejoin` (already alpha-gate-B4-fixed). All three ACs share `GameHub.cs`, so build as one
+  unit. Full detail in the story's Technical Notes.
 
 ## Cross-cutting concerns
 

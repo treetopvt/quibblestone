@@ -59,4 +59,21 @@ public sealed class NoOpEmailSender : IEmailSender
 
         return Task.CompletedTask;
     }
+
+    /// <inheritdoc />
+    public Task SendGameInviteAsync(
+        string toEmail,
+        string joinLink,
+        string roomCode,
+        CancellationToken cancellationToken = default)
+    {
+        // No email provider configured (session-engine/12): the Lobby hides the email-
+        // invite control via the availability probe, so this is rarely reached - but if a
+        // send is attempted anyway, no-op. Log at Debug with NO recipient / link / code /
+        // body so even this path cannot leak.
+        _logger.LogDebug(
+            "Game-invite email (no-op sender): no email provider configured; not sending.");
+
+        return Task.CompletedTask;
+    }
 }

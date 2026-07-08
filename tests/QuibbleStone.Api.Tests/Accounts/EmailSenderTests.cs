@@ -270,6 +270,12 @@ public class EmailSenderTests
             Sends.Add((toEmail, link, purpose));
             return Task.CompletedTask;
         }
+
+        // session-engine/12: the game-invite half of the seam is exercised by
+        // EmailInviteControllerTests / EmailInviteSenderTests; this double just needs a
+        // compiling implementation (the magic-link tests here never call it).
+        public Task SendGameInviteAsync(string toEmail, string joinLink, string roomCode, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     /// <summary>Captures the last email / link, then THROWS - to exercise the fail-safe path (AC-08).</summary>
@@ -284,6 +290,11 @@ public class EmailSenderTests
             LastLink = link;
             throw new InvalidOperationException("simulated email provider failure");
         }
+
+        // session-engine/12: game-invite counterpart - also throws, keeping this double's
+        // "every send fails" contract consistent across both seam methods.
+        public Task SendGameInviteAsync(string toEmail, string joinLink, string roomCode, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("simulated email provider failure");
     }
 
     /// <summary>Captures every log line (formatted message + exception) so a test can assert on it (AC-08).</summary>

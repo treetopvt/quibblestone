@@ -1,7 +1,12 @@
 // ----------------------------------------------------------------------------
-//  IEmailSender - the SINGLE server-side seam through which the magic-link email
-//  is delivered (accounts-identity/04, issue #167). It carries the already-minted
-//  one-time link to the address that asked for it, and NOTHING else.
+//  IEmailSender - the SINGLE server-side seam through which QuibbleStone sends email.
+//  Two messages ride it, each via its OWN method: the magic-link sign-in
+//  (accounts-identity/04, issue #167, SendMagicLinkAsync) and, growing the SAME seam
+//  with a second method, the game invite (session-engine/12, issue #180,
+//  SendGameInviteAsync). Each send carries ONLY what that message needs - the magic
+//  link carries a one-time sign-in link; the game invite carries a room's join link +
+//  code - and NOTHING else. The two are distinct: a game invite has no token and no
+//  MagicLinkPurpose, so it NEVER routes through SendMagicLinkAsync.
 //
 //  WHY ONE SEAM (AC-02): both request endpoints - the purchaser sign-in
 //  (AccountsController.RequestLink) and, reusing the SAME plumbing, the operator
@@ -71,10 +76,12 @@ public enum MagicLinkPurpose
 }
 
 /// <summary>
-/// The single server-side seam that delivers a magic-link email (accounts-identity/04).
-/// One real implementation (ACS Email) and one no-op, resolved from DI by config
-/// presence (AC-03). Both request endpoints depend on THIS - there is no second
-/// transport (AC-02).
+/// The single server-side seam that delivers QuibbleStone email: the magic-link
+/// sign-in (accounts-identity/04) and the game invite (session-engine/12). One real
+/// implementation (ACS Email) and one no-op, resolved from DI by config presence
+/// (AC-03) - there is no second transport. Sign-in and invite are DISTINCT methods: a
+/// game invite is a plain notification (no token, no <see cref="MagicLinkPurpose"/>),
+/// so it never routes through <see cref="SendMagicLinkAsync"/>.
 /// </summary>
 public interface IEmailSender
 {
@@ -98,5 +105,32 @@ public interface IEmailSender
         string toEmail,
         string link,
         MagicLinkPurpose purpose,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delivers a GAME INVITE email to <paramref name="toEmail"/> (session-engine/12): a
+    /// fixed, templated notification carrying the room's tappable
+    /// <paramref name="joinLink"/> and human-readable <paramref name="roomCode"/> - the
+    /// SAME payload the Lobby's Copy/Share already hand out. This is a plain
+    /// notification, NOT a sign-in: it has no token, no account, and no
+    /// <see cref="MagicLinkPurpose"/>, so callers must NEVER route a game invite through
+    /// <see cref="SendMagicLinkAsync"/>. Fully async and honors the
+    /// <paramref name="cancellationToken"/>.
+    ///
+    /// FAIL-SAFE (mirrors <see cref="SendMagicLinkAsync"/>): an implementation surfaces a
+    /// provider failure by throwing (the caller catches it and tells the sender it could
+    /// not send) or returns cleanly; either way it NEVER logs the recipient / link / code
+    /// / body and NEVER retries into an email-bomb (the per-IP EmailInviteRateLimit is the
+    /// abuse boundary). The invite body is fixed template copy (no sender free text), so
+    /// there is nothing here for the safety filter to check (AC-04).
+    /// </summary>
+    /// <param name="toEmail">The recipient address the sender entered (the ONLY recipient).</param>
+    /// <param name="joinLink">The server-built `/join/&lt;code&gt;` deep link (never client-supplied).</param>
+    /// <param name="roomCode">The room code shown in the readable copy (already shape-validated).</param>
+    /// <param name="cancellationToken">Cancellation for the send.</param>
+    Task SendGameInviteAsync(
+        string toEmail,
+        string joinLink,
+        string roomCode,
         CancellationToken cancellationToken = default);
 }
