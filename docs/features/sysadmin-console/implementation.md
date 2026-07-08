@@ -63,6 +63,7 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
 | Account lookup by email (reused, extended by accounts-identity/05 for AccountId) | `IAccountStore` | `api/src/Accounts/` |
 | Published tale store (reused by story 07's TTL-extend verb) | `IPublishedTaleStore` | `api/src/PublishedTales/` |
 | Magic-link email delivery (reused by story 07's resend verb) | the `accounts-identity/04` email seam | `api/src/Accounts/` |
+| Public sign-in rate-limit policy (REVISED 2026-07-08 - reused by story 07's resend verb, not bypassed) | `SignInRateLimit`'s per-IP fixed-window pattern, `[EnableRateLimiting(SignInRateLimit.PolicyName)]` | `api/src/Accounts/SignInRateLimit.cs`, `api/src/Controllers/AccountsController.cs` |
 
 New surfaces stories 04-07 introduce:
 - `api/src/Admin/OperatorScope.cs` + a scope requirement/attribute (story 05) - the `support`/`content`/`ops`
@@ -75,7 +76,15 @@ New surfaces stories 04-07 introduce:
 - `web/src/admin/OperationsPanel.tsx`, `SettingsPanel.tsx`, `StripeModePanel.tsx`, `ActionLogView.tsx`,
   `SupportLookup.tsx` (stories 04-07) - the new/reorganized admin-bundle screens.
 
-## Wave Plan (DAG)
+## Historical Wave Plan (01-03, shipped - reference only, NOT DAG-parsed)
+
+**Kept deliberately OUT of the DAG-parsed section (2026-07-08 adversarial review, ADR 0003's
+cross-feature build order table).** Stories 01-03 shipped 2026-07-07; their "Wave 1 / Wave 2" numbers
+below are LOCAL to this now-historical table and are NOT the same numbers as ADR 0003's canonical
+cross-feature Wave 1-4 used by stories 04-07 below - an orchestrator grouping by "Wave 1" across this
+whole file must not conflate this table's Wave 1 (story 01) with the canonical Wave 1 (story 04). This
+table is retained for history only; the section below ("Wave Plan (DAG) - canonical") is the one a
+DAG-based orchestrator should parse for anything still in flight.
 
 Sizing rule: a builder owns files that are **disjoint** from its concurrent siblings. Story 01 is the hard
 foundation - both 02 and 03 authorize every endpoint they add against its operator policy, and both need its
@@ -98,13 +107,17 @@ feature.md's Candidate stories table). Story numbering (01-02-03) reflects the f
 same wave because neither blocks the other technically - their only true blockers are each one's own external
 seam (#70 for 02, nothing new for 03 beyond #66 which is already shipped).
 
-## Wave Plan (DAG) - ADR 0003 Layer 3 additions (stories 04-07)
+## Wave Plan (DAG) - canonical (ADR 0003 wave numbers, stories 04-07)
 
-**EXTENDED 2026-07-08.** This section uses ADR 0003's own cross-feature Wave numbers (1-4), since
-these four stories are one row of that ADR's larger cross-feature table (alongside
-`accounts-identity`, `keepsake-vault`, `control-plane`, `billing-entitlements`, `platform-devops`
-stories building in the same waves). It does NOT continue the wave numbering of the table above
-(that table's waves 1-2 are historical - stories 01-03 already shipped, 2026-07-07).
+**EXTENDED 2026-07-08, RE-CONFIRMED 2026-07-08 (adversarial review).** This is the canonical,
+DAG-parsed Wave Plan for this feature's currently-buildable stories. It uses ADR 0003's OWN
+cross-feature Wave numbers (1-4), since these four stories are one row of that ADR's larger
+cross-feature table (alongside `accounts-identity`, `keepsake-vault`, `control-plane`,
+`billing-entitlements`, `platform-devops` stories building in the same waves): **04 = Wave 1, 05 =
+Wave 2, 06 = Wave 3, 07 = Wave 4.** It does NOT continue the wave numbering of the historical table
+above (that table's "Wave 1/2" are local, historical labels for the already-shipped 01-03 - do not
+read "Wave 1" across this file as a single sequence; the historical table's Wave 1 is story 01, this
+table's Wave 1 is story 04, and they are unrelated numbers that happen to reuse the digit "1").
 
 | Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
 |---|---|---|---|---|---|---|
@@ -184,25 +197,37 @@ dependency-tolerant `SettingsPanel` (Operations). Add `OperatorScope.cs` (consta
 attribute pair) and named policies (or an equivalent attribute-metadata mechanism) that
 `OperatorAuthenticationHandler`/`ConfigurationOperatorAllowlist` resolve per-email - today every
 allowlisted operator gets every scope, so no existing test changes behavior. Apply the appropriate
-scope to each of the three existing admin controllers. **Exports:** the scope mechanism stories 06
-and 07's new endpoints consume from day one (their new controllers carry a scope tag immediately,
-never retrofitted). **Gotcha:** the settings panel's dependency-tolerance (control-plane/01 may not
-exist yet) must degrade to a plain message, never an unhandled rejection - mirror the existing
-session-check's fail-safe pattern in `main.tsx`.
+scope to each of the three existing admin controllers. **REVISED 2026-07-08 (adversarial review):**
+also define and ship the per-entry `Operator:Scopes` config key NOW (index-aligned with
+`Operator:AllowedEmails`, same dual array/delimited-scalar read pattern), defaulting an
+unconfigured entry to all three scopes - so a future de-scoped operator is a config value, not a
+schema change (AC-06). **Exports:** the scope mechanism stories 06 and 07's new endpoints consume
+from day one (their new controllers carry a scope tag immediately, never retrofitted), and the
+`Operator:Scopes` config format itself, ready for a real restricted entry the moment one is needed.
+**Gotcha:** the settings panel's dependency-tolerance (control-plane/01 may not exist yet) must
+degrade to a plain message, never an unhandled rejection - mirror the existing session-check's
+fail-safe pattern in `main.tsx`.
 
 ### 06 - The operator action log
 **Approach:** a new `IOperatorActionLog` + `TableStorageOperatorActionLog` (inverted-ticks RowKey
 for newest-first listing, mirroring the existing Table Storage store conventions), a `GET
 /api/admin/action-log` endpoint under the `ops` scope (story 05), and one new `AppendAsync` call
 each in `AdminEntitlementsController` (grant, revoke), `ReportedTalesController` (confirm, restore),
-and `StripeModeController` (the mode flip) - inserted immediately after each action's existing
-successful write, never on an early-return/not-found branch. **Exports:** the `IOperatorActionLog`
-seam story 07's verbs call into once built. **Gotcha:** the VIEW depends on story 05's Operations
-tab; the WRITE seam (the interface, the store, and the three call-site insertions) does not - a
-builder could split this story to land the write seam in parallel with 05 if the orchestrator's
-Phase 1 finds that valuable, since none of those three call sites touch `main.tsx`. Also: this story
-edits `feature.md`'s Design notes (the audit-trail amendment) - a documentation edit, not a code
-footprint conflict with anything else in flight.
+and `StripeModeController` (the mode flip) - each call now made BEFORE its action's effectful write
+is attempted, not after (**REVISED 2026-07-08, adversarial review**: log-before-act, AC-01a - an
+append failure aborts the request before any effect runs, rather than letting an effect commit with
+no trail), still never on an early-return/not-found branch (AC-05 unchanged). Retention is age-based
+with a hard-coded minimum-days floor no runtime override can lower (AC-04, replaces the earlier
+bare row-count cap). `ActionLogView.tsx` never uses `dangerouslySetInnerHTML`; the write side
+validates any email-shaped target before persisting (AC-07). **Exports:** the `IOperatorActionLog`
+seam story 07's verbs call into once built, AND `control-plane/01`'s settings controller once it
+lands (a free-form action-name string, not a closed enum, so neither caller needs a code change
+here). **Gotcha:** the VIEW depends on story 05's Operations tab; the WRITE seam (the interface, the
+store, and the six call-site insertions) does not - a builder could split this story to land the
+write seam in parallel with 05 if the orchestrator's Phase 1 finds that valuable, since none of
+those call sites touch `main.tsx`. Also: this story edits `feature.md`'s Design notes (the
+audit-trail amendment, now also naming the settings-change action) - a documentation edit, not a
+code footprint conflict with anything else in flight.
 
 ### 07 - Support lookup + verbs
 **Approach:** a new `AccountSupportController` composing `IAccountStore`, `IEntitlementGrantStore`,
@@ -210,12 +235,22 @@ footprint conflict with anything else in flight.
 OPTIONAL seams from `accounts-identity/05`+`/09`, `keepsake-vault`, and `billing-entitlements/08`
 (none shipped yet at the time this story is likely to build) - inject those as nullable/absent-by-
 default services so each panel/verb on the web side can report "not available yet" independently
-rather than the whole controller failing. **Exports:** nothing further - this is this feature's
-final story in the current decomposition. **Gotcha:** AC-08's anonymity invariant is the single most
-important thing to guard in review here - a "which room did this purchaser's family play in"
-convenience is the exact bug every prior story in this feature already rejected; this story's larger
-surface area (three lookup identifiers, five verbs) makes it easier to accidentally reintroduce than
-stories 02/03 were.
+rather than the whole controller failing. **REVISED 2026-07-08 (adversarial review, the firewall is
+now structural):** lookup is EMAIL/`AccountId` only - a vault claim code and a public-tale slug are
+permanently removed as account-lookup inputs (claim-code recovery moves to a player-facing,
+device-held capability `keepsake-vault` owns directly; a slug is acted on as content only, via
+extend-TTL/restore, never resolved to an account). The vault/tale figure on the detail panel is
+sourced from a narrow, count-only contract this story requests from `keepsake-vault` - never from
+`IVaultStore.ListAsync` (which returns bylines) - so the controller's constructor cannot even HOLD a
+byline-capable dependency. The resend-magic-link verb reuses `SignInRateLimit`'s policy (not a
+direct, unthrottled `IEmailSender` call) plus a new per-target-account window; the resync verb gets
+an equivalent per-account debounce. The self-delete restore verb (AC-05) is explicitly a
+LOWER-friction, DISTINCT verb from story 03's moderation-takedown restore - never merged. **Exports:**
+nothing further - this is this feature's final story in the current decomposition. **Gotcha:** AC-08's
+firewall is now a structural claim (what the controller CAN reach), not just a review discipline -
+verify it by checking the controller's constructor signature and the response DTO shape, not only by
+reading its action-method bodies; a byline-capable dependency injected but "just not called yet" is
+still the defect the 2026-07-08 review flagged.
 
 ## Cross-cutting concerns
 

@@ -13,9 +13,16 @@ ADR 0003's Layer 2 names the fix: vault tale deletion and public-tale
 takedowns become soft-deletes with a restore window, so "restore" becomes a
 real operator support verb (`sysadmin-console/07` builds the console verb
 itself; this story is the underlying data model and store behavior it will
-call). See [feature.md](./feature.md) and
-[ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) (Layer 2:
-"soft-delete with a restore window (takedowns become soft-deletes too)").
+call). Because a takedown restore re-exposes content an operator previously
+confirmed hidden (a real-risk action), while a player restoring their own
+vault delete only affects content their own family already saw, the two
+restore paths cannot share an undifferentiated shape - see AC-07 and the
+2026-07-08 adversarial review finding in
+[ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md)'s "Security
+posture" section ("Restoring a moderation takedown carries stronger friction
+than restoring a user's own delete"). See [feature.md](./feature.md) and
+ADR 0003 (Layer 2: "soft-delete with a restore window (takedowns become
+soft-deletes too)").
 
 ## Acceptance Criteria
 - [ ] AC-01: Given a player deletes a tale from their vault, then the tale is
@@ -60,6 +67,22 @@ call). See [feature.md](./feature.md) and
       tale reappears in its respective surface (the vault/gallery, or the
       public tale link) exactly as it was before deletion - no content
       mutation, no re-vetting, no re-publish ceremony.
+- [ ] AC-07 (friction parity, takedown restore vs. player self-delete
+      restore): Given the two restore operations this story ships, then
+      restoring a MODERATION TAKEDOWN carries stronger, structurally-required
+      friction than restoring a player's own accidental vault-tale delete - a
+      takedown restore re-exposes content that was reported and confirmed
+      hidden by an operator for a reason, which is materially higher-risk
+      than a family undoing its own delete of content only that family ever
+      saw. Concretely: `IPublishedTaleStore.RestoreFromTakedownAsync` requires
+      a caller to pass an explicit confirmation marker (e.g. a
+      `confirmed: true` parameter, or an operator identity/reason string) that
+      the plain vault `IVaultStore.RestoreAsync` does not require at all -
+      the DATA-MODEL/API-level distinction ships here; the actual
+      operator-facing confirmation UX (a type-to-confirm step, a second
+      click, or similar) is `sysadmin-console/07`'s support verb, which
+      consumes this required-confirmation signature rather than reinventing
+      it.
 
 ## Out of Scope
 - The sysadmin-console UI/verb that calls the restore method(s) this story
@@ -97,10 +120,14 @@ call). See [feature.md](./feature.md) and
   chosen here once implemented. `IVaultStore.cs` gains `SoftDeleteAsync(vaultId,
   taleId)` and `RestoreAsync(vaultId, taleId)`; `ListAsync` excludes
   soft-deleted (and past-window-purged) tales by default (AC-01).
-  `VaultController.cs` gains `DELETE /api/vault/{vaultId}/tales/{taleId}` (a
-  player-facing soft-delete action) - `RestoreAsync` itself is NOT exposed
-  via a public endpoint in this story (no console/auth surface exists yet
-  for it; `sysadmin-console/07` adds that call site).
+  `VaultController.cs` gains `DELETE /api/vault/tales/{taleId}` (a
+  player-facing soft-delete action; the vault id is carried in the
+  `X-Vault-Id` request header per `keepsake-vault/01`'s bearer-credential
+  convention - only `taleId`, which is meaningless without the vault id
+  header and is not itself a bearer credential, stays in the path) -
+  `RestoreAsync` itself is NOT exposed via a public endpoint in this story
+  (no console/auth surface exists yet for it; `sysadmin-console/07` adds
+  that call site).
   - **File-footprint hazard**: `keepsake-vault/03` (claim + recovery) also
     touches `IVaultStore.cs`, `TableStorageVaultStore.cs`, and
     `VaultController.cs` in the SAME ADR 0003 wave (wave 3) - see this
@@ -120,7 +147,14 @@ call). See [feature.md](./feature.md) and
   (or similarly, clearly-named) method distinct from the EXISTING
   `RestoreAsync` (which today un-hides a tale that was reported but never
   body-deleted) - name them so an operator-console reader cannot confuse "un-
-  hide" with "un-delete."
+  hide" with "un-delete." **Per AC-07**, `RestoreFromTakedownAsync`'s
+  signature itself requires a confirmation argument (e.g.
+  `RestoreFromTakedownAsync(slug, confirmedByOperator: true, ...)` or an
+  operator-identity/reason string) that `IVaultStore.RestoreAsync` has no
+  equivalent of - this is a structural, compile-time-visible distinction
+  (a caller cannot invoke the takedown-restore path without supplying the
+  extra argument), not merely a documented convention; `sysadmin-console/07`
+  supplies that argument only after its own UI confirmation step.
 - **TTL/restore-window constant**: mirror
   `PublishedTalesController.TaleTtl`'s "a named constant, recorded in the
   story, promoted to a settings key later" pattern for the 30-day restore
@@ -138,6 +172,7 @@ call). See [feature.md](./feature.md) and
 | AC-04 | xUnit: `ConfirmHiddenAsync` no longer removes the tale row outright; a subsequent restore-from-takedown call returns the original tale content |
 | AC-05 | code review: no new `IContentSafetyFilter.CheckAsync` call site is added by this story's restore paths |
 | AC-06 | xUnit: a restored tale (vault or published) is byte-for-byte identical (title/parts/byline) to its pre-deletion content |
+| AC-07 | xUnit / compile-time: `RestoreFromTakedownAsync` cannot be called without its confirmation argument (missing-argument is a compile error, not a runtime check); `IVaultStore.RestoreAsync`'s signature carries no equivalent requirement; code review confirms `sysadmin-console/07`'s eventual call site is the only caller expected to supply it |
 
 ## Dependencies
 - `keepsake-vault/01` (the vault store this story extends with soft-delete).
@@ -146,3 +181,13 @@ call). See [feature.md](./feature.md) and
   shared-file hazard with any concurrent work in `PublishedTales/` from
   other features (e.g. `sysadmin-console/06`'s action log, if it happens to
   land in the same window); check the tree before starting.
+- **Cross-feature hazard, `control-plane/03`**: `control-plane/03` (knob
+  migration) also touches `api/src/PublishedTales/` - it migrates
+  `AutoHideThreshold` to a settings key and may touch
+  `ReportedTalesController.cs`, the caller of the report/auto-hide path. This
+  story's change is the larger, semantic one (`ConfirmHiddenAsync` stops
+  hard-deleting and starts soft-deleting); `control-plane/03`'s is the
+  smaller, surface one (swap a constant for a settings-key lookup). **Land
+  this story (04) first**; have `control-plane/03` rebase its
+  `PublishedTales/` touch on top of 04's change rather than the reverse - see
+  `implementation.md`'s Wave Plan for the same call.

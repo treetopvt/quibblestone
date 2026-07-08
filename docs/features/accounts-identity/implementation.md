@@ -5,7 +5,11 @@
   seam (Room.Entitlements) story 01 used to have to NAME as a placeholder.
   Refreshed again 2026-07-08 for ADR 0003 Layer 0 (stories 05-09): the AccountId spine, ADR 0002
   Decision F finally wired, the free family account, kid seat presets, and the family device link
-  (with its kid-device flag). Use hyphens/colons/parentheses, never em dashes.
+  (with its kid-device flag). Refreshed AGAIN 2026-07-08 to fold in the adversarial-review
+  resolutions (finding #1's redesigned teen-plus gate, finding #2's structural identity-discard
+  requirement for story 06's per-connection singleton, and the corrected canonical ADR wave numbers
+  and Entitlements hazard chain) - see the Decisions entry at the bottom of this file. Use
+  hyphens/colons/parentheses, never em dashes.
 -->
 
 # Implementation Plan: Accounts & Identity
@@ -46,11 +50,12 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
 | Magic-link issue/verify (story 07 reuses for sign-up, never a second implementation) | `IMagicLinkTokenService` / `MagicLinkTokenService` | `api/src/Accounts/IMagicLinkTokenService.cs`, `MagicLinkTokenService.cs` |
 | Email copy selection (story 07 adds a `FamilySignUp` purpose) | `MagicLinkPurpose` enum + `IEmailSender` | `api/src/Accounts/IEmailSender.cs`, `AcsEmailSender.cs`, `NoOpEmailSender.cs` |
 | The purchaser session credential (story 06 supplies it as the hub `accessTokenFactory` value; story 09 mirrors its resolve-and-discard shape for the device token) | `PurchaserCredentialService` | `api/src/Accounts/PurchaserCredentialService.cs` |
+| The per-connection resolved-identity singleton (story 06 introduces it - cold-builder-critical: SignalR builds a fresh `GameHub` per invocation, so this CANNOT be a hub field, it must be a `Program.cs`-registered singleton; story 09 extends its `AdultUnlocked` computation, never forks a second store) | a new `IConnectionEntitlementStore` / `ConnectionEntitlementStore` (name TBD at build time) | new: `api/src/Accounts/ConnectionEntitlementStore.cs`; registered in `api/src/Program.cs` |
 | The entitlement seam (unchanged contract; story 05 changes what feeds it, story 06 changes what CALLS it with a real value) | `IEntitlementService` / `StoredValueEntitlementService` / `EntitlementCatalog` | `api/src/Entitlements/IEntitlementService.cs`, `StoredValueEntitlementService.cs` |
 | The grant store (re-keyed by story 05, read unchanged by 06/07) | `IEntitlementGrantStore` / `TableStorageEntitlementGrantStore` | `api/src/Entitlements/IEntitlementGrantStore.cs`, `TableStorageEntitlementGrantStore.cs` |
 | The cloud gallery store (re-keyed by story 05, untouched otherwise) | `ICloudGalleryStore` / `TableStorageCloudGalleryStore` / `CloudTale.OwnerKey` | `api/src/CloudGallery/` |
-| The room's one capture-once entitlement seam (story 06 finally calls it with a real identity; story 09 adds a SIBLING capture-once boolean, `FamilySafeForced`, never folded into it) | `Room.Entitlements` / `Room.CaptureEntitlements` | `api/src/Rooms/Room.cs` |
-| The family-safe content gate (story 09's kid-device flag forces it on server-side; never reimplemented) | `FamilySafeContentSelector` | `api/src/Hubs/GameHub.cs` (field `_familySafe`), the child-safety feature |
+| The room's two capture-once, ORTHOGONAL booleans (story 06 populates `SessionEntitlements` from a resolved identity; story 09 populates the REAL value of the `AdultUnlocked` bool story 06 reserves - a signed-in adult or an adult-confirmed device link - never folded into `SessionEntitlements`) | `Room.Entitlements` / `Room.CaptureEntitlements`, `Room.AdultUnlocked` / `Room.CaptureAdultUnlocked` | `api/src/Rooms/Room.cs` |
+| The family-safe content gate (story 09's `AdultUnlocked`-derived effective `familySafe` value is computed at the `GameHub.StartRound` CALL SITE, before the selector runs - the selector's own filtering logic is never reimplemented; REDESIGNED 2026-07-08, see story 09) | `FamilySafeContentSelector` / `TemplateCatalog` | `api/src/Hubs/GameHub.cs` (field `_familySafe`), the child-safety feature |
 | The nickname + Guardian variant fields every join/create screen already shares (story 08's preset picker sits ABOVE these, never forks them) | `PlayerIdentityFields` | `web/src/components/PlayerIdentityFields.tsx`, used by `web/src/pages/Join.tsx`, `HostSetup.tsx` |
 | The live, in-memory purchaser sign-in state (story 06's `accessTokenFactory`, story 08's device check) | `usePurchaserSession` / `PurchaserSessionProvider` | `web/src/account/PurchaserSession.tsx` |
 | The one SignalR connection (story 06 adds `accessTokenFactory`; story 09 extends it to also consider a stored device token) | `useGameHub` | `web/src/signalr/useGameHub.ts` |

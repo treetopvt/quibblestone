@@ -13,6 +13,21 @@ that. See [feature.md](./feature.md) and ADR 0003's "the kid-profile boundary"
 section, quoted in full in the Acceptance Criteria below - it is the
 non-negotiable edge every reviewer checks this story against.
 
+**Account-plane carve-out (ADR 0003, added 2026-07-08 after the adversarial
+review, finding #5).** A preset is `accountId -> {nickname, variant}`: it
+necessarily stores a chosen nickname alongside a family `AccountId`. That is
+NOT a violation of the play-plane invariant - it is the ADR's explicit
+account-plane carve-out. The invariant governs the PLAY plane (`Room`/
+`Player`, broadcasts, telemetry): a preset join remains byte-for-byte
+indistinguishable from a manual join there, exactly as AC-03 below already
+requires. The preset record ITSELF lives on the ACCOUNT plane - adult-owned,
+adult-consented household data, created only by a signed-in adult managing
+their own family's presets, never harvested from play and never surfaced to
+co-players. The two planes are firewalled from each other (see ADR 0003's
+"The architecture: four layers" intro and the invariant section) - this story
+stays entirely on the account-plane side of that firewall; it does not change
+the play-plane boundary this story already held before the review.
+
 ## Acceptance Criteria
 - [ ] AC-01: Given a signed-in family account (accounts-identity/07), when the
       account holder opens a "Manage kid presets" area on the Account page,

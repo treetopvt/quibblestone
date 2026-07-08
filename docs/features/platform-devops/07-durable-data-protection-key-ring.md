@@ -29,6 +29,36 @@ This story fixes both: a durable, Azure-native Data Protection key ring for purc
 credentials, and automatic provisioning of a durable `Accounts:TokenSigningKey` so a fresh
 environment needs no manual Key Vault step. See [feature.md](./feature.md).
 
+**Revised 2026-07-08 after the adversarial review ("Credentials survive scale-out safely," ADR
+0003 Security posture).** Three findings changed this story's design, all binding:
+
+1. **The signing-key generation mechanism must not be reproducible from public inputs.** The
+   review rejected this story's earlier "Recommendation: (a)" - a Bicep-native value derived
+   deterministically from `guid()`/`uniqueString()` seeded on `resourceGroup().id` plus a literal
+   string. `resourceGroup().id` is not a secret (it is derivable from the subscription id and
+   resource group name, both discoverable), so a deterministic derivation is reproducible by
+   anyone who can guess or learn those inputs - which would let an attacker FORGE a valid
+   magic-link token for an allowlisted operator email and take over the operator console. AC-04 is
+   rewritten below to require a CSPRNG-generated value (a `deploymentScripts` random value, or an
+   out-of-band Key Vault secret an operator sets once) - never a `guid()`/`uniqueString()`
+   derivation. The former "option (a)" recommendation is removed; only the CSPRNG path remains.
+2. **The single-use nonce set must move to the same durable, SHARED store as the key ring.**
+   `MagicLinkTokenService` consumes a token's nonce into a per-process `ConcurrentDictionary`
+   (`api/src/Accounts/MagicLinkTokenService.cs`, `_consumedNonces`). Once this story makes the
+   SIGNING KEY durable and shared across instances, a token that verifies on instance A but whose
+   nonce-consumption lives only in instance A's memory can be replayed once per OTHER instance
+   behind the load balancer - a single-use token is no longer actually single-use under
+   scale-out. This affects purchaser sign-in AND operator login (both ride
+   `MagicLinkTokenService`). New AC-07 below closes this.
+3. **The key ring must fail CLOSED, not silently degrade, in a deployed environment.** The
+   original AC-02 described a graceful fallback to the ephemeral per-instance key ring whenever
+   storage/Key Vault configuration is absent. Read literally, that fallback would ALSO trigger on
+   a deployed (non-Development) environment that is merely missing its config by mistake -
+   silently reverting to per-instance keys there would invalidate every outstanding credential on
+   the next restart or scale-out event, a self-inflicted lockout with no error to point at. AC-02
+   is narrowed to local development only; a new AC-08 requires the app to refuse to start in any
+   non-Development environment when the durable backing is not configured.
+
 ## Acceptance Criteria
 - [ ] AC-01 (durable key ring in deployed environments): Given a deployed environment (storage
       connection string + Key Vault key configured), when the API mints or reads a Data

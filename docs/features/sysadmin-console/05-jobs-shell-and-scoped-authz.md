@@ -15,8 +15,14 @@ ADR 0003 asks for admin endpoints to carry a scope tag (`support`/`content`/`ops
 (the existing allowlist keeps granting every scope to every operator, so behavior is unchanged), but
 so that a FUTURE moderator is an allowlist entry with a scope list, not a rework of every controller.
 This story does the shell reorganization and wires the scope metadata; it does not build any role
-management UI (that stays parked, per feature.md). See [feature.md](./feature.md) and
-[ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Layer 3.
+management UI (that stays parked, per feature.md). **Revised 2026-07-08 (adversarial review):** the
+review found the earlier draft's "RBAC later, no controller rework" promise half-true - production's
+`Operator:AllowedEmails` is a flat email list with no way to express a per-email scope subset, so a
+future de-scoped moderator would in fact need a config-FORMAT change this story never defined. AC-06
+now defines and ships that format (`Operator:Scopes`, index-aligned with `Operator:AllowedEmails`)
+today, so scopes are a real, usable boundary the moment a restricted entry is added, not theater. See
+[feature.md](./feature.md) and [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Layer
+3 and its "Security posture" section.
 
 ## Acceptance Criteria
 - [ ] AC-01: Given a signed-in operator, when the console shell renders, then it shows three tabs -
@@ -40,12 +46,21 @@ management UI (that stays parked, per feature.md). See [feature.md](./feature.md
       authorization pipeline checks - and because the current `IOperatorAllowlist` grants every
       allowlisted operator every scope, the existing (single-operator) test suite for all three
       controllers passes UNMODIFIED, proving zero behavior change.
-- [ ] AC-06 (the mechanism, not the UI): Given a future allowlist entry that restricts an operator
-      to a subset of scopes (not built by this story), when such an entry is added, then it is
-      purely a configuration change (an allowlist entry carrying a scope list) - no controller,
-      attribute, or policy code changes to support it. This story proves the mechanism exists by
-      structure (the scope-check code path is generic over the allowlist's per-entry scopes), not
-      by shipping a restricted operator.
+- [ ] AC-06 (the config shape is real, not theater - REVISED 2026-07-08 adversarial review):
+      Given the new `Operator:Scopes` configuration key (defined and shipped BY THIS STORY,
+      index-aligned with `Operator:AllowedEmails` and read via the identical dual-shape pattern
+      `ConfigurationOperatorAllowlist` already uses for emails - an indexed array locally/in tests,
+      a single delimited scalar for one Key Vault secret), when an allowlisted email has NO
+      corresponding `Operator:Scopes` entry (true for every operator configured today), then
+      `IOperatorAllowlist` resolves that email to ALL THREE scopes (a backward-compatible default -
+      today's single operator needs zero config change); and when an entry DOES restrict an email to
+      a scope subset (e.g. `"support"` only), then the resolved scope set is exactly that subset and
+      is honored by the policy checks AC-05 wires - proving a future de-scoped moderator is a
+      config-only change TODAY, with the format already shipped, not a promise deferred to a future
+      story that would need a controller rework. (The 2026-07-08 review found the prior draft of
+      this AC "proves the mechanism by structure" without ever defining a config format capable of
+      expressing a restricted email - production `Operator:AllowedEmails` is a flat list with no
+      per-email scope field, so the promise was half-true. This AC closes that gap.)
 - [ ] AC-07 (out-of-scope guard): Given this story, then no role-management UI, no operator list
       editor, and no per-operator scope-editing screen is added anywhere in the console - Parked in
       feature.md; this story is authorization plumbing only.
@@ -82,17 +97,34 @@ management UI (that stays parked, per feature.md). See [feature.md](./feature.md
   three scope constants `Support`/`Content`/`Ops`, an `IAuthorizationRequirement` carrying the
   required scope, and a `RequireOperatorScopeAttribute` or additional named policies -
   `"Operator:Support"`, `"Operator:Content"`, `"Operator:Ops"` - registered in `Program.cs`
-  alongside the existing `"Operator"` policy). `OperatorAuthenticationHandler` (or a small extension
-  to `IOperatorAllowlist`) needs a per-email scope list; today that list is simply "all three
-  scopes" for every allowlisted email (`ConfigurationOperatorAllowlist` can return a fixed
-  `{Support, Content, Ops}` set for any email that passes `IsOperator`, with no config format
-  change required YET - the per-entry scope list in config is the follow-on work AC-06 sets up for,
-  not this story's job to build). Apply the appropriate scope policy to each of
+  alongside the existing `"Operator"` policy). Apply the appropriate scope policy to each of
   `AdminEntitlementsController` (Support), `ReportedTalesController` (Content), and
   `StripeModeController` (Ops) IN PLACE of their current bare `[Authorize(Policy =
   OperatorSession.PolicyName)]` - or alongside it, whichever the chosen implementation shape
   prefers, so long as a de-scoped future operator is rejected at the policy layer, not by
   convention.
+- **The per-entry scope config format (AC-06, REVISED 2026-07-08 - defined and shipped now, not
+  deferred):** `IOperatorAllowlist` grows one member, e.g. `ScopesFor(string? email) ->
+  IReadOnlySet<OperatorScope>`, resolved from a NEW `Operator:Scopes` key living alongside
+  `Operator:AllowedEmails` in `ConfigurationOperatorAllowlist`, read via the SAME dual-shape
+  strategy that key already uses so one code path still serves local dev, tests, and a Key
+  Vault-backed deployment:
+  - **Array shape (local/appsettings/tests):** `Operator:Scopes:0`, `Operator:Scopes:1`, ...
+    index-aligned with `Operator:AllowedEmails:0`, `:1`, ... - each entry a comma-delimited scope
+    list (`"support,content,ops"`) or the shorthand `"all"`.
+  - **Single delimited scalar (one Key Vault secret, mirroring `AllowedEmails`'s own KV fallback -
+    a KV secret NAME cannot hold the `@`/`.`/`:` an email or an indexer needs, so the value must
+    carry the structure instead):** `Operator:Scopes` = a semicolon-separated list positionally
+    aligned with the semicolon-separated `Operator:AllowedEmails` scalar, each position's scopes
+    plus-joined internally (e.g. `"support+content+ops;support"` pairs position 0 -> all three
+    scopes, position 1 -> `support` only).
+  - **Missing key, missing index, or an unparseable entry -> default to ALL THREE scopes** for that
+    operator (fail-open on WIDTH only - `IOperatorAllowlist.IsOperator` stays fail-closed on
+    MEMBERSHIP; a non-operator email never gets a scope set at all). This default is what keeps
+    today's single-operator deployment a zero-config-change no-op while still making the format
+    real: adding a restricted future entry is one `Operator:Scopes` value, not a schema migration.
+  - `ScopesFor` returns an empty set for any email `IsOperator` rejects - the scope check never runs
+    ahead of the membership check.
 - **`Program.cs` hazard:** registering the new named policies (or the requirement handler) is
   another `Program.cs` edit - per ADR 0003's rule, land it as its own small, rebased PR, not
   batched with story 04's `IOperatorGate` deletion or any other unrelated `Program.cs` change even
@@ -101,7 +133,8 @@ management UI (that stays parked, per feature.md). See [feature.md](./feature.md
   `web/src/admin/OperationsPanel.tsx` (composes story 04's Stripe-mode panel + the new settings
   panel), a new `web/src/admin/SettingsPanel.tsx` (or similar, dependency-tolerant), `api/src/Admin/
   OperatorScope.cs` (new), edits to `OperatorAuthenticationHandler.cs` / `ConfigurationOperatorAllowlist.cs`
-  (scope resolution), and one-line attribute additions to the three existing admin controllers.
+  (scope resolution AND the new `Operator:Scopes` reading logic, AC-06), and one-line attribute
+  additions to the three existing admin controllers.
 
 ## Tests
 | AC | Test |
@@ -111,7 +144,7 @@ management UI (that stays parked, per feature.md). See [feature.md](./feature.md
 | AC-03 | `manual: Content tab renders ReviewQueue's existing reported-tales list.` |
 | AC-04 | `web/src/admin/SettingsPanel.test.tsx: a 404/network failure from the settings endpoint renders the "not available yet" state, not an error; a successful response renders controls.` |
 | AC-05 | `tests/QuibbleStone.Api.Tests/Admin/AdminEntitlementsControllerTests.cs, ReportedTalesControllerTests.cs, StripeModeControllerTests.cs re-run UNMODIFIED: all still pass, proving the scope check is a no-op for the current allowlist.` |
-| AC-06 | `tests/QuibbleStone.Api.Tests/Admin/OperatorScopeTests.cs (new): an allowlist entry carrying a restricted scope list is rejected by a policy requiring a scope outside that list, and accepted by one requiring a scope inside it - proving the mechanism generalizes without controller changes.` |
+| AC-06 | `tests/QuibbleStone.Api.Tests/Admin/OperatorScopeTests.cs (new): an operator with no Operator:Scopes entry resolves to all three scopes (default); an operator with a configured "support" entry is rejected by a policy requiring Content or Ops and accepted by one requiring Support - covering both the array config shape and the delimited-scalar (Key Vault) shape.` |
 | AC-07 | `manual: code/UI audit - no operator-list or scope-editor control exists anywhere in the admin bundle.` |
 
 ## Dependencies
