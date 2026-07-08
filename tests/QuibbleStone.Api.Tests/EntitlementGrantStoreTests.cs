@@ -1,12 +1,14 @@
 // ----------------------------------------------------------------------------
-//  EntitlementGrantStoreTests - the purchaser grant store (billing-entitlements/01,
-//  #70, AC-05). Exercises the WORKING in-memory store (the CI-friendly half of the
-//  config-presence split); the Table store shares the same semantics + key scheme.
+//  EntitlementGrantStoreTests - the account grant store (billing-entitlements/01,
+//  #70, AC-05; re-keyed onto the stable AccountId by accounts-identity/05, #195).
+//  Exercises the WORKING in-memory store (the CI-friendly half of the config-presence
+//  split); the Table store shares the same semantics + key scheme.
 //
 //  Pins: a grant round-trips with capability key + validThrough + source intact via
-//  a single per-purchaser read; a re-grant of the same capability UPSERTS (extends
-//  the lease, one row); the store is case / whitespace insensitive (same hashed key
-//  as the account store); an unknown purchaser reads empty, never null, never created.
+//  a single per-account read; a re-grant of the same capability UPSERTS (extends the
+//  lease, one row); the partition key is the stable AccountId (accounts-identity/05,
+//  AC-03) so two accounts NEVER collide - even if a future email were reused after a
+//  hypothetical change; an unknown account reads empty, never null, never created.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -17,16 +19,19 @@ namespace QuibbleStone.Api.Tests;
 
 public class EntitlementGrantStoreTests
 {
-    private const string Purchaser = "buyer@example.com";
+    // The store keys off the stable AccountId directly (a GUID, unguessable already -
+    // accounts-identity/05), NOT a hash of the email. A fixed id stands in for one
+    // account's stable id across a test.
+    private static readonly Guid AccountId = Guid.NewGuid();
 
     [Fact]
     public async Task Grant_round_trips_with_all_fields_intact()
     {
         var store = new InMemoryEntitlementGrantStore();
         var validThrough = DateTimeOffset.UtcNow.AddDays(30);
-        await store.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.PlayRemote, validThrough, GrantSource.Subscription));
+        await store.PutGrantAsync(AccountId, new EntitlementGrant(EntitlementCatalog.PlayRemote, validThrough, GrantSource.Subscription));
 
-        var grants = await store.GetGrantsAsync(Purchaser);
+        var grants = await store.GetGrantsAsync(AccountId);
 
         var grant = Assert.Single(grants);
         Assert.Equal(EntitlementCatalog.PlayRemote, grant.CapabilityKey);
@@ -40,10 +45,10 @@ public class EntitlementGrantStoreTests
         var store = new InMemoryEntitlementGrantStore();
         var first = DateTimeOffset.UtcNow.AddDays(30);
         var renewed = DateTimeOffset.UtcNow.AddDays(60);
-        await store.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.PlayRemote, first, GrantSource.Subscription));
-        await store.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.PlayRemote, renewed, GrantSource.Subscription));
+        await store.PutGrantAsync(AccountId, new EntitlementGrant(EntitlementCatalog.PlayRemote, first, GrantSource.Subscription));
+        await store.PutGrantAsync(AccountId, new EntitlementGrant(EntitlementCatalog.PlayRemote, renewed, GrantSource.Subscription));
 
-        var grants = await store.GetGrantsAsync(Purchaser);
+        var grants = await store.GetGrantsAsync(AccountId);
 
         // One row for the capability, lease extended to the renewed value.
         var grant = Assert.Single(grants);
@@ -54,31 +59,42 @@ public class EntitlementGrantStoreTests
     public async Task Distinct_capabilities_are_separate_rows_in_one_partition()
     {
         var store = new InMemoryEntitlementGrantStore();
-        await store.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.PlayRemote, null, GrantSource.OneTime));
-        await store.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
+        await store.PutGrantAsync(AccountId, new EntitlementGrant(EntitlementCatalog.PlayRemote, null, GrantSource.OneTime));
+        await store.PutGrantAsync(AccountId, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
 
-        var grants = await store.GetGrantsAsync(Purchaser);
+        var grants = await store.GetGrantsAsync(AccountId);
 
         Assert.Equal(2, grants.Count);
     }
 
+    // AC-03 (accounts-identity/05): two accounts NEVER collide - the partition key is
+    // each account's stable id, so one account's grants never leak into another's, even
+    // if their emails were ever the same string (an email change / reuse cannot alias
+    // the durable keys the way the old email-hash scheme could).
     [Fact]
-    public async Task Lookup_is_case_and_whitespace_insensitive()
+    public async Task Two_accounts_never_collide()
     {
         var store = new InMemoryEntitlementGrantStore();
-        await store.PutGrantAsync("Buyer@Example.com", new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
+        var accountA = Guid.NewGuid();
+        var accountB = Guid.NewGuid();
+        await store.PutGrantAsync(accountA, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
 
-        var grants = await store.GetGrantsAsync("  buyer@example.com ");
+        // B holds nothing of A's, and granting to B never touches A.
+        Assert.Empty(await store.GetGrantsAsync(accountB));
+        await store.PutGrantAsync(accountB, new EntitlementGrant(EntitlementCatalog.PlayRemote, null, GrantSource.OneTime));
 
-        Assert.Single(grants);
+        var aGrants = await store.GetGrantsAsync(accountA);
+        var bGrants = await store.GetGrantsAsync(accountB);
+        Assert.Equal(EntitlementCatalog.LibraryFull, Assert.Single(aGrants).CapabilityKey);
+        Assert.Equal(EntitlementCatalog.PlayRemote, Assert.Single(bGrants).CapabilityKey);
     }
 
     [Fact]
-    public async Task Unknown_purchaser_reads_empty_never_null()
+    public async Task Unknown_account_reads_empty_never_null()
     {
         var store = new InMemoryEntitlementGrantStore();
 
-        var grants = await store.GetGrantsAsync("nobody@example.com");
+        var grants = await store.GetGrantsAsync(Guid.NewGuid());
 
         Assert.NotNull(grants);
         Assert.Empty(grants);

@@ -21,15 +21,28 @@
 //  BOTH implementations normalize the email identity IDENTICALLY (trim +
 //  ToLowerInvariant), so "Sam@x.com" and "sam@x.com" resolve to the SAME account.
 //
-//  TWO METHODS, TWO DISTINCT SEMANTICS - read carefully, story 03 depends on it:
-//    - CreateOrGetAsync is the PURCHASE path (accounts-identity/02, AC-02). It is
-//      idempotent: the same identity twice returns the same account and leaves
-//      exactly ONE row. This is the ONLY path that may create an account.
-//    - GetByIdentityAsync is a READ-ONLY lookup (accounts-identity/03's sign-in /
-//      restore). It returns null on a miss and NEVER creates a row - a sign-in
-//      attempt for an email that never bought must NOT silently mint an account
-//      ("no create on miss"). Keeping create and read as separate methods is what
-//      makes that guarantee structural, not a matter of remembering a flag.
+//  THREE METHODS, THREE DISTINCT SEMANTICS - read carefully, story 03 depends on it:
+//    - CreateOrGetAsync is the account-CREATE path (accounts-identity/02's purchase,
+//      07's free family sign-up, AC-02). It is idempotent: the same email twice
+//      returns the same account (same stable AccountId) and leaves exactly ONE
+//      account. This is the ONLY path that may create an account.
+//    - GetByIdentityAsync is a READ-ONLY lookup BY EMAIL (accounts-identity/03's
+//      sign-in / restore, billing's purchaser resolution). It returns null on a
+//      miss and NEVER creates a row - a sign-in attempt for an email that never
+//      signed up must NOT silently mint an account ("no create on miss"). Keeping
+//      create and read as separate methods makes that guarantee structural.
+//    - GetByIdAsync is a READ-ONLY lookup BY AccountId (accounts-identity/05, AC-04):
+//      a caller that already holds a stable AccountId (a resolved family-device
+//      token, story 09; a future support / vault-claim lookup) resolves the account
+//      directly, never round-tripping through an email. Also null on a miss, never
+//      creates.
+//
+//  WHY EMAIL IS NOT THE PRIMARY KEY (accounts-identity/05, AC-01/AC-02): the stable
+//  AccountId (Account.Id, a GUID minted once at creation) is the durable identity;
+//  the email is a MUTABLE login attribute. GetByIdentityAsync resolves an email to
+//  the account via the store's slim email-hash INDEX (AccountIdentity.KeyFor), then
+//  reads the account by its AccountId - so an email change never orphans grants or
+//  gallery (which key off AccountId, not the email).
 //
 //  CONSUMABLE WITHOUT ROOMS (AC-04): this contract references only Account (email
 //  + created-at). It imports NOTHING from api/src/Rooms, so billing-entitlements/
@@ -66,14 +79,29 @@ public interface IAccountStore
     Task<Account> CreateOrGetAsync(string emailIdentity, CancellationToken ct = default);
 
     /// <summary>
-    /// A READ-ONLY lookup (accounts-identity/03's sign-in / restore): return the
-    /// account for <paramref name="emailIdentity"/>, or null if none exists. It
-    /// NEVER creates a row - a sign-in for an email that never purchased must miss
-    /// (return null), not silently create an account ("no create on miss"). Story
-    /// 03 relies on this method precisely for that guarantee.
+    /// A READ-ONLY lookup BY EMAIL (accounts-identity/03's sign-in / restore): return
+    /// the account for <paramref name="emailIdentity"/>, or null if none exists. It
+    /// NEVER creates a row - a sign-in for an email that never signed up must miss
+    /// (return null), not silently create an account ("no create on miss"). Story 03
+    /// relies on this method precisely for that guarantee. Internally resolves the
+    /// email to an AccountId via the email-hash index, then reads the account.
     /// </summary>
     /// <param name="emailIdentity">The email to look up (normalized internally).</param>
     /// <param name="ct">Cancellation for the (storage-bound) lookup.</param>
-    /// <returns>The account if one exists for this identity, else null (never created here).</returns>
+    /// <returns>The account if one exists for this email, else null (never created here).</returns>
     Task<Account?> GetByIdentityAsync(string emailIdentity, CancellationToken ct = default);
+
+    /// <summary>
+    /// A READ-ONLY lookup BY AccountId (accounts-identity/05, AC-04): return the
+    /// account whose stable <see cref="Account.Id"/> is <paramref name="accountId"/>,
+    /// or null if none exists. For a caller that already holds an AccountId (a
+    /// resolved family-device token - story 09; a future support / vault-claim
+    /// lookup) so it never needs to round-trip through an email to find the account.
+    /// NEVER creates a row. It resolves the SAME account
+    /// <see cref="GetByIdentityAsync"/> would for that account's email (AC-06).
+    /// </summary>
+    /// <param name="accountId">The stable account id to look up.</param>
+    /// <param name="ct">Cancellation for the (storage-bound) lookup.</param>
+    /// <returns>The account if one exists with this id, else null (never created here).</returns>
+    Task<Account?> GetByIdAsync(Guid accountId, CancellationToken ct = default);
 }

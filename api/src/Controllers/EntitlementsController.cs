@@ -76,9 +76,9 @@ public sealed class EntitlementsController : ControllerBase
             return Unauthorized();
         }
 
-        // Resolve the canonical account, then read grants keyed off account.Email (the
-        // SAME identity billing-01's session-creation gate reads). No account or no
-        // active grant -> a friendly empty list (AC-03), never an error.
+        // Resolve the canonical account, then read grants keyed off account.Id (the
+        // SAME stable id billing-01's session-creation gate reads, accounts-identity/05).
+        // No account or no active grant -> a friendly empty list (AC-03), never an error.
         var account = await _accounts.GetByIdentityAsync(email, cancellationToken);
         if (account is null)
         {
@@ -86,7 +86,7 @@ public sealed class EntitlementsController : ControllerBase
         }
 
         var now = DateTimeOffset.UtcNow;
-        var entitlements = (await _grants.GetGrantsAsync(account.Email, cancellationToken))
+        var entitlements = (await _grants.GetGrantsAsync(account.Id, cancellationToken))
             .Where(grant => grant.IsActiveAt(now))
             .Select(grant => new EntitlementView(
                 grant.CapabilityKey,

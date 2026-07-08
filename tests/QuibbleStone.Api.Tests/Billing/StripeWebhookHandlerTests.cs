@@ -46,6 +46,15 @@ public class StripeWebhookHandlerTests
     private static BillingEvent Checkout(GrantSource source, string? purchaser, IReadOnlyList<string> caps, DateTimeOffset? periodEnd = null, string id = EventId)
         => new(id, BillingEventKind.CheckoutCompleted, source, purchaser, caps, periodEnd);
 
+    // Read the purchaser's grants the way production does (accounts-identity/05): resolve
+    // the account by email FIRST, then read grants keyed off its stable id. Returns empty
+    // when no account exists (a tip / anonymous purchase never created one).
+    private static async Task<IReadOnlyList<EntitlementGrant>> GrantsFor(Harness h)
+    {
+        var account = await h.Accounts.GetByIdentityAsync(Purchaser);
+        return account is null ? [] : await h.Grants.GetGrantsAsync(account.Id);
+    }
+
     // AC-03/AC-06: a one-time checkout writes a permanent grant, keyed to the purchaser,
     // readable through billing-01's session-creation gate. The account is auto-created.
     [Fact]
@@ -61,7 +70,7 @@ public class StripeWebhookHandlerTests
         // The grant is permanent (null lease) and visible to the gate for that purchaser.
         var entitlements = await h.Gate.EvaluateForSession(Purchaser);
         Assert.True(entitlements.IsUnlocked(EntitlementCatalog.LibraryFull));
-        var grant = Assert.Single(await h.Grants.GetGrantsAsync(Purchaser));
+        var grant = Assert.Single(await GrantsFor(h));
         Assert.Null(grant.ValidThrough);
         Assert.Equal(GrantSource.OneTime, grant.Source);
     }
@@ -75,7 +84,7 @@ public class StripeWebhookHandlerTests
         var outcome = await h.Handler.HandleAsync(Checkout(GrantSource.OneTime, Purchaser, []));
 
         Assert.Equal(WebhookOutcome.Ignored, outcome);
-        Assert.Empty(await h.Grants.GetGrantsAsync(Purchaser));
+        Assert.Empty(await GrantsFor(h));
     }
 
     // A purchase with no purchaser email grants nothing (nothing to key a grant to).
@@ -97,10 +106,10 @@ public class StripeWebhookHandlerTests
         var evt = Checkout(GrantSource.Subscription, Purchaser, [EntitlementCatalog.PlayRemote], DateTimeOffset.UtcNow.AddDays(30));
 
         var first = await h.Handler.HandleAsync(evt);
-        var firstGrant = Assert.Single(await h.Grants.GetGrantsAsync(Purchaser));
+        var firstGrant = Assert.Single(await GrantsFor(h));
 
         var second = await h.Handler.HandleAsync(evt);
-        var afterGrant = Assert.Single(await h.Grants.GetGrantsAsync(Purchaser));
+        var afterGrant = Assert.Single(await GrantsFor(h));
 
         Assert.Equal(WebhookOutcome.Processed, first);
         Assert.Equal(WebhookOutcome.AlreadyProcessed, second);
@@ -119,7 +128,7 @@ public class StripeWebhookHandlerTests
         await h.Handler.HandleAsync(new BillingEvent(
             "evt_renew", BillingEventKind.SubscriptionRenewed, GrantSource.Subscription, Purchaser, [EntitlementCatalog.PlayRemote], renewedEnd));
 
-        var grant = Assert.Single(await h.Grants.GetGrantsAsync(Purchaser));
+        var grant = Assert.Single(await GrantsFor(h));
         Assert.Equal(renewedEnd, grant.ValidThrough);
     }
 
@@ -134,7 +143,7 @@ public class StripeWebhookHandlerTests
         await h.Handler.HandleAsync(new BillingEvent(
             "evt_pastdue", BillingEventKind.SubscriptionPastDue, GrantSource.Subscription, Purchaser, [EntitlementCatalog.PlayRemote], null));
 
-        var grant = Assert.Single(await h.Grants.GetGrantsAsync(Purchaser));
+        var grant = Assert.Single(await GrantsFor(h));
         Assert.NotNull(grant.ValidThrough);
         Assert.True(grant.ValidThrough! > DateTimeOffset.UtcNow.AddDays(6), "past_due should extend the lease into the grace window");
         // The family is still unlocked mid-ride.
@@ -169,6 +178,6 @@ public class StripeWebhookHandlerTests
             "evt_other", BillingEventKind.Ignored, GrantSource.OneTime, Purchaser, [EntitlementCatalog.LibraryFull], null));
 
         Assert.Equal(WebhookOutcome.Ignored, outcome);
-        Assert.Empty(await h.Grants.GetGrantsAsync(Purchaser));
+        Assert.Empty(await GrantsFor(h));
     }
 }

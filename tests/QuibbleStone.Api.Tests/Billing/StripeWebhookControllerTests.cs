@@ -49,7 +49,7 @@ public class StripeWebhookControllerTests
         return Convert.ToHexStringLower(hash);
     }
 
-    private static (StripeWebhookController Controller, InMemoryEntitlementGrantStore Grants) NewController()
+    private static (StripeWebhookController Controller, InMemoryEntitlementGrantStore Grants, InMemoryAccountStore Accounts) NewController()
     {
         var grants = new InMemoryEntitlementGrantStore();
         var accounts = new InMemoryAccountStore();
@@ -57,7 +57,16 @@ public class StripeWebhookControllerTests
         var options = new StripeOptions { WebhookSigningSecret = Secret, SecretKey = "sk_test_x" };
         var handler = new StripeWebhookHandler(grants, accounts, processed, options);
         var controller = new StripeWebhookController(handler, options, NullLogger<StripeWebhookController>.Instance);
-        return (controller, grants);
+        return (controller, grants, accounts);
+    }
+
+    // Read the purchaser's grants the way production does (accounts-identity/05): resolve
+    // the account by email FIRST, then read grants keyed off its stable id. Returns empty
+    // when no account exists (a rejected webhook never created one).
+    private static async Task<IReadOnlyList<EntitlementGrant>> GrantsFor(InMemoryAccountStore accounts, InMemoryEntitlementGrantStore grants)
+    {
+        var account = await accounts.GetByIdentityAsync(Purchaser);
+        return account is null ? [] : await grants.GetGrantsAsync(account.Id);
     }
 
     private static void SetRequest(StripeWebhookController controller, string payload, string signatureHeader)
@@ -71,7 +80,7 @@ public class StripeWebhookControllerTests
     [Fact]
     public async Task Validly_signed_event_with_mismatched_api_version_is_accepted_and_applied()
     {
-        var (controller, grants) = NewController();
+        var (controller, grants, accounts) = NewController();
         var payload = EventPayload();
         var t = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         SetRequest(controller, payload, $"t={t},v1={Sign(payload, t)}");
@@ -81,7 +90,7 @@ public class StripeWebhookControllerTests
         // Not a 400: the older account api_version must NOT be rejected (the fix).
         Assert.IsType<OkObjectResult>(action);
         // And the grant path ran: the purchaser now holds the granted capabilities.
-        var held = await grants.GetGrantsAsync(Purchaser);
+        var held = await GrantsFor(accounts, grants);
         Assert.Contains(held, g => g.CapabilityKey == EntitlementCatalog.LibraryFull);
         Assert.Contains(held, g => g.CapabilityKey == EntitlementCatalog.PlayRemote);
     }
@@ -95,12 +104,13 @@ public class StripeWebhookControllerTests
     {
         const string liveSecret = "whsec_live_9876543210fedcba";
         var grants = new InMemoryEntitlementGrantStore();
+        var accounts = new InMemoryAccountStore();
         var options = new StripeOptions
         {
             Test = new StripeModeConfig { SecretKey = "sk_test_x", WebhookSigningSecret = Secret },
             Live = new StripeModeConfig { SecretKey = "sk_live_x", WebhookSigningSecret = liveSecret },
         };
-        var handler = new StripeWebhookHandler(grants, new InMemoryAccountStore(), new InMemoryProcessedEventStore(), options);
+        var handler = new StripeWebhookHandler(grants, accounts, new InMemoryProcessedEventStore(), options);
         var controller = new StripeWebhookController(handler, options, NullLogger<StripeWebhookController>.Instance);
 
         var payload = EventPayload();
@@ -111,14 +121,14 @@ public class StripeWebhookControllerTests
 
         // Accepted despite Test being the active mode (the default) - verified against the live secret.
         Assert.IsType<OkObjectResult>(action);
-        var held = await grants.GetGrantsAsync(Purchaser);
+        var held = await GrantsFor(accounts, grants);
         Assert.Contains(held, g => g.CapabilityKey == EntitlementCatalog.LibraryFull);
     }
 
     [Fact]
     public async Task Tampered_signature_is_rejected_and_grants_nothing()
     {
-        var (controller, grants) = NewController();
+        var (controller, grants, accounts) = NewController();
         var payload = EventPayload();
         var t = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         // A valid-looking header with a WRONG signature.
@@ -127,6 +137,6 @@ public class StripeWebhookControllerTests
         var action = await controller.Webhook(CancellationToken.None);
 
         Assert.IsType<BadRequestResult>(action);
-        Assert.Empty(await grants.GetGrantsAsync(Purchaser)); // nothing applied
+        Assert.Empty(await GrantsFor(accounts, grants)); // nothing applied
     }
 }

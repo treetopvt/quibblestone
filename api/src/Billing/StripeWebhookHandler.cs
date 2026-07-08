@@ -9,10 +9,10 @@
 //  WHAT IT DOES:
 //    - Idempotency (AC-05): skips an event id already processed (Stripe delivers
 //      at-least-once); records the id after a successful apply.
-//    - Grants keyed to the purchaser (AC-06): ensures the purchaser Account exists
+//    - Grants keyed to the account (AC-06): ensures the purchaser Account exists
 //      (checkout naturally creates it - story 04) and writes grants keyed off the
-//      canonical account.Email, the SAME identity billing-entitlements/01's
-//      session-creation gate reads.
+//      stable account.Id (accounts-identity/05), the SAME id billing-entitlements/01's
+//      session-creation gate reads (an email change never orphans the grants).
 //    - Grants NOTHING when there is nothing to grant: a tip (empty capability keys,
 //      story 02 AC-02) or an anonymous purchase is acknowledged but writes no grant.
 //    - Subscription lifecycle (AC-08, ADR 0002 Decisions C/D):
@@ -92,7 +92,7 @@ public sealed class StripeWebhookHandler
         }
 
         // Ensure the purchaser account exists (checkout naturally creates it - story 04)
-        // and key grants off its canonical normalized email (AC-06 / billing-01 contract).
+        // and key grants off its stable id (account.Id, AC-06 / billing-01 contract).
         var account = await _accounts.CreateOrGetAsync(email, ct);
         var now = DateTimeOffset.UtcNow;
 
@@ -103,7 +103,7 @@ public sealed class StripeWebhookHandler
                 var validThrough = ResolveLeaseEnd(billingEvent.Source, billingEvent.PeriodEnd, now);
                 foreach (var capability in billingEvent.CapabilityKeys)
                 {
-                    await _grants.PutGrantAsync(account.Email, new EntitlementGrant(capability, validThrough, billingEvent.Source), ct);
+                    await _grants.PutGrantAsync(account.Id, new EntitlementGrant(capability, validThrough, billingEvent.Source), ct);
                 }
                 break;
 
@@ -121,13 +121,13 @@ public sealed class StripeWebhookHandler
                 // a full grace window from the moment it failed, which matters more here
                 // than making reprocessing a perfect fixed point.
                 var graceEnd = now.AddDays(_options.PastDueGraceDays);
-                var existing = await _grants.GetGrantsAsync(account.Email, ct);
+                var existing = await _grants.GetGrantsAsync(account.Id, ct);
                 var byCapability = existing.ToDictionary(g => g.CapabilityKey, StringComparer.Ordinal);
                 foreach (var capability in billingEvent.CapabilityKeys)
                 {
                     var currentEnd = byCapability.TryGetValue(capability, out var cur) ? cur.ValidThrough : null;
                     var extended = currentEnd is { } end && end > graceEnd ? end : graceEnd;
-                    await _grants.PutGrantAsync(account.Email, new EntitlementGrant(capability, extended, GrantSource.Subscription), ct);
+                    await _grants.PutGrantAsync(account.Id, new EntitlementGrant(capability, extended, GrantSource.Subscription), ct);
                 }
                 break;
 
@@ -137,7 +137,7 @@ public sealed class StripeWebhookHandler
                 // billing-01 AC-03).
                 foreach (var capability in billingEvent.CapabilityKeys)
                 {
-                    await _grants.PutGrantAsync(account.Email, new EntitlementGrant(capability, now, GrantSource.Subscription), ct);
+                    await _grants.PutGrantAsync(account.Id, new EntitlementGrant(capability, now, GrantSource.Subscription), ct);
                 }
                 break;
         }

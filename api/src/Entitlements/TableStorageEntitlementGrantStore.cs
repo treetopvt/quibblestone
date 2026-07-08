@@ -7,14 +7,15 @@
 //  InMemoryEntitlementGrantStore rather than a no-op, because the gate + stories
 //  03-05 need a working local store).
 //
-//  KEY / SCHEMA DESIGN (AC-05):
-//    - PartitionKey = a SHA-256 HEX hash of the NORMALIZED purchaser email (the
-//      SAME AccountIdentity.KeyFor scheme the account store uses), so ALL of a
-//      purchaser's grants share ONE partition and the session-creation read is a
-//      single partition query - never a scan, never cross-partition. The raw email
-//      is never the key and the key is not guessable.
+//  KEY / SCHEMA DESIGN (AC-05; re-keyed by accounts-identity/05):
+//    - PartitionKey = the stable AccountId (Account.Id) as a string - DIRECTLY, no
+//      hashing. A GUID is already random and unguessable (unlike a raw email), and
+//      it is durable (an email change does not move it), so ALL of an account's
+//      grants share ONE partition and the session-creation read is a single
+//      partition query - never a scan, never cross-partition. The pre-ADR-0003 key
+//      (a SHA-256 of the email) is gone: it orphaned grants on an email change.
 //    - RowKey = the capability key (e.g. "library.full", "pack.spooky"). One row
-//      per (purchaser, capability), so a subscription renewal UPSERTS - extends the
+//      per (account, capability), so a subscription renewal UPSERTS - extends the
 //      lease in place - rather than piling up rows.
 //    - Stored PROPERTIES: ValidThrough (nullable - null = a permanent one-time
 //      pack) and Source (the GrantSource name). No PII, no player / room reference.
@@ -25,17 +26,15 @@
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Logging;
-using QuibbleStone.Api.Accounts;
 
 namespace QuibbleStone.Api.Entitlements;
 
 /// <summary>
-/// The Azure Table Storage purchaser-grant store (billing-entitlements/01). Stores
-/// one entity per (purchaser, capability), PartitionKey = SHA-256 hash of the
-/// normalized purchaser email + RowKey = capability key, so a purchaser's whole
-/// grant set is one partition query (AC-05), persisting only ValidThrough + Source.
-/// Used only when a storage connection string is configured (else
-/// InMemoryEntitlementGrantStore).
+/// The Azure Table Storage account-grant store (billing-entitlements/01, re-keyed by
+/// accounts-identity/05). Stores one entity per (account, capability), PartitionKey =
+/// the stable AccountId + RowKey = capability key, so an account's whole grant set is
+/// one partition query (AC-05), persisting only ValidThrough + Source. Used only when
+/// a storage connection string is configured (else InMemoryEntitlementGrantStore).
 /// </summary>
 public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
 {
@@ -66,9 +65,9 @@ public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<EntitlementGrant>> GetGrantsAsync(string purchaserIdentity, CancellationToken ct = default)
+    public async Task<IReadOnlyList<EntitlementGrant>> GetGrantsAsync(Guid accountId, CancellationToken ct = default)
     {
-        var partition = AccountIdentity.KeyFor(purchaserIdentity);
+        var partition = accountId.ToString();
         var grants = new List<EntitlementGrant>();
         try
         {
@@ -90,9 +89,9 @@ public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
     }
 
     /// <inheritdoc />
-    public async Task PutGrantAsync(string purchaserIdentity, EntitlementGrant grant, CancellationToken ct = default)
+    public async Task PutGrantAsync(Guid accountId, EntitlementGrant grant, CancellationToken ct = default)
     {
-        var partition = AccountIdentity.KeyFor(purchaserIdentity);
+        var partition = accountId.ToString();
         await EnsureTableAsync(ct);
 
         var entity = new TableEntity(partition, grant.CapabilityKey)

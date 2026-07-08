@@ -12,56 +12,53 @@
 //  TableStorageEntitlementGrantStore instead and grants persist across restarts;
 //  the semantics of BOTH stores are identical, only durability differs.
 //
-//  It is keyed by the SAME normalized-email SHA-256 hash the Table store and the
-//  account store use (see AccountIdentity.KeyFor), and holds at most ONE grant per
-//  (purchaser, capability) so a renewal extends a lease rather than piling up rows.
-//  Nested ConcurrentDictionaries make concurrent purchases / reads safe without an
-//  explicit lock, and give the "all of one purchaser's grants" read as a single
-//  inner-dictionary snapshot (the in-memory analog of a one-partition query).
+//  It is keyed by the stable AccountId (accounts-identity/05) - the SAME durable id
+//  the account store mints and the Table grant store partitions by - and holds at
+//  most ONE grant per (account, capability) so a renewal extends a lease rather than
+//  piling up rows. Nested ConcurrentDictionaries make concurrent writes / reads safe
+//  without an explicit lock, and give the "all of one account's grants" read as a
+//  single inner-dictionary snapshot (the in-memory analog of a one-partition query).
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
 using System.Collections.Concurrent;
-using QuibbleStone.Api.Accounts;
 
 namespace QuibbleStone.Api.Entitlements;
 
 /// <summary>
 /// A thread-safe, in-memory <see cref="IEntitlementGrantStore"/> (billing-
-/// entitlements/01), registered when no storage connection string is configured.
-/// Fully functional (per-purchaser read + upsert-by-capability write) so stories
-/// 03-05 and the session-creation gate are testable with zero Azure setup - it just
-/// does not survive a process restart. Keyed by the shared normalized-email hash.
+/// entitlements/01, re-keyed by accounts-identity/05), registered when no storage
+/// connection string is configured. Fully functional (per-account read + upsert-by-
+/// capability write) so stories 03-05 and the session-creation gate are testable
+/// with zero Azure setup - it just does not survive a process restart. Keyed by the
+/// stable AccountId.
 /// </summary>
 public sealed class InMemoryEntitlementGrantStore : IEntitlementGrantStore
 {
-    // Outer key = the purchaser-identity hash (AccountIdentity.KeyFor), so the raw
-    // email is never a dictionary key and lookups are case / whitespace insensitive.
+    // Outer key = the stable AccountId (a GUID, unguessable already - no hashing).
     // Inner key = the capability key, giving at most one lease per capability (a
-    // renewal replaces it). The inner dictionary IS a purchaser's whole "partition".
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, EntitlementGrant>> _byPurchaser =
-        new(StringComparer.Ordinal);
+    // renewal replaces it). The inner dictionary IS an account's whole "partition".
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, EntitlementGrant>> _byAccount =
+        new();
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<EntitlementGrant>> GetGrantsAsync(string purchaserIdentity, CancellationToken ct = default)
+    public Task<IReadOnlyList<EntitlementGrant>> GetGrantsAsync(Guid accountId, CancellationToken ct = default)
     {
-        var key = AccountIdentity.KeyFor(purchaserIdentity);
         // A miss returns an empty list and NEVER creates a partition (TryGetValue
         // does not insert). Snapshot the values so the caller iterates a stable set.
-        IReadOnlyList<EntitlementGrant> grants = _byPurchaser.TryGetValue(key, out var partition)
+        IReadOnlyList<EntitlementGrant> grants = _byAccount.TryGetValue(accountId, out var partition)
             ? partition.Values.ToArray()
             : [];
         return Task.FromResult(grants);
     }
 
     /// <inheritdoc />
-    public Task PutGrantAsync(string purchaserIdentity, EntitlementGrant grant, CancellationToken ct = default)
+    public Task PutGrantAsync(Guid accountId, EntitlementGrant grant, CancellationToken ct = default)
     {
-        var key = AccountIdentity.KeyFor(purchaserIdentity);
-        // GetOrAdd the purchaser's partition, then upsert by capability key so a
-        // re-grant of the same capability extends / replaces its lease (one row).
-        var partition = _byPurchaser.GetOrAdd(key, _ => new ConcurrentDictionary<string, EntitlementGrant>(StringComparer.Ordinal));
+        // GetOrAdd the account's partition, then upsert by capability key so a re-grant
+        // of the same capability extends / replaces its lease (one row).
+        var partition = _byAccount.GetOrAdd(accountId, _ => new ConcurrentDictionary<string, EntitlementGrant>(StringComparer.Ordinal));
         partition[grant.CapabilityKey] = grant;
         return Task.CompletedTask;
     }
