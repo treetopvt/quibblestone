@@ -5,6 +5,12 @@
   accounts-identity/02's magic-link plumbing) are still unbuilt, even though the IEntitlementService interface it
   consumes already shipped (ai-cost-gate/02 #121 / PR #132) - see each story's "dependency reality" note and the
   Cross-cutting concerns below. Use hyphens/colons/parentheses, never em dashes.
+
+  EXTENDED 2026-07-08 for ADR 0003 Layer 3 (stories 04-07): a second Wave Plan section below covers the new
+  stories, using the ADR's own cross-feature wave numbers (1-4) rather than continuing the already-shipped
+  01-03 Wave Plan's numbering (that table is historical - 01-03 are Complete). See ADR 0003's "Cross-feature
+  build order" table for how these four waves line up against accounts-identity, keepsake-vault, control-plane,
+  and billing-entitlements' own concurrent stories.
 -->
 
 # Implementation Plan: Sys-Admin Console
@@ -41,6 +47,34 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
 - `PublishedTale` extensions for reports + hidden state (story 03) - a new small surface on the existing
   `api/src/PublishedTales/` folder, not a new domain.
 
+**EXTENDED 2026-07-08 for ADR 0003 Layer 3 (stories 04-07):**
+
+| Concern | Reuse | Where |
+|---|---|---|
+| Operator authorization (existing) | `OperatorSession`/`OperatorAuthenticationHandler`/`IOperatorAllowlist`, the `"Operator"` policy | `api/src/Admin/` (story 01, shipped) |
+| Existing admin controllers (existing) | `AdminEntitlementsController` (grant/revoke), `ReportedTalesController` (confirm/restore) | `api/src/Admin/` (stories 02/03, shipped) |
+| Interim Stripe-mode gate (story 04 DELETES this) | `IOperatorGate`/`InterimSecretOperatorGate` | `api/src/Billing/IOperatorGate.cs` (billing-entitlements/06) - deleted, not reused |
+| Stripe mode domain model (kept, only its authorization changes) | `IActiveStripeContext`, `StripeModeController` | `api/src/Controllers/StripeModeController.cs` (billing-entitlements/06) |
+| Admin bundle shell (existing, reorganized by 05) | the two-tab `AdminShell` in `main.tsx`, extended to three tabs | `web/src/admin/main.tsx` (story 01, shipped) |
+| Existing admin screens (existing, relocated by 05) | `PurchaserEntitlements.tsx`, `ReviewQueue.tsx` | `web/src/admin/` (stories 02/03, shipped) |
+| Bearer-credential-aware client pattern | `operatorClient.ts` / `purchasersClient.ts`'s fetch shape (VITE_API_BASE_URL, graceful failure, bearer + cookie) | `web/src/admin/*Client.ts` |
+| Table Storage store pattern (for the new action log, story 06) | `TableStorageActiveStripeModeStore.cs` / the `IEntitlementGrantStore` implementation's partition/row-key conventions | `api/src/Billing/`, `api/src/Entitlements/` |
+| Entitlement grant plumbing (reused by story 07's comp/extend verb) | `IEntitlementGrantStore`, `AdminEntitlementsController`'s `BuildLookupAsync` projection | `api/src/Admin/AdminEntitlementsController.cs`, `api/src/Entitlements/` |
+| Account lookup by email (reused, extended by accounts-identity/05 for AccountId) | `IAccountStore` | `api/src/Accounts/` |
+| Published tale store (reused by story 07's TTL-extend verb) | `IPublishedTaleStore` | `api/src/PublishedTales/` |
+| Magic-link email delivery (reused by story 07's resend verb) | the `accounts-identity/04` email seam | `api/src/Accounts/` |
+
+New surfaces stories 04-07 introduce:
+- `api/src/Admin/OperatorScope.cs` + a scope requirement/attribute (story 05) - the `support`/`content`/`ops`
+  metadata every admin endpoint carries; stories 06 and 07's new endpoints consume this from day one.
+- `api/src/Admin/IOperatorActionLog.cs` + `TableStorageOperatorActionLog.cs` (story 06) - the single append-only
+  write seam stories 02/03/04's controllers call into, and story 07's verbs call into once built.
+- `api/src/Admin/AccountSupportController.cs` (story 07) - the Support job's composing endpoint; optionally
+  depends on seams from `accounts-identity`, `keepsake-vault`, and `billing-entitlements/08` that may not exist
+  yet (dependency-tolerant, null-object/absent-service pattern - see story 07's Technical Notes).
+- `web/src/admin/OperationsPanel.tsx`, `SettingsPanel.tsx`, `StripeModePanel.tsx`, `ActionLogView.tsx`,
+  `SupportLookup.tsx` (stories 04-07) - the new/reorganized admin-bundle screens.
+
 ## Wave Plan (DAG)
 
 Sizing rule: a builder owns files that are **disjoint** from its concurrent siblings. Story 01 is the hard
@@ -63,6 +97,36 @@ feature.md's Candidate stories table). Story numbering (01-02-03) reflects the f
 (foundation, then "pairs with real charging," then "actionable now"); the Wave Plan reorders 02 and 03 into the
 same wave because neither blocks the other technically - their only true blockers are each one's own external
 seam (#70 for 02, nothing new for 03 beyond #66 which is already shipped).
+
+## Wave Plan (DAG) - ADR 0003 Layer 3 additions (stories 04-07)
+
+**EXTENDED 2026-07-08.** This section uses ADR 0003's own cross-feature Wave numbers (1-4), since
+these four stories are one row of that ADR's larger cross-feature table (alongside
+`accounts-identity`, `keepsake-vault`, `control-plane`, `billing-entitlements`, `platform-devops`
+stories building in the same waves). It does NOT continue the wave numbering of the table above
+(that table's waves 1-2 are historical - stories 01-03 already shipped, 2026-07-07).
+
+| Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
+|---|---|---|---|---|---|---|
+| 04 one-console-one-auth | #TBD | `api/src/Controllers/StripeModeController.cs` (auth swap); DELETES `api/src/Billing/IOperatorGate.cs`; `Program.cs` (deletes the `IOperatorGate` registration + `Admin:ModeToggleSecret` config); DELETES `web/src/pages/AdminBillingMode.tsx`; `web/src/App.tsx` (removes the route + import); new `web/src/admin/StripeModePanel.tsx` + `stripeModeClient.ts`; `web/src/admin/main.tsx` (adds a third interim tab) | sysadmin-console/01 (shipped) | - (independent within this feature; see cross-feature table for what else is in ADR 0003's Wave 1) | 1 | medium |
+| 05 jobs-shell-and-scoped-authz | #TBD | `web/src/admin/main.tsx` (reorganizes to 3 tabs); new `web/src/admin/OperationsPanel.tsx`, `SettingsPanel.tsx`; new `api/src/Admin/OperatorScope.cs`; edits to `OperatorAuthenticationHandler.cs` / `ConfigurationOperatorAllowlist.cs` (scope resolution); `Program.cs` (registers scope policies); one-line scope-attribute additions to `AdminEntitlementsController.cs`, `ReportedTalesController.cs`, `StripeModeController.cs` | 04 | - | 2 | medium |
+| 06 operator-action-log | #TBD | new `api/src/Admin/IOperatorActionLog.cs`, `TableStorageOperatorActionLog.cs`, `ActionLogController.cs` (or similar); `Program.cs` (registers the log store); ONE new `AppendAsync` call each in `AdminEntitlementsController.cs`, `ReportedTalesController.cs`, `StripeModeController.cs`; new `web/src/admin/ActionLogView.tsx` + `actionLogClient.ts` (placed in 05's Operations tab); `docs/features/sysadmin-console/feature.md` (Design notes amendment, AC-07) | 05 (for the view only - the write seam itself has no technical dependency on 05, see Cross-cutting concerns and story 06's Technical Notes "the split") | - | 3 | medium |
+| 07 support-lookup-and-verbs | #TBD | new `api/src/Admin/AccountSupportController.cs`; new `web/src/admin/SupportLookup.tsx` + `supportClient.ts` | 06; dependency-tolerant on `accounts-identity/05`+`/09`, `keepsake-vault/03-04`, `billing-entitlements/08` (each may be absent at build time - see story 07's Technical Notes for the null-object/absent-service pattern) | - | 4 | high |
+
+**Concurrency per wave:** Wave 1 = 04 alone within this feature (independent of 05-07; ADR 0003's
+cross-feature Wave 1 also includes `accounts-identity/05`, `keepsake-vault/01`, `control-plane/01`,
+`platform-devops/07-08` - all in DIFFERENT features' folders, not this one's concern to track file-
+level). Wave 2 = 05 alone (depends on 04's Stripe panel existing to relocate). Wave 3 = 06 alone
+(its VIEW needs 05's Operations tab; its WRITE seam could theoretically land earlier - noted as a
+possible split for the orchestrator's Phase 1 to decide, not assumed here). Wave 4 = 07 alone
+(consumes 06's log; everything else it touches is dependency-tolerant, so it need not wait on
+`accounts-identity`, `keepsake-vault`, or `billing-entitlements/08` landing - it just renders less
+until they do).
+
+**The `Program.cs` hazard, restated for this batch:** stories 04, 05, and 06 EACH touch `Program.cs`
+(04 deletes a registration; 05 adds scope-policy registrations; 06 adds the action-log store
+registration). Per ADR 0003's rule, these are three separate, small, rebased PRs - never batched
+into one `Program.cs` diff even though they land in adjacent waves of the same feature.
 
 ## Per-story tech notes
 
@@ -99,6 +163,59 @@ nothing new beyond the endpoints themselves - this story is a thin consumer of t
 producer other stories build on. **Gotcha:** AC-04's anonymity boundary is absolute - resist any temptation to
 add a "which sessions did this purchaser's household create" convenience view; that is exactly the join ADR
 0002 forbids.
+
+### 04 - One console, one auth
+**Approach:** delete `IOperatorGate`/`InterimSecretOperatorGate` and the `Admin:ModeToggleSecret`
+config key; swap `StripeModeController`'s guard from a manual `X-Operator-Secret` header check to
+`[Authorize(Policy = OperatorSession.PolicyName)]` (the exact attribute `AdminEntitlementsController`
+and `ReportedTalesController` already use). Delete `web/src/pages/AdminBillingMode.tsx` and its
+route/import in `App.tsx`. Port its `ConfirmSwitchDialog` asymmetric-friction behavior into a new
+`web/src/admin/StripeModePanel.tsx`, placed as an interim third tab on the existing two-tab shell
+(story 05 relocates it into Operations next wave). **Exports:** the Stripe-mode panel component
+story 05 relocates. **Gotcha:** this is a `Program.cs`-touching deletion - land it as its own small,
+rebased PR (ADR 0003's hazard). Also: do not resurrect `adminTheme.ts`'s separate theme nesting for
+the new panel - it lived in the kid bundle's route tree for a reason that no longer applies once the
+panel is natively in the admin bundle.
+
+### 05 - The jobs shell + scoped authz
+**Approach:** rework `main.tsx`'s tab set to Support/Content/Operations, relocating
+`PurchaserEntitlements` (Support), `ReviewQueue` (Content), and 04's Stripe-mode panel plus a new,
+dependency-tolerant `SettingsPanel` (Operations). Add `OperatorScope.cs` (constants + a requirement/
+attribute pair) and named policies (or an equivalent attribute-metadata mechanism) that
+`OperatorAuthenticationHandler`/`ConfigurationOperatorAllowlist` resolve per-email - today every
+allowlisted operator gets every scope, so no existing test changes behavior. Apply the appropriate
+scope to each of the three existing admin controllers. **Exports:** the scope mechanism stories 06
+and 07's new endpoints consume from day one (their new controllers carry a scope tag immediately,
+never retrofitted). **Gotcha:** the settings panel's dependency-tolerance (control-plane/01 may not
+exist yet) must degrade to a plain message, never an unhandled rejection - mirror the existing
+session-check's fail-safe pattern in `main.tsx`.
+
+### 06 - The operator action log
+**Approach:** a new `IOperatorActionLog` + `TableStorageOperatorActionLog` (inverted-ticks RowKey
+for newest-first listing, mirroring the existing Table Storage store conventions), a `GET
+/api/admin/action-log` endpoint under the `ops` scope (story 05), and one new `AppendAsync` call
+each in `AdminEntitlementsController` (grant, revoke), `ReportedTalesController` (confirm, restore),
+and `StripeModeController` (the mode flip) - inserted immediately after each action's existing
+successful write, never on an early-return/not-found branch. **Exports:** the `IOperatorActionLog`
+seam story 07's verbs call into once built. **Gotcha:** the VIEW depends on story 05's Operations
+tab; the WRITE seam (the interface, the store, and the three call-site insertions) does not - a
+builder could split this story to land the write seam in parallel with 05 if the orchestrator's
+Phase 1 finds that valuable, since none of those three call sites touch `main.tsx`. Also: this story
+edits `feature.md`'s Design notes (the audit-trail amendment) - a documentation edit, not a code
+footprint conflict with anything else in flight.
+
+### 07 - Support lookup + verbs
+**Approach:** a new `AccountSupportController` composing `IAccountStore`, `IEntitlementGrantStore`,
+`IPublishedTaleStore`, and `IOperatorActionLog` (all shipped or landing in earlier waves) alongside
+OPTIONAL seams from `accounts-identity/05`+`/09`, `keepsake-vault`, and `billing-entitlements/08`
+(none shipped yet at the time this story is likely to build) - inject those as nullable/absent-by-
+default services so each panel/verb on the web side can report "not available yet" independently
+rather than the whole controller failing. **Exports:** nothing further - this is this feature's
+final story in the current decomposition. **Gotcha:** AC-08's anonymity invariant is the single most
+important thing to guard in review here - a "which room did this purchaser's family play in"
+convenience is the exact bug every prior story in this feature already rejected; this story's larger
+surface area (three lookup identifiers, five verbs) makes it easier to accidentally reintroduce than
+stories 02/03 were.
 
 ## Cross-cutting concerns
 
@@ -142,3 +259,30 @@ add a "which sessions did this purchaser's household create" convenience view; t
 - **No i18n** (plain strings). **No em dashes.** The admin bundle reuses the MUI theme for visual consistency,
   but it is an adult-facing operator tool, not a second consumer-facing design system - keep its screens
   minimal and functional rather than polishing them to the kid app's delight-tier bar.
+
+**EXTENDED 2026-07-08 for ADR 0003 Layer 3 (stories 04-07):**
+
+- **`Program.cs` is this feature's own recurring hotspot across 04-06.** Story 04 deletes the
+  `IOperatorGate` registration; story 05 adds scope-policy registrations; story 06 adds the
+  action-log store registration. Each is its OWN small, rebased PR - per ADR 0003's cross-feature
+  rule, `Program.cs`-touching stories never batch, even within one feature's own wave sequence.
+- **Scoped authz is additive metadata, not a rewrite.** Story 05's `support`/`content`/`ops` tags
+  must not change existing behavior for the single, all-scopes-allowlisted operator - every existing
+  test for `AdminEntitlementsController`, `ReportedTalesController`, and `StripeModeController` must
+  keep passing UNMODIFIED after the scope attributes land. A test that had to change to keep passing
+  is a signal the scope mechanism accidentally narrowed something.
+- **The action log is dispute insurance, not a system of record.** Story 06 amends this feature's own
+  "no audit ceremony" stance narrowly (ADR 0003 Decision 3 / Amendment 2) - for exactly the named
+  money/moderation actions, nothing broader. No story in this feature should extend the log to
+  gameplay, content generation, or any player-facing action; that would be the "audit ceremony" this
+  feature has twice now explicitly rejected (once in the original Design notes, once in the
+  Amendment 2 scope-limit).
+- **Dependency-tolerant panels degrade individually, never as a whole page.** Stories 05's settings
+  panel and 07's subscription/vault/device sections each check their OWN backing endpoint's
+  availability and render a plain "not available yet" state on absence - modeled on
+  `ReportedTalesController`'s existing "disabled fallback returns an empty queue" precedent. No
+  panel's absence should ever crash, blank, or otherwise degrade a SIBLING panel on the same screen.
+- **The anonymity invariant scales to the larger Support surface (story 07) exactly as it did for the
+  smaller ones (stories 02/03).** More lookup identifiers (email, claim code, slug) and more verbs
+  mean more surface area for an accidental join to slip in during review - hold story 07 to the
+  identical bar as `CreateRoom`, not a relaxed one because "it's just a bigger admin screen."
