@@ -17,10 +17,11 @@ live, B1/B3/B4/B5 merged via
 [PR #175](https://github.com/treetopvt/quibblestone/pull/175) and are deploying
 to UAT, and W5 (ACS email) is live and tested via the magic-link flow. **Nothing
 left blocks inviting the friends-and-family testers** - go watch the telemetry
-that now exists. (Note: a player still cannot email a game invite to someone
-directly - the built invite action is copy-link or the OS/browser share sheet,
-`web/src/pages/useRoomInvite.ts`; email so far is wired only to magic-link auth,
-never to game invites. Not a blocker, just a gap worth knowing about.) Every path
+that now exists. (Update 2026-07-08: session-engine/12 (#180) now adds a THIRD invite
+channel - email a friend the room's join link directly, reusing the ACS email seam via
+its own game-invite method behind an availability probe + a per-IP rate limit. It
+renders only where an email provider is configured; copy-link and the OS/browser share
+sheet, `web/src/pages/useRoomInvite.ts`, remain the always-on channels.) Every path
 below traces to a written story in
 [`docs/features/`](./features/); this file is the map over that backlog, not new
 scope.
@@ -126,9 +127,9 @@ of the 2026-07-04 view and predates this update.)
 | Alpha-gate fixes | [PR #175](https://github.com/treetopvt/quibblestone/pull/175) | B1/B3/B4/B5 merged, auto-deploying to UAT; B2 (UAT SKU) already bumped + confirmed live |
 | Product analytics (GA4 + Clarity) | `analytics/01` (branch `claude/ga4-analytics-stress-test-7tjpar`) | Built: consent-gated, anonymous by construction, env-gated (no-op until ids set). Monitoring LIVE on rollout, one-time banner deferred behind a flag. Two operator steps before go-live: Clarity Masking = "Mask" (strict), GA4 Enhanced Measurement OFF (else a /join/:code leaks via page_referrer) - see [analytics/feature.md](./features/analytics/feature.md) |
 | Load / stress test | [`docs/load-testing/findings.md`](./load-testing/findings.md) + the `/load` harness | **UAT run done (2026-07-07):** B1 holds far past alpha scale - 3,000 concurrent conns at 100% completion, <=49% CPU; connection *count* is not the wall (the single load client tops out first). Server limits are connect/disconnect **storms** (~98-99% CPU - the post-restart reconnect herd) and **memory** (~4-5k conns est.); a true server ceiling needs distributed load. Single in-process instance / no Azure SignalR backplane stays the architectural ceiling (F1). W2 6-player cap is **merged** (#181), bounding the join race + O(N^2) roster fan-out. Cheap near-term win: add **jitter** to the client reconnect backoff (`useGameHub.ts`) to de-sync the herd |
-| Orientation / landscape readability | `design-system/03` | In Progress - the one genuinely open UI story |
+| ~~Orientation / landscape readability~~ (done) | `design-system/03` | **Shipped** (commit ead9ae4); story + feature status trued up 2026-07-08. PWA manifest prefers portrait + the Reveal reflows in landscape (the `48vh` cap is gone). A manual landscape spot-check on a real phone is still worth doing before the beta. |
 | Billing-mode toggle relocation | `billing-entitlements/07` follow-up | move `/admin/billing-mode` out of the kid bundle into the operator console, behind the real Operator scheme |
-| E2E suite repair + CI | `platform-devops` (new story needed) | 3 of 8 Playwright specs fail on stale selectors (mode picker moved into Game settings; Home button renamed); e2e is not in CI so drift goes unnoticed |
+| E2E suite repair + CI | `platform-devops/06` (written 2026-07-08) | 3 of 8 Playwright specs fail on stale selectors (mode picker moved into Game settings; Home play-solo pill dropped its "Or " prefix); e2e is not in CI so drift goes unnoticed. The story empirically reproduced all 3 failures and specs the per-spec repair + a readiness-gated CI job (boot API on :5180, gate on `/health`, no `playwright install`) |
 | Public-tale TTL sweep | #150 | reap never-read expired tales; low urgency by design |
 | Group Progressive Story | `game-modes/05` x group | deferred: needs the live cross-player "story so far" broadcast (its own story) |
 | Bicep validation gap | carry-forward | `az bicep build` is not gated in CI (local `ci-check` skill covers it); serve-log client (`serveLog.ts`) still has no Vitest spec |
@@ -148,10 +149,10 @@ blocker/high item (B1-B5) and W5 are resolved - the alpha gate is closed.**
 | B3 | Blocker | 30s seat grace + abort-on-eviction: early finishers' phones auto-lock on the Waiting screen, and ~60s later the whole round aborts - even when the evicted player had no blanks left (`SeatGraceService.cs`, `GameHub.cs` eviction epilogue) | raise `DefaultGraceWindow` to 2-5 min; only abort when the departed seat has unsubmitted blanks | Merged - PR #175 (raised to 3 min; abort now conditional on outstanding blanks) |
 | B4 | High | A rejected `Rejoin` (seat expired, server restarted) leaves zombie room state: frozen screen, no broadcasts, submits refused forever (`useGameHub.ts` rejoin-fail path) | on rejected rejoin, clear local room state + show the friendly "seat timed out" notice | Merged - PR #175 |
 | B5 | High | No React error boundary: any render error is a permanent white screen (the error beacon reports it; the family sees blank) | one ErrorBoundary around `<App/>` with a "Something went off" + reload button | Merged - PR #175 |
-| W1 | Warn | 30-min idle sweep deletes rooms under still-connected players (nothing bumps `LastActiveUtc` for connected sockets) | exempt rooms with connected seats or lengthen; clear client state on "room not found" | Open |
+| W1 | Warn | 30-min idle sweep deletes rooms under still-connected players (nothing bumps `LastActiveUtc` for connected sockets) | exempt rooms with connected seats or lengthen; clear client state on "room not found" | Open - specced in `session-engine/13` (2026-07-08) |
 | W2 | Warn | Lobby says "n of 6" but the server never enforces a cap (a 7th joiner shows "7 of 6"; on F1 they cannot connect at all) | enforce the cap in `JoinRoom` with a friendly "room's full" | **Merged** (#181) - `Room.AddPlayer` caps at `Room.MaxPlayers`=6 (host incl.), atomic under the room lock; `JoinRoom` returns the friendly full message. Surfaced + verified by the load test (F2); re-confirmed absent on UAT at 6 players/room |
-| W3 | Warn | `StartRound` has no phase guard: a host double-tap mid-deal re-deals everyone and discards in-flight words | reject StartRound while phase is "prompting" (mirror PassHost's gate) | Open |
-| W4 | Warn | Mid-round joiners get yanked into a reveal they did not play (no phase check on `JoinRoom`) | block joins during "prompting" with a friendly wait message, or mark spectators | Open |
+| W3 | Warn | `StartRound` has no phase guard: a host double-tap mid-deal re-deals everyone and discards in-flight words | reject StartRound while phase is "prompting" (mirror PassHost's gate) | Open - specced in `session-engine/13` (2026-07-08) |
+| W4 | Warn | Mid-round joiners get yanked into a reveal they did not play (no phase check on `JoinRoom`) | block joins during "prompting" with a friendly wait message, or mark spectators | Open - specced in `session-engine/13` (2026-07-08) |
 | W5 | Warn | With no `Email:*` config, magic-link flows silently send nothing - so the operator console (incl. the tale review queue) is unreachable on UAT | configure ACS email per the runbook before the test, or accept no admin console during it | **Resolved** - ACS email is live on UAT, confirmed via a tested magic-link round trip |
 
 Notes-tier items (hub-method rate limits, tale-link revoke ownership, quota-key
@@ -170,11 +171,12 @@ dependency) are recorded in the audit and can ride until after the test.
   reactions data - the telemetry to see how the alpha actually plays is already
   shipped.
 - **Repair the e2e suite** (3 stale specs) and put Playwright in CI so UI drift
-  gets caught, not discovered.
-- **Nice-to-have, not a blocker**: there is no dedicated "email a player an
-  invite" action - today's invite is copy-link or the OS/browser share sheet
-  (`useRoomInvite.ts`); email is wired only to magic-link auth. Worth a small
-  story later if testers ask for it.
+  gets caught, not discovered - now specced in `platform-devops/06` (2026-07-08).
+- **Shipped 2026-07-08**: session-engine/12 (#180) adds the dedicated "email a player
+  an invite" action - a third channel alongside copy-link and the OS/browser share
+  sheet (`useRoomInvite.ts`), reusing the ACS email seam behind the availability probe
+  + per-IP rate limit. It appears only where an email provider is configured, so
+  copy-link/share stay the always-on default.
 
 ### 2. Polish the laughs (during / after the test)
 - Triage what the telemetry and the family actually surface - this list is a
@@ -188,8 +190,8 @@ dependency) are recorded in the audit and can ride until after the test.
   #78-#80).
 - **Group Progressive Story** - the one missing mode in group; write + build the
   "story so far" broadcast story.
-- **Orientation/landscape** (`design-system/03`) and any W-tier paper cuts that
-  actually bit testers.
+- Any W-tier paper cuts that actually bit testers. (Orientation/landscape,
+  `design-system/03`, has since shipped - status trued up 2026-07-08.)
 - Decide on the parked **Versus/Duel** mode (#55) once `vote.ts` + group modes
   have proven out - it is the engine's one real stretch.
 
@@ -251,7 +253,7 @@ cross-feature build order lives in
 2. **Now** - the alpha gate is fully closed (B1-B5 and W5 all resolved); **invite
    the family**; repair the e2e suite + add it to CI.
 3. **Next** - polish from telemetry + feedback; content velocity (more seeds or
-   the content factory); group Progressive Story; `design-system/03`.
+   the content factory); group Progressive Story.
 4. **Later** - public tale page provisioning, Stripe live, brand clearance, then
    the AI delight tier (voices -> illustration -> on-demand) and packs - all
    riding the same gate.

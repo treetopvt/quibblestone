@@ -1,6 +1,6 @@
 # Story: Email a game invite to a friend
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #180
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #180
 
 ## Context
 Today the Lobby's invite mechanism offers two channels: copy the room's join
@@ -34,7 +34,7 @@ this extends), plus
 (the email seam this reuses without reusing its sign-in-specific machinery).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given I am on the Lobby, when I open the email-invite option
+- [x] AC-01: Given I am on the Lobby, when I open the email-invite option
       (an input alongside the existing Copy/Share buttons) and enter one
       friend's email address, then tapping "Send" delivers a QuibbleStone
       email to that address carrying the SAME payload Copy/Share already
@@ -42,12 +42,12 @@ this extends), plus
       (`buildJoinLink`) and the human-readable "Room code: XXXX" text
       (matching `useRoomInvite`'s existing share copy) - not a second,
       drifting copy of that content.
-- [ ] AC-02: Given the send action, then it is a stateless REST call (a new
+- [x] AC-02: Given the send action, then it is a stateless REST call (a new
       `POST` endpoint) rather than a `GameHub` method - it mutates no room
       state, requires no SignalR round-trip, and never touches
       `Room.cs`/`RoomRegistry.cs`, mirroring how Copy/Share already act on the
       room code today without any server call at all.
-- [ ] AC-03: Given the delivered email, then it travels through the EXISTING
+- [x] AC-03: Given the delivered email, then it travels through the EXISTING
       `IEmailSender` seam (the same interface, the same `AcsEmailSender` /
       `NoOpEmailSender` pair, the same `EmailOptions` config-presence gate
       accounts-identity/04 built) - there is no second email transport
@@ -55,7 +55,7 @@ this extends), plus
       (fixed copy, no magic link, no token): sending a game invite never
       calls `SendMagicLinkAsync` and never touches `IMagicLinkTokenService`,
       since this is not a sign-in flow.
-- [ ] AC-04 (child safety / privacy, README section 6): Given the invite
+- [x] AC-04 (child safety / privacy, README section 6): Given the invite
       email, then its body is FIXED, templated copy (the room code + the
       join link) with no free-text field for the sender to fill in - there is
       nothing here for the profanity filter to check. The only data collected
@@ -67,7 +67,7 @@ this extends), plus
       `IContentSafetyFilter` every submitted word already passes through
       before it can reach an email body - that is a new AC on that future
       story, not a silent addition.
-- [ ] AC-05 (abuse / rate-limit): Given the send endpoint is public and
+- [x] AC-05 (abuse / rate-limit): Given the send endpoint is public and
       anonymous, then it is protected by a per-IP fixed-window rate limit
       registered the same way as `PublishTalesRateLimit` and `SignInRateLimit`
       (a named policy, `[EnableRateLimiting]` on the action,
@@ -76,7 +76,7 @@ this extends), plus
       `AddRateLimiter` block) - generous enough for a family inviting a
       handful of relatives in one sitting, tight enough that this cannot
       become a scripted email-bombing relay.
-- [ ] AC-06 (degrades cleanly, no email config): Given no email provider is
+- [x] AC-06 (degrades cleanly, no email config): Given no email provider is
       configured (`EmailOptions.IsConfigured == false`, today's default
       posture), when the Lobby's invite surface renders, then the
       email-invite option is hidden or shown clearly disabled with a brief
@@ -84,7 +84,7 @@ this extends), plus
       Share instead") - the player learns this BEFORE typing anything, never
       after a submit that silently does nothing and never as a raw error.
       Copy, Share, and the "+ invite" slot are completely unaffected.
-- [ ] AC-07 (not gated): Given any player in the room, not only the host,
+- [x] AC-07 (not gated): Given any player in the room, not only the host,
       when they use the email-invite option, then it behaves identically for
       them - mirroring session-engine/11 AC-04's reasoning (the room code is
       already visible to every player on this screen). There is no
@@ -211,3 +211,21 @@ this extends), plus
   `EmailOptions`, and the two DI-resolved senders this reuses; Complete) - all
   four dependencies have already shipped, so this story is immediately
   buildable with nothing blocking it.
+
+## Delivered
+- 2026-07-08 (#180): a stateless `EmailInviteController`
+  (`api/src/Controllers/EmailInviteController.cs`) exposing `GET /api/invite/availability`
+  (the AC-06 probe) and `POST /api/invite/email` (`{ roomCode, toEmail }` only), reusing
+  the ONE `IEmailSender` seam via a NEW `SendGameInviteAsync` method + fixed template on
+  `AcsEmailSender`/`NoOpEmailSender` - never `SendMagicLinkAsync`/`MagicLinkPurpose`
+  (AC-03). The join link is built server-side as `{base}/join/{code}` from a
+  shape-validated code (AC-01/AC-02, no `RoomRegistry` touch); the send is per-IP
+  rate-limited (`EmailInviteRateLimit`, a sibling of `SignInRateLimit`, AC-05); the body
+  is fixed templated copy with no sender free-text field (AC-04). Web: `useRoomInvite`
+  gained `emailAvailable` + `sendEmail` (backed by `web/src/pages/emailInvite.ts`), and the
+  Lobby's `ShareWidget` renders the email field ONLY when the provider is configured, open
+  to any player (AC-06/AC-07). Covered by xUnit (`EmailInviteControllerTests`,
+  `EmailInviteRateLimitTests`, `EmailInviteSenderTests`) + Vitest (`emailInvite.test.ts`);
+  the .NET build + 552 xUnit + 411 Vitest + the web build are green, and the endpoints were
+  smoke-tested live (availability toggles with config; a bad code/email -> 400; provider-off
+  -> a friendly not-available result).

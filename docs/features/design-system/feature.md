@@ -15,7 +15,7 @@ MUI theme. No hardcoded colors or pixel spacing in components."
 ## Stories
 - [x] 01 - MUI theme, AppBar, and Button shell
 - [x] 02 - Guardian avatar component (6 variants)
-- [ ] 03 - Orientation: prefer portrait, stay readable in landscape
+- [x] 03 - Orientation: prefer portrait, stay readable in landscape
 - [x] 04 - Client routing (react-router) - real URLs + `/join/:code` deep link
 - [x] 05 - Fit-to-viewport screen de-clutter
 
@@ -57,6 +57,13 @@ None (this is the UI foundation everything else renders on top of).
   screen's public props changed. The reaction-row narrowing that shipped in
   the same pass is recorded separately in
   `reveal-delight/01-reaction-row.md`. See `05-fit-to-viewport-declutter.md`.
+- **Orientation: prefer portrait, stay readable in landscape** (story 03, 2026-07,
+  commit `ead9ae4`): a PWA `manifest.webmanifest` (linked from `index.html`) prefers
+  portrait for an installed instance, and the Reveal screen reflows in landscape (the
+  hard `48vh` story-panel cap replaced with orientation-aware heights) so a phone
+  handed around in landscape stays readable. Portrait rendering is unchanged. Status
+  trued up 2026-07-08 (the story had lagged the shipped code). See
+  `03-orientation-and-landscape-readability.md`.
 
 ## Parked - Phase 4
 - Dyslexia-friendly font option and reduced-motion variants of all animations

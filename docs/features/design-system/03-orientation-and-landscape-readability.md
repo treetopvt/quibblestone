@@ -1,6 +1,6 @@
 # Story: Orientation - prefer portrait, stay readable in landscape
 
-**Feature:** Design System & UI Foundation  ·  **Status:** In Progress  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Design System & UI Foundation  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
 
 ## Context
 Every screen is built portrait-first (a centered `maxWidth: 430` column). That is
@@ -18,31 +18,31 @@ README section 10) as the acceptance-critical screen. See [feature.md](./feature
 and `the-reveal/01` (the screen this fixes).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the app is installed as a PWA, then a web app manifest
+- [x] AC-01: Given the app is installed as a PWA, then a web app manifest
       (`manifest.webmanifest`, linked from `index.html`) declares
       `"orientation": "portrait"` so an installed instance opens and stays portrait -
       the "prefer portrait" layer.
-- [ ] AC-02: Given a browser that ignores the manifest orientation (a NON-installed
+- [x] AC-02: Given a browser that ignores the manifest orientation (a NON-installed
       tab, and notably iOS Safari, which does not honor manifest orientation), when
       the device rotates to landscape, then the app does not break - it degrades
       gracefully: content stays readable, primary CTAs stay reachable, and nothing is
       trapped in an unreadable sliver. (This is why the story is "both", not a
       portrait lock: a handed-off phone WILL sometimes land in landscape regardless.)
-- [ ] AC-03: Given the Reveal screen in landscape, when the completed tale is shown,
+- [x] AC-03: Given the Reveal screen in landscape, when the completed tale is shown,
       then the story panel is NOT hard-capped to a tiny fraction of the short
       viewport - it reflows to use the available width and height so the tale reads
       and scrolls normally without pinch-zoom, and the two primary CTAs (Play again /
       Share) remain reachable. The `48vh` cap that caused the sliver is replaced with
       an orientation-aware height.
-- [ ] AC-04: Given the app in PORTRAIT, then this story changes nothing visible -
+- [x] AC-04: Given the app in PORTRAIT, then this story changes nothing visible -
       portrait rendering is identical to today. This is additive, orientation-scoped
       responsive handling (CSS `@media (orientation: landscape)` or MUI equivalents),
       not a portrait redesign; no portrait pixel moves.
-- [ ] AC-05: Given the landscape adaptations, then they are theme-driven and honor
+- [x] AC-05: Given the landscape adaptations, then they are theme-driven and honor
       the existing contracts: no hardcoded hex or ad-hoc raw-px colors (CLAUDE.md
       section 4), big tap targets preserved (README section 10), FontAwesome-only
       icons, and any motion still respects `prefers-reduced-motion`.
-- [ ] AC-06 (child-safety / privacy): Given this is layout-only, then it introduces
+- [x] AC-06 (child-safety / privacy): Given this is layout-only, then it introduces
       no new free-text surface and collects no data - the manifest carries only public
       app metadata (name, icons, theme color), never PII (README sections 3 and 6).
 
@@ -96,3 +96,14 @@ and `the-reveal/01` (the screen this fixes).
 ## Dependencies
 - design-system/01-mui-theme-and-app-shell (the app shell, `index.html`, `BottomActionBar`, theme this builds on)
 - the-reveal/01-text-reveal (the Reveal screen whose landscape readability is the acceptance-critical case)
+
+## Delivered
+- 2026-07 (commit `ead9ae4`, "fix(reveal): keep the completed tale readable in
+  landscape + prefer portrait"): the PWA manifest (`web/public/manifest.webmanifest`,
+  linked from `index.html`) declares `orientation: portrait` with the theme/background
+  colors and existing icons (AC-01), and `web/src/pages/Reveal.tsx` replaces the
+  hard `48vh` story-panel cap with orientation-aware `@media (orientation: landscape)`
+  heights so a handed-off phone in landscape stays readable with the CTAs reachable
+  (AC-02, AC-03); portrait rendering is unchanged (AC-04). Status trued up 2026-07-08
+  (the story/roadmap had lagged the code). A manual landscape spot-check on a real
+  phone is still worth doing before the beta.
