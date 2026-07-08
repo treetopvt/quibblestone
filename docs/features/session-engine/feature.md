@@ -34,7 +34,7 @@ reconnect + rejoin" (shipped via PR #151).
 | 10 | #144 | Web: resume the live screen, don't bounce Home | Complete |
 | 11 | - | Wire the "+ invite" roster slot to the share action | Complete |
 | 12 | #180 | Email a game invite to a friend | Complete |
-| 13 | - | Round and room lifecycle guards (StartRound / JoinRoom / idle sweep) | Not Started |
+| 13 | #186 | Round and room lifecycle guards (StartRound / JoinRoom / idle sweep) | Not Started |
 
 ## Dependencies
 - platform-devops (the real-time backbone must be deployable and reachable).

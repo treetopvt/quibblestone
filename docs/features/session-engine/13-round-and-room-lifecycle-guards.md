@@ -1,6 +1,6 @@
 # Story: Round and room lifecycle guards - StartRound, JoinRoom, and the idle sweep
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #186
 
 ## Context
 This story closes three still-open "W-tier" warnings from the roadmap's pre-beta
