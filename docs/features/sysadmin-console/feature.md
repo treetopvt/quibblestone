@@ -132,15 +132,26 @@ actually possible. See `implementation.md` for the DAG-ready Wave Plan.
 - **Operator, not audit ceremony.** This is a toy, not a system of record (CLAUDE.md preamble): the
   admin surface is minimal operator convenience, not a compliance/audit console. Resist growing it
   into role hierarchies, audit trails, or dashboards that Azure already provides.
-- **AMENDED 2026-07-08 (ADR 0003 Decision 3 / Amendment 2): a narrow, deliberate exception now exists
-  on the money/moderation plane.** Story 06 adds a minimal append-only action log (operator, action,
-  target, timestamp, optional note) for exactly five actions today - grant, revoke, takedown
-  confirm/restore, and the Stripe mode flip - and story 07's support verbs once they land. This is
-  **dispute insurance, not compliance ceremony**: no immutability guarantee, no legal-hold, a
-  pragmatic retention cap (a `control-plane/03` knob-migration candidate). Gameplay and content stay
-  exactly as ceremony-free as the bullet above still states; the console still does not grow role
+- **AMENDED 2026-07-08 (ADR 0003 Decision 3 / Amendment 2), REVISED 2026-07-08 (adversarial review):
+  a narrow, deliberate exception now exists on the money/moderation/settings plane.** Story 06 adds a
+  minimal append-only action log (operator, action, target, timestamp, optional note) for six actions
+  today - grant, revoke, takedown confirm/restore, the Stripe mode flip, and (once `control-plane/01`
+  lands and calls the same seam) a settings override change - and story 07's support verbs once they
+  land. This is **dispute insurance, not compliance ceremony**: no immutability guarantee, no
+  legal-hold - but it is now built to actually SERVE as dispute insurance: the log row is written
+  BEFORE the effectful action proceeds (never best-effort after), and retention is age-based with a
+  HARD FLOOR no operator setting can lower below, so the log cannot be silently skipped by a failed
+  append or evicted (by volume or by config) by the party a dispute concerns. Gameplay and content
+  stay exactly as ceremony-free as the bullet above still states; the console still does not grow role
   hierarchies or compliance dashboards - only this one narrow, dispute-insurance log exists, and only
-  for money/moderation-affecting operator actions.
+  for money/moderation/settings-affecting operator actions.
+- **REVISED 2026-07-08 (adversarial review): the Support surface's cross-plane firewall is structural,
+  not a review discipline.** Story 07's account lookup resolves an email (or `AccountId`) only - a
+  vault claim code and a public-tale slug are permanently removed as account-lookup inputs, and the
+  vault/tale figure it shows is a bare count sourced from a contract that cannot return a byline or
+  timestamp. Claim-code recovery is a player-facing capability `keepsake-vault` owns directly on the
+  player's own device, never routed through an operator lookup. See story 07 and ADR 0003's "Security
+  posture" section ("the support console cannot bridge the planes").
 
 ## Parked - later
 - Multi-operator / role-based access (a human moderator distinct from the owner) - alpha has one

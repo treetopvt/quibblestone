@@ -11,6 +11,13 @@
   01-03 Wave Plan's numbering (that table is historical - 01-03 are Complete). See ADR 0003's "Cross-feature
   build order" table for how these four waves line up against accounts-identity, keepsake-vault, control-plane,
   and billing-entitlements' own concurrent stories.
+
+  REVISED 2026-07-08 (adversarial review): the historical 01-03 Wave Plan section is retitled to make explicit
+  it is NOT DAG-parsed and its "Wave 1" is a different number from the canonical table's Wave 1 (04). Stories
+  05-07 also gained binding fixes from the review (05's Operator:Scopes config shape, 06's log-before-act
+  ordering + retention floor + settings-action coverage + view-encoding AC, 07's structural cross-plane
+  firewall + resend/resync rate-limit hardening + restore-friction asymmetry) - see each story file and ADR
+  0003's "Security posture" section. See feature.md's Decisions log for the summary entry.
 -->
 
 # Implementation Plan: Sys-Admin Console
@@ -308,16 +315,26 @@ still the defect the 2026-07-08 review flagged.
   is a signal the scope mechanism accidentally narrowed something.
 - **The action log is dispute insurance, not a system of record.** Story 06 amends this feature's own
   "no audit ceremony" stance narrowly (ADR 0003 Decision 3 / Amendment 2) - for exactly the named
-  money/moderation actions, nothing broader. No story in this feature should extend the log to
-  gameplay, content generation, or any player-facing action; that would be the "audit ceremony" this
-  feature has twice now explicitly rejected (once in the original Design notes, once in the
+  money/moderation/settings actions, nothing broader. No story in this feature should extend the log
+  to gameplay, content generation, or any player-facing action; that would be the "audit ceremony"
+  this feature has twice now explicitly rejected (once in the original Design notes, once in the
   Amendment 2 scope-limit).
+- **The log is trustworthy dispute insurance, not just present (REVISED 2026-07-08, adversarial
+  review).** Two properties make story 06's log actually usable in a dispute rather than theater:
+  (a) log-before-act ordering (AC-01a) - a row is written BEFORE the effectful action proceeds, so an
+  action cannot commit with zero trail; (b) an age-based retention floor (AC-04) that no runtime
+  setting can lower - the party a dispute is about cannot volume- or config-evict the rows that
+  concern them. Both are binding on story 06, not aspirational.
 - **Dependency-tolerant panels degrade individually, never as a whole page.** Stories 05's settings
   panel and 07's subscription/vault/device sections each check their OWN backing endpoint's
   availability and render a plain "not available yet" state on absence - modeled on
   `ReportedTalesController`'s existing "disabled fallback returns an empty queue" precedent. No
   panel's absence should ever crash, blank, or otherwise degrade a SIBLING panel on the same screen.
-- **The anonymity invariant scales to the larger Support surface (story 07) exactly as it did for the
-  smaller ones (stories 02/03).** More lookup identifiers (email, claim code, slug) and more verbs
-  mean more surface area for an accidental join to slip in during review - hold story 07 to the
-  identical bar as `CreateRoom`, not a relaxed one because "it's just a bigger admin screen."
+- **The anonymity/content firewall is structural on the Support surface (REVISED 2026-07-08,
+  adversarial review - story 07), not a review discipline applied to a wider surface.** The prior
+  framing ("more identifiers, more verbs, hold it to the same bar") undersold the fix: story 07's
+  controller does not merely avoid CALLING a byline-capable dependency, it does not HOLD one - claim
+  codes and tale slugs are permanently removed as account-lookup inputs (see story 07's AC-01/AC-08),
+  and the vault/tale figure is sourced from a count-only contract, never `IVaultStore.ListAsync`. Hold
+  story 07 to this structural bar in review: check the constructor's dependency types and the
+  response DTO shape, not only the action-method bodies.

@@ -138,3 +138,25 @@ Phase 4 "saved-story keepsakes", which this feature makes durable).
   that calls restore is `sysadmin-console/07`'s job, not this feature's;
   the grant-metadata/reconciliation half of Layer 2 is `billing-entitlements/08`,
   a sibling feature this one does not touch.
+- 2026-07-08: Revised per the same day's five-lens adversarial review of ADR
+  0003 (its "Security posture" section). The vault id and claim code are
+  bearer credentials, not mere opaque handles, and are now treated as such
+  throughout: both move out of the URL path into a header/body on every
+  endpoint (story 01, story 03); the vault's read endpoint gains the same
+  rate limit its write endpoint already had (story 01); the vault id gets a
+  real client-side crypto-entropy floor (no `Math.random` fallback) with a
+  server-side backstop, plus a per-vault tale cap to bound storage growth
+  independent of a per-IP limiter that IP rotation alone defeats (story 01);
+  the TTL story corrected a self-contradiction (it now names a COMPUTED
+  `CreatedUtc + TtlDays` check on the list path, not a stored `ExpiresUtc`,
+  and stops citing `TableStoragePublishedTaleStore.GetAsync` as an "exact"
+  mirror it never was); `CreatedUtc` is now explicitly server-stamped, never
+  client-supplied (story 01); the claim code gained a recorded
+  length/alphabet, a validity window with rotation and explicit revocation,
+  and a three-layer anti-brute-force model (per-IP, a global ceiling, and a
+  per-code failed-attempt burn) rather than a per-IP limiter alone (story
+  03); and restoring a moderation takedown now carries a structurally
+  required confirmation signature that restoring a player's own delete does
+  not (story 04). See
+  [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md)'s
+  "Security posture" section for the full review findings this addresses.

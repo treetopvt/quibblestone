@@ -66,51 +66,83 @@ New surfaces this feature introduces (not yet reuse targets, become them once bu
 Sizing rule: a builder owns files that are **disjoint** from its concurrent siblings. This feature is a short,
 mostly-serial chain (account exists before you can sign into it) with no meaningful fan-out.
 
-| Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave | Effort |
+### Stories 01-04 (shipped, Complete) - historical, LOCAL wave numbers only
+
+These four stories predate ADR 0003 and are not part of its cross-feature DAG. The `Wave` numbers in this table are
+LOCAL to this feature's own (already-executed) build order - they are NOT ADR 0003 canonical wave numbers. The ADR
+0003 table below starts its own canonical numbering at Wave 1, for stories 05-09 only (mirroring the precedent set
+for `sysadmin-console`'s historical 01-03 wave table, which the ADR explicitly keeps out of the DAG-parsed
+cross-feature section for the same reason).
+
+| Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave (local) | Effort |
 |---|---|---|---|---|---|---|
 | 01 anonymous-player-forever | #67 | header-comment hardening on `api/src/Rooms/Room.cs` pointing at the already-shipped `Room.Entitlements`/`Room.CaptureEntitlements`; no new files | session-engine/02, child-safety/01 | - (do first, it is a near-zero-diff contract pass) | 1 | low |
 | 02 lightweight-purchaser-account | #68 | `api/src/Accounts/Account.cs`, `IAccountStore.cs`, `AccountStore.cs`, the magic-link one-time-token issuer/verifier; `Program.cs` (one DI line) | 01, infra (Table Storage) | - | 2 | medium |
 | 03 sign-in-and-restore | #69 | `api/src/Controllers/AccountsController.cs` (or similar); `web/src/pages/Account.tsx` | 02 | - | 3 | medium |
 | 04 magic-link-email-delivery | #167 | new `api/src/Accounts/IEmailSender.cs` + a real sender (e.g. `AcsEmailSender.cs`) + `NoOpEmailSender.cs`; `Program.cs` (one config-presence block); inject into `AccountsController` + `OperatorLoginController` (api/src/Admin/); `appsettings.json` (`Email` section); `infra/main.bicep` (ACS Email resource + verified domain if ACS; a KV secret only for a keyed provider) + `.github/workflows/deploy.yml` (app-setting wiring) | 02, 03, sysadmin-console/01 | - | 4 | medium |
-| 05 stable-account-id-spine (ADR 0003 Layer 0, foundation) | #TBD | `api/src/Accounts/Account.cs`, `AccountIdentity.cs`, `IAccountStore.cs`, `InMemoryAccountStore.cs`, `TableStorageAccountStore.cs`; `api/src/Entitlements/EntitlementGrant.cs`, `IEntitlementGrantStore.cs`, `InMemoryEntitlementGrantStore.cs`, `TableStorageEntitlementGrantStore.cs`, `StoredValueEntitlementService.cs`; `api/src/CloudGallery/CloudTale.cs`, `ICloudGalleryStore.cs`, `InMemoryCloudGalleryStore.cs`, `TableStorageCloudGalleryStore.cs`, `CloudGalleryController.cs` (ownerKey computation only) | 02, 03, 04, billing-entitlements/01, keepsake-gallery/05 (all Complete - this story re-keys their stores in place) | - | 5 | high |
-| 06 purchaser-proof-at-create-room (ADR 0002 Decision F) | #TBD | `api/src/Hubs/GameHub.cs` (connect-time credential resolve + `CreateRoom`'s `purchaserIdentity` argument), `web/src/signalr/useGameHub.ts` (`accessTokenFactory`) | 05 | 07 | 6 | medium |
-| 07 free-family-account | #TBD | `api/src/Controllers/AccountsController.cs` (sign-up purpose/path), `api/src/Accounts/IEmailSender.cs` (`MagicLinkPurpose.FamilySignUp`) + `AcsEmailSender.cs`/`NoOpEmailSender.cs` copy, `web/src/pages/Account.tsx` (reframe + create-account affordance) | 05 | 06 | 6 | medium |
-| 08 kid-seat-presets | #TBD | new `api/src/Accounts/SeatPreset.cs` + `ISeatPresetStore.cs` + Table/in-memory implementations; `api/src/Controllers/AccountsController.cs` (preset endpoints); `web/src/pages/Account.tsx` (presets manager); `web/src/components/PlayerIdentityFields.tsx` (or a thin wrapper); `web/src/pages/Join.tsx`, `HostSetup.tsx` | 07 | - (serialize before 09 - shared footprint, see below) | 7 | medium |
-| 09 family-device-link (+ the kid-device flag) | #TBD | new `api/src/Accounts/FamilyDeviceToken.cs` + `IFamilyDeviceTokenStore.cs`/implementations + the link-code minter; `api/src/Controllers/AccountsController.cs` (generate/redeem/list/revoke + the kid-device toggle); `api/src/Hubs/GameHub.cs` (extend 06's resolver; `Room.CaptureFamilySafeForced` + `StartRound` enforcement); `web/src/pages/Account.tsx` (linked-devices UI); a new small web redeem screen/route; `web/src/signalr/useGameHub.ts` (device-token fallback) | 06, 07 | - | 8 | medium |
 
-**Concurrency per wave:** Wave 1 = 1 (01, low-effort contract pass - unblocks nothing else technically but should
-land first so its guarantee is verifiable before 02 is built). Wave 2 = 1 (02, the account record + store). Wave 3
-= 1 (03, the sign-in surface + endpoint, consumes 02's store). Wave 4 = 1 (04, the email-delivery transport - it
-consumes 02's issuer + the request endpoints and makes 03's purchaser sign-in and sysadmin-console/01's operator
+**Concurrency per local wave:** Wave 1 = 1 (01, low-effort contract pass - unblocks nothing else technically but
+should land first so its guarantee is verifiable before 02 is built). Wave 2 = 1 (02, the account record + store).
+Wave 3 = 1 (03, the sign-in surface + endpoint, consumes 02's store). Wave 4 = 1 (04, the email-delivery transport -
+it consumes 02's issuer + the request endpoints and makes 03's purchaser sign-in and sysadmin-console/01's operator
 login actually completable in a deployed/Production environment). No wave has genuine parallelism through wave 4:
 this is a short serial chain because each story's output is the next story's input, not a fan-out.
 
-**ADR 0003 Layer 0 (waves 5-8):** Wave 5 = 1 (05, the foundation - re-keys three existing stores, so it is
-deliberately solo and high-effort; nothing else in this arc starts before it lands). Wave 6 = {06, 07} in parallel
-- disjoint footprints (06 touches only `GameHub.cs` + `useGameHub.ts`; 07 touches only `AccountsController.cs` +
-the email-copy seam + `Account.tsx`'s reframe), both depending only on 05. Wave 7 = 1 (08 - depends on 07; its
-Account-page and `AccountsController.cs` footprint OVERLAPS what 09 will touch, so it is sized alone in its slot
-rather than paired with 09, even though 09 does not strictly block 08 shipping - see AC-06 of story 08's degraded-
-but-shippable path). Wave 8 = 1 (09 - depends on 06 AND 07; deliberately serialized AFTER 08 because both stories
+**Cross-feature order (pre-ADR 0003):** story 02 (magic-link + `IAccountStore`) is upstream of
+`billing-entitlements/01`'s (#70) purchaser-lookup piece (that story's AC-06) - 02 must land before #70's
+stored-value evaluation can resolve a real purchaser identity, though #70's catalog-extension and grant-store work
+do not themselves depend on this feature. Story 02's magic-link token issuer/verifier is also upstream of
+`sysadmin-console/01`'s (#135) operator login, which reuses the SAME plumbing against a separate allowlist.
+
+### ADR 0003 Layer 0 (stories 05-09) - canonical cross-feature Wave Plan
+
+**The `Wave` column below uses ADR 0003's CANONICAL cross-feature wave numbers** (accounts-identity/05 = ADR Wave 1;
+06 and 07 = ADR Wave 2; 08 and 09 = ADR Wave 3), matching ADR 0003's "Cross-feature build order" table exactly -
+this feature does NOT renumber locally (an earlier draft of this table used waves 5-8, which the 2026-07-08
+adversarial review flagged as misleading to an orchestrator grouping stories by number across features). The
+`Local step` column preserves this feature's OWN internal sequencing detail (which of two same-ADR-wave stories
+must still land first within this feature, due to a shared-file footprint) as a separate note, per the ADR's own
+instruction to keep that local detail out of the Wave column itself.
+
+| Story | Issue | Files it owns (footprint) | Depends-on | Can-run-with | Wave (ADR canonical) | Local step | Effort |
+|---|---|---|---|---|---|---|---|
+| 05 stable-account-id-spine (ADR 0003 Layer 0, foundation) | #TBD | `api/src/Accounts/Account.cs`, `AccountIdentity.cs`, `IAccountStore.cs`, `InMemoryAccountStore.cs`, `TableStorageAccountStore.cs`; `api/src/Entitlements/EntitlementGrant.cs`, `IEntitlementGrantStore.cs`, `InMemoryEntitlementGrantStore.cs`, `TableStorageEntitlementGrantStore.cs`, `StoredValueEntitlementService.cs`; `api/src/CloudGallery/CloudTale.cs`, `ICloudGalleryStore.cs`, `InMemoryCloudGalleryStore.cs`, `TableStorageCloudGalleryStore.cs`, `CloudGalleryController.cs` (ownerKey computation only) | 02, 03, 04, billing-entitlements/01, keepsake-gallery/05 (all Complete - this story re-keys their stores in place) | - | 1 | solo | high |
+| 06 purchaser-proof-at-create-room (ADR 0002 Decision F) | #TBD | `api/src/Hubs/GameHub.cs` (new `OnConnectedAsync` override - `GameHub` has none today - + the `CreateRoom` read + `OnDisconnectedAsync` cleanup), new `api/src/Accounts/ConnectionEntitlementStore.cs` + its interface, `api/src/Program.cs` (ONE new singleton registration - corrected 2026-07-08; a prior draft said this story touched no `Program.cs`, which was wrong), `web/src/signalr/useGameHub.ts` (`accessTokenFactory`) | 05 | 07 | 2 | 1 of 2 (with 07) | medium |
+| 07 free-family-account | #TBD | `api/src/Controllers/AccountsController.cs` (sign-up purpose/path), `api/src/Accounts/IEmailSender.cs` (`MagicLinkPurpose.FamilySignUp`) + `AcsEmailSender.cs`/`NoOpEmailSender.cs` copy, `web/src/pages/Account.tsx` (reframe + create-account affordance) | 05 | 06 | 2 | 1 of 2 (with 06) | medium |
+| 08 kid-seat-presets | #TBD | new `api/src/Accounts/SeatPreset.cs` + `ISeatPresetStore.cs` + Table/in-memory implementations; `api/src/Controllers/AccountsController.cs` (preset endpoints); `web/src/pages/Account.tsx` (presets manager); `web/src/components/PlayerIdentityFields.tsx` (or a thin wrapper); `web/src/pages/Join.tsx`, `HostSetup.tsx` | 07 | - (serialize before 09 - shared footprint, see below) | 3 | 1 of 2 (before 09) | medium |
+| 09 family-device-link (+ the redesigned adult-unlock/teen-plus gate) | #TBD | new `api/src/Accounts/FamilyDeviceToken.cs` + `IFamilyDeviceTokenStore.cs`/implementations + the link-code minter; `api/src/Controllers/AccountsController.cs` (generate/redeem/refresh/list/revoke/adult-confirm-toggle); `api/src/Hubs/GameHub.cs` (extend 06's resolver + `Room.CaptureAdultUnlocked` + `StartRound`'s effective-`familySafe` computation); `api/src/Rooms/Room.cs` (new `AdultUnlocked` capture-once field); `web/src/pages/Account.tsx` (linked-devices UI); `web/src/App.tsx` (new redeem route - added 2026-07-08, see the cross-feature note below); a new small web redeem screen/component; `web/src/signalr/useGameHub.ts` (device-token fallback + periodic refresh) | 06, 07 | - | 3 | 2 of 2 (after 08) | medium |
+
+**Concurrency per ADR wave (this feature's slice of it):** ADR Wave 1 = 1 (05, the foundation - re-keys three
+existing stores, so it is deliberately solo and high-effort; nothing else in this arc starts before it lands). ADR
+Wave 2 = {06, 07} in parallel - disjoint footprints (06 touches `GameHub.cs` + the new singleton + `Program.cs` +
+`useGameHub.ts`; 07 touches only `AccountsController.cs` + the email-copy seam + `Account.tsx`'s reframe), both
+depending only on 05. ADR Wave 3 = {08, 09} but NOT concurrently within this feature: 08 first (its Account-page and
+`AccountsController.cs` footprint OVERLAPS what 09 will touch, so it is sized alone in its local step rather than
+paired with 09, even though 09 does not strictly block 08 shipping - see AC-06 of story 08's degraded-but-shippable
+path), then 09 (depends on 06 AND 07; deliberately serialized AFTER 08 within this feature because both stories
 edit `web/src/pages/Account.tsx` and `api/src/Controllers/AccountsController.cs` - landing 09 second means it is
-the one that resolves any merge overlap against 08's already-landed preset endpoints/UI).
+the one that resolves any merge overlap against 08's already-landed preset endpoints/UI). Both remain ADR Wave 3.
 
-**Cross-feature order:** story 02 (magic-link + `IAccountStore`) is upstream of `billing-entitlements/01`'s (#70)
-purchaser-lookup piece (that story's AC-06) - 02 must land before #70's stored-value evaluation can resolve a real
-purchaser identity, though #70's catalog-extension and grant-store work do not themselves depend on this feature.
-Story 02's magic-link token issuer/verifier is also upstream of `sysadmin-console/01`'s (#135) operator login,
-which reuses the SAME plumbing against a separate allowlist.
-
-**Cross-feature order (ADR 0003, 2026-07-08):** per ADR 0003's "Cross-feature build order" table, this feature's
-05 lands in the PROGRAM's Wave 1 alongside `keepsake-vault/01`, `control-plane/01`, `sysadmin-console/04`, and
-`platform-devops/07-08` - all of these except platform-devops's second-environment story register services in
+**Cross-feature order (ADR 0003, 2026-07-08, corrected):** per ADR 0003's "Cross-feature build order" table, this
+feature's 05 lands in the PROGRAM's Wave 1 alongside `keepsake-vault/01`, `control-plane/01`, `sysadmin-console/04`,
+and `platform-devops/07-08` - all of these except platform-devops's second-environment story register services in
 `Program.cs`, so land them as SEPARATE, small, serially-rebased PRs rather than batching. This feature's 06 and 07
-land in the PROGRAM's Wave 2 alongside `control-plane/02` - **06 and `control-plane/02` BOTH touch
-`api/src/Entitlements/` (06 changes what `CreateRoom` passes into `EvaluateForSession`; `control-plane/02` adds the
-system-scope check ahead of the account-grant check inside the SAME evaluation path) - serialize those two across
-features, not just within this one.** This feature's 08 and 09 land in the PROGRAM's Wave 3 alongside
+land in the PROGRAM's Wave 2 alongside `control-plane/02`. **Corrected 2026-07-08 (the earlier draft of this note
+was wrong):** story 06 does NOT touch `api/src/Entitlements/` at all - `EvaluateForSession`'s signature already
+accepts a `purchaserIdentity` argument, so 06's only edits are the `GameHub.cs` call site, the new singleton, and
+its `Program.cs` registration. The REAL `api/src/Entitlements/` hazard on `StoredValueEntitlementService.cs` is
+**`accounts-identity/05` (ADR Wave 1, re-keys the grant read there to `AccountId`) -> `control-plane/02` (ADR Wave
+2, adds the system-scope check ahead of the account-grant check inside that SAME evaluation path)** - a chain
+`accounts-identity/06` is not part of. `control-plane/02` therefore has a hard depends-on `accounts-identity/05`
+(not just `control-plane/01`), and `billing-entitlements/08` (grant metadata + resync, also ADR Wave 2) co-occupies
+the same folder (`EntitlementGrant.cs` + the grant store) - order its record-shape change against `control-plane/02`'s
+edit rather than landing them concurrently. This feature's 08 and 09 land in the PROGRAM's Wave 3 alongside
 `keepsake-vault/03-04` and `control-plane/03` (the knob migration - schedule it, per ADR 0003, "when the tree is
-quiet," since it touches many files across every feature).
+quiet," since it touches many files across every feature); `Program.cs` is touched by FOUR Wave-3 stories across the
+program (this feature's 08 and 09 among them), so the serial-merge rule applies at higher concurrency than Waves
+1-2. Additionally, `accounts-identity/09`'s new `web/src/App.tsx` redeem route (added to its footprint 2026-07-08)
+collides with `sysadmin-console/04`'s deletion of the `/admin/billing-mode` route from that SAME file if 09 is cut
+before 04 merges - land 04 first, or rebase 09 on top of 04's route deletion if 09 must land first.
 
 ## Per-story tech notes
 
@@ -180,13 +212,20 @@ lookup for callers that already hold an id. **Gotcha:** this is the ONE story in
 nothing else re-keys against a moving target.
 
 ### 06 - Purchaser proof at CreateRoom (ADR 0002 Decision F, finally wired)
-**Approach:** a small connect-time credential resolution step in `GameHub` (NOT a full ASP.NET Core auth scheme -
-`PurchaserCredentialService`'s credential is a Data-Protection payload, not a JWT) plus one `accessTokenFactory`
-line on the web hub connection. **Exports:** the per-connection resolved-identity lookup `CreateRoom` reads (and
-story 09 extends to also recognize a family-device token, rather than forking a second resolver). **Gotcha:** this
-is the story every future reviewer checks against ADR 0002's load-bearing invariant - no field on `Room`/`Player`,
-ever. Must serialize with `control-plane/02` (cross-feature, both touch `api/src/Entitlements/` - see the Wave Plan
-note above), even though within THIS feature it can run alongside 07.
+**Approach:** a connect-time credential resolution step - this story adds `GameHub`'s FIRST `OnConnectedAsync`
+override (it has none today, only `OnDisconnectedAsync`) - that resolves the incoming access token via
+`PurchaserCredentialService` (NOT a full ASP.NET Core auth scheme; the credential is a Data-Protection payload, not
+a JWT) and IMMEDIATELY calls `EvaluateForSession`, storing ONLY the resulting `SessionEntitlements` (plus a
+reserved, always-`false` `AdultUnlocked` bool) in a NEW per-connection singleton service - never the identity string
+itself (structural, per the adversarial review's finding #2). Cold-builder-critical: because SignalR builds a FRESH
+`GameHub` per invocation, this store CANNOT be a hub instance field - it is a new singleton registered in
+`Program.cs`, which ripples into six existing hub test fixtures' constructor calls (see the story's Technical
+Notes). One `accessTokenFactory` line on the web hub connection. **Exports:** the per-connection resolved-CAPABILITY
+lookup `CreateRoom` reads (never an identity lookup - identity never survives past the `OnConnectedAsync` call), and
+the reserved `AdultUnlocked` slot story 09 populates with real logic. **Gotcha:** this is the story every future
+reviewer checks against ADR 0002's load-bearing invariant, made structural rather than just observed - no identity
+field anywhere, ever, including inside the new singleton itself. Does NOT touch `api/src/Entitlements/` (corrected
+2026-07-08 - see the Wave Plan's cross-feature note); its only cross-feature merge hazard is `Program.cs`.
 
 ### 07 - The free family account
 **Approach:** widen the EXISTING `AccountsController`'s request/verify pair with a sign-up purpose, so a "no-account"
@@ -204,17 +243,27 @@ second credential type) rather than touch the picker component. **Gotcha:** the 
 kid-profile boundary, quoted in the story) is the single most important thing a reviewer checks - a preset must be
 indistinguishable, server-side, from a manually typed name.
 
-### 09 - Family device link
-**Approach:** a link-code minter + a `FamilyDeviceToken` store (opaque, revocable-by-row - deliberately NOT a Data-
-Protection payload, since it must be revocable before its own TTL), a redeem/list/revoke REST surface, and an
-extension of story 06's connect-time resolver to also recognize a device token. PLUS the kid-device flag: a boolean
-on the SAME token row that, when set, makes `CreateRoom` capture a sibling `Room.FamilySafeForced` boolean (never
-folded into `Room.Entitlements`), which `StartRound` then honors server-side regardless of the client's submitted
-`familySafe` value. **Exports:** nothing further downstream within this feature - this is the last story in the
-arc. **Gotcha:** two DISTINCT invariants apply here, not one - (a) the entitlement invariant (identity resolved and
-discarded at `CreateRoom`, exactly like 06) and (b) the NEW content-safety invariant (a kid-flagged device can never
-get an unfiltered room, enforced server-side at `StartRound`, independent of any client toggle state). Do not
-conflate the two capture-once booleans (`SessionEntitlements` vs `FamilySafeForced`) into one field.
+### 09 - Family device link (+ the redesigned adult-unlock/teen-plus gate)
+**Approach:** a link-code minter (entropy-floored, distinct from the room-code alphabet) + a `FamilyDeviceToken`
+store (opaque, revocable-by-row, storing only a HASH of the token value - deliberately NOT a Data-Protection
+payload, since it must be revocable before its own TTL, and rolling-TTL/silent-reissue-on-use per the security
+posture), a redeem/refresh/list/revoke REST surface (rate-limited per-IP AND globally, plus a per-code attempt
+burn), and an extension of story 06's connect-time resolver to also recognize a device token. **MAJOR REVISION
+2026-07-08 (adversarial review finding #1):** the earlier draft's "kid-device flag forces family-safe on" mechanism
+is SUPERSEDED. The redesigned mechanism inverts the default: `CreateRoom` captures a `Room.AdultUnlocked` boolean
+(alongside, never folded into, `SessionEntitlements`) that is `true` ONLY when the resolved connection is a
+signed-in adult session OR a device token whose row has `IsAdultConfirmedDevice = true` (an explicit adult opt-in,
+defaulting `false` on every newly redeemed device) - a room with NEITHER signal is family-safe by construction,
+regardless of any client `familySafe` value at `StartRound`. `GameHub.StartRound` computes the effective
+`familySafe` value (`room.AdultUnlocked ? familySafe : true`) BEFORE calling `FamilySafeContentSelector` - this
+one-line call-site change is the entire "small child-safety touch to the content selector" the ADR references; the
+selector's own filtering logic is untouched. Host-migration never touches `Room.AdultUnlocked` (a new AC, AC-08).
+**Exports:** nothing further downstream within this feature - this is the last story in the arc. **Gotcha:** two
+DISTINCT invariants apply here, not one - (a) the entitlement invariant (identity resolved and discarded at
+`CreateRoom`, exactly like 06) and (b) the redesigned content-safety invariant (teen-plus requires an affirmative
+adult signal a token-less session cannot obtain; family-safe is the default, not the exception). Do not conflate the
+two capture-once booleans (`SessionEntitlements` vs `AdultUnlocked`) into one field. Also touches `web/src/App.tsx`
+(a new redeem route) - a cross-feature merge hazard against `sysadmin-console/04`'s route deletion in the same file.
 
 ## Cross-cutting concerns
 
