@@ -602,6 +602,17 @@ function EmailInviteField({
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Guard against a state update after unmount: this field can unmount mid-send (the
+  // round starts, the player leaves the Lobby, or emailAvailable flips), and handleSend
+  // sets state after an await. Mirrors useRoomInvite's `active` flag. (React 19 no longer
+  // warns on a post-unmount setState, but this keeps the async tail a clean no-op.)
+  const mounted = useRef(true);
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   const trimmed = email.trim();
   const canSend = trimmed.length > 0 && status !== 'sending';
 
@@ -610,6 +621,7 @@ function EmailInviteField({
     setStatus('sending');
     setErrorMessage(null);
     const result = await sendEmail(trimmed);
+    if (!mounted.current) return;
     if (result.ok) {
       setStatus('sent');
       setEmail('');

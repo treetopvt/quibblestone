@@ -116,11 +116,13 @@ public sealed class EmailInviteControllerTests
     }
 
     [Theory]
-    [InlineData("not-an-email")]     // no '@'
-    [InlineData("nobody@")]          // nothing after '@'
-    [InlineData("@example.com")]     // nothing before '@'
-    [InlineData("a b@example.com")]  // contains a space
-    [InlineData("")]                 // empty
+    [InlineData("not-an-email")]      // no '@'
+    [InlineData("nobody@")]           // nothing after '@'
+    [InlineData("@example.com")]      // nothing before '@'
+    [InlineData("a b@example.com")]   // contains a space
+    [InlineData("a\tb@example.com")]  // embedded tab
+    [InlineData("a\r\nb@example.com")]// embedded CR/LF (email-header injection vector)
+    [InlineData("")]                  // empty
     public async Task MalformedEmail_ReturnsBadRequest_AndNeverSends(string email)
     {
         var sender = new RecordingGameInviteSender();

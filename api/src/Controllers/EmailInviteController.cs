@@ -183,8 +183,9 @@ public sealed class EmailInviteController : ControllerBase
 
     /// <summary>
     /// A light recipient shape gate (not full RFC validation): non-empty, within the RFC
-    /// ceiling, exactly one '@' with something either side, and no spaces. ACS does the
-    /// real validation; this just rejects obvious junk before a send is attempted.
+    /// ceiling, exactly one '@' with something either side, and NO whitespace or control
+    /// characters anywhere. ACS does the real validation; this just rejects obvious junk
+    /// before a send is attempted.
     /// </summary>
     private static bool IsPlausibleEmail(string email)
     {
@@ -192,7 +193,16 @@ public sealed class EmailInviteController : ControllerBase
         var at = email.IndexOf('@');
         if (at <= 0 || at >= email.Length - 1) return false;
         if (email.IndexOf('@', at + 1) >= 0) return false; // more than one '@'
-        return !email.Contains(' ');
+        // Reject ANY whitespace (space, tab, CR, LF, ...) or control character, not just a
+        // literal space: an embedded CR/LF in a recipient is the classic email-header
+        // injection vector, and other control chars trip provider parsers (the input is
+        // already .Trim()'d, so this is specifically catching EMBEDDED offenders).
+        foreach (var ch in email)
+        {
+            if (char.IsWhiteSpace(ch) || char.IsControl(ch)) return false;
+        }
+
+        return true;
     }
 
     /// <summary>
