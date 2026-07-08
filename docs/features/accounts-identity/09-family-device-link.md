@@ -157,6 +157,19 @@ is now the load-bearing AC of this whole story.
   design is REPLACED by AC-07's inverted default (`Room.AdultUnlocked`,
   default `false`, opt-in only) - do not build both; there is exactly one
   content-safety capture-once boolean on `Room` for this story.
+- **Solo play's teen-plus gate (SCOPED OUT here - needs its own follow-up).**
+  AC-07 is enforced at `GameHub.StartRound`, which is GROUP play. Solo play is
+  client-driven with no server session today (`GameHub.cs`'s own comment: "Solo
+  play has no server session ... it is client-driven"), so solo template
+  selection - including the teen-plus tier - is gated client-side and is NOT
+  closed by this story: a kid on a family tablet could still reach teen-plus in
+  SOLO mode by clearing storage or using a modified client, the same root cause
+  finding #1 named. Closing it is a genuine design question this story does not
+  answer (does solo move content selection server-side, gate the library
+  download behind the adult signal, or mint a lightweight solo session?) and so
+  is deliberately deferred to its own follow-up story, tracked in feature.md's
+  Parked/Decisions. AC-07's "can never" guarantee is therefore SCOPED TO GROUP
+  PLAY until that follow-up lands - do not read it as covering solo.
 - **Per-device capability scoping (PARKED - ADR 0003, recorded in
   feature.md's Parked section).** Letting a parent choose WHICH paid grants a
   linked device carries is explicitly rejected for now: the free tier is

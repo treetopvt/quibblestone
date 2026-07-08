@@ -107,6 +107,17 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   grant set; only the family-safe content state is ever device-scoped (story
   09's kid-device flag, a content-safety concern, not an entitlement).
   Revisit only on a demonstrated need.
+- **Solo-play teen-plus gate (FOLLOW-UP, surfaced 2026-07-08 review).** Story
+  09's AC-07 gates the teen-plus content tier behind an affirmative adult signal
+  server-side at `GameHub.StartRound` - which is GROUP play only. Solo play is
+  client-driven with no server session today, so its teen-plus tier stays
+  client-gated and bypassable (clear storage / modified client), the same root
+  cause finding #1 named. This is a KNOWN, recorded gap, not covered by story
+  09: closing it is a real design choice (move solo content selection
+  server-side, gate the library download behind the adult signal, or mint a
+  lightweight solo session) and wants its own story. Story 09's guarantee is
+  scoped to group play until it lands. Not pulled into the current slice; sized
+  when the alpha shows whether solo teen-plus exposure is a real risk.
 
 ## Decisions
 - 2026-07-01: Scoped to exactly the three stories above (anonymous contract,

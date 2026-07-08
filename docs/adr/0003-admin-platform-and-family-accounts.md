@@ -188,6 +188,14 @@ Two refinements follow from independent kid play:
   This is a deliberate scope addition to story 09 and a small child-safety change to the content
   selector; it supersedes the "force the flag on / override StartRound" mechanism described in the
   earlier draft of this section.
+  - **Solo play is not yet covered (known gap, follow-up).** The `StartRound`-based enforcement is
+    GROUP play. Solo play is client-driven with no server session today, so its teen-plus tier
+    stays client-gated and bypassable (clear storage / modified client) - the same root cause on a
+    surface no reviewer was pointed at. The group fix above does NOT close solo; the "can never
+    reach teen-plus without an adult signal" guarantee is scoped to group play until a solo
+    follow-up (move solo content selection server-side, gate the library download behind the adult
+    signal, or mint a lightweight solo session - a real design choice) lands. Recorded so the
+    guarantee is not overclaimed a second time.
 - **Per-device capability scoping (parked).** Letting a parent choose WHICH grants a linked device
   carries adds a second entitlement dimension for little value: the free tier is generous, packs
   applying family-wide cost nothing, and the AI cost gate bounds spend per session and per month
