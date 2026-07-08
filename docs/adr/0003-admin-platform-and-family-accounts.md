@@ -132,6 +132,22 @@ long-lived, individually revocable family-device token; `CreateRoom` resolves it
 capabilities the same way it resolves a purchaser credential (identity discarded at the boundary).
 The Account page lists linked devices and can revoke any of them.
 
+The explicit use case (owner, 2026-07-08): a parent buys a kid an add-on pack or capability and
+then does NOT hand-hold - the kid plays independently on their own device. The link is
+set-and-forget: buy once, link once, every later room the kid creates carries the family grants.
+Two refinements follow from independent kid play:
+
+- **The kid-device flag (in scope, story `accounts-identity/09`).** A linked device can be marked
+  as a kid device by the parent, which locks the family-safe toggle ON for rooms that device
+  creates (server-enforced at `CreateRoom`, not a client hint). Without it, an unsupervised kid
+  host could flip family-safe off and reveal the teen-plus content tier - the gap independent play
+  opens is content exposure, not capability misuse. The flag lives on the link (a device
+  attribute), never on a player, so the invariant is untouched.
+- **Per-device capability scoping (parked).** Letting a parent choose WHICH grants a linked device
+  carries adds a second entitlement dimension for little value: the free tier is generous, packs
+  applying family-wide cost nothing, and the AI cost gate bounds spend per session and per month
+  regardless of who plays. Revisit only on a demonstrated need.
+
 ## The architecture: four layers
 
 ### Layer 0 - identity spine (`accounts-identity/05-09`, `platform-devops/07`)
