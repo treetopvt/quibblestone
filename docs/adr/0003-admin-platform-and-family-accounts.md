@@ -69,8 +69,11 @@ Beyond the two scenarios, the audit found three structural gaps:
    per money- or moderation-affecting operator action. This amends ADR 0002's "no audit ceremony"
    stance for the billing/moderation plane only; gameplay stays ceremony-free.
 4. **UAT is rebadged beta-live; this work gets a second environment.** The existing UAT instance
-   becomes the beta the friends-and-family test runs on; a new instance (provisioned from the same
-   Bicep via a parameter set) hosts this platform work so the beta stays stable. The platform
+   becomes the beta the friends-and-family test runs on; an isolated second environment hosts this
+   platform work so the beta stays stable. (Delivered 2026-07-08 by `platform-devops/07` - the QA
+   lane + tag-based promotion to beta, shipped on `main` in #192/#193: it rebadges UAT as beta and
+   stands up an auto-deploying `quibblestone-qa-rg` lane. The planning branch's standalone
+   second-environment story was dropped as superseded; see that feature's Decisions.) The platform
    layers (identity spine, control plane) land BEFORE Stripe goes live.
 5. **Entitlements stay session-captured (capture-once).** No mid-session refresh. A grant or
    revoke takes effect at the next session creation. See "How a child gets family entitlements"
@@ -203,7 +206,7 @@ Two refinements follow from independent kid play:
 
 ## The architecture: four layers
 
-### Layer 0 - identity spine (`accounts-identity/05-09`, `platform-devops/07`)
+### Layer 0 - identity spine (`accounts-identity/05-09`, `platform-devops/08`)
 
 - **Stable `AccountId` (GUID)** minted at account creation; email becomes a mutable login
   attribute. Grants, vault claims, and cloud tales key off `AccountId`; the email-hash lookup
@@ -271,7 +274,7 @@ wave table out of the DAG-parsed section so "wave 1" is unambiguous.
 
 | Wave | Stories (parallel within a wave unless noted) | Shared-file hazard |
 |---|---|---|
-| 1 | `accounts-identity/05` (AccountId spine), `keepsake-vault/01` (vault store + auto-save), `control-plane/01` (settings service), `sysadmin-console/04` (auth unification), `platform-devops/07` (key ring), `platform-devops/08` (second environment) | (a) all but 08 register services in `Program.cs` - separate small PRs, rebase serially, do not batch. (b) **07 and 08 both edit `.github/workflows/deploy.yml`** (07 a comment/wiring touch, 08 the target-environment input) - they are NOT disjoint; serialize them on that file (correcting the earlier "disjoint" claim). (c) `accounts/05` re-keys `api/src/Entitlements/StoredValueEntitlementService.cs` - see Wave 2 note. |
+| 1 | `accounts-identity/05` (AccountId spine), `keepsake-vault/01` (vault store + auto-save), `control-plane/01` (settings service), `sysadmin-console/04` (auth unification), `platform-devops/08` (key ring) | (a) all register services in `Program.cs` - separate small PRs, rebase serially, do not batch. (b) `accounts/05` re-keys `api/src/Entitlements/StoredValueEntitlementService.cs` - see Wave 2 note. NOTE: Decision 4's second environment is NOT a Wave 1 story - `main`'s already-shipped `platform-devops/07` (QA lane) delivers it; the planning branch's standalone second-environment story was dropped as superseded (2026-07-08). |
 | 2 | `accounts-identity/06` (Decision F wiring), `accounts-identity/07` (free family account), `keepsake-vault/02` (gallery over vault), `control-plane/02` (capability scopes), `sysadmin-console/05` (jobs shell), `billing-entitlements/08` (grant metadata + resync) | **Corrected 2026-07-08:** the `api/src/Entitlements/` hotspot is NOT 06<->02. Story 06 only edits the `CreateRoom` call site in `GameHub.cs` (the `EvaluateForSession(purchaserIdentity, ...)` signature already accepts the arg) - it does not touch `api/src/Entitlements/`. The real chain on `StoredValueEntitlementService.cs` is **`accounts/05` (Wave 1 re-key) -> `control-plane/02` (Wave 2 system-flag composition)**, so control-plane/02 has a hard depends-on `accounts/05` (not just control-plane/01). Additionally **`billing/08` co-occupies the folder** (`EntitlementGrant.cs` + the grant store) - its record-shape change should land before or after control-plane/02's edit to that consumer, not concurrently. |
 | 3 | `accounts-identity/08` (kid seat presets), `accounts-identity/09` (family device link + teen-plus gate + kid-device), `keepsake-vault/03` (claim + recovery), `keepsake-vault/04` (soft delete + restore), `control-plane/03` (knob migration - run alone in its slot), `sysadmin-console/06` (action log) | (a) **`Program.cs` is touched by FOUR W3 stories** (08 preset store, 09 device-token store, control-plane/03 limiter factories, sysadmin-console/06 log store) - the serial-merge rule applies here at higher concurrency than W1/W2. (b) `accounts/09` also edits **`web/src/App.tsx`** (a redeem route - add it to 09's footprint; it collides with `sysadmin-console/04`'s App.tsx route deletion if 09 is cut before 04 merges). (c) **`keepsake-vault/04` and `control-plane/03` both touch `api/src/PublishedTales/`** (04 changes `ConfirmHiddenAsync` to soft-delete; 03 migrates `AutoHideThreshold` and may touch `ReportedTalesController.cs`, the caller) - order 04's semantic change vs 03's read. |
 | 4 | `sysadmin-console/07` (support lookup + verbs - consumes vault claim codes, grant metadata, the action log) | none new |
@@ -322,17 +325,18 @@ binding requirements on the named stories - every affected story must satisfy th
   mode-aware (or resync refuses to write grants whose origin mode differs from the active mode), so
   a Test-mode resync can never overwrite live-derived grants; reconciliation keys by Stripe customer
   id / `AccountId`, not raw email; the resync endpoint is rate-limited/debounced.
-- **Credentials survive scale-out safely (platform-devops/07, /08).** The durable signing key is
+- **Credentials survive scale-out safely (platform-devops/08).** The durable signing key is
   generated from a CSPRNG (a `deploymentScripts` random value or an out-of-band Key Vault secret) -
   NEVER derived deterministically from `guid(resourceGroup().id, "<literal>")` (that is reproducible
   from public inputs and forges operator logins). The magic-link single-use nonce set moves to the
   same durable shared store as the key ring (a per-process set replays once per instance under
   scale-out). The key ring fails CLOSED in a deployed environment (refuse to start without durable
-  backing) rather than silently reverting to per-instance keys. Each environment gets a DISTINCT
-  key-ring backing store (a shared one would let a beta-minted credential validate in the platform
-  environment). The new environment must sit behind the same single-hop trusted edge as beta, or
-  the app's `X-Forwarded-For` trust (`KnownProxies`/`KnownNetworks` cleared, `ForwardLimit=1`) makes
-  every per-IP limiter spoofable.
+  backing) rather than silently reverting to per-instance keys. Each environment (the qa and beta
+  lanes `platform-devops/07` stands up) gets a DISTINCT key-ring backing store - it falls out of qa
+  and beta having their own Storage account + Key Vault, so a qa-minted credential never validates
+  against beta. Both lanes must sit behind the same single-hop trusted edge, or the app's
+  `X-Forwarded-For` trust (`KnownProxies`/`KnownNetworks` cleared, `ForwardLimit=1`) makes every
+  per-IP limiter spoofable (a verification item, since `platform-devops/07` owns the lane topology).
 - **Telemetry knows the new identifiers (platform-devops or a child-safety touch).** Add
   `email`, `accountId`, `vaultId`, `claimCode`, `token`/`access_token`, `deviceToken` to
   `PiiScrubbingTelemetryInitializer`'s `SensitivePropertyKeys`, and forbid interpolating any of
@@ -351,7 +355,8 @@ binding requirements on the named stories - every affected story must satisfy th
   the manual purchaser upload is retired once vault claiming ships. Recorded in `keepsake-vault`'s
   feature.md rather than by editing shipped stories.
 - The friends-and-family beta runs on the rebadged UAT instance unblocked; this work proceeds on
-  the second environment; Stripe live waits for Layers 0-1.
+  the qa lane `platform-devops/07` shipped (auto-deploy on merge, tag-promote to beta); Stripe live
+  waits for Layers 0-1.
 - The anonymity posture is unchanged where it matters: no PII on the play plane, kids anonymous
   forever, vault ids and device-link tokens are random handles rather than identity. The only data
   posture change is that an adult may now hold an account without paying.

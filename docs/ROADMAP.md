@@ -130,7 +130,7 @@ of the 2026-07-04 view and predates this update.)
 | ~~Orientation / landscape readability~~ (done) | `design-system/03` | **Shipped** (commit ead9ae4); story + feature status trued up 2026-07-08. PWA manifest prefers portrait + the Reveal reflows in landscape (the `48vh` cap is gone). A manual landscape spot-check on a real phone is still worth doing before the beta. |
 | Billing-mode toggle relocation | `billing-entitlements/07` follow-up | move `/admin/billing-mode` out of the kid bundle into the operator console, behind the real Operator scheme |
 | E2E suite repair + CI | `platform-devops/06` (written 2026-07-08) | 3 of 8 Playwright specs fail on stale selectors (mode picker moved into Game settings; Home play-solo pill dropped its "Or " prefix); e2e is not in CI so drift goes unnoticed. The story empirically reproduced all 3 failures and specs the per-spec repair + a readiness-gated CI job (boot API on :5180, gate on `/health`, no `playwright install`) |
-| The admin platform (ADR 0003) | `docs/adr/0003-admin-platform-and-family-accounts.md` + stories in `accounts-identity/05-09`, `keepsake-vault/01-04` (new), `control-plane/01-03` (new), `sysadmin-console/04-07`, `billing-entitlements/08`, `platform-devops/07-08` (specced 2026-07-08) | the future-proof admin capability: stable AccountId spine + free family accounts (kid seat presets, family device link), the server-side keepsake vault (fixes "where are my saved stories"), the runtime control plane (settings + system-scope flags), and the reshaped operator console (one auth, jobs shell, action log, support lookup). UAT rebadges as BETA; the work lands on a second environment; Layers 0-1 gate Stripe live. Cross-feature build order lives in the ADR |
+| The admin platform (ADR 0003) | `docs/adr/0003-admin-platform-and-family-accounts.md` + stories in `accounts-identity/05-09`, `keepsake-vault/01-04` (new), `control-plane/01-03` (new), `sysadmin-console/04-07`, `billing-entitlements/08`, `platform-devops/08` (specced 2026-07-08) | the future-proof admin capability: stable AccountId spine + free family accounts (kid seat presets, family device link), the server-side keepsake vault (fixes "where are my saved stories"), the runtime control plane (settings + system-scope flags), and the reshaped operator console (one auth, jobs shell, action log, support lookup). The second environment (ADR Decision 4) is already delivered by the shipped `platform-devops/07` QA lane; Layers 0-1 gate Stripe live. Cross-feature build order lives in the ADR |
 | Public-tale TTL sweep | #150 | reap never-read expired tales; low urgency by design |
 | Group Progressive Story | `game-modes/05` x group | deferred: needs the live cross-player "story so far" broadcast (its own story) |
 | Bicep validation gap | carry-forward | `az bicep build` is not gated in CI (local `ci-check` skill covers it); serve-log client (`serveLog.ts`) still has no Vitest spec |
@@ -150,10 +150,10 @@ blocker/high item (B1-B5) and W5 are resolved - the alpha gate is closed.**
 | B3 | Blocker | 30s seat grace + abort-on-eviction: early finishers' phones auto-lock on the Waiting screen, and ~60s later the whole round aborts - even when the evicted player had no blanks left (`SeatGraceService.cs`, `GameHub.cs` eviction epilogue) | raise `DefaultGraceWindow` to 2-5 min; only abort when the departed seat has unsubmitted blanks | Merged - PR #175 (raised to 3 min; abort now conditional on outstanding blanks) |
 | B4 | High | A rejected `Rejoin` (seat expired, server restarted) leaves zombie room state: frozen screen, no broadcasts, submits refused forever (`useGameHub.ts` rejoin-fail path) | on rejected rejoin, clear local room state + show the friendly "seat timed out" notice | Merged - PR #175 |
 | B5 | High | No React error boundary: any render error is a permanent white screen (the error beacon reports it; the family sees blank) | one ErrorBoundary around `<App/>` with a "Something went off" + reload button | Merged - PR #175 |
-| W1 | Warn | 30-min idle sweep deletes rooms under still-connected players (nothing bumps `LastActiveUtc` for connected sockets) | exempt rooms with connected seats or lengthen; clear client state on "room not found" | Open - specced in `session-engine/13` (2026-07-08) |
+| W1 | Warn | 30-min idle sweep deletes rooms under still-connected players (nothing bumps `LastActiveUtc` for connected sockets) | exempt rooms with connected seats or lengthen; clear client state on "room not found" | **Merged** (#187, follow-up #188) - `SweepExpired` exempts any room with a connected seat; the web client clears local room state (and the stale reconnect handle, #188) on "room not found" |
 | W2 | Warn | Lobby says "n of 6" but the server never enforces a cap (a 7th joiner shows "7 of 6"; on F1 they cannot connect at all) | enforce the cap in `JoinRoom` with a friendly "room's full" | **Merged** (#181) - `Room.AddPlayer` caps at `Room.MaxPlayers`=6 (host incl.), atomic under the room lock; `JoinRoom` returns the friendly full message. Surfaced + verified by the load test (F2); re-confirmed absent on UAT at 6 players/room |
-| W3 | Warn | `StartRound` has no phase guard: a host double-tap mid-deal re-deals everyone and discards in-flight words | reject StartRound while phase is "prompting" (mirror PassHost's gate) | Open - specced in `session-engine/13` (2026-07-08) |
-| W4 | Warn | Mid-round joiners get yanked into a reveal they did not play (no phase check on `JoinRoom`) | block joins during "prompting" with a friendly wait message, or mark spectators | Open - specced in `session-engine/13` (2026-07-08) |
+| W3 | Warn | `StartRound` has no phase guard: a host double-tap mid-deal re-deals everyone and discards in-flight words | reject StartRound while phase is "prompting" (mirror PassHost's gate) | **Merged** (#187) - `StartRound` rejects a re-start while the round is "prompting"; "reveal"-phase restarts ("Play another round") and lobby starts are unaffected |
+| W4 | Warn | Mid-round joiners get yanked into a reveal they did not play (no phase check on `JoinRoom`) | block joins during "prompting" with a friendly wait message, or mark spectators | **Merged** (#187) - `JoinRoom` blocks a new join whenever a round is live ("prompting" or "reveal") with a friendly wait message; `Rejoin` (resume) is unaffected |
 | W5 | Warn | With no `Email:*` config, magic-link flows silently send nothing - so the operator console (incl. the tale review queue) is unreachable on UAT | configure ACS email per the runbook before the test, or accept no admin console during it | **Resolved** - ACS email is live on UAT, confirmed via a tested magic-link round trip |
 
 Notes-tier items (hub-method rate limits, tale-link revoke ownership, quota-key
@@ -166,7 +166,8 @@ dependency) are recorded in the audit and can ride until after the test.
 - **The alpha gate is closed.** B1/B3/B4/B5 merged -
   [#175](https://github.com/treetopvt/quibblestone/pull/175), auto-deployed to
   UAT; B2 (UAT SKU) confirmed live; W5 (ACS email) live and tested via a
-  magic-link round trip. W1-W4 stay fast-follows, not blockers.
+  magic-link round trip. W1/W3/W4 have since shipped as fast-follows
+  (`session-engine/13`, #187 + #188); W2 shipped with #181.
 - **Invite friends and family** - nothing left blocks it. Watch App Insights
   (crashes, hub errors, round completions, AI spend) and the tale feedback +
   reactions data - the telemetry to see how the alpha actually plays is already
@@ -214,9 +215,10 @@ dependency) are recorded in the audit and can ride until after the test.
   purchase; a minimal action log covers money/moderation ops. No PII ever lands on
   the play plane; kids stay anonymous.
 - **Sequencing:** UAT rebadges as BETA and keeps running the friends-and-family test;
-  this work lands on a second environment (`platform-devops/08`); Layers 0-1 must land
-  before Stripe live. The cross-feature wave plan (including the Program.cs
-  serial-merge rule) is in the ADR.
+  this work lands on the qa lane already shipped by `platform-devops/07` (auto-deploy
+  on merge, tag-promote to beta); `platform-devops/08` makes each lane's key ring
+  durable; Layers 0-1 must land before Stripe live. The cross-feature wave plan
+  (including the Program.cs serial-merge rule) is in the ADR.
 
 ### 3. Spread the word + charge for it (for real)
 - **Provision Table Storage for the public tale page** (it ships disabled behind

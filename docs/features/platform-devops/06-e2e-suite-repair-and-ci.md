@@ -1,6 +1,6 @@
 # Story: Repair the drifted e2e suite and gate it in CI
 
-**Feature:** Platform & DevOps  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** TBD
+**Feature:** Platform & DevOps  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #189
 
 ## Context
 Story 01 stood up Playwright as the e2e harness and it has since proven itself on real
@@ -20,7 +20,7 @@ the next drift shows up as a red CI check instead of a silent gap. See
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given `tests/group-mode.spec.ts`'s host, when the spec drives it to pick
+- [x] AC-01: Given `tests/group-mode.spec.ts`'s host, when the spec drives it to pick
       Word Bank, then it first taps the collapsed settings row
       (`getByRole('button', { name: /Game settings/ })`) to open
       `<GameSettingsSheet>` before asserting on or interacting with the `radiogroup`
@@ -28,36 +28,36 @@ the next drift shows up as a red CI check instead of a silent gap. See
       defaults to `keepMounted={false}`), and closes the sheet (its "Done" button)
       before tapping "Start game" (the sheet's scrim blocks the pinned Start CTA
       while open) - the file's one test passes.
-- [ ] AC-02: Given `tests/reconnect.spec.ts`'s "a mid-round page reload resumes onto
+- [x] AC-02: Given `tests/reconnect.spec.ts`'s "a mid-round page reload resumes onto
       the live /round screen, not Home" test, when it drives the host to start a
       Word Bank round (today it hangs at `getByRole('radiogroup', { name: 'Choose a
       mode' })` until the test's 90s bound, because the picker is off-screen), then
       it uses the same open-sheet / select / close-sheet sequence as AC-01 before
       starting the round, and the test passes well inside its timeout.
-- [ ] AC-03: Given `tests/routing.spec.ts`'s "Home navigates to the solo route" test,
+- [x] AC-03: Given `tests/routing.spec.ts`'s "Home navigates to the solo route" test,
       when it clicks the play-solo pill, then it targets the CURRENT accessible
       name "Play solo right now" (not the stale "Or play solo right now" -
       `web/src/pages/Home.tsx`'s pill dropped the "Or " prefix in the
       fit-to-viewport redesign), and the test passes without hitting its 30s click
       timeout.
-- [ ] AC-04: Given the three repairs above, when `npm run test:e2e` runs locally
+- [x] AC-04: Given the three repairs above, when `npm run test:e2e` runs locally
       against a running stack (the API on :5180, the web dev server), then all 8
       tests across all 4 spec files pass, and the diff touches only files under
       `tests/` - this is a test-only repair; the app's current behavior is correct
       and intentional, so nothing under `api/` or `web/src` changes.
-- [ ] AC-05: Given a push or PR to `main`, when CI runs, then a job boots the API
+- [x] AC-05: Given a push or PR to `main`, when CI runs, then a job boots the API
       (`dotnet run --project api/QuibbleStone.Api.csproj`) in the background and
       gates on its readiness via a bounded retry loop against `GET /health`
       (`api/src/Controllers/HealthController.cs`) - not a fixed `sleep N` - before
       running `npm run test:e2e`; Playwright boots/awaits its own web dev server via
       the existing `webServer` block in `playwright.config.ts`, so this job never
       separately starts or waits on :5173.
-- [ ] AC-06: Given the api and web CI jobs exist, when the e2e job is defined, then
+- [x] AC-06: Given the api and web CI jobs exist, when the e2e job is defined, then
       it depends on both (`needs: [api, web]`) so a broken build or a failing unit
       test never pays the cost of a full-stack e2e run; and given the API never
       becomes healthy within AC-05's bound, then the job fails with a clear message
       rather than hanging into Playwright's own per-test timeouts.
-- [ ] AC-07: Given the new job runs, when it executes, then it does NOT run
+- [x] AC-07: Given the new job runs, when it executes, then it does NOT run
       `playwright install` (Chromium is pre-provisioned in the CI image, per
       `playwright.config.ts`'s own header comment), it keeps the config's existing
       CI behavior (`retries: 1`, `trace: 'on-first-retry'`, the `github` reporter)
@@ -109,6 +109,14 @@ the next drift shows up as a red CI check instead of a silent gap. See
   holds on the actual GitHub Actions runner CI targets before assuming it - if it
   does not, provisioning the browser becomes part of this story's job, not a
   separate one.
+  **Resolution (shipped):** this contingency fired. A GitHub-hosted `ubuntu-latest`
+  runner does NOT carry the dev image's pre-provisioned `/opt/pw-browsers`, so the
+  `e2e` job runs `npx playwright install --with-deps chromium` (Chromium only,
+  matching the config's single project) before the suite. This is the anticipated
+  browser-provisioning step, not a re-implementation of retry/trace/reporter logic -
+  those stay in `playwright.config.ts` (`retries: 1`, `trace: 'on-first-retry'`, the
+  `github` reporter), untouched. The rest of AC-07 holds as written: bounded
+  `timeout-minutes`, and the report/trace uploaded as an artifact.
 - **Empirically verified, not guessed:** ran the full suite locally against the API
   on :5180 (`npm run test:e2e`): 5 passed, 3 failed exactly as described above -
   `group-mode.spec.ts:80` (`toBeVisible()` on the radiogroup finds no element),

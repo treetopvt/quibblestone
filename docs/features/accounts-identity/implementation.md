@@ -125,8 +125,9 @@ the one that resolves any merge overlap against 08's already-landed preset endpo
 
 **Cross-feature order (ADR 0003, 2026-07-08, corrected):** per ADR 0003's "Cross-feature build order" table, this
 feature's 05 lands in the PROGRAM's Wave 1 alongside `keepsake-vault/01`, `control-plane/01`, `sysadmin-console/04`,
-and `platform-devops/07-08` - all of these except platform-devops's second-environment story register services in
-`Program.cs`, so land them as SEPARATE, small, serially-rebased PRs rather than batching. This feature's 06 and 07
+and `platform-devops/08` (the durable key ring) - all of these register services in
+`Program.cs`, so land them as SEPARATE, small, serially-rebased PRs rather than batching. (ADR 0003 Decision 4's
+second environment is not a wave-1 story; `main`'s shipped `platform-devops/07` QA lane already delivers it.) This feature's 06 and 07
 land in the PROGRAM's Wave 2 alongside `control-plane/02`. **Corrected 2026-07-08 (the earlier draft of this note
 was wrong):** story 06 does NOT touch `api/src/Entitlements/` at all - `EvaluateForSession`'s signature already
 accepts a `purchaserIdentity` argument, so 06's only edits are the `GameHub.cs` call site, the new singleton, and

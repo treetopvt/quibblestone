@@ -69,10 +69,11 @@ is a cross-FEATURE ordering call - `control-plane`'s own implementation.md shoul
 note once that feature is decomposed.
 
 **The ADR 0003 wave-1 `Program.cs` hazard (load-bearing, cross-feature):** story 01's `Program.cs` edit
-(registering `IVaultStore` connection-string-gated) is one of SIX ADR 0003 wave-1 service registrations landing
+(registering `IVaultStore` connection-string-gated) is one of FIVE ADR 0003 wave-1 service registrations landing
 around the same time: `accounts-identity/05` (AccountId spine), `keepsake-vault/01` (this story), `control-plane/01`
-(settings service), `sysadmin-console/04` (auth unification), and `platform-devops/07`/`08` (key ring / second
-environment - `08` does not touch `Program.cs`). Per the ADR: "all but 08 register services in `Program.cs` - land
+(settings service), `sysadmin-console/04` (auth unification), and `platform-devops/08` (durable key ring). (ADR
+0003 Decision 4's second environment is NOT a wave-1 story - `main`'s shipped `platform-devops/07` QA lane delivers
+it.) Per the ADR: "all register services in `Program.cs` - land
 as separate small PRs, rebase serially; do not batch." This story's `Program.cs` edit must be its own small,
 reviewable diff, merged and rebased serially against whichever of those other four lands around the same time -
 never batched into one larger `Program.cs` change alongside them.

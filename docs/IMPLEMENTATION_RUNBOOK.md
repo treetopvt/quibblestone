@@ -49,12 +49,15 @@ deferred a seam (dependency-tolerant panels, no-op log seam) is noted so a later
 
 ---
 
-## Wave 0 - the environment (do first, zero contention)
-- [ ] `platform-devops/08` - second environment (beta rebadge + platform instance). Infra +
-  workflow only, no `Program.cs`. Gives you the deploy target for every later wave. Serialize its
-  `.github/workflows/deploy.yml` edit with `platform-devops/07` (they both touch it). Verify each
-  environment gets a DISTINCT key-ring backing store and sits behind the same single-hop edge
-  (XFF topology) before relying on per-IP limiters.
+## Wave 0 - the environment (ALREADY DELIVERED by main's `platform-devops/07`)
+- [x] The second environment landed on `main` before this plan started: `platform-devops/07` (QA
+  lane + tag-based promotion to beta, #192/#193) rebadges the existing UAT site as "beta" and stands
+  up an isolated `quibblestone-qa-rg` lane that auto-deploys on merge to `main`. This IS ADR 0003
+  Decision 4's second environment, so the planning branch's standalone second-environment story was
+  dropped as superseded. Nothing to build here - just orient on the two lanes (qa = auto on merge;
+  beta = tag-promoted). One verification item to carry into Wave 1: confirm both lanes sit behind
+  the same single-hop trusted edge (XFF topology) before relying on per-IP limiters, and that qa and
+  beta each have their own Storage + Key Vault (they do - it is what makes their key rings isolated).
 
 ## Wave 1 - the foundation (all touch `Program.cs`: merge serially, land 05 early)
 - [ ] `accounts-identity/05` - stable `AccountId` + re-key `PurchaserAccounts`/`EntitlementGrants`/
@@ -67,8 +70,10 @@ deferred a seam (dependency-tolerant panels, no-op log seam) is noted so a later
 - [ ] `sysadmin-console/04` - one console, one auth (relocate Stripe toggle behind the Operator
   policy; delete the interim `IOperatorGate` + the kid-bundle `/admin/billing-mode`). Touches
   `App.tsx` (route delete).
-- [ ] `platform-devops/07` - durable CSPRNG key ring (never a deterministic Bicep-derived key) +
-  the magic-link nonce set moved to the shared durable store + fail-closed in deployed envs.
+- [ ] `platform-devops/08` - durable CSPRNG key ring (never a deterministic Bicep-derived key) +
+  the magic-link nonce set moved to the shared durable store + fail-closed in deployed envs +
+  each lane (qa/beta) provisions its own isolated key ring. (Renumbered from 07: main's shipped 07
+  is the QA lane.)
 
 ## Wave 2 - capabilities + billing metadata
 - [ ] `accounts-identity/06` - ADR 0002 Decision F wired: purchaser proof at `CreateRoom` via the

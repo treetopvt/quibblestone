@@ -1,0 +1,42 @@
+# Deploy QA - continuously deliver main to the QA lane.
+#
+# Fires on every push to main (i.e. right after a PR merges), so QA is where the
+# infrastructure overhaul and all in-flight work gets shaken out BEFORE it can
+# reach beta testers. QA is a fully isolated footprint (its own resource group,
+# Storage, Key Vault, App Insights, and its own AI cost-gate RG + budget), so a
+# broken experiment here never touches the beta site.
+#
+# All the real work lives in the reusable core (deploy-env.yml); this file only
+# fixes the lane. See docs/runbooks/deploy-qa-and-promote-beta.md for the one-time
+# bootstrap (create the QA resource groups, grant the CI identity, add the
+# `environment:qa` OIDC subject, set the QA Environment vars).
+name: Deploy QA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Serialize QA deploys; do not cancel an in-flight one (a half-applied deploy is
+# worse than a queued one). Distinct from the beta group so a promotion and a QA
+# deploy never block each other.
+concurrency:
+  group: deploy-qa
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC federated login to Azure (capped onto the reusable core)
+
+jobs:
+  qa:
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      githubEnvironment: qa
+      bicepEnvironmentName: qa
+      resourceGroup: quibblestone-qa-rg
+      aiResourceGroup: quibblestone-ai-qa-rg
+      # The student sub caps App Service at one plan (beta's), so qa's app footprint
+      # runs on the PAYG "Playground" sub - where qa's AI cost-gate RG also lives.
+      appSubscriptionId: '52bec743-2f2c-4472-99ea-732614d3a70d'
+    secrets: inherit

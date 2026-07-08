@@ -1,6 +1,6 @@
 # Story: Round and room lifecycle guards - StartRound, JoinRoom, and the idle sweep
 
-**Feature:** Session & Room Engine  ·  **Status:** Not Started  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #186
+**Feature:** Session & Room Engine  ·  **Status:** Complete  <!-- Not Started | In Progress | Complete | Blocked | Dropped -->  ·  **Issue:** #186  ·  **Shipped:** #187 (all three ACs), follow-up #188 (also clears the stale reconnect handle on the AC-03 room-not-found path)
 
 ## Context
 This story closes three still-open "W-tier" warnings from the roadmap's pre-beta
@@ -36,7 +36,7 @@ rather than forking into group-play - flag this cross-reference if
 the same time as this one.
 
 ## Acceptance Criteria
-- [ ] AC-01 (W3 - StartRound rejects a re-start mid-round): Given a room's round
+- [x] AC-01 (W3 - StartRound rejects a re-start mid-round): Given a room's round
       is in the "prompting" phase (`room.CurrentRound is not null` and
       `CurrentRound.Phase == "prompting"`), when `StartRound`
       (`api/src/Hubs/GameHub.cs`) is called again for that same room (a host
@@ -53,7 +53,7 @@ the same time as this one.
       room") or "lobby" (no round at all) is UNAFFECTED and still starts a round
       normally - the guard catches ONLY "prompting," never a broader "any round
       exists" condition that would break the existing replay flow.
-- [ ] AC-02 (W4 - JoinRoom rejects a join mid-round): Given a room's round is NOT
+- [x] AC-02 (W4 - JoinRoom rejects a join mid-round): Given a room's round is NOT
       in the "lobby" phase (`room.CurrentRound is not null` - this covers BOTH
       "prompting" and "reveal"), when a new player calls `JoinRoom`
       (`api/src/Hubs/GameHub.cs`) with that room's code, then the server rejects
@@ -71,7 +71,7 @@ the same time as this one.
       returns to "lobby" (via `BackToLobby`, or a room that never started one),
       `JoinRoom` behaves exactly as it does today, with no change to the
       existing name-length, safety-filter, uniqueness, or W2 capacity checks.
-- [ ] AC-03 (W1 - idle sweep exemption plus a graceful client fallback): Given a
+- [x] AC-03 (W1 - idle sweep exemption plus a graceful client fallback): Given a
       room has at least one still-connected seat
       (`room.SnapshotPlayers().Any(p => p.Connected)` - the SAME `Connected` flag
       session-engine/07's disconnect grace window already maintains), when

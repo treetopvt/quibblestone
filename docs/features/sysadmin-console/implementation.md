@@ -135,7 +135,8 @@ table's Wave 1 is story 04, and they are unrelated numbers that happen to reuse 
 
 **Concurrency per wave:** Wave 1 = 04 alone within this feature (independent of 05-07; ADR 0003's
 cross-feature Wave 1 also includes `accounts-identity/05`, `keepsake-vault/01`, `control-plane/01`,
-`platform-devops/07-08` - all in DIFFERENT features' folders, not this one's concern to track file-
+`platform-devops/08` (the durable key ring; the second environment is already shipped as
+`platform-devops/07`) - all in DIFFERENT features' folders, not this one's concern to track file-
 level). Wave 2 = 05 alone (depends on 04's Stripe panel existing to relocate). Wave 3 = 06 alone
 (its VIEW needs 05's Operations tab; its WRITE seam could theoretically land earlier - noted as a
 possible split for the orchestrator's Phase 1 to decide, not assumed here). Wave 4 = 07 alone

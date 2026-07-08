@@ -76,7 +76,14 @@ test('the host picks the mode and it reaches every player (Word Bank across two 
     // match targets the roster tile, not the transient "Maple pulled up a stone" toast.
     await expect(host.getByText('Maple', { exact: true })).toBeVisible();
 
-    // AC-01: the mode picker is host-only.
+    // AC-01: the mode picker is host-only. The Lobby's fit-to-viewport redesign
+    // moved round setup into a collapsed "Game settings" bottom sheet, so the
+    // host's proof is that HOST has that row and a joiner never does. Open the
+    // host's sheet to reach the picker (unmounted until the sheet opens - MUI
+    // Drawer defaults to keepMounted={false}).
+    await expect(host.getByRole('button', { name: /Game settings/ })).toBeVisible();
+    await expect(joiner.getByRole('button', { name: /Game settings/ })).toHaveCount(0);
+    await host.getByRole('button', { name: /Game settings/ }).click();
     await expect(modePicker(host)).toBeVisible();
     await expect(modePicker(joiner)).toHaveCount(0);
 
@@ -88,12 +95,15 @@ test('the host picks the mode and it reaches every player (Word Bank across two 
     await expect(modePicker(host).getByRole('radio', { name: /Progressive Reveal/ })).toBeVisible();
     await expect(modePicker(host).getByRole('radio', { name: /Progressive Story/ })).toHaveCount(0);
 
-    // The host taps Word Bank. The setup controls live in the scroll flow (only
-    // the Start CTA is pinned), so the card is a real tap target - a plain click
-    // (not a keyboard workaround) proves a host can actually reach and select it.
+    // The host taps Word Bank inside the open sheet - a plain click (not a
+    // keyboard workaround) proves a host can actually reach and select it.
     const wordBankRadio = modePicker(host).getByRole('radio', { name: /Word Bank/ });
     await wordBankRadio.click();
     await expect(wordBankRadio).toHaveAttribute('aria-checked', 'true');
+
+    // Close the sheet ("Done") before tapping the pinned Start CTA: the Drawer's
+    // scrim intercepts clicks to "Start game" while the sheet is open.
+    await host.getByRole('button', { name: 'Done' }).click();
 
     // Start the round for the whole room (the CTA lives in the always-visible bar).
     await host.getByRole('button', { name: 'Start game' }).click();
