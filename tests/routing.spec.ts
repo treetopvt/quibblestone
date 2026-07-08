@@ -33,7 +33,7 @@ test('plain /join has no pre-filled code', async ({ page }) => {
 
 test('Home navigates to the solo route', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Or play solo right now' }).click();
+  await page.getByRole('button', { name: 'Play solo right now' }).click();
   await expect(page).toHaveURL(/\/solo$/);
   // The Solo screen identifies itself via its app-bar title.
   await expect(page.getByText('Play solo')).toBeVisible();

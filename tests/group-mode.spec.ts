@@ -76,7 +76,14 @@ test('the host picks the mode and it reaches every player (Word Bank across two 
     // match targets the roster tile, not the transient "Maple pulled up a stone" toast.
     await expect(host.getByText('Maple', { exact: true })).toBeVisible();
 
-    // AC-01: the mode picker is host-only.
+    // The host's round-setup controls (incl. the mode picker) now live in the
+    // collapsed "Game settings" bottom sheet (design-system/05) - open it before
+    // asserting on or interacting with the picker (the MUI Drawer is keepMounted
+    // false, so the "Choose a mode" radiogroup is unmounted until the sheet opens).
+    await host.getByRole('button', { name: /Game settings/ }).click();
+
+    // AC-01: the mode picker is host-only (open on the host's sheet; the joiner has
+    // no host-only settings row at all, so its picker never mounts).
     await expect(modePicker(host)).toBeVisible();
     await expect(modePicker(joiner)).toHaveCount(0);
 
@@ -88,12 +95,15 @@ test('the host picks the mode and it reaches every player (Word Bank across two 
     await expect(modePicker(host).getByRole('radio', { name: /Progressive Reveal/ })).toBeVisible();
     await expect(modePicker(host).getByRole('radio', { name: /Progressive Story/ })).toHaveCount(0);
 
-    // The host taps Word Bank. The setup controls live in the scroll flow (only
-    // the Start CTA is pinned), so the card is a real tap target - a plain click
-    // (not a keyboard workaround) proves a host can actually reach and select it.
+    // The host taps Word Bank inside the open settings sheet - a plain click (not a
+    // keyboard workaround) proves a host can actually reach and select the card.
     const wordBankRadio = modePicker(host).getByRole('radio', { name: /Word Bank/ });
     await wordBankRadio.click();
     await expect(wordBankRadio).toHaveAttribute('aria-checked', 'true');
+
+    // Close the settings sheet before starting - its scrim blocks the pinned
+    // "Start game" CTA while the sheet is open.
+    await host.getByRole('button', { name: 'Done' }).click();
 
     // Start the round for the whole room (the CTA lives in the always-visible bar).
     await host.getByRole('button', { name: 'Start game' }).click();

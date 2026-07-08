@@ -120,9 +120,13 @@ test('a mid-round page reload resumes onto the live /round screen, not Home', as
     await expect(host.getByText('Maple', { exact: true })).toBeVisible();
 
     // Host starts a Word Bank round so both clients have a stable, mode-agnostic
-    // surface label to assert on ("Tap a word from the bank").
+    // surface label to assert on ("Tap a word from the bank"). The mode picker now
+    // lives in the collapsed "Game settings" bottom sheet (design-system/05), so
+    // open it, pick, and close it (its scrim blocks Start) before starting.
+    await host.getByRole('button', { name: /Game settings/ }).click();
     const modePicker = host.getByRole('radiogroup', { name: 'Choose a mode' });
     await modePicker.getByRole('radio', { name: /Word Bank/ }).click();
+    await host.getByRole('button', { name: 'Done' }).click();
     await host.getByRole('button', { name: 'Start game' }).click();
 
     await expect(host).toHaveURL(/\/round$/);

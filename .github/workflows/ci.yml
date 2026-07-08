@@ -63,3 +63,87 @@ jobs:
         run: npm run test:unit
       - name: Build
         run: npm run build
+
+  # Playwright e2e against a real full stack (platform-devops/06). Unlike the api /
+  # web jobs (which only need a built artifact), the specs assert against the LIVE
+  # SignalR hub, so this job boots the API on :5180 and gates on its health before
+  # running Playwright. Playwright boots/awaits its OWN Vite dev server via the
+  # config's webServer block, so this job never separately starts or waits on :5173.
+  e2e:
+    name: E2E (Playwright, full stack)
+    runs-on: ubuntu-latest
+    # A full-stack browser run is the most expensive check, so only pay for it once
+    # the cheaper build + unit gates are green (AC-06): a broken build or a red unit
+    # test never reaches here.
+    needs: [api, web]
+    # A genuine hang (the API never turns healthy, a wedged spec) fails within a few
+    # minutes instead of eating the whole run's budget (AC-06/AC-07).
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+      # Chromium: playwright.config.ts assumes a PRE-PROVISIONED browser
+      # (/opt/pw-browsers), which holds in the Claude Code dev image but NOT on a
+      # GitHub-hosted ubuntu-latest runner - so install the pinned build + its OS deps
+      # here. This is platform-devops/06's own "provision it if the runner lacks it"
+      # contingency (Technical Notes), not a config change; the config still resolves
+      # the browser automatically. Chromium only (the config is Chromium-only).
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      # Build the API once (Release) so the background start below is fast and a build
+      # break surfaces as its own clear step. This job builds the API itself rather
+      # than sharing the `api` job's output (artifact sharing is a later optimization,
+      # Out of Scope).
+      - name: Build API
+        run: dotnet build api/QuibbleStone.Api.csproj --configuration Release
+      # Boot the API hub on :5180 (the web client's VITE_SIGNALR_HUB_URL target) in the
+      # background. nohup + redirect so it survives into the next steps and its log is
+      # capturable on failure.
+      - name: Start API hub (background, :5180)
+        run: |
+          nohup dotnet run --project api/QuibbleStone.Api.csproj --configuration Release --no-build --urls http://localhost:5180 > api.log 2>&1 &
+          echo "Started API hub (pid $!)"
+      # Readiness gate (AC-05/AC-06): poll GET /health with a BOUNDED retry loop - not a
+      # fixed sleep - so a slow or broken boot fails clearly HERE instead of flaking
+      # downstream inside Playwright's per-test timeouts.
+      - name: Wait for API health (/health)
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5180/health > /dev/null 2>&1; then
+              echo "API hub healthy after ~$((i * 2))s."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::API hub did not become healthy on :5180 within 120s"
+          echo "----- api.log -----"
+          cat api.log || true
+          exit 1
+      # Retries, trace-on-first-retry, and the github reporter all come from
+      # playwright.config.ts (AC-07) - not re-implemented here. No `playwright install`
+      # beyond the pinned Chromium step above.
+      - name: Run Playwright e2e
+        working-directory: web
+        run: npm run test:e2e
+      # Upload the report + any trace (trace: 'on-first-retry') so a red run is
+      # triageable from the Actions UI without a blind local re-run (AC-07).
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
