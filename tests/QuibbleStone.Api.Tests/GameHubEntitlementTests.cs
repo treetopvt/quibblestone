@@ -214,14 +214,21 @@ public class GameHubEntitlementTests
         Assert.False(room.Entitlements!.IsUnlocked(EntitlementCatalog.LibraryFull));
     }
 
-    [Fact]
-    public async Task OnConnectedAsync_with_bad_credential_falls_back_to_baseline_without_throwing()
+    // AC-06: a malformed / tampered / expired credential resolves to a null identity
+    // (never throws), so it evaluates the default-unlocked baseline and stores it as
+    // such - a stale token can never break a family's play. Covers BOTH a token that
+    // fails inside the crypto (valid base64url, wrong bytes) AND a genuinely
+    // non-base64url token (spaces / '!'), which the base64url decode ahead of the
+    // crypto rejects with a FormatException - the OnConnectedAsync guard must swallow
+    // that too, or the connection would abort.
+    [Theory]
+    [InlineData("not-a-real-token")]
+    [InlineData("bad token !!")]
+    [InlineData("%%%not base64url%%%")]
+    public async Task OnConnectedAsync_with_bad_credential_falls_back_to_baseline_without_throwing(string badToken)
     {
-        // AC-06: a malformed / tampered / expired credential resolves to a null
-        // identity (never throws), so it evaluates the default-unlocked baseline and
-        // stores it as such - a stale token can never break a family's play.
         var (hub, _, entitlements, _, store) = BuildHub("conn-host");
-        hub.Context = new FakeHubCallerContext("conn-host", "not-a-real-token");
+        hub.Context = new FakeHubCallerContext("conn-host", badToken);
 
         await hub.OnConnectedAsync();
 

@@ -522,7 +522,25 @@ public sealed class GameHub : Hub
             // for the single EvaluateForSession call below. A bad/expired/tampered token
             // resolves to null (never throws, AC-06), which evaluates to the same
             // default-unlocked baseline an anonymous connection gets.
-            var purchaserIdentity = _purchaserCredentials.ResolvePurchaserEmail(token);
+            //
+            // Defense in depth: the token is attacker-controllable query input.
+            // ResolvePurchaserEmail already swallows Unprotect's CryptographicException,
+            // but the base64url decode AHEAD of it can throw FormatException on
+            // non-base64url input - which would otherwise escape here and abort the
+            // connection. AC-06 is absolute (a corrupt token must NEVER break a
+            // family's play), so treat ANY resolve failure as "not signed in" and fall
+            // through to the default-unlocked baseline, exactly as an empty token does.
+            string? purchaserIdentity;
+            try
+            {
+                purchaserIdentity = _purchaserCredentials.ResolvePurchaserEmail(token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Ignoring an unresolvable purchaser access token on connect (treating as anonymous).");
+                purchaserIdentity = null;
+            }
+
             var capabilities = await _entitlements.EvaluateForSession(
                 purchaserIdentity, Context.ConnectionAborted);
 
