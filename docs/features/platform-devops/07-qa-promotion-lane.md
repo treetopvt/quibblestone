@@ -1,6 +1,6 @@
 # Story: QA lane + tag-based promotion to beta
 
-**Feature:** Platform & DevOps  ·  **Status:** In Progress
+**Feature:** Platform & DevOps  ·  **Status:** Complete (shipped 2026-07-08)
 
 ## Context
 The app is about to open to beta testers on the current cloud environment, and a
@@ -31,34 +31,34 @@ Only qa needs a new GitHub Environment + a new federated subject. See
 [feature.md](./feature.md).
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the CORS/Stripe/email/AI wiring currently lives once inline in
+- [x] AC-01: Given the CORS/Stripe/email/AI wiring currently lives once inline in
       `deploy.yml`, then a reusable deploy workflow
       (`.github/workflows/deploy-env.yml`, `workflow_call`) parameterizes that
       logic by environment (`githubEnvironment`, `bicepEnvironmentName`,
       `resourceGroup`, `aiResourceGroup`, an optional `ref`) so the wiring lives
       in ONE place, not duplicated per lane.
-- [ ] AC-02: Given `deploy-qa.yml`, when a PR merges to `main`, then it deploys to
+- [x] AC-02: Given `deploy-qa.yml`, when a PR merges to `main`, then it deploys to
       qa automatically (auto-provisioning the qa footprint on first run, the same
       first-deploy behavior story 03 already gives uat today).
-- [ ] AC-03: Given `promote-beta.yml`, then it deploys to the beta site (the
+- [x] AC-03: Given `promote-beta.yml`, then it deploys to the beta site (the
       existing uat resources) ONLY on a version tag (`v*`) push (including the tag
       a GitHub Release creates), plus a manual `workflow_dispatch(ref)` for
       rollback - and it checks out the promoted `ref` so beta ships exactly the
       tagged commit.
-- [ ] AC-04: Given the env-parameterized Bicep (resource names already derive
+- [x] AC-04: Given the env-parameterized Bicep (resource names already derive
       from `environmentName`), then qa is data-isolated from beta: its own
       resource group, Storage account, Key Vault, and App Insights.
-- [ ] AC-05: Given qa needs to load-test without risking beta's budget, then qa
+- [x] AC-05: Given qa needs to load-test without risking beta's budget, then qa
       has its own AI cost-gate provider (its own Azure OpenAI account in
       `quibblestone-ai-qa-rg` and its own Cost Management budget), so qa/load
       testing never spends against or trips the beta $20 budget/breaker. The API
       managed-identity principal for the AI keyless grant is DISCOVERED at deploy
       time (`az webapp identity show`) rather than hardcoded per lane.
-- [ ] AC-06: Given a promotion runs, then beta behavior is unchanged from today -
+- [x] AC-06: Given a promotion runs, then beta behavior is unchanged from today -
       it inherits the existing repo-level GitHub vars, and qa overrides only the
       few that differ (e.g. `STRIPE_ENABLED`/`EMAIL_ENABLED` off for a minimal
       qa).
-- [ ] AC-07: Given cutover safety, then the qa lane is fully additive - the
+- [x] AC-07: Given cutover safety, then the qa lane is fully additive - the
       existing auto-deploy to beta continues until qa is proven, then the
       push-to-`main` trigger is removed from the beta path so beta only ever
       moves on a tag.
@@ -107,3 +107,19 @@ Only qa needs a new GitHub Environment + a new federated subject. See
 Story 03 (Continuous delivery to UAT on merge to main) - reuses its OIDC login,
 tag-based resource discovery, and auto-provision approach. Relates to the AI cost
 gate (`ai-cost-gate/06`) for the per-lane AI footprint.
+
+## Delivered (as-built, 2026-07-08)
+Shipped in PRs #192 (lanes) + #193 (qa-on-Playground fix) + #200 (cutover). Deltas from
+the plan above, all forced by subscription limits found at deploy time:
+- **qa's whole footprint runs on the Playground PAYG sub, not the student sub.** The
+  student sub caps App Service at ONE plan (B1 quota 1, held by beta; F1 quota 0), so qa
+  could not get an API host there. `deploy-env.yml` gained an `appSubscriptionId` input;
+  `deploy-qa.yml` points it at Playground.
+- **qa app resources are in `westus2`** (App Service quota on Playground is regional;
+  `eastus2` = 0); qa AI stays in `eastus2`; qa runs **F1 ($0)**.
+- **`Microsoft.SignalRService` had to be registered** on the Playground sub.
+- **`qa.quibblestone.com`** was bound (Cloudflare CNAME via API + SWA custom domain +
+  CORS `__1`) - the "pretty qa domain" listed Out of Scope above has since shipped.
+- **Cutover done:** legacy `deploy.yml` removed (#200); first beta baseline tag `v0.1.0`.
+
+Full operating + bootstrap detail: `docs/runbooks/deploy-qa-and-promote-beta.md`.

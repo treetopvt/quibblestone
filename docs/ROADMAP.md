@@ -79,10 +79,14 @@ of the 2026-07-04 view and predates this update.)
   anonymous client error/usage beacons flowing through the same scrubber. Bicep
   provisions Log Analytics + App Insights; the app no-ops cleanly without a
   connection string.
-- **Deployed** - one UAT environment (`quibblestone-uat-rg`), auto-delivered on
-  every merge to main with first-deploy auto-provision from Bicep (OIDC, no stored
-  publish secrets). There is deliberately no separate cloud "dev" - local is dev,
-  UAT is the cloud. `provision.yml` is the push-button SKU/scale lever.
+- **Deployed** - two cloud lanes (`platform-devops/07`, shipped 2026-07-08): every
+  merge to main auto-deploys to **qa** (`qa.quibblestone.com`; its own isolated
+  footprint on the Playground PAYG sub, westus2, F1/$0), and **beta** (the existing
+  `quibblestone-uat-rg` + `quibblestone.com`, the friends-and-family site) is promoted
+  ONLY by pushing a `v*` tag. OIDC, no stored publish secrets; first-deploy
+  auto-provision from Bicep. No separate cloud "dev" - local is dev. `provision.yml`
+  is beta's push-button SKU/scale lever. Operating guide:
+  [`docs/runbooks/deploy-qa-and-promote-beta.md`](runbooks/deploy-qa-and-promote-beta.md).
 - **Child safety, always on** - the profanity/safety filter runs server-side on
   every free-text path (names, words, remix, tip message, publish re-vet incl.
   byline; hardened for compound obscenities in PR #155) plus the family-safe
