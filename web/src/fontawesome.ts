@@ -160,6 +160,11 @@ import {
   // ErrorBoundary (B5, alpha-gate hardening): the "something went wrong" glyph
   // on the last-resort render-error fallback screen.
   faTriangleExclamation,
+  // VaultClaimPanel (keepsake-vault/03, issue #230): the Gallery's claim + recovery
+  // section - faKey for the "claim this vault" family CTA and the claim-code
+  // display; faUnlock (already registered above for the billing paywall) is reused
+  // for the "Recover" CTA.
+  faKey,
 } from '@fortawesome/free-solid-svg-icons';
 // FavoriteStarButton (story-selection/06, AC-01): the OUTLINE star for the
 // not-favorited state. The FILLED star reuses the faStar already registered
@@ -220,4 +225,5 @@ library.add(
   faStarRegular,
   faShuffle,
   faTriangleExclamation,
+  faKey,
 );
