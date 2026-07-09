@@ -31,6 +31,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Controllers;
+using QuibbleStone.Api.Safety;
 
 namespace QuibbleStone.Api.Tests.Accounts;
 
@@ -61,7 +62,8 @@ public class SignInTests
         IEmailSender email = new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance);
 
         var controller = new AccountsController(
-            tokens, store, credential, email, new EmailOptions(), environment, NullLogger<AccountsController>.Instance)
+            tokens, store, credential, email, new EmailOptions(), environment, NullLogger<AccountsController>.Instance,
+            new InMemorySeatPresetStore(), new ContentSafetyFilter())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

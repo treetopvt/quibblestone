@@ -1,6 +1,6 @@
 # Story: Kid seat presets
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #228
+**Feature:** Accounts & Identity  ·  **Status:** In Review  ·  **Issue:** #228
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Decision 1
@@ -29,18 +29,18 @@ stays entirely on the account-plane side of that firewall; it does not change
 the play-plane boundary this story already held before the review.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in family account (accounts-identity/07), when the
+- [x] AC-01: Given a signed-in family account (accounts-identity/07), when the
       account holder opens a "Manage kid presets" area on the Account page,
       then they can create, edit, and delete named presets, each holding ONLY
       a nickname (free text, same max length as any display name) and a
       Guardian variant - nothing else.
-- [ ] AC-02: Given a device that holds a valid family credential
+- [x] AC-02: Given a device that holds a valid family credential
       (accounts-identity/03's `PurchaserSession`) or a family device-link token
       (accounts-identity/09, once it ships), when that device's Join or
       HostSetup screen renders `PlayerIdentityFields`, then a one-tap preset
       picker appears alongside the manual name field, listing that family's
       saved presets.
-- [ ] AC-03 (the hard boundary - quoted from ADR 0003): "A kid profile is a
+- [x] AC-03 (the hard boundary - quoted from ADR 0003): "A kid profile is a
       seat preset, never an identity... Selecting a preset is EXACTLY
       equivalent to typing that nickname and picking that Guardian by hand.
       Nothing preset-related lands on `Room` or `Player`; the server cannot
@@ -49,12 +49,12 @@ the play-plane boundary this story already held before the review.
       path already uses and submits through the SAME `CreateRoom`/`JoinRoom`
       hub invokes - a code-level check confirms no new field reaches `Room.cs`,
       `PlayerDto`, or any broadcast.
-- [ ] AC-04: Given a nickname supplied via a preset, then it passes through the
+- [x] AC-04: Given a nickname supplied via a preset, then it passes through the
       EXACT SAME server-side safety filter (child-safety) as any manually typed
       name before it is stored or shown - a preset name is never trusted or
       pre-approved client-side, and the server independently vets it every
       time, exactly like a manual join.
-- [ ] AC-05 (no per-kid anything - quoted from ADR 0003): "No per-profile
+- [x] AC-05 (no per-kid anything - quoted from ADR 0003): "No per-profile
       history, no per-profile gallery (the vault is family-level), no
       per-profile entitlements, no kid login, no kid PII (a preset name is a
       nickname and passes the same safety filter as any nickname). If a future
@@ -64,13 +64,13 @@ the play-plane boundary this story already held before the review.
       that session's entitlements (accounts-identity/06 resolves those from the
       family credential/device link, independent of which preset, if any, was
       tapped).
-- [ ] AC-06 (degraded-but-shippable path, explicit): Given the family device
+- [x] AC-06 (degraded-but-shippable path, explicit): Given the family device
       link (accounts-identity/09) has not yet shipped, when this story ships
       alone, then the preset picker appears ONLY on the signed-in parent's own
       device (the one holding the `PurchaserSession` credential) - a kid's own
       device shows no picker until story 09 lands. This is an accepted,
       documented interim state, not a blocking dependency on 09.
-- [ ] AC-07 (no PII / safety): Given a preset's nickname, then it is subject to
+- [x] AC-07 (no PII / safety): Given a preset's nickname, then it is subject to
       the exact same length cap and content-safety filter as any nickname
       (README section 6) - no kid PII (birthdate, real name, photo) is ever a
       field on a preset.

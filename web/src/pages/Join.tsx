@@ -53,7 +53,7 @@ import {
   AppBar,
   BottomActionBar,
   BottomActionBarSpacer,
-  PlayerIdentityFields,
+  PresetIdentityFields,
   DEFAULT_VARIANT,
 } from '../components';
 import type { GuardianVariant } from '../components';
@@ -278,9 +278,12 @@ export function Join({
           </Stack>
 
           {/* CHARACTER CARD: the shared identity controls (build/host-identity) -
-              display name + "Choose your guardian" avatar grid. The same
-              <PlayerIdentityFields> HostSetup uses, wired to this screen's
-              react-hook-form Controllers so all Join behavior is unchanged. */}
+              display name + "Choose your guardian" avatar grid, via the same
+              <PresetIdentityFields> HostSetup uses (accounts-identity/08: it layers a
+              one-tap kid seat-preset picker ABOVE the manual fields on a device with a
+              family credential, and is identical to the bare fields otherwise). Wired
+              to this screen's react-hook-form Controllers so all Join behavior is
+              unchanged - a tapped preset just fills these SAME fields (AC-03). */}
           <Stack
             spacing={2.5}
             sx={{
@@ -298,7 +301,7 @@ export function Join({
                   name="selectedVariant"
                   control={control}
                   render={({ field: variantField }) => (
-                    <PlayerIdentityFields
+                    <PresetIdentityFields
                       nickname={nameField.value}
                       variant={variantField.value}
                       onNicknameChange={nameField.onChange}

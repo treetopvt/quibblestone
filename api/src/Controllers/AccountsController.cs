@@ -83,6 +83,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using QuibbleStone.Api.Accounts;
+using QuibbleStone.Api.Safety;
 
 namespace QuibbleStone.Api.Controllers;
 
@@ -113,6 +114,31 @@ public sealed record SignInRequestResult(string Message, string? DevToken, strin
 /// "signed-in" outcome; <see cref="Email"/> (for the "signed in as X" UI) is too.
 /// </summary>
 public sealed record SignInVerifyResult(string Outcome, string Message, string? Email, string? Credential);
+
+/// <summary>
+/// Request body for creating / updating a kid seat preset (accounts-identity/08).
+/// Both fields are client-supplied and NEVER trusted: the nickname is trimmed,
+/// length-capped, and safety-filtered server-side before storage (AC-04/AC-07), and
+/// the variant is normalized to one of the six known Guardian values.
+/// </summary>
+/// <param name="Nickname">The preset's display name (free text; same cap + safety filter as any display name).</param>
+/// <param name="Variant">The chosen Guardian variant; normalized server-side (null/empty/unknown -> "teal").</param>
+public sealed record SeatPresetBody(string? Nickname, string? Variant);
+
+/// <summary>
+/// One seat preset as returned to the owning family (accounts-identity/08). A pure
+/// { id, nickname, variant } tuple - no history, gallery, entitlement, or PII (AC-05).
+/// </summary>
+/// <param name="Id">The stable preset id (used by the manager UI to edit / delete).</param>
+/// <param name="Nickname">The stored (already vetted) nickname - doubles as the preset's label.</param>
+/// <param name="Variant">The stored Guardian variant.</param>
+public sealed record SeatPresetView(string Id, string Nickname, string Variant);
+
+/// <summary>Response for GET /api/accounts/presets: the signed-in family's saved presets.</summary>
+public sealed record SeatPresetsResult(IReadOnlyList<SeatPresetView> Presets);
+
+/// <summary>A friendly, kid-readable validation message when a preset nickname is rejected (AC-04/AC-07).</summary>
+public sealed record SeatPresetError(string Message);
 
 [ApiController]
 [Route("api/accounts")]
@@ -175,6 +201,11 @@ public sealed class AccountsController : ControllerBase
     private readonly EmailOptions _emailOptions;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<AccountsController> _logger;
+    // accounts-identity/08: the kid-seat-preset store (account-plane, keyed by the
+    // resolved family AccountId) and the SAME server-side safety filter every free-text
+    // surface uses - a preset nickname is vetted through it before being stored (AC-04).
+    private readonly ISeatPresetStore _presets;
+    private readonly IContentSafetyFilter _safety;
 
     public AccountsController(
         IMagicLinkTokenService tokens,
@@ -183,7 +214,9 @@ public sealed class AccountsController : ControllerBase
         IEmailSender email,
         EmailOptions emailOptions,
         IWebHostEnvironment environment,
-        ILogger<AccountsController> logger)
+        ILogger<AccountsController> logger,
+        ISeatPresetStore presets,
+        IContentSafetyFilter safety)
     {
         _tokens = tokens;
         _accounts = accounts;
@@ -192,6 +225,8 @@ public sealed class AccountsController : ControllerBase
         _emailOptions = emailOptions;
         _environment = environment;
         _logger = logger;
+        _presets = presets;
+        _safety = safety;
     }
 
     /// <summary>
@@ -449,5 +484,208 @@ public sealed class AccountsController : ControllerBase
 
         var intentSuffix = signUp ? $"&intent={SignUpIntent}" : string.Empty;
         return $"{linkBase.TrimEnd('/')}{MagicLinkPath}?token={Uri.EscapeDataString(token)}{intentSuffix}";
+    }
+
+    // ----------------------------------------------------------------------------
+    //  Kid seat presets (accounts-identity/08, issue #228).
+    //
+    //  A small account-plane REST surface an adult manages from the Account page:
+    //  list / create / update / delete named (nickname + Guardian variant) presets
+    //  stored under their family account. Every endpoint is authorized by resolving
+    //  the SAME purchaser credential accounts-identity/03 mints (via the shared
+    //  PurchaserCredentialService) to the family AccountId - no new auth mechanism,
+    //  and no valid credential -> 401. Presets are keyed by that AccountId, so an
+    //  adult only ever reaches their own family's presets.
+    //
+    //  THE HARD BOUNDARY (AC-03): these endpoints are the ACCOUNT plane only. A preset
+    //  is a join-time convenience; selecting one in the web client just fills the SAME
+    //  display-name / variant controls and submits through the SAME CreateRoom /
+    //  JoinRoom hub invokes. NOTHING here touches Room / Player, and there is no
+    //  "preset join" path - the server cannot tell a preset join from a manual one.
+    //
+    //  SAFETY, SERVER-SIDE, EVERY TIME (AC-04/AC-07): a preset nickname is trimmed,
+    //  length-capped (SeatPresetRules.MaxNicknameLength, the display-name cap), and run
+    //  through the SAME IContentSafetyFilter as any manually typed name BEFORE it is
+    //  stored - never trusted or pre-approved client-side. It is filtered AGAIN,
+    //  independently, at join time by the unchanged hub filter.
+    // ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// GET /api/accounts/presets - the signed-in family's saved seat presets (AC-02).
+    /// 401 when not signed in (no valid credential), so no preset state leaks to an
+    /// unauthenticated visitor. A signed-in family with none (or an account that no
+    /// longer resolves) gets an empty list, never an error.
+    /// </summary>
+    [HttpGet("presets")]
+    public async Task<IActionResult> ListPresets(CancellationToken cancellationToken)
+    {
+        var email = _credential.ResolvePurchaserEmail(ReadCredential());
+        if (email is null)
+        {
+            return Unauthorized();
+        }
+
+        var account = await _accounts.GetByIdentityAsync(email, cancellationToken);
+        if (account is null)
+        {
+            // Signed in but the account no longer resolves (e.g. a deleted account):
+            // a friendly empty list, not an error - there are simply no presets.
+            return Ok(new SeatPresetsResult([]));
+        }
+
+        var presets = await _presets.ListAsync(account.Id, cancellationToken);
+        return Ok(new SeatPresetsResult(presets.Select(ToView).ToList()));
+    }
+
+    /// <summary>
+    /// POST /api/accounts/presets { nickname, variant } - create a preset under the
+    /// signed-in family account (AC-01). 401 when not signed in. The nickname is vetted
+    /// through the SAME length cap + content-safety filter as any display name before
+    /// storage (AC-04/AC-07); a rejected name returns 400 with a friendly message and
+    /// stores nothing. The variant is normalized to a known Guardian value.
+    /// </summary>
+    [HttpPost("presets")]
+    public async Task<IActionResult> CreatePreset([FromBody] SeatPresetBody? request, CancellationToken cancellationToken)
+    {
+        var account = await ResolveSignedInAccountAsync(cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized();
+        }
+
+        var validation = await ValidateNicknameAsync(request?.Nickname, cancellationToken);
+        if (validation.Error is not null)
+        {
+            return BadRequest(new SeatPresetError(validation.Error));
+        }
+
+        var variant = SeatPresetRules.NormalizeVariant(request?.Variant);
+        var created = await _presets.CreateAsync(account.Id, validation.Nickname, variant, cancellationToken);
+        return Ok(ToView(created));
+    }
+
+    /// <summary>
+    /// PUT /api/accounts/presets/{id} { nickname, variant } - update a preset under the
+    /// signed-in family account (AC-01). 401 when not signed in; 404 when no preset with
+    /// that id exists under this family (a stale / cross-account id - never a create).
+    /// The nickname is re-vetted through the SAME filter (AC-04/AC-07); a rejected name
+    /// returns 400 and changes nothing.
+    /// </summary>
+    [HttpPut("presets/{id}")]
+    public async Task<IActionResult> UpdatePreset(string id, [FromBody] SeatPresetBody? request, CancellationToken cancellationToken)
+    {
+        var account = await ResolveSignedInAccountAsync(cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized();
+        }
+
+        if (!Guid.TryParse(id, out var presetId))
+        {
+            // A malformed id can never match a stored preset - treat it as a clean miss.
+            return NotFound();
+        }
+
+        var validation = await ValidateNicknameAsync(request?.Nickname, cancellationToken);
+        if (validation.Error is not null)
+        {
+            return BadRequest(new SeatPresetError(validation.Error));
+        }
+
+        var variant = SeatPresetRules.NormalizeVariant(request?.Variant);
+        var updated = await _presets.UpdateAsync(account.Id, presetId, validation.Nickname, variant, cancellationToken);
+        return updated is null ? NotFound() : Ok(ToView(updated));
+    }
+
+    /// <summary>
+    /// DELETE /api/accounts/presets/{id} - remove a preset under the signed-in family
+    /// account. 401 when not signed in; 204 when a preset was removed; 404 when none
+    /// existed under this family (already gone / cross-account). Idempotent.
+    /// </summary>
+    [HttpDelete("presets/{id}")]
+    public async Task<IActionResult> DeletePreset(string id, CancellationToken cancellationToken)
+    {
+        var account = await ResolveSignedInAccountAsync(cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized();
+        }
+
+        if (!Guid.TryParse(id, out var presetId))
+        {
+            return NotFound();
+        }
+
+        var deleted = await _presets.DeleteAsync(account.Id, presetId, cancellationToken);
+        return deleted ? NoContent() : NotFound();
+    }
+
+    /// <summary>The outcome of vetting a candidate preset nickname: the trimmed nickname on success, or a friendly Error message.</summary>
+    private readonly record struct NicknameValidation(string Nickname, string? Error);
+
+    /// <summary>
+    /// Vet a candidate preset nickname through the SAME rules a manually typed display
+    /// name obeys (accounts-identity/08, AC-04/AC-07): trim, reject empty, reject over
+    /// the display-name cap, and run the SHARED server-side content-safety filter. On a
+    /// pass the trimmed nickname is returned with a null Error; on any failure the
+    /// friendly, kid-readable message is returned and the nickname is not stored.
+    /// </summary>
+    private async Task<NicknameValidation> ValidateNicknameAsync(string? candidate, CancellationToken cancellationToken)
+    {
+        var nickname = (candidate ?? string.Empty).Trim();
+        if (nickname.Length == 0)
+        {
+            return new NicknameValidation(nickname, "Give this seat preset a name.");
+        }
+        if (nickname.Length > SeatPresetRules.MaxNicknameLength)
+        {
+            return new NicknameValidation(nickname, $"That name is a bit long - keep it to {SeatPresetRules.MaxNicknameLength} characters.");
+        }
+
+        // The SAME gate every free-text surface routes through (child safety, README
+        // section 6). A preset name is never trusted client-side; the server vets it
+        // here before storage, and again at join time via the unchanged hub filter.
+        var verdict = await _safety.CheckAsync(nickname, cancellationToken);
+        return verdict.IsAllowed
+            ? new NicknameValidation(nickname, null)
+            : new NicknameValidation(nickname, verdict.Message);
+    }
+
+    /// <summary>
+    /// Resolve the signed-in family account for a preset write (create / update /
+    /// delete), or null when the request carries no valid credential OR the credential
+    /// resolves to no account - either way the caller returns 401. A preset cannot be
+    /// owned without an account.
+    /// </summary>
+    private async Task<Account?> ResolveSignedInAccountAsync(CancellationToken cancellationToken)
+    {
+        var email = _credential.ResolvePurchaserEmail(ReadCredential());
+        return email is null ? null : await _accounts.GetByIdentityAsync(email, cancellationToken);
+    }
+
+    /// <summary>Maps a stored preset to its wire view (a pure { id, nickname, variant } tuple, AC-05).</summary>
+    private static SeatPresetView ToView(SeatPreset preset) =>
+        new(preset.Id.ToString(), preset.Nickname, preset.Variant);
+
+    /// <summary>
+    /// Reads the purchaser credential from the request: prefer the Authorization:
+    /// Bearer value (the cross-origin path the SPA holds from sign-in), fall back to
+    /// the HttpOnly cookie (a same-site deployment). MIRRORS EntitlementsController -
+    /// the SAME credential accounts-identity/03 mints, resolved via the SAME
+    /// PurchaserCredentialService (no new auth mechanism).
+    /// </summary>
+    private string? ReadCredential()
+    {
+        var authorization = Request.Headers.Authorization.ToString();
+        const string bearerPrefix = "Bearer ";
+        if (authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var value = authorization[bearerPrefix.Length..].Trim();
+            if (value.Length > 0)
+            {
+                return value;
+            }
+        }
+        return Request.Cookies.TryGetValue(PurchaserCredentialService.CookieName, out var cookie) ? cookie : null;
     }
 }
