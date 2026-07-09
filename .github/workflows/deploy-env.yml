@@ -366,14 +366,16 @@ jobs:
                       --query "[?status=='Ready'].domainName" -o tsv | head -n1)"
           [ -n "$custom" ] && client_base="https://$custom"
 
-          # Always set: the mode-independent client base + the operator console
-          # sign-in allowlist. (sysadmin-console/04 retired the interim Stripe-mode
-          # shared-secret gate; the Stripe-mode toggle now rides the real operator
-          # session, so no separate mode-toggle secret is injected here.) Values are
-          # KV refs; unset => empty => fail closed.
+          # Always set: the mode-independent client base. (sysadmin-console/04 retired
+          # the interim Stripe-mode shared-secret gate; the Stripe-mode toggle now rides
+          # the real operator session, so no separate mode-toggle secret is injected
+          # here.) The operator sign-in allowlist was ALSO set here once, but that
+          # wrongly coupled operator-console access to Stripe being enabled - a lane with
+          # billing off (e.g. qa) then had an unreachable console even after magic-link
+          # email worked. It now has its own always-run "Wire operator console access"
+          # step below, so it no longer rides this Stripe-gated step.
           settings=(
             "Stripe__ClientBaseUrl=${client_base}"
-            "Operator__AllowedEmails=$(kv OperatorAllowedEmails)"
           )
           have_price=0
 
@@ -421,6 +423,43 @@ jobs:
           az webapp config appsettings set -g "$rg" -n "$api" \
             --settings "${settings[@]}" --output none
           echo "Stripe billing wired (${#settings[@]} settings) via Key Vault '$vault'; ClientBaseUrl=$client_base."
+
+      # --- Wire operator console access (decoupled from Stripe) ----------------
+      # sysadmin-console/01. The operator back office authorizes via an allowlist
+      # (Operator:AllowedEmails, read LIVE by ConfigurationOperatorAllowlist). This
+      # USED to be wired inside the Stripe step above, which wrongly made the operator
+      # console depend on billing being enabled - so a lane with Stripe off (e.g. qa)
+      # had an unreachable console even once magic-link email delivered. It now runs
+      # ALWAYS, in its own step, re-applied AFTER the provision replaced the appSettings
+      # array (appsettings set is additive, so it does not disturb CORS / Stripe / email).
+      #
+      # SOURCE (operator emails are NOT secret - identifiers, not credentials):
+      #   1. vars.OPERATOR_ALLOWED_EMAILS if set - a plain ";"/","-delimited list the
+      #      allowlist splits (how qa supplies it, no Key Vault needed).
+      #   2. else the lane's Key Vault OperatorAllowedEmails secret - the shape beta/uat
+      #      already uses, so beta is UNCHANGED (the app's managed identity resolves the
+      #      reference at runtime; the deploy identity never reads the secret, so this
+      #      needs no KV data-plane grant).
+      # A lane with neither leaves the console fail-closed (empty allowlist), as before.
+      - name: Wire operator console access
+        run: |
+          set -euo pipefail
+          rg="$AZURE_RESOURCE_GROUP"
+          api="${{ steps.discover.outputs.api_name }}"
+
+          emails='${{ vars.OPERATOR_ALLOWED_EMAILS }}'
+          if [ -n "$emails" ]; then
+            value="$emails"
+            src="OPERATOR_ALLOWED_EMAILS var"
+          else
+            vault="$(az keyvault list -g "$rg" --query "[0].name" -o tsv)"
+            value="@Microsoft.KeyVault(VaultName=${vault};SecretName=OperatorAllowedEmails)"
+            src="Key Vault OperatorAllowedEmails secret"
+          fi
+
+          az webapp config appsettings set -g "$rg" -n "$api" \
+            --settings "Operator__AllowedEmails=${value}" --output none
+          echo "Operator allowlist wired from ${src}."
 
       # --- Wire magic-link email delivery (optional, lane-variable-gated) ------
       # accounts-identity/04. The email seam ships DISABLED (no Email:* => the
