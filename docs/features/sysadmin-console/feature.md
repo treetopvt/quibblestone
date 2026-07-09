@@ -46,7 +46,7 @@ monetization seam). Full rationale + the load-bearing invariant:
 | [03](./03-report-and-takedown-public-tale.md) | #137 | Report -> auto-hide-after-N -> operator review of a public tale | actionable now (public tales already shipped) | Complete |
 | [04](./04-one-console-one-auth.md) | #198 | One console, one auth (relocate the Stripe toggle behind the real Operator policy) | ADR 0003 Layer 3 - independent, build first of the four | Complete |
 | [05](./05-jobs-shell-and-scoped-authz.md) | #214 | The jobs shell (Support / Content / Operations) + scoped authz | ADR 0003 Layer 3 - depends on 04 | Complete |
-| [06](./06-operator-action-log.md) | #233 | The operator action log (ADR 0003 Decision 3 / Amendment 2) | ADR 0003 Layer 3 - depends on 05 for its view | Not Started |
+| [06](./06-operator-action-log.md) | #233 | The operator action log (ADR 0003 Decision 3 / Amendment 2) | ADR 0003 Layer 3 - depends on 05 for its view | Complete |
 | [07](./07-support-lookup-and-verbs.md) | #TBD | Support lookup + verbs | ADR 0003 Layer 3 - depends on 06 (dependency-tolerant on other features' seams) | Not Started |
 
 Recorded on purpose, and deliberately NOT stories in this feature (feature.md's job is as much to say

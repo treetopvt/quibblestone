@@ -25,7 +25,7 @@ and-family-accounts.md`, "Layer 1 - control plane (`control-plane/01-03`)".
 |---|---|---|---|
 | 01 | #197 | The runtime settings service | Complete |
 | 02 | #213 | Capability scopes: system flags in the entitlement evaluation | Complete |
-| 03 | #232 | Knob migration | Not Started |
+| 03 | #232 | Knob migration | Complete |
 
 ## Dependencies
 `billing-entitlements` (already shipped): this feature generalizes `TableStorageActiveStripeModeStore` /

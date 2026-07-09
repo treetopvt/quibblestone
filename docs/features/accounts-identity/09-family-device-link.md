@@ -1,6 +1,6 @@
 # Story: Family device link
 
-**Feature:** Accounts & Identity  ·  **Status:** In Review (PR open, held for owner sign-off - child-safety seam)  ·  **Issue:** #229
+**Feature:** Accounts & Identity  ·  **Status:** Complete (2026-07-09)  ·  **Issue:** #229
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md)'s "How a

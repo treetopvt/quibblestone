@@ -1,6 +1,6 @@
 # Story: Soft delete and restore
 
-**Feature:** Keepsake Vault  ·  **Status:** In Review  ·  **Issue:** #231
+**Feature:** Keepsake Vault  ·  **Status:** Complete (2026-07-09)  ·  **Issue:** #231
 
 ## Implementation record (decisions made while building)
 - **Data-model shape (both sides): a nullable `DeletedUtc` marker on the tale's own
