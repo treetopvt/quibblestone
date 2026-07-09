@@ -42,6 +42,10 @@ import {
   // "runtime settings" on both the available list header and the "not wired up yet"
   // dependency-tolerant fallback row.
   faGear,
+  // sysadmin-console/06 (#233) - the Operations tab action-log view: the
+  // clipboard-list reads "operator action log" on the header and the empty /
+  // unavailable fallback rows.
+  faClipboardList,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -59,4 +63,5 @@ library.add(
   faBan,
   faCreditCard,
   faGear,
+  faClipboardList,
 );

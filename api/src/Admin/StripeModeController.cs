@@ -28,6 +28,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using QuibbleStone.Api.Billing;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Admin;
 
@@ -49,12 +50,19 @@ public sealed record StripeModeChangeBody(string? Mode);
 [Authorize(Policy = OperatorScopePolicy.Ops)]
 public sealed class StripeModeController : ControllerBase
 {
+    // The action verb + target this controller logs (sysadmin-console/06 AC-01). The target is the
+    // literal "stripe-mode" (a single app-wide flag - there is no per-entity target here).
+    private const string ActionFlip = "stripe-mode.flip";
+    private const string TargetStripeMode = "stripe-mode";
+
     private readonly IActiveStripeContext _context;
+    private readonly IOperatorActionLog _actionLog;
     private readonly ILogger<StripeModeController> _logger;
 
-    public StripeModeController(IActiveStripeContext context, ILogger<StripeModeController> logger)
+    public StripeModeController(IActiveStripeContext context, IOperatorActionLog actionLog, ILogger<StripeModeController> logger)
     {
         _context = context;
+        _actionLog = actionLog;
         _logger = logger;
     }
 
@@ -77,8 +85,15 @@ public sealed class StripeModeController : ControllerBase
         if (mode is null)
         {
             // Reject an unknown value rather than default silently (never accidentally go Live).
+            // This validation fails BEFORE any log row is written (AC-05 - no row for a rejected flip).
             return BadRequest(new { message = "Mode must be 'test' or 'live'." });
         }
+
+        // LOG-BEFORE-ACT (sysadmin-console/06 AC-01a): append the row BEFORE the effectful mode
+        // flip. Validation (the parse above) already passed, so AC-05 holds; an append failure
+        // aborts before SetModeAsync runs - a flip can never commit with no trail. Note is the new mode.
+        await _actionLog.AppendAsync(
+            User.Identity?.Name ?? string.Empty, ActionFlip, TargetStripeMode, mode.Value.ToWire(), ct);
 
         await _context.SetModeAsync(mode.Value, ct);
         // Operator action worth an audit-level trace (no secret, no PII - just the new mode).

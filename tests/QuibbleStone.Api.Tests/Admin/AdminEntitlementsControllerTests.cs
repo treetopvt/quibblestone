@@ -28,8 +28,10 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -38,27 +40,40 @@ using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Admin;
 using QuibbleStone.Api.Controllers;
 using QuibbleStone.Api.Entitlements;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Tests.Admin;
 
 public sealed class AdminEntitlementsControllerTests
 {
     private const string Buyer = "buyer@example.com";
+    private const string OperatorEmail = "ops@quibblestone.com";
 
     /// <summary>
     /// Builds a controller over fresh in-memory stores plus the REAL stored-value
     /// entitlement service reading the SAME grant store - so a grant / revoke through
     /// the controller is observable through EvaluateForSession, proving they share one
-    /// write path (AC-02/AC-03).
+    /// write path (AC-02/AC-03). Also wires a fresh InMemoryOperatorActionLog (sysadmin-
+    /// console/06) and a ClaimsPrincipal ControllerContext so User.Identity?.Name is
+    /// non-null when Grant / Revoke append their action-log row.
     /// </summary>
-    private static (AdminEntitlementsController Controller, IAccountStore Accounts, IEntitlementGrantStore Grants, IEntitlementService Entitlements) NewSut()
+    private static (AdminEntitlementsController Controller, IAccountStore Accounts, IEntitlementGrantStore Grants, IEntitlementService Entitlements, InMemoryOperatorActionLog ActionLog) NewSut()
     {
         var accounts = new InMemoryAccountStore();
         var grants = new InMemoryEntitlementGrantStore();
         var entitlements = new StoredValueEntitlementService(
             new DefaultUnlockedEntitlementService(), accounts, grants, TestSystemFlags.AllEnabled());
-        return (new AdminEntitlementsController(accounts, grants), accounts, grants, entitlements);
+        var actionLog = new InMemoryOperatorActionLog();
+        var controller = new AdminEntitlementsController(accounts, grants, actionLog)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = OperatorPrincipal() } },
+        };
+        return (controller, accounts, grants, entitlements, actionLog);
     }
+
+    /// <summary>A ClaimsPrincipal shaped like the real operator credential (ClaimTypes.Name = the operator email).</summary>
+    private static ClaimsPrincipal OperatorPrincipal() =>
+        new(new ClaimsIdentity([new Claim(ClaimTypes.Name, OperatorEmail)], "Operator"));
 
     private static T Body<T>(IActionResult result)
     {
@@ -71,7 +86,7 @@ public sealed class AdminEntitlementsControllerTests
     [Fact]
     public async Task Lookup_unknown_email_returns_a_clear_not_found_state()
     {
-        var (controller, _, _, _) = NewSut();
+        var (controller, _, _, _, _) = NewSut();
 
         var result = await controller.Lookup("nobody@example.com", CancellationToken.None);
 
@@ -85,7 +100,7 @@ public sealed class AdminEntitlementsControllerTests
     [Fact]
     public async Task Lookup_known_email_returns_the_account_and_its_grants()
     {
-        var (controller, accounts, grants, _) = NewSut();
+        var (controller, accounts, grants, _, _) = NewSut();
         var account = await accounts.CreateOrGetAsync(Buyer, CancellationToken.None);
         await grants.PutGrantAsync(
             account.Id,
@@ -110,7 +125,7 @@ public sealed class AdminEntitlementsControllerTests
     [Fact]
     public async Task Grant_writes_an_operator_grant_readable_by_the_session_gate()
     {
-        var (controller, _, _, entitlements) = NewSut();
+        var (controller, _, _, entitlements, _) = NewSut();
 
         var result = await controller.Grant(
             Buyer,
@@ -130,7 +145,7 @@ public sealed class AdminEntitlementsControllerTests
     [Fact]
     public async Task Grant_honours_an_operator_set_validThrough_expiry()
     {
-        var (controller, _, _, entitlements) = NewSut();
+        var (controller, _, _, entitlements, _) = NewSut();
         var past = DateTimeOffset.UtcNow.AddDays(-1);
 
         await controller.Grant(
@@ -147,7 +162,7 @@ public sealed class AdminEntitlementsControllerTests
     [Fact]
     public async Task Grant_rejects_a_capability_key_outside_the_catalog()
     {
-        var (controller, _, _, _) = NewSut();
+        var (controller, _, _, _, _) = NewSut();
 
         var result = await controller.Grant(
             Buyer,
@@ -160,7 +175,7 @@ public sealed class AdminEntitlementsControllerTests
     [Fact]
     public async Task Grant_accepts_a_pack_key_from_the_open_ended_pack_family()
     {
-        var (controller, _, _, entitlements) = NewSut();
+        var (controller, _, _, entitlements, _) = NewSut();
         var spooky = EntitlementCatalog.Pack("spooky");
 
         await controller.Grant(Buyer, new GrantEntitlementRequest(spooky, null), CancellationToken.None);
@@ -174,7 +189,7 @@ public sealed class AdminEntitlementsControllerTests
     [Fact]
     public async Task Revoke_locks_the_capability_for_the_next_session_but_not_an_open_one()
     {
-        var (controller, _, _, entitlements) = NewSut();
+        var (controller, _, _, entitlements, _) = NewSut();
         await controller.Grant(
             Buyer,
             new GrantEntitlementRequest(EntitlementCatalog.LibraryFull, null),
@@ -199,7 +214,7 @@ public sealed class AdminEntitlementsControllerTests
     [Fact]
     public async Task Revoke_for_an_unknown_email_is_a_harmless_not_found_no_op()
     {
-        var (controller, accounts, _, _) = NewSut();
+        var (controller, accounts, _, _, actionLog) = NewSut();
 
         var result = await controller.Revoke(
             "nobody@example.com", EntitlementCatalog.PlayRemote, CancellationToken.None);
@@ -210,12 +225,24 @@ public sealed class AdminEntitlementsControllerTests
         Assert.Null(await accounts.GetByIdentityAsync("nobody@example.com", CancellationToken.None));
     }
 
+    // ---- AC-05 (sysadmin-console/06): a no-op writes NO action-log row -----------
+
+    [Fact]
+    public async Task Revoke_for_an_unknown_email_writes_no_action_log_row()
+    {
+        var (controller, _, _, _, actionLog) = NewSut();
+
+        await controller.Revoke("nobody@example.com", EntitlementCatalog.PlayRemote, CancellationToken.None);
+
+        Assert.Empty(actionLog.Entries);
+    }
+
     // ---- AC-06: idempotent, low-ceremony ----------------------------------------
 
     [Fact]
     public async Task Granting_the_same_key_twice_does_not_duplicate_rows()
     {
-        var (controller, accounts, grants, _) = NewSut();
+        var (controller, accounts, grants, _, _) = NewSut();
 
         await controller.Grant(Buyer, new GrantEntitlementRequest(EntitlementCatalog.AiOnDemand, null), CancellationToken.None);
         await controller.Grant(Buyer, new GrantEntitlementRequest(EntitlementCatalog.AiOnDemand, null), CancellationToken.None);

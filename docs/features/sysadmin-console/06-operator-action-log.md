@@ -1,6 +1,6 @@
 # Story: The operator action log (ADR 0003 Decision 3 / Amendment 2)
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #233
+**Feature:** Sys-Admin Console  ·  **Status:** Complete (2026-07-09)  ·  **Issue:** #233
 
 ## Context
 ADR 0002 originally staked out "no audit-trail ceremony" for the operator console (this feature's
@@ -37,7 +37,7 @@ Decision 3, Amendment 2, and its "Security posture" section ("the action log is 
 insurance").
 
 ## Acceptance Criteria
-- [ ] AC-01 (the action set - REVISED 2026-07-08, now six named actions today): Given an operator
+- [x] AC-01 (the action set - REVISED 2026-07-08, now six named actions today): Given an operator
       performs a money-, moderation-, or settings-affecting action - grant an entitlement (story
       02), revoke an entitlement (story 02), confirm a takedown (story 03), restore a takedown
       (story 03), flip the Stripe mode (story 04), or change a runtime settings override
@@ -48,7 +48,7 @@ insurance").
       action name is a free-form string, not a closed enum this story would need to extend - so
       `control-plane/01` (and later story 07) can start appending their own rows the moment they
       land, with zero code change here.
-- [ ] AC-01a (log-before-act ordering - NEW, 2026-07-08 adversarial review, replaces the prior
+- [x] AC-01a (log-before-act ordering - NEW, 2026-07-08 adversarial review, replaces the prior
       "immediately after its own successful write" ordering): Given any of the call sites in AC-01,
       when the action's INPUT VALIDATION has already passed (so AC-05's "no row for a
       never-attempted action" still holds), then the log row is appended BEFORE the effectful write
@@ -61,14 +61,14 @@ insurance").
       under-inclusive one is not. An equivalent, stronger alternative a builder may choose instead -
       an outbox pattern making the log write and the effectful write part of one atomic unit - also
       satisfies this AC; "write the log after and hope" does not.
-- [ ] AC-02 (one seam, not several): Given the call sites named in AC-01, then each writes through
+- [x] AC-02 (one seam, not several): Given the call sites named in AC-01, then each writes through
       the SAME single `IOperatorActionLog` append method - no controller reimplements its own
       logging, and no second log store exists anywhere in the codebase.
-- [ ] AC-03: Given a signed-in operator opens the Operations job's action-log view (story 05's
+- [x] AC-03: Given a signed-in operator opens the Operations job's action-log view (story 05's
       Operations tab), when the view loads, then it lists the most recent entries in
       reverse-chronological order (newest first), capped at a sane page size (e.g. the latest 200),
       reachable only under the `ops` scope (story 05).
-- [ ] AC-04 (age-based retention with a hard floor - REVISED 2026-07-08, replaces the prior
+- [x] AC-04 (age-based retention with a hard floor - REVISED 2026-07-08, replaces the prior
       "pragmatic cap... no immutability guarantee" wording that left the cap operator-lowerable):
       Given the log's retention, then it is AGE-based (a `MaxRetainedAge`, e.g. rows older than N
       months are eventually pruned) rather than a bare row-count cap, and a HARD FLOOR (a compiled
@@ -80,24 +80,24 @@ insurance").
       (lower the cap) the very rows a dispute would need. There is still NO immutability guarantee
       and no legal-hold mechanism above the floor - this remains dispute insurance, not a compliance
       archive.
-- [ ] AC-05: Given an action that fails before its effectful write is even attempted (e.g. an
+- [x] AC-05: Given an action that fails before its effectful write is even attempted (e.g. an
       invalid capability key on a grant attempt, or a not-found slug on a confirm/restore), then NO
       log row is written for it - only actions that pass validation and reach the log-before-act
       step (AC-01a) are logged, mirroring each controller's existing idempotent/no-op-on-not-found
       behavior.
-- [ ] AC-06 (anonymity invariant applies to the log too): Given any log row, then it contains no
+- [x] AC-06 (anonymity invariant applies to the log too): Given any log row, then it contains no
       identifier beyond the operator's own email and the target identifier already visible on that
       action's own surface (a purchaser email, a tale slug, or a settings key) - no player nickname,
       room code, session id, or any other PII ever appears in a log row, on the writer side or the
       view side.
-- [ ] AC-07 (view-side encoding and input validation - NEW, 2026-07-08 adversarial review): Given
+- [x] AC-07 (view-side encoding and input validation - NEW, 2026-07-08 adversarial review): Given
       `ActionLogView.tsx` renders a row's operator-influenced fields (the target string and the
       optional free-text note), then it NEVER uses `dangerouslySetInnerHTML` or any equivalent raw-
       HTML injection - it relies on React's default text-escaping for both fields, same as every
       other admin-bundle screen - and the API validates that any target claiming to be an email
       address matches a standard email-format check before the row is written (rejecting malformed
       or markup-bearing strings at write time, not merely at render time).
-- [ ] AC-08: Given `feature.md`'s Design notes ("Operator, not audit ceremony... Resist growing it
+- [x] AC-08: Given `feature.md`'s Design notes ("Operator, not audit ceremony... Resist growing it
       into role hierarchies, audit trails, or dashboards"), when this story ships, then that note is
       AMENDED (not deleted) to cite ADR 0003 Decision 3 / Amendment 2 as the narrow, deliberate
       exception for the money/moderation/settings plane - gameplay and content stay ceremony-free;

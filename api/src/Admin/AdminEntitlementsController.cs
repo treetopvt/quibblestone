@@ -48,6 +48,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Entitlements;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Admin;
 
@@ -112,19 +113,27 @@ public sealed record EntitlementActionResult(PurchaserLookupResult Purchaser, st
 [Authorize(Policy = OperatorScopePolicy.Support)]
 public sealed class AdminEntitlementsController : ControllerBase
 {
+    // The action verbs this controller logs (sysadmin-console/06 AC-01) - stable free-form strings.
+    private const string ActionGrant = "entitlement.grant";
+    private const string ActionRevoke = "entitlement.revoke";
+
     private readonly IAccountStore _accounts;
     private readonly IEntitlementGrantStore _grants;
+    private readonly IOperatorActionLog _actionLog;
 
     /// <summary>
     /// Constructs the controller over accounts-identity/02's account store (the
-    /// purchaser lookup, AC-01) and billing-entitlements/01's grant store (the read /
-    /// write seam, AC-02/AC-03). It ORCHESTRATES those - it never reimplements them and
-    /// never touches any room / player store (AC-04).
+    /// purchaser lookup, AC-01), billing-entitlements/01's grant store (the read /
+    /// write seam, AC-02/AC-03), and sysadmin-console/06's operator action log (the
+    /// single append seam every grant / revoke writes ONE row through, log-before-act).
+    /// It ORCHESTRATES those - it never reimplements them and never touches any room /
+    /// player store (AC-04).
     /// </summary>
-    public AdminEntitlementsController(IAccountStore accounts, IEntitlementGrantStore grants)
+    public AdminEntitlementsController(IAccountStore accounts, IEntitlementGrantStore grants, IOperatorActionLog actionLog)
     {
         _accounts = accounts;
         _grants = grants;
+        _actionLog = actionLog;
     }
 
     /// <summary>
@@ -176,6 +185,15 @@ public sealed class AdminEntitlementsController : ControllerBase
         // (account.Id, accounts-identity/05) - the load-bearing contract so this write
         // and the session-creation read land in the SAME partition (IEntitlementGrantStore).
         var account = await _accounts.CreateOrGetAsync(email, cancellationToken);
+
+        // LOG-BEFORE-ACT (sysadmin-console/06 AC-01a): append the row BEFORE the effectful
+        // grant write. If the append fails (store down, or an invalid target - AC-07), it throws
+        // and the request aborts before PutGrantAsync runs - a grant can never commit with no
+        // trail. Target is the canonical account email; note records the capability + any expiry.
+        var expiryNote = request.ValidThrough is { } through ? $" (through {through:u})" : string.Empty;
+        await _actionLog.AppendAsync(
+            User.Identity?.Name ?? string.Empty, ActionGrant, account.Email, $"{capabilityKey}{expiryNote}", cancellationToken);
+
         var grant = new EntitlementGrant(capabilityKey, request.ValidThrough, GrantSource.Operator);
         await _grants.PutGrantAsync(account.Id, grant, cancellationToken);
 
@@ -211,6 +229,12 @@ public sealed class AdminEntitlementsController : ControllerBase
                 await BuildLookupAsync(email, cancellationToken),
                 "No account found for this email - nothing to revoke."));
         }
+
+        // LOG-BEFORE-ACT (sysadmin-console/06 AC-01a): append the row BEFORE the effectful
+        // lapse write. The not-found branch above already returned WITHOUT a row (AC-05) - only a
+        // revoke that reaches its effect is logged. An append failure aborts before PutGrantAsync.
+        await _actionLog.AppendAsync(
+            User.Identity?.Name ?? string.Empty, ActionRevoke, account.Email, capabilityKey, cancellationToken);
 
         // Lapse the lease: a validThrough of "now" makes IsActiveAt(now) false at the next
         // session-creation read (the lease end is exclusive), so the capability reads as

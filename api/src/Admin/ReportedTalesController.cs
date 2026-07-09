@@ -34,6 +34,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using QuibbleStone.Api.PublishedTales;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Admin;
 
@@ -79,9 +80,24 @@ public sealed record ReportedTaleActionResult(string Slug, bool Applied, string 
 [Authorize(Policy = OperatorScopePolicy.Content)]
 public sealed class ReportedTalesController : ControllerBase
 {
-    private readonly IPublishedTaleStore _store;
+    // The action verbs this controller logs (sysadmin-console/06 AC-01) - stable free-form strings.
+    private const string ActionTakedown = "tale.takedown";
+    private const string ActionRestore = "tale.restore";
 
-    public ReportedTalesController(IPublishedTaleStore store) => _store = store;
+    private readonly IPublishedTaleStore _store;
+    private readonly IOperatorActionLog _actionLog;
+
+    /// <summary>
+    /// Constructs the controller over the published-tale store (the moderation read / write seam)
+    /// and sysadmin-console/06's operator action log (the single append seam each confirm / restore
+    /// writes ONE row through, log-before-act). It ORCHESTRATES those - it never touches any room /
+    /// player store (AC-06).
+    /// </summary>
+    public ReportedTalesController(IPublishedTaleStore store, IOperatorActionLog actionLog)
+    {
+        _store = store;
+        _actionLog = actionLog;
+    }
 
     /// <summary>
     /// GET /api/admin/reported-tales -> the review queue (AC-03). Lists every
@@ -117,6 +133,19 @@ public sealed class ReportedTalesController : ControllerBase
     [HttpPost("{slug}/confirm")]
     public async Task<IActionResult> Confirm(string slug, CancellationToken cancellationToken)
     {
+        // AC-05 + LOG-BEFORE-ACT (sysadmin-console/06 AC-01a): a confirm against a slug that is not
+        // currently hidden is a no-op that writes NO row - so check hidden state FIRST and early-
+        // return before touching the log. Only a confirm that WILL act reaches the append, and the
+        // append happens BEFORE the effectful ConfirmHiddenAsync (an append failure aborts first).
+        var moderation = await _store.GetModerationAsync(slug, cancellationToken);
+        if (!moderation.IsHidden)
+        {
+            return Ok(new ReportedTaleActionResult(slug, false, "There is no hidden tale under that slug."));
+        }
+
+        await _actionLog.AppendAsync(
+            User.Identity?.Name ?? string.Empty, ActionTakedown, slug, "confirmed hidden", cancellationToken);
+
         var applied = await _store.ConfirmHiddenAsync(slug, cancellationToken);
         return Ok(new ReportedTaleActionResult(
             slug,
@@ -135,6 +164,19 @@ public sealed class ReportedTalesController : ControllerBase
     [HttpPost("{slug}/restore")]
     public async Task<IActionResult> Restore(string slug, CancellationToken cancellationToken)
     {
+        // AC-05 + LOG-BEFORE-ACT (sysadmin-console/06 AC-01a): a restore against a slug that is not
+        // currently hidden is a no-op that writes NO row - check hidden state FIRST and early-return
+        // before the log. Only a restore that WILL act reaches the append, which happens BEFORE the
+        // effectful RestoreAsync (an append failure aborts before serving resumes).
+        var moderation = await _store.GetModerationAsync(slug, cancellationToken);
+        if (!moderation.IsHidden)
+        {
+            return Ok(new ReportedTaleActionResult(slug, false, "There is no hidden tale under that slug."));
+        }
+
+        await _actionLog.AppendAsync(
+            User.Identity?.Name ?? string.Empty, ActionRestore, slug, "restored to serving", cancellationToken);
+
         var applied = await _store.RestoreAsync(slug, cancellationToken);
         return Ok(new ReportedTaleActionResult(
             slug,
