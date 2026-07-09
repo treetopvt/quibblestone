@@ -296,4 +296,56 @@ public class VaultControllerTests
         var underCap = await b.Controller.Save(CleanTale(), CancellationToken.None);
         Assert.IsType<OkObjectResult>(underCap);
     }
+
+    // ---- keepsake-vault/04: the DELETE soft-delete endpoint -------------------
+
+    [Fact]
+    public async Task Delete_without_a_vault_id_header_is_400()
+    {
+        var h = NewHarness();
+        var result = await h.Controller.Delete("some-tale-id", CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Delete_soft_deletes_the_tale_so_it_drops_from_the_listing()
+    {
+        // AC-01: a player deletes a tale via DELETE; it stops appearing in the vault's
+        // own GET immediately (soft-delete, the row is retained under the hood).
+        var h = NewHarness();
+        PresentVaultId(h, VaultA);
+        var taleId = SaveOk(await h.Controller.Save(CleanTale(), CancellationToken.None));
+
+        var deleted = await h.Controller.Delete(taleId, CancellationToken.None);
+        Assert.IsType<NoContentResult>(deleted);
+
+        Assert.Empty(ListOk(await h.Controller.List(CancellationToken.None)).Tales);
+    }
+
+    [Fact]
+    public async Task Delete_of_an_unknown_tale_is_404()
+    {
+        var h = NewHarness();
+        PresentVaultId(h, VaultA);
+        var result = await h.Controller.Delete("never-saved-this-one", CancellationToken.None);
+        Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Delete_only_affects_the_presenting_vault()
+    {
+        // A delete is scoped to the vault id in the header - one vault cannot delete
+        // another vault's tale (it has no live tale under that id to soft-delete).
+        var store = new InMemoryVaultStore();
+        var a = NewHarness(store);
+        PresentVaultId(a, VaultA);
+        var taleId = SaveOk(await a.Controller.Save(CleanTale(title: "A tale"), CancellationToken.None));
+
+        var b = NewHarness(store);
+        PresentVaultId(b, VaultB);
+        Assert.IsType<NotFoundObjectResult>(await b.Controller.Delete(taleId, CancellationToken.None));
+
+        // Vault A's tale is untouched.
+        Assert.Single(ListOk(await a.Controller.List(CancellationToken.None)).Tales);
+    }
 }

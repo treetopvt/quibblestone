@@ -100,4 +100,126 @@ public class VaultStoreTests
         Assert.Equal(VaultSaveOutcome.Saved,
             await store.SaveAsync(Tale(VaultB, "b1", DateTimeOffset.UtcNow), CancellationToken.None));
     }
+
+    // ---- keepsake-vault/04: the pure soft-delete / restore-window helpers ------
+
+    [Fact]
+    public void A_live_tale_is_not_deleted_and_never_window_elapsed()
+    {
+        var tale = Tale(VaultA, "t1", DateTimeOffset.UtcNow);
+        Assert.False(tale.IsDeleted);
+        Assert.Null(tale.DeletedUtc);
+        // A live tale has no restore window to elapse (nothing to purge).
+        Assert.False(tale.IsRestoreWindowElapsed(DateTimeOffset.UtcNow.AddYears(1)));
+    }
+
+    [Fact]
+    public void A_soft_deleted_tale_is_recoverable_until_the_window_elapses()
+    {
+        // AC-02/AC-03: the restore window is DeletedUtc + RestoreWindowDays, inclusive.
+        var deleted = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var tale = Tale(VaultA, "t1", deleted.AddDays(-1)) with { DeletedUtc = deleted };
+
+        Assert.True(tale.IsDeleted);
+        // One day short of the window: still recoverable.
+        Assert.False(tale.IsRestoreWindowElapsed(deleted.AddDays(VaultTale.RestoreWindowDays - 1)));
+        // Exactly at the window: elapsed (<=), eligible for hard removal.
+        Assert.True(tale.IsRestoreWindowElapsed(deleted.AddDays(VaultTale.RestoreWindowDays)));
+        // Well past: elapsed.
+        Assert.True(tale.IsRestoreWindowElapsed(deleted.AddDays(VaultTale.RestoreWindowDays + 5)));
+    }
+
+    // ---- AC-01: soft-delete removes a tale from the listing (row retained) -----
+
+    [Fact]
+    public async Task SoftDeleteAsync_drops_the_tale_from_the_listing_but_it_stays_restorable()
+    {
+        var store = new InMemoryVaultStore();
+        await store.SaveAsync(Tale(VaultA, "keep", DateTimeOffset.UtcNow), CancellationToken.None);
+        await store.SaveAsync(Tale(VaultA, "gone", DateTimeOffset.UtcNow), CancellationToken.None);
+
+        Assert.True(await store.SoftDeleteAsync(VaultA, "gone", CancellationToken.None));
+
+        // AC-01: the soft-deleted tale is gone from the listing immediately.
+        var live = await store.ListAsync(VaultA, CancellationToken.None);
+        var only = Assert.Single(live);
+        Assert.Equal("keep", only.TaleId);
+
+        // But the underlying row still exists - a restore brings it right back (AC-02).
+        var restored = await store.RestoreAsync(VaultA, "gone", CancellationToken.None);
+        Assert.NotNull(restored);
+        Assert.Equal(2, (await store.ListAsync(VaultA, CancellationToken.None)).Count);
+    }
+
+    [Fact]
+    public async Task SoftDeleteAsync_is_idempotent_and_false_for_an_unknown_tale()
+    {
+        var store = new InMemoryVaultStore();
+        await store.SaveAsync(Tale(VaultA, "t1", DateTimeOffset.UtcNow), CancellationToken.None);
+
+        Assert.True(await store.SoftDeleteAsync(VaultA, "t1", CancellationToken.None));
+        // A second soft-delete of the same tale is an idempotent no-op success.
+        Assert.True(await store.SoftDeleteAsync(VaultA, "t1", CancellationToken.None));
+        // An unknown tale id (or vault) has nothing to delete.
+        Assert.False(await store.SoftDeleteAsync(VaultA, "never", CancellationToken.None));
+        Assert.False(await store.SoftDeleteAsync("no-such-vault-000000000000000000000", "t1", CancellationToken.None));
+    }
+
+    // ---- AC-02 + AC-06: restore returns the original content, unchanged --------
+
+    [Fact]
+    public async Task RestoreAsync_returns_the_original_content_byte_for_byte()
+    {
+        var store = new InMemoryVaultStore();
+        var original = new VaultTale(
+            VaultA, "t1", "The saga",
+            [new VaultTalePart(false, "Once a "), new VaultTalePart(true, "banana"), new VaultTalePart(false, " danced")],
+            "Sam & Mia", DateTimeOffset.UtcNow);
+        await store.SaveAsync(original, CancellationToken.None);
+        await store.SoftDeleteAsync(VaultA, "t1", CancellationToken.None);
+
+        var restored = await store.RestoreAsync(VaultA, "t1", CancellationToken.None);
+
+        Assert.NotNull(restored);
+        // AC-06: title / parts / byline are identical to the pre-deletion content.
+        Assert.Equal(original.Title, restored!.Title);
+        Assert.Equal(original.BylineNames, restored.BylineNames);
+        Assert.Equal(original.CreatedUtc, restored.CreatedUtc);
+        Assert.Equal(original.Parts, restored.Parts);
+        // The marker is cleared so it is live again.
+        Assert.False(restored.IsDeleted);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_of_a_live_tale_is_a_harmless_no_op()
+    {
+        var store = new InMemoryVaultStore();
+        await store.SaveAsync(Tale(VaultA, "t1", DateTimeOffset.UtcNow), CancellationToken.None);
+
+        var restored = await store.RestoreAsync(VaultA, "t1", CancellationToken.None);
+        Assert.NotNull(restored);
+        Assert.False(restored!.IsDeleted);
+        Assert.Single(await store.ListAsync(VaultA, CancellationToken.None));
+    }
+
+    // ---- AC-03: past the restore window, a soft-deleted tale is gone -----------
+
+    [Fact]
+    public async Task A_soft_deleted_tale_past_its_window_reads_as_gone_and_is_not_restorable()
+    {
+        // Save a tale, then plant it in a past-window soft-deleted state directly (the
+        // in-memory store re-saves the same key, overwriting). DeletedUtc is well past
+        // the restore window, but CreatedUtc is recent so TTL is NOT the cause.
+        var store = new InMemoryVaultStore();
+        var created = DateTimeOffset.UtcNow;
+        await store.SaveAsync(
+            Tale(VaultA, "t1", created) with { DeletedUtc = DateTimeOffset.UtcNow.AddDays(-(VaultTale.RestoreWindowDays + 1)) },
+            CancellationToken.None);
+
+        // AC-03: the next list reads it as gone (lazy purge-on-read).
+        Assert.Empty(await store.ListAsync(VaultA, CancellationToken.None));
+        // And a restore refuses - a lapsed soft-delete is genuinely gone (out of scope).
+        Assert.Null(await store.RestoreAsync(VaultA, "t1", CancellationToken.None));
+        Assert.False(await store.SoftDeleteAsync(VaultA, "t1", CancellationToken.None));
+    }
 }

@@ -1,6 +1,38 @@
 # Story: Soft delete and restore
 
-**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #231
+**Feature:** Keepsake Vault  ·  **Status:** In Review  ·  **Issue:** #231
+
+## Implementation record (decisions made while building)
+- **Data-model shape (both sides): a nullable `DeletedUtc` marker on the tale's own
+  immutable row** (rebuilt via `with { DeletedUtc = ... }`, content fields never
+  touched), NOT a `TaleModeration`-style companion row. Rationale: a soft-delete
+  happens once (not the high-frequency mutation a companion row protects against),
+  and keeping the marker on the body row lets the single existing point read decide
+  serve-vs-gone with no extra round-trip. `VaultTale` and `PublishedTale` each gain
+  `DeletedUtc`.
+- **AC-03 purge mechanism: lazy purge-on-read** (the codebase default, mirroring
+  `IsExpired`), NOT a background reaper. A soft-deleted tale past its window is
+  omitted AND best-effort deleted on the next `ListAsync` / `GetAsync`.
+- **Restore window: 30 days**, a named code constant on each side
+  (`VaultTale.RestoreWindowDays`, `PublishedTale.TakedownRestoreWindowDays`, equal),
+  a settings-key candidate per `control-plane/01`.
+- **AC-07 friction: `IPublishedTaleStore.RestoreFromTakedownAsync(slug,
+  bool confirmedByOperator, ...)`** requires the confirmation arg at the signature
+  (no default) - `IVaultStore.RestoreAsync(vaultId, taleId)` has no equivalent. The
+  distinction is compile-time-structural (asserted by a reflection test) plus a
+  runtime backstop (an un-confirmed call is a no-op). Named distinctly from the
+  existing moderation `RestoreAsync` (un-hide), which never body-deleted anything.
+- **Published serve after takedown:** `GetAsync` returns null for a taken-down tale,
+  so the public page reads GONE (the 404 "drifted away"), exactly the old
+  post-hard-delete behavior; `ConfirmHiddenAsync` still drops the moderation row so
+  a later restore serves with a reset count.
+- **TTL caps the restore window (recorded decision):** a soft-delete never EXTENDS a
+  tale's natural life. Restorability is gated by `IsExpired || IsRestoreWindowElapsed`,
+  so a tale soft-deleted shortly before its natural TTL (vault: `CreatedUtc + 90d`;
+  published: `ExpiresUtc`) becomes genuinely gone when that TTL passes even if the
+  30-day restore window has not fully elapsed. This is deliberate - an expired
+  keepsake is legitimately gone (README section 4), and the restore window is a
+  grace period layered on top of, not a life-extension of, the existing TTL.
 
 ## Context
 Deletion in every existing keepsake surface is hard and immediate:
@@ -25,11 +57,11 @@ ADR 0003 (Layer 2: "soft-delete with a restore window (takedowns become
 soft-deletes too)").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a player deletes a tale from their vault, then the tale is
+- [x] AC-01: Given a player deletes a tale from their vault, then the tale is
       SOFT-deleted - marked deleted and timestamped rather than removed - and
       stops appearing in any listing (the vault's own `GET`, and the merged
       gallery view from `keepsake-vault/02`) immediately.
-- [ ] AC-02: Given a soft-deleted vault tale within its restore window -
+- [x] AC-02: Given a soft-deleted vault tale within its restore window -
       **default 30 days** from the deletion timestamp, a settings-key
       candidate (`control-plane`'s "knob migration" list; ship as a code
       constant default until `control-plane/01`'s catalog exists, do not
@@ -37,7 +69,7 @@ soft-deletes too)").
       operation. This story ships the STORE method only (`RestoreAsync` or
       equivalent) - the operator console verb/UI that calls it is
       `sysadmin-console/07`, not this story.
-- [ ] AC-03: Given a soft-deleted tale PAST its restore window, then it
+- [x] AC-03: Given a soft-deleted tale PAST its restore window, then it
       becomes eligible for real (hard) removal. Choose and RECORD one
       mechanism here once decided: lazy purge-on-read (mirroring
       `PublishedTale.IsExpired`'s existing "expired reads as gone, with a
@@ -46,7 +78,7 @@ soft-deletes too)").
       lower-ceremony choice consistent with this codebase's existing
       precedent; a background reaper job is noted as a Parked-Phase-2+
       alternative in `feature.md`, not built here.
-- [ ] AC-04: Given a published tale takedown (the moderation `confirm-hidden`
+- [x] AC-04: Given a published tale takedown (the moderation `confirm-hidden`
       action, `sysadmin-console/03`, today implemented by
       `TableStoragePublishedTaleStore.ConfirmHiddenAsync`'s hard delete of the
       tale body), then it becomes a soft-delete instead, using the SAME
@@ -59,15 +91,15 @@ soft-deletes too)").
       only un-hides a tale that was never body-deleted) and this story's new
       restore-from-soft-delete both exist side by side and must not be
       confused with each other in the store's naming.
-- [ ] AC-05 (child-safety): Given a soft-deleted or restored tale, then no new
+- [x] AC-05 (child-safety): Given a soft-deleted or restored tale, then no new
       free-text entry point or PII surface is introduced anywhere in this
       story's changes - restoring a tale returns EXACTLY the already-filtered
       content that existed before deletion, unmodified.
-- [ ] AC-06: Given a restore (vault tale or published-tale takedown), then the
+- [x] AC-06: Given a restore (vault tale or published-tale takedown), then the
       tale reappears in its respective surface (the vault/gallery, or the
       public tale link) exactly as it was before deletion - no content
       mutation, no re-vetting, no re-publish ceremony.
-- [ ] AC-07 (friction parity, takedown restore vs. player self-delete
+- [x] AC-07 (friction parity, takedown restore vs. player self-delete
       restore): Given the two restore operations this story ships, then
       restoring a MODERATION TAKEDOWN carries stronger, structurally-required
       friction than restoring a player's own accidental vault-tale delete - a

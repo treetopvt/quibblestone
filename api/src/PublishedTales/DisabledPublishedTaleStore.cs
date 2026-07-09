@@ -70,4 +70,10 @@ public sealed class DisabledPublishedTaleStore : IPublishedTaleStore
     /// <inheritdoc />
     public Task<bool> RestoreAsync(string slug, CancellationToken cancellationToken = default) =>
         Task.FromResult(false);
+
+    /// <inheritdoc />
+    public Task<bool> RestoreFromTakedownAsync(string slug, bool confirmedByOperator, CancellationToken cancellationToken = default) =>
+        // Feature OFF: no stored tales, so there is never a taken-down tale to restore
+        // (keepsake-vault/04). A safe no-op, mirroring the other moderation methods.
+        Task.FromResult(false);
 }

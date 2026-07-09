@@ -109,22 +109,71 @@ public interface IVaultStore
     Task<VaultSaveOutcome> SaveAsync(VaultTale tale, CancellationToken ct = default);
 
     /// <summary>
-    /// Lists all NON-EXPIRED tales for one vault id (AC-02/AC-03), a single-
-    /// partition query (PartitionKey = vaultId) - the vault has no single-slug read
-    /// path; every read is a partition list. Expiry is applied HERE: each row's
-    /// computed expiry (<see cref="VaultTale.IsExpired"/>, CreatedUtc + TtlDays) is
-    /// checked as the partition is enumerated, expired rows are omitted from the
-    /// result, and each expired row found is best-effort deleted to reclaim it. A
-    /// vault with no tales gets an empty list, never an error.
+    /// Lists all LIVE tales for one vault id (AC-02/AC-03), a single-partition query
+    /// (PartitionKey = vaultId) - the vault has no single-slug read path; every read
+    /// is a partition list. Exclusions are applied HERE as the partition is enumerated:
+    ///   - TTL expiry (keepsake-vault/01, AC-03): a row past its computed
+    ///     <see cref="VaultTale.IsExpired"/> (CreatedUtc + TtlDays) is omitted and
+    ///     best-effort deleted to reclaim it.
+    ///   - SOFT-DELETE (keepsake-vault/04, AC-01): a soft-deleted row
+    ///     (<see cref="VaultTale.IsDeleted"/>) is omitted immediately so it stops
+    ///     appearing in the vault's own GET and the merged gallery view. A
+    ///     soft-deleted row whose restore window has fully elapsed
+    ///     (<see cref="VaultTale.IsRestoreWindowElapsed"/>, AC-03) is ALSO best-effort
+    ///     deleted to reclaim it - within the window it is retained (omitted, not
+    ///     purged) so <see cref="RestoreAsync"/> can still recover it.
+    /// A vault with no live tales gets an empty list, never an error.
     ///
     /// keepsake-vault/03 (#230): the passed id is first resolved through any
     /// device-ALIAS link (created by claim-code redemption, AC-02) to the canonical
     /// claimed vault, so a recovered device reading under its OWN id sees the claimed
-    /// vault's tales. And a CLAIMED vault's tales NEVER expire (AC-05): when the
+    /// vault's tales. And a CLAIMED vault's tales NEVER TTL-expire (AC-05): when the
     /// resolved vault is claimed, the TTL filter is skipped entirely - claiming is
-    /// the durability upgrade the whole feature exists to offer.
+    /// the durability upgrade the whole feature exists to offer. The soft-delete
+    /// exclusion still applies to a claimed vault (claiming exempts the passive TTL,
+    /// not a deliberate delete).
     /// </summary>
     Task<IReadOnlyList<VaultTale>> ListAsync(string vaultId, CancellationToken ct = default);
+
+    /// <summary>
+    /// SOFT-deletes one tale in a vault (keepsake-vault/04, AC-01): the tale is
+    /// marked deleted (DeletedUtc stamped, server-side) and stops appearing in
+    /// <see cref="ListAsync"/> immediately, rather than being removed - so it stays
+    /// recoverable within the restore window (AC-02). Idempotent: soft-deleting an
+    /// already-soft-deleted (still-within-window) tale is a no-op success. Returns
+    /// false for a tale that does not exist, has TTL-expired, or is already past its
+    /// restore window (genuinely gone - nothing to soft-delete). This is the
+    /// player-facing delete the DELETE /api/vault/tales/{taleId} endpoint calls; it
+    /// requires NO confirmation marker - undoing a family's own delete of content
+    /// only that family saw is materially lower-risk than a moderation-takedown
+    /// restore, which is why the two restore paths do not share a shape (AC-07).
+    /// </summary>
+    /// <param name="vaultId">The owning vault id (the partition key, a bearer credential).</param>
+    /// <param name="taleId">The tale id to soft-delete (the row key within the vault partition).</param>
+    Task<bool> SoftDeleteAsync(string vaultId, string taleId, CancellationToken ct = default);
+
+    /// <summary>
+    /// RESTORES a soft-deleted tale within its restore window (keepsake-vault/04,
+    /// AC-02/AC-06): clears the deletion marker so the tale reappears in
+    /// <see cref="ListAsync"/> exactly as it was before deletion - EXACTLY the
+    /// already-filtered content that existed before, unmodified, with no re-vet and
+    /// no content mutation (AC-05/AC-06). Returns the restored (now-live) tale, or
+    /// null when the tale does not exist, has TTL-expired, or is past its restore
+    /// window (genuinely gone per AC-03 - un-deleting a lapsed tale is out of scope).
+    /// Restoring an already-live tale is a harmless no-op that returns it unchanged.
+    ///
+    /// DELIBERATELY takes NO confirmation argument (AC-07): a player restoring their
+    /// own accidental delete only re-exposes content their own family already saw.
+    /// The higher-risk path - restoring a moderation TAKEDOWN, which re-exposes
+    /// content an operator confirmed hidden - is
+    /// <see cref="PublishedTales.IPublishedTaleStore.RestoreFromTakedownAsync"/>,
+    /// whose signature DOES require a confirmation marker this one has no equivalent
+    /// of. This story ships the STORE method only; the operator console verb that
+    /// calls it is sysadmin-console/07 (there is no public endpoint for it here).
+    /// </summary>
+    /// <param name="vaultId">The owning vault id (the partition key, a bearer credential).</param>
+    /// <param name="taleId">The tale id to restore (the row key within the vault partition).</param>
+    Task<VaultTale?> RestoreAsync(string vaultId, string taleId, CancellationToken ct = default);
 
     /// <summary>
     /// Claims a vault into a family account (keepsake-vault/03, AC-01): associates the

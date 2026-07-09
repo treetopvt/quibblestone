@@ -25,6 +25,17 @@
 //  mirroring the room registry's lazy idle sweep. No background reaper is needed
 //  at toy scale.
 //
+//  MODERATION TAKEDOWN IS A SOFT-DELETE (keepsake-vault/04, issue #231): the
+//  operator "confirm-hidden" action (sysadmin-console/03) no longer HARD-deletes
+//  the tale body - it stamps DeletedUtc so the slug stops serving (reads as GONE,
+//  exactly the old post-confirm behavior) but the content stays recoverable within
+//  a restore window (TakedownRestoreWindowDays), so a wrongly-hidden tale or an
+//  operator mistake is reversible. Past the window the row is reclaimed lazily on
+//  read, the same idiom as ExpiresUtc. This is the SAME restore-window model the
+//  vault's own soft-delete uses (VaultTale.RestoreWindowDays). Restoring a takedown
+//  is a DISTINCT, higher-friction operation from the existing moderation "un-hide"
+//  (which never body-deleted anything) - see IPublishedTaleStore.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -60,18 +71,58 @@ public sealed record TalePart(bool IsWord, string Text);
 /// </param>
 /// <param name="CreatedUtc">When the tale was published.</param>
 /// <param name="ExpiresUtc">When the tale stops resolving (lazy expiry-on-read, AC-05).</param>
+/// <param name="DeletedUtc">
+/// When the tale was taken down by a moderation confirm-hidden action, or null while
+/// it is serving normally (keepsake-vault/04, AC-04). A taken-down tale reads as GONE
+/// to the public (a 404, like a revoked / expired tale) but its content stays
+/// recoverable until <see cref="TakedownRestoreWindowDays"/> days past this instant
+/// (AC-02), after which it is eligible for hard removal (AC-03). Null for a tale that
+/// was never taken down.
+/// </param>
 public sealed record PublishedTale(
     string Slug,
     string Title,
     IReadOnlyList<TalePart> Parts,
     string BylineNames,
     DateTimeOffset CreatedUtc,
-    DateTimeOffset ExpiresUtc)
+    DateTimeOffset ExpiresUtc,
+    DateTimeOffset? DeletedUtc = null)
 {
+    /// <summary>
+    /// The moderation-takedown restore window in days (keepsake-vault/04, AC-02): a
+    /// soft-deleted (taken-down) tale stays recoverable for this many days past its
+    /// <see cref="DeletedUtc"/>, then becomes eligible for hard removal (AC-03). The
+    /// SAME restore-window model the vault's own soft-delete uses
+    /// (<see cref="Vault.VaultTale.RestoreWindowDays"/>). A settings-key candidate
+    /// (ADR 0003 control-plane "knob migration") shipped as a named code constant
+    /// until control-plane/01's catalog exists, mirroring
+    /// <see cref="PublishedTalesController.TaleTtl"/>'s precedent - not a magic number.
+    /// </summary>
+    public const int TakedownRestoreWindowDays = 30;
+
     /// <summary>
     /// True when this tale is at or past its expiry instant and must read as GONE
     /// (AC-05). Pure, so it is unit-tested directly rather than through the store.
     /// </summary>
     /// <param name="now">The current instant (injected so tests are deterministic).</param>
     public bool IsExpired(DateTimeOffset now) => ExpiresUtc <= now;
+
+    /// <summary>
+    /// True when this tale has been taken down by a moderation confirm-hidden action
+    /// (keepsake-vault/04, AC-04): it stops serving to the public but, within the
+    /// restore window, its content is still recoverable (AC-02). A normally-serving
+    /// tale has a null <see cref="DeletedUtc"/>.
+    /// </summary>
+    public bool IsTakenDown => DeletedUtc is not null;
+
+    /// <summary>
+    /// True when this tale was taken down AND its restore window has fully elapsed
+    /// (<see cref="DeletedUtc"/> + <see cref="TakedownRestoreWindowDays"/> at or past
+    /// <paramref name="now"/>), so it is eligible for real (hard) removal and reads
+    /// as genuinely GONE (AC-03). Pure and computed from <see cref="DeletedUtc"/>.
+    /// False for a serving tale (nothing to purge).
+    /// </summary>
+    /// <param name="now">The current instant (injected so tests are deterministic).</param>
+    public bool IsRestoreWindowElapsed(DateTimeOffset now) =>
+        DeletedUtc is DateTimeOffset deleted && deleted.AddDays(TakedownRestoreWindowDays) <= now;
 }

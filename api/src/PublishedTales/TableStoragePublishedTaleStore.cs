@@ -106,19 +106,9 @@ public sealed class TableStoragePublishedTaleStore : IPublishedTaleStore
     {
         await EnsureTableAsync(cancellationToken);
 
-        var entity = new TableEntity(tale.Slug, tale.Slug)
-        {
-            // Anonymous, already-vetted fields only - the tale shape has no PII (AC-03).
-            ["Title"] = tale.Title,
-            ["PartsJson"] = JsonSerializer.Serialize(tale.Parts),
-            ["BylineNames"] = tale.BylineNames,
-            ["CreatedUtc"] = tale.CreatedUtc,
-            ["ExpiresUtc"] = tale.ExpiresUtc,
-        };
-
         // A fresh slug is unique (unguessable, minted per publish), so Add is right;
         // a failure PROPAGATES so the caller never hands back a link to an unstored tale.
-        await _table.AddEntityAsync(entity, cancellationToken);
+        await _table.AddEntityAsync(ToEntity(tale), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -138,13 +128,29 @@ public sealed class TableStoragePublishedTaleStore : IPublishedTaleStore
             }
 
             var tale = FromEntity(response.Value);
+            var now = DateTimeOffset.UtcNow;
 
             // Lazy expiry-on-read (AC-05): a tale at or past its expiry reads as GONE.
             // Opportunistically delete the stale row to reclaim it (best-effort - a
             // delete failure must not turn a clean 404 into a 500).
-            if (tale.IsExpired(DateTimeOffset.UtcNow))
+            if (tale.IsExpired(now))
             {
                 await TryDeleteAsync(slug, cancellationToken);
+                return null;
+            }
+
+            // Moderation-takedown soft-delete (keepsake-vault/04, AC-04): a taken-down
+            // tale reads as GONE to every public / report / queue caller (this GetAsync
+            // is their single read), exactly as when confirm-hidden HARD-deleted it -
+            // but the body row is retained for RestoreFromTakedownAsync. Past its
+            // restore window it is reclaimed lazily on read (AC-03), the same purge-on-
+            // read idiom as expiry above.
+            if (tale.IsTakenDown)
+            {
+                if (tale.IsRestoreWindowElapsed(now))
+                {
+                    await TryDeleteAsync(slug, cancellationToken);
+                }
                 return null;
             }
 
@@ -297,10 +303,23 @@ public sealed class TableStoragePublishedTaleStore : IPublishedTaleStore
             return false;
         }
 
-        // Confirm-hidden: hard-delete the tale body so the slug NEVER serves again,
-        // and drop the moderation row so it leaves the review queue (AC-03). Either
-        // soft- or hard-delete is acceptable; hard-delete also reclaims storage.
-        await TryDeleteAsync(slug, cancellationToken);
+        // Confirm-hidden: SOFT-delete the tale body (keepsake-vault/04, AC-04) instead
+        // of hard-deleting it. Stamp DeletedUtc on the body row so the slug stops
+        // serving (GetAsync then reads it as GONE, exactly as the old hard delete did)
+        // while the content is retained for RestoreFromTakedownAsync within the restore
+        // window. The content fields are never touched (AC-05) - only the marker flips.
+        var tale = await ReadTaleRawAsync(slug, cancellationToken);
+        if (tale is not null && !tale.IsTakenDown)
+        {
+            await _table.UpsertEntityAsync(
+                ToEntity(tale with { DeletedUtc = DateTimeOffset.UtcNow }),
+                TableUpdateMode.Replace,
+                cancellationToken);
+        }
+
+        // Drop the moderation row so the tale leaves the review queue; a later
+        // restore then resumes serving with a reset report count (the same clean-slate
+        // the un-hide RestoreAsync gives), so stale reports never immediately re-hide it.
         await TryDeleteModerationAsync(slug, cancellationToken);
         return true;
     }
@@ -325,6 +344,64 @@ public sealed class TableStoragePublishedTaleStore : IPublishedTaleStore
         // same reports do not immediately re-hide it (AC-03).
         await TryDeleteModerationAsync(slug, cancellationToken);
         return true;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> RestoreFromTakedownAsync(string slug, bool confirmedByOperator, CancellationToken cancellationToken = default)
+    {
+        // AC-07: the confirmation marker is REQUIRED at the signature (a caller cannot
+        // reach this path without supplying it). This defensive backstop refuses an
+        // un-confirmed call rather than silently un-deleting reported content.
+        if (!confirmedByOperator || string.IsNullOrWhiteSpace(slug))
+        {
+            return false;
+        }
+
+        await EnsureTableAsync(cancellationToken);
+
+        // Read the body row RAW (ReadTaleRawAsync sees a taken-down row that GetAsync
+        // hides), so a takedown can actually be undone.
+        var tale = await ReadTaleRawAsync(slug, cancellationToken);
+        if (tale is null || !tale.IsTakenDown)
+        {
+            // Unknown slug, or a tale that was not taken down - nothing to un-delete.
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        // Genuinely gone (TTL-expired or past the restore window): reclaim it and
+        // refuse - un-deleting a lapsed takedown is out of scope (AC-03).
+        if (tale.IsExpired(now) || tale.IsRestoreWindowElapsed(now))
+        {
+            await TryDeleteAsync(slug, cancellationToken);
+            return false;
+        }
+
+        // Clear the takedown marker -> the tale resumes serving at its slug EXACTLY as
+        // before, byte-for-byte, with no re-vet and no content mutation (AC-05/AC-06).
+        await _table.UpsertEntityAsync(
+            ToEntity(tale with { DeletedUtc = null }),
+            TableUpdateMode.Replace,
+            cancellationToken);
+        return true;
+    }
+
+    // Point-read one tale body row REGARDLESS of its takedown / expiry state (used by
+    // ConfirmHiddenAsync / RestoreFromTakedownAsync, which must see a taken-down row
+    // that GetAsync deliberately hides). Returns null when the row - or the table -
+    // does not exist, or on a storage blip (logged).
+    private async Task<PublishedTale?> ReadTaleRawAsync(string slug, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _table.GetEntityIfExistsAsync<TableEntity>(slug, slug, cancellationToken: cancellationToken);
+            return response.HasValue && response.Value is not null ? FromEntity(response.Value) : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Published-tale raw read failed for a slug (treated as absent).");
+            return null;
+        }
     }
 
     // Read the tiny moderation companion row for a slug, or the unreported default
@@ -371,6 +448,20 @@ public sealed class TableStoragePublishedTaleStore : IPublishedTaleStore
         }
     }
 
+    // Serialize a tale to its stored entity. Anonymous, already-vetted fields only -
+    // the tale shape has no PII (AC-03). DeletedUtc is the moderation-takedown
+    // soft-delete marker (keepsake-vault/04): written nullable, and explicitly cleared
+    // (set null) on restore so a stale marker never survives a Replace upsert.
+    private static TableEntity ToEntity(PublishedTale tale) => new(tale.Slug, tale.Slug)
+    {
+        ["Title"] = tale.Title,
+        ["PartsJson"] = JsonSerializer.Serialize(tale.Parts),
+        ["BylineNames"] = tale.BylineNames,
+        ["CreatedUtc"] = tale.CreatedUtc,
+        ["ExpiresUtc"] = tale.ExpiresUtc,
+        ["DeletedUtc"] = tale.DeletedUtc,
+    };
+
     // Rebuild the domain record from a stored entity. Defensive on the parts JSON:
     // a malformed / empty blob yields an empty body rather than throwing on a
     // public read.
@@ -395,6 +486,8 @@ public sealed class TableStoragePublishedTaleStore : IPublishedTaleStore
             Parts: parts,
             BylineNames: entity.GetString("BylineNames") ?? string.Empty,
             CreatedUtc: entity.GetDateTimeOffset("CreatedUtc") ?? DateTimeOffset.UtcNow,
-            ExpiresUtc: entity.GetDateTimeOffset("ExpiresUtc") ?? DateTimeOffset.UtcNow);
+            ExpiresUtc: entity.GetDateTimeOffset("ExpiresUtc") ?? DateTimeOffset.UtcNow,
+            // Absent column (a tale published before story 04, or a serving tale) -> null.
+            DeletedUtc: entity.GetDateTimeOffset("DeletedUtc"));
     }
 }

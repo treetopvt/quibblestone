@@ -35,6 +35,17 @@
 //  partition in ListAsync. A CLAIMED vault's tales are EXEMPT (AC-05): when a claim
 //  row is present, the TTL filter is skipped entirely.
 //
+//  SOFT DELETE + RESTORE (keepsake-vault/04, issue #231): a deletion sets a nullable
+//  DeletedUtc column on the tale's OWN row (the "rebuild the immutable record with a
+//  flipped marker" pattern - the content fields are never touched, AC-05) rather
+//  than removing the row. ListAsync omits soft-deleted rows (AC-01) but keeps them
+//  within the restore window so RestoreAsync can clear the marker (AC-02/AC-06); a
+//  soft-deleted row past its window is reclaimed lazily on read, the same purge-on-
+//  read idiom the TTL uses (AC-03). SoftDeleteAsync / RestoreAsync point-read the
+//  one (vaultId, taleId) row via ReadRowAsync (which, unlike ListAsync, sees a
+//  soft-deleted row) and upsert the flipped marker. Both read the injected clock so
+//  a restore-window elapse is deterministic under test.
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -116,15 +127,11 @@ public sealed class TableStorageVaultStore : IVaultStore
             return VaultSaveOutcome.RejectedCapExceeded;
         }
 
-        var entity = new TableEntity(vaultId, tale.TaleId)
-        {
-            // Anonymous, already-vetted fields only - no PII beyond the byline (AC-04).
-            // NOTE (AC-03): no ExpiresUtc column - expiry is computed from CreatedUtc.
-            ["Title"] = tale.Title,
-            ["PartsJson"] = JsonSerializer.Serialize(tale.Parts),
-            ["BylineNames"] = tale.BylineNames,
-            ["CreatedUtc"] = tale.CreatedUtc,
-        };
+        // Serialize under the CANONICAL vault id (an aliased device's tales join the
+        // claimed vault, mirroring the in-memory store's `tale with { VaultId }`).
+        // ToEntity also carries the soft-delete marker column (keepsake-vault/04), so a
+        // re-save round-trips DeletedUtc rather than dropping it.
+        var entity = ToEntity(tale with { VaultId = vaultId });
 
         await _table.UpsertEntityAsync(entity, TableUpdateMode.Replace, ct);
         return VaultSaveOutcome.Saved;
@@ -164,11 +171,21 @@ public sealed class TableStorageVaultStore : IVaultStore
                 }
 
                 var tale = FromEntity(entity);
-                // AC-05: a claimed vault's tales never expire. AC-03: an unclaimed
-                // vault's expired rows are omitted and marked for a reclaim delete.
-                if (!isClaimed && tale.IsExpired(now))
+                // Apply the computed exclusions as the partition is enumerated:
+                //   - AC-05/AC-03 TTL: a claimed vault's tales never expire; an unclaimed
+                //     vault's row past CreatedUtc + TtlDays is omitted + reclaimed.
+                //   - keepsake-vault/04 SOFT-DELETE: a soft-deleted row is omitted; if its
+                //     restore window has ALSO elapsed (AC-03) it is reclaimed, otherwise it
+                //     is kept (omitted, not deleted) so RestoreAsync can still recover it.
+                //     An explicit delete is honored even in a claimed vault.
+                if ((!isClaimed && tale.IsExpired(now)) || tale.IsRestoreWindowElapsed(now))
                 {
                     expired.Add(tale.TaleId);
+                    continue;
+                }
+                if (tale.IsDeleted)
+                {
+                    // Within the restore window: hidden from the listing but retained.
                     continue;
                 }
                 tales.Add(tale);
@@ -193,6 +210,96 @@ public sealed class TableStorageVaultStore : IVaultStore
         }
 
         return tales;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> SoftDeleteAsync(string vaultId, string taleId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(vaultId) || string.IsNullOrWhiteSpace(taleId))
+        {
+            return false;
+        }
+
+        await EnsureTableAsync(ct);
+        var tale = await ReadRowAsync(vaultId, taleId, ct);
+        if (tale is null)
+        {
+            return false;
+        }
+
+        var now = _clock.GetUtcNow();
+        // Genuinely gone (TTL-expired or past the restore window): reclaim it and
+        // report no soft-delete happened - there is nothing to delete (AC-03).
+        if (tale.IsExpired(now) || tale.IsRestoreWindowElapsed(now))
+        {
+            await TryDeleteAsync(vaultId, taleId, ct);
+            return false;
+        }
+
+        // Already soft-deleted within the window: idempotent no-op success (AC-01).
+        if (tale.IsDeleted)
+        {
+            return true;
+        }
+
+        // Live -> stamp DeletedUtc (server-side) on a rebuilt record and persist it.
+        // The content fields are never touched (AC-05) - only the marker flips.
+        await _table.UpsertEntityAsync(ToEntity(tale with { DeletedUtc = now }), TableUpdateMode.Replace, ct);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public async Task<VaultTale?> RestoreAsync(string vaultId, string taleId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(vaultId) || string.IsNullOrWhiteSpace(taleId))
+        {
+            return null;
+        }
+
+        await EnsureTableAsync(ct);
+        var tale = await ReadRowAsync(vaultId, taleId, ct);
+        if (tale is null)
+        {
+            return null;
+        }
+
+        var now = _clock.GetUtcNow();
+        // Genuinely gone (TTL-expired or past the restore window): reclaim it and
+        // return null - un-deleting a lapsed tale is out of scope (AC-03).
+        if (tale.IsExpired(now) || tale.IsRestoreWindowElapsed(now))
+        {
+            await TryDeleteAsync(vaultId, taleId, ct);
+            return null;
+        }
+
+        // Already live: harmless no-op, return it unchanged.
+        if (!tale.IsDeleted)
+        {
+            return tale;
+        }
+
+        // Within the window: clear the marker (a pure undo, content untouched -
+        // AC-05/AC-06) and persist, returning the now-live tale.
+        var restored = tale with { DeletedUtc = null };
+        await _table.UpsertEntityAsync(ToEntity(restored), TableUpdateMode.Replace, ct);
+        return restored;
+    }
+
+    // Point-read one (vault, tale) row REGARDLESS of its soft-delete / expiry state
+    // (used by SoftDeleteAsync / RestoreAsync, which must see a soft-deleted row that
+    // ListAsync omits). Returns null when the row - or the table - does not exist.
+    private async Task<VaultTale?> ReadRowAsync(string vaultId, string taleId, CancellationToken ct)
+    {
+        try
+        {
+            var response = await _table.GetEntityIfExistsAsync<TableEntity>(vaultId, taleId, cancellationToken: ct);
+            return response.HasValue && response.Value is not null ? FromEntity(response.Value) : null;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            // The table itself does not exist yet - nothing has ever been saved.
+            return null;
+        }
     }
 
     /// <inheritdoc />
@@ -510,6 +617,22 @@ public sealed class TableStorageVaultStore : IVaultStore
         }
     }
 
+    // Serialize a tale to its stored entity. Anonymous, already-vetted fields only -
+    // no PII beyond the byline (AC-04). No ExpiresUtc column (AC-03): TTL expiry is
+    // computed from CreatedUtc at read time, never stored. DeletedUtc is the
+    // soft-delete marker (keepsake-vault/04): written only when set, and explicitly
+    // cleared (set null) on restore so a stale marker never survives a round-trip.
+    private static TableEntity ToEntity(VaultTale tale) => new(tale.VaultId, tale.TaleId)
+    {
+        ["Title"] = tale.Title,
+        ["PartsJson"] = JsonSerializer.Serialize(tale.Parts),
+        ["BylineNames"] = tale.BylineNames,
+        ["CreatedUtc"] = tale.CreatedUtc,
+        // Nullable: a live tale stores an explicit null (a Replace upsert then clears
+        // any prior marker), a soft-deleted tale stores the deletion instant.
+        ["DeletedUtc"] = tale.DeletedUtc,
+    };
+
     // Rebuild the domain record from a stored tale entity. Defensive on the parts
     // JSON: a malformed / empty blob yields an empty body rather than throwing.
     private static VaultTale FromEntity(TableEntity entity)
@@ -535,6 +658,8 @@ public sealed class TableStorageVaultStore : IVaultStore
             BylineNames: entity.GetString("BylineNames") ?? string.Empty,
             // CreatedUtc is always present on a real row; the fallback only guards a
             // corrupt row and never keys a real TTL decision.
-            CreatedUtc: entity.GetDateTimeOffset("CreatedUtc") ?? DateTimeOffset.UtcNow);
+            CreatedUtc: entity.GetDateTimeOffset("CreatedUtc") ?? DateTimeOffset.UtcNow,
+            // Absent column (a tale saved before story 04, or a live tale) -> null.
+            DeletedUtc: entity.GetDateTimeOffset("DeletedUtc"));
     }
 }

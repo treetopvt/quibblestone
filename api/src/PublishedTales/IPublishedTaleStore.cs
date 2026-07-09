@@ -89,18 +89,63 @@ public interface IPublishedTaleStore
     Task<IReadOnlyList<ReportedTaleView>> ListHiddenAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Operator action: confirm a hidden tale stays gone (AC-03). After this the slug
-    /// NEVER serves again (hard-deleted here) and drops off the review queue. Returns
-    /// true when a hidden tale was found and confirmed; false (idempotent no-op) for
-    /// an unknown / not-hidden slug.
+    /// Operator action: confirm a hidden tale stays down (AC-03). SOFT-deletes the
+    /// tale (keepsake-vault/04, AC-04): after this the slug stops serving (reads as
+    /// GONE, exactly as when it was hard-deleted) and it drops off the review queue,
+    /// BUT the tale body is retained and stays recoverable within the takedown
+    /// restore window via <see cref="RestoreFromTakedownAsync"/> - a wrongly-hidden
+    /// tale or an operator mistake is no longer unrecoverable. Past the restore
+    /// window the body is reclaimed lazily on read (AC-03). Returns true when a
+    /// hidden tale was found and taken down; false (idempotent no-op) for an unknown
+    /// / not-hidden slug.
     /// </summary>
     Task<bool> ConfirmHiddenAsync(string slug, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Operator action: restore a hidden tale (AC-03). It resumes serving normally at
-    /// its slug AND its report count is RESET to zero, so the same reports do not
-    /// immediately re-hide it. Returns true when a hidden tale was found and restored;
-    /// false (idempotent no-op) for an unknown / not-hidden slug.
+    /// Operator action: UN-HIDE a reported-but-still-present tale (AC-03). This is the
+    /// EXISTING moderation restore - it acts on a tale that was auto-hidden by reports
+    /// but whose body was NEVER deleted: it resumes serving normally at its slug AND
+    /// resets the report count to zero, so the same reports do not immediately re-hide
+    /// it. Returns true when a hidden tale was found and un-hidden; false (idempotent
+    /// no-op) for an unknown / not-hidden slug.
+    ///
+    /// DISTINCT from <see cref="RestoreFromTakedownAsync"/> (keepsake-vault/04): this
+    /// un-hides a tale that was never body-deleted; that one un-DELETES a tale a
+    /// confirm-hidden takedown soft-deleted. The two must never be confused in a
+    /// console reader's eyes - hence the deliberately different names (AC-04) and the
+    /// takedown path's required confirmation argument (AC-07).
     /// </summary>
     Task<bool> RestoreAsync(string slug, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Operator action: UN-DELETE a tale a moderation takedown soft-deleted
+    /// (keepsake-vault/04, AC-04/AC-06). Clears the takedown marker so the tale
+    /// resumes serving at its slug EXACTLY as it was before the takedown - the same
+    /// already-filtered content, byte-for-byte, with no re-vet, no content mutation,
+    /// and no re-publish ceremony (AC-05/AC-06). Returns true when a taken-down tale
+    /// (within its restore window) was found and restored; false for an unknown slug,
+    /// a tale that was not taken down, or one already past its restore window
+    /// (genuinely gone, AC-03).
+    ///
+    /// STRONGER FRICTION THAN A PLAYER'S OWN VAULT RESTORE (AC-07): a takedown restore
+    /// re-exposes content that was reported and confirmed hidden by an operator for a
+    /// reason - materially higher-risk than a family undoing its own delete of content
+    /// only that family saw. So this signature REQUIRES an explicit
+    /// <paramref name="confirmedByOperator"/> marker that the plain vault
+    /// <see cref="Vault.IVaultStore.RestoreAsync"/> has no equivalent of: a caller
+    /// cannot invoke this path without affirmatively supplying it (a compile-time,
+    /// structural distinction, not a documented convention). The operator-facing
+    /// confirmation UX (a type-to-confirm step or similar) is sysadmin-console/07's
+    /// support verb, which passes this argument only AFTER its own confirmation step;
+    /// there is no public endpoint for it in this story. A call with
+    /// <paramref name="confirmedByOperator"/> false is refused (returns false) as a
+    /// defensive backstop to the structural requirement.
+    /// </summary>
+    /// <param name="slug">The taken-down tale's slug.</param>
+    /// <param name="confirmedByOperator">
+    /// The required confirmation marker (AC-07). Must be true; the call is a no-op
+    /// otherwise. Its very presence in the signature is the structural friction that
+    /// sets a takedown restore apart from a player's own vault-delete restore.
+    /// </param>
+    Task<bool> RestoreFromTakedownAsync(string slug, bool confirmedByOperator, CancellationToken cancellationToken = default);
 }
