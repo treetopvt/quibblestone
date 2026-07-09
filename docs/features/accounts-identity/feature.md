@@ -32,7 +32,7 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 | 02 | #68 | Lightweight purchaser account | Complete |
 | 03 | #69 | Sign-in and restore on a new device | Complete |
 | 04 | #167 | Magic-link email delivery | Complete |
-| 05 | #TBD | Stable account id spine | Not Started |
+| 05 | #195 | Stable account id spine | Complete |
 | 06 | #TBD | Purchaser proof at CreateRoom (ADR 0002 Decision F, finally wired) | Not Started |
 | 07 | #TBD | The free family account | Not Started |
 | 08 | #TBD | Kid seat presets | Not Started |

@@ -1,6 +1,6 @@
 # Story: Stable account id spine
 
-**Feature:** Accounts & Identity  ·  **Status:** In Review  ·  **Issue:** #195
+**Feature:** Accounts & Identity  ·  **Status:** Complete  ·  **Issue:** #195
 
 ## Context
 An audit ahead of [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md)

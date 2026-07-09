@@ -27,7 +27,7 @@ README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
 | 05 | #107 | Anonymous product-usage metrics | Complete |
 | 06 | - | Repair the drifted e2e suite and gate it in CI | Not Started |
 | 07 | - | QA lane + tag-based promotion to beta | Complete |
-| 08 | #TBD | Durable Data Protection key ring + token signing key posture | Not Started |
+| 08 | #199 | Durable Data Protection key ring + token signing key posture | Complete |
 
 > ADR 0003 Decision 4's "second environment" is NOT a separate story: story 07 (the QA lane +
 > tag-promoted beta) already delivers it - it rebadges the existing UAT site as "beta" and stands up
@@ -96,3 +96,22 @@ README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
   beta and stands up an isolated qa lane). So the standalone second-environment
   story was DROPPED as superseded, and the durable key ring was renumbered to 08.
   ADR 0003, its runbook, and the cross-feature references were updated to match.
+- 2026-07-09 (story 08 shipped, PR #207): merged to `main` as ADR 0003 Wave 1.
+  An independent review of the diff was clean (0 critical, 0 warnings). Three
+  non-blocking follow-ups were raised and are tracked here (none gate the merge):
+  - **Tighten the provisioning-script secret scope:** the transient deploymentScript
+    identity currently holds Key Vault Secrets Officer on the WHOLE vault; it only
+    needs to write `AccountsTokenSigningKey`, so scope the role assignment to that
+    single secret resource.
+  - **First-deploy KV-reference race:** if App Service resolves the
+    `@Microsoft.KeyVault(...)` `Accounts:TokenSigningKey` reference BEFORE the
+    deploymentScript writes the secret, the setting is briefly empty and
+    `MagicLinkTokenService` falls back to an ephemeral per-process key (a link minted
+    in that window dies on recycle). It self-heals on the next restart and is NOT
+    covered by the AC-08 fail-closed guard (which does not check
+    `Accounts:TokenSigningKey`). Add a runbook note or an explicit restart-after-
+    provision step so the first-deploy window is understood.
+  - **Broaden the best-effort prune catch:** `TableStorageConsumedNonceStore`'s
+    fire-and-forget prune catches only `RequestFailedException`; broaden to a general
+    catch (and pass the cancellation token to `DeleteEntityAsync`) so a stray
+    exception in housekeeping is never an unobserved task exception. Cosmetic.
