@@ -1,6 +1,6 @@
 # Story: Family device link
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #229
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md)'s "How a

@@ -1,6 +1,6 @@
 # Story: The operator action log (ADR 0003 Decision 3 / Amendment 2)
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #233
 
 ## Context
 ADR 0002 originally staked out "no audit-trail ceremony" for the operator console (this feature's

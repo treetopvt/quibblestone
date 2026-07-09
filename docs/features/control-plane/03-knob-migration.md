@@ -6,7 +6,7 @@
 
 # Story: Knob migration
 
-**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Not Started  ·  **Issue:** #232
 
 ## Context
 ADR 0003's audit named seven hardcoded operational constants, each already documented in its own file

@@ -1,6 +1,6 @@
 # Story: Kid seat presets
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #228
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Decision 1
