@@ -43,6 +43,23 @@
 //  ("this crew carved this on this date"). QuibbleStone is a toy, not a system of
 //  record (README section 4) - a tale is saved, listed, and expired, never edited.
 //
+//  SOFT DELETE + RESTORE WINDOW (keepsake-vault/04, issue #231): a player deleting
+//  a vault tale no longer removes the row outright - the tale is marked deleted
+//  (DeletedUtc stamped) and stops appearing in any listing, but its content stays
+//  fully recoverable for a bounded restore window (RestoreWindowDays, default 30
+//  from the deletion instant). This is the codebase's "rebuild the immutable
+//  record with a flipped marker" pattern (mirrors Player.Connected /
+//  Room.MarkDisconnected's `with { ... }`): DeletedUtc is set on a rebuilt record,
+//  never editing the content fields. Past the window a soft-deleted tale becomes
+//  eligible for real (hard) removal, reclaimed lazily on the next read (the same
+//  purge-on-read idiom this record's TTL already uses) - no reaper job. The restore
+//  STORE method lives on IVaultStore; the operator-facing console verb that calls
+//  it is sysadmin-console/07, not this story. A player's own restore of their own
+//  delete carries NO extra friction (it only affects content their own family saw)
+//  - the higher-friction, confirmation-gated path is the published-tale takedown
+//  restore (IPublishedTaleStore.RestoreFromTakedownAsync), a deliberately DISTINCT
+//  operation (AC-07).
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -90,13 +107,22 @@ public sealed record VaultTalePart(bool IsWord, string Text);
 /// time, AC-02), never accepted from the client: the TTL (AC-03) keys off this on
 /// an anonymous, abusable endpoint, so a client-supplied value would be spoofable.
 /// </param>
+/// <param name="DeletedUtc">
+/// When the tale was SOFT-deleted, or null while it is live (keepsake-vault/04,
+/// AC-01). A soft-deleted tale is omitted from every listing but stays fully
+/// recoverable until <see cref="RestoreWindowDays"/> days past this instant
+/// (AC-02), after which it is eligible for hard removal (AC-03). ALWAYS server-
+/// stamped on the soft-delete action, never accepted from a client - the restore
+/// window keys off it. Null for every tale saved before it was ever deleted.
+/// </param>
 public sealed record VaultTale(
     string VaultId,
     string TaleId,
     string Title,
     IReadOnlyList<VaultTalePart> Parts,
     string BylineNames,
-    DateTimeOffset CreatedUtc)
+    DateTimeOffset CreatedUtc,
+    DateTimeOffset? DeletedUtc = null)
 {
     /// <summary>
     /// The default unclaimed-vault TTL in days (AC-03): a stored tale expires
@@ -107,7 +133,20 @@ public sealed record VaultTale(
     public const int TtlDays = 90;
 
     /// <summary>
-    /// True when this tale is at or past its computed expiry instant
+    /// The soft-delete restore window in days (keepsake-vault/04, AC-02): a
+    /// soft-deleted tale stays recoverable for this many days past its
+    /// <see cref="DeletedUtc"/>, then becomes eligible for hard removal (AC-03).
+    /// The SAME restore-window model the published-tale takedown path uses
+    /// (see the published side's own constant). A settings-key candidate (ADR 0003
+    /// control-plane "knob migration") shipped as a code constant until
+    /// control-plane/01's catalog exists - this story is not blocked on it, and it
+    /// mirrors <see cref="PublishedTales.PublishedTalesController.TaleTtl"/>'s
+    /// named-constant-recorded-in-the-story precedent rather than a magic number.
+    /// </summary>
+    public const int RestoreWindowDays = 30;
+
+    /// <summary>
+    /// True when this tale is at or past its computed TTL-expiry instant
     /// (<see cref="CreatedUtc"/> + <see cref="TtlDays"/>) and must read as GONE
     /// (AC-03). Pure and computed - NOT read from a stored ExpiresUtc column - so
     /// the TTL cannot be spoofed and a TtlDays change applies to every existing
@@ -115,4 +154,23 @@ public sealed record VaultTale(
     /// </summary>
     /// <param name="now">The current instant (injected so tests are deterministic).</param>
     public bool IsExpired(DateTimeOffset now) => CreatedUtc.AddDays(TtlDays) <= now;
+
+    /// <summary>
+    /// True when this tale has been soft-deleted (keepsake-vault/04, AC-01): it is
+    /// omitted from every listing but, within the restore window, its content is
+    /// still recoverable (AC-02). A live tale has a null <see cref="DeletedUtc"/>.
+    /// </summary>
+    public bool IsDeleted => DeletedUtc is not null;
+
+    /// <summary>
+    /// True when this tale was soft-deleted AND its restore window has fully elapsed
+    /// (<see cref="DeletedUtc"/> + <see cref="RestoreWindowDays"/> at or past
+    /// <paramref name="now"/>), so it is eligible for real (hard) removal and reads
+    /// as genuinely GONE (AC-03). Pure and computed from <see cref="DeletedUtc"/>
+    /// (never a stored expiry), so a window change applies to every soft-deleted
+    /// tale. False for a live tale (nothing to purge).
+    /// </summary>
+    /// <param name="now">The current instant (injected so tests are deterministic).</param>
+    public bool IsRestoreWindowElapsed(DateTimeOffset now) =>
+        DeletedUtc is DateTimeOffset deleted && deleted.AddDays(RestoreWindowDays) <= now;
 }

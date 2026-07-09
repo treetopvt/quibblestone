@@ -36,7 +36,14 @@
 //  (CreatedUtc + TtlDays) and the claim-code validity window, so both are
 //  deterministic under test (a FakeTimeProvider advances past a window). Defaults to
 //  the system clock - existing keepsake-vault/01 tests that construct the store with
-//  no argument are unchanged.
+//  no argument are unchanged. The soft-delete / restore paths (keepsake-vault/04)
+//  read this SAME clock so a restore-window elapse is deterministic too.
+//
+//  SOFT DELETE + RESTORE (keepsake-vault/04, issue #231) are likewise enforced here
+//  identically to the Table store: SoftDeleteAsync stamps DeletedUtc so the tale
+//  drops out of ListAsync while staying recoverable, RestoreAsync clears it within
+//  the restore window, and a soft-deleted tale past its window is purged lazily on
+//  the next read (mirroring the TTL purge-on-read) - no reaper job.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -140,24 +147,92 @@ public sealed class InMemoryVaultStore : IVaultStore
             return Task.FromResult<IReadOnlyList<VaultTale>>([]);
         }
 
-        // AC-05: a CLAIMED vault's tales never expire - skip the TTL filter entirely
-        // when the vault is claimed (claiming is the durability upgrade). An unclaimed
-        // vault keeps the computed TTL applied per row (AC-03).
+        // AC-05 (keepsake-vault/03): a CLAIMED vault's tales never TTL-expire - skip
+        // the TTL filter entirely when the vault is claimed (claiming is the durability
+        // upgrade). An unclaimed vault keeps the computed TTL applied per row (AC-03).
         var isClaimed = _claims.ContainsKey(canonicalId);
 
+        // Apply the exclusions while enumerating the partition (identical to the Table
+        // store, so local dev / CI exercises the same rules):
+        //   - AC-03 TTL: an unclaimed vault's row past CreatedUtc + TtlDays is omitted
+        //     and reclaimed (a claimed vault is exempt, AC-05).
+        //   - keepsake-vault/04 SOFT-DELETE: a soft-deleted row is omitted immediately;
+        //     if its restore window has ALSO elapsed (AC-03) it is reclaimed too, else
+        //     it is kept (omitted, not removed) so RestoreAsync can still recover it.
+        //     An explicit delete is honored even in a claimed vault - claiming exempts
+        //     the passive TTL, not a deliberate delete.
         var now = _clock.GetUtcNow();
         var live = new List<VaultTale>();
         foreach (var (taleId, tale) in partition)
         {
-            if (!isClaimed && tale.IsExpired(now))
+            if ((!isClaimed && tale.IsExpired(now)) || tale.IsRestoreWindowElapsed(now))
             {
                 partition.TryRemove(taleId, out _);
+                continue;
+            }
+            if (tale.IsDeleted)
+            {
+                // Within the restore window: hidden from the listing but retained.
                 continue;
             }
             live.Add(tale);
         }
 
         return Task.FromResult<IReadOnlyList<VaultTale>>(live);
+    }
+
+    /// <inheritdoc />
+    public Task<bool> SoftDeleteAsync(string vaultId, string taleId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(vaultId) || string.IsNullOrWhiteSpace(taleId)
+            || !_byVault.TryGetValue(vaultId, out var partition)
+            || !partition.TryGetValue(taleId, out var tale))
+        {
+            return Task.FromResult(false);
+        }
+
+        var now = _clock.GetUtcNow();
+        // Genuinely gone (TTL-expired or past the restore window): reclaim it and
+        // report no soft-delete happened (nothing to delete, AC-03).
+        if (tale.IsExpired(now) || tale.IsRestoreWindowElapsed(now))
+        {
+            partition.TryRemove(taleId, out _);
+            return Task.FromResult(false);
+        }
+
+        // Live -> mark deleted (server-stamped). Already soft-deleted within the
+        // window -> idempotent no-op success (AC-01).
+        if (!tale.IsDeleted)
+        {
+            partition[taleId] = tale with { DeletedUtc = now };
+        }
+        return Task.FromResult(true);
+    }
+
+    /// <inheritdoc />
+    public Task<VaultTale?> RestoreAsync(string vaultId, string taleId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(vaultId) || string.IsNullOrWhiteSpace(taleId)
+            || !_byVault.TryGetValue(vaultId, out var partition)
+            || !partition.TryGetValue(taleId, out var tale))
+        {
+            return Task.FromResult<VaultTale?>(null);
+        }
+
+        var now = _clock.GetUtcNow();
+        // Genuinely gone (TTL-expired or past the restore window): reclaim it and
+        // return null - un-deleting a lapsed tale is out of scope (AC-03).
+        if (tale.IsExpired(now) || tale.IsRestoreWindowElapsed(now))
+        {
+            partition.TryRemove(taleId, out _);
+            return Task.FromResult<VaultTale?>(null);
+        }
+
+        // Within the window (or already live): clear the marker and return the
+        // now-live tale unchanged - a pure undo, no content mutation (AC-05/AC-06).
+        var restored = tale.IsDeleted ? tale with { DeletedUtc = null } : tale;
+        partition[taleId] = restored;
+        return Task.FromResult<VaultTale?>(restored);
     }
 
     /// <inheritdoc />

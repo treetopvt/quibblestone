@@ -106,10 +106,13 @@ public sealed class ReportedTalesController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/admin/reported-tales/{slug}/confirm -> confirm the tale stays hidden
-    /// (AC-03). After this the slug NEVER serves again (the store hard-deletes it) and
-    /// it drops off the queue. Idempotent: a slug that is unknown / not hidden returns
-    /// Applied=false rather than an error.
+    /// POST /api/admin/reported-tales/{slug}/confirm -> confirm the tale stays down
+    /// (AC-03). After this the slug stops serving and drops off the queue. The store
+    /// now SOFT-deletes the body (keepsake-vault/04) rather than hard-deleting it, so
+    /// a wrongly-confirmed takedown stays recoverable within the restore window via
+    /// the store's confirmation-gated restore-from-takedown method (wired to an
+    /// operator verb by sysadmin-console/07, not here). Idempotent: a slug that is
+    /// unknown / not hidden returns Applied=false rather than an error.
     /// </summary>
     [HttpPost("{slug}/confirm")]
     public async Task<IActionResult> Confirm(string slug, CancellationToken cancellationToken)

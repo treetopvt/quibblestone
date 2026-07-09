@@ -361,9 +361,21 @@ internal sealed class FakePublishedTaleStore : IPublishedTaleStore
         {
             return Task.FromResult<PublishedTale?>(null);
         }
-        if (tale.IsExpired(DateTimeOffset.UtcNow))
+        var now = DateTimeOffset.UtcNow;
+        if (tale.IsExpired(now))
         {
             _byslug.Remove(slug);
+            return Task.FromResult<PublishedTale?>(null);
+        }
+        // Moderation-takedown soft-delete (keepsake-vault/04): a taken-down tale reads
+        // as GONE to the public / report / queue path (mirroring the real store), while
+        // the body is retained for RestoreFromTakedownAsync until its window elapses.
+        if (tale.IsTakenDown)
+        {
+            if (tale.IsRestoreWindowElapsed(now))
+            {
+                _byslug.Remove(slug);
+            }
             return Task.FromResult<PublishedTale?>(null);
         }
         return Task.FromResult<PublishedTale?>(tale);
@@ -413,8 +425,13 @@ internal sealed class FakePublishedTaleStore : IPublishedTaleStore
         {
             return Task.FromResult(false);
         }
-        // Confirm-hidden: the slug never serves again, and it drops off the queue.
-        _byslug.Remove(slug);
+        // Confirm-hidden (keepsake-vault/04): SOFT-delete the body (stamp DeletedUtc)
+        // so the slug stops serving but stays recoverable; drop the moderation row so
+        // it leaves the queue. GetAsync below treats a taken-down tale as gone.
+        if (_byslug.TryGetValue(slug, out var tale) && !tale.IsTakenDown)
+        {
+            _byslug[slug] = tale with { DeletedUtc = DateTimeOffset.UtcNow };
+        }
         _moderation.Remove(slug);
         return Task.FromResult(true);
     }
@@ -425,8 +442,27 @@ internal sealed class FakePublishedTaleStore : IPublishedTaleStore
         {
             return Task.FromResult(false);
         }
-        // Restore: resume serving + reset the count (drop the moderation state).
+        // Un-hide (the EXISTING moderation restore): resume serving + reset the count
+        // (drop the moderation state). Never touches the body (it was never deleted).
         _moderation.Remove(slug);
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> RestoreFromTakedownAsync(string slug, bool confirmedByOperator, CancellationToken cancellationToken = default)
+    {
+        // AC-07: the confirmation marker is required - refuse an un-confirmed call.
+        if (!confirmedByOperator || !_byslug.TryGetValue(slug, out var tale) || !tale.IsTakenDown)
+        {
+            return Task.FromResult(false);
+        }
+        var now = DateTimeOffset.UtcNow;
+        if (tale.IsExpired(now) || tale.IsRestoreWindowElapsed(now))
+        {
+            _byslug.Remove(slug);
+            return Task.FromResult(false);
+        }
+        // Un-delete: clear the takedown marker -> the tale serves again unchanged.
+        _byslug[slug] = tale with { DeletedUtc = null };
         return Task.FromResult(true);
     }
 }

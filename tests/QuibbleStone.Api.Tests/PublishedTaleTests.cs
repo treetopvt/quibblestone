@@ -107,3 +107,45 @@ public class PublishedTaleExpiryTests
         Assert.True(tale.IsExpired(now));
     }
 }
+
+// keepsake-vault/04: the pure moderation-takedown soft-delete helpers.
+public class PublishedTaleTakedownTests
+{
+    private static PublishedTale Tale(DateTimeOffset? deletedUtc) =>
+        new(
+            Slug: "SLUGSLUGSLUG",
+            Title: "A tale",
+            Parts: [new TalePart(false, "Once upon a "), new TalePart(true, "banana")],
+            BylineNames: "Sam & Mia",
+            CreatedUtc: DateTimeOffset.UtcNow - TimeSpan.FromDays(1),
+            ExpiresUtc: DateTimeOffset.UtcNow + TimeSpan.FromDays(30),
+            DeletedUtc: deletedUtc);
+
+    [Fact]
+    public void A_serving_tale_is_not_taken_down()
+    {
+        var tale = Tale(deletedUtc: null);
+        Assert.False(tale.IsTakenDown);
+        Assert.False(tale.IsRestoreWindowElapsed(DateTimeOffset.UtcNow.AddYears(1)));
+    }
+
+    [Fact]
+    public void A_taken_down_tale_is_recoverable_until_the_window_elapses()
+    {
+        // AC-02/AC-03: the takedown restore window is DeletedUtc + window, inclusive.
+        var deleted = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var tale = Tale(deletedUtc: deleted);
+
+        Assert.True(tale.IsTakenDown);
+        Assert.False(tale.IsRestoreWindowElapsed(deleted.AddDays(PublishedTale.TakedownRestoreWindowDays - 1)));
+        Assert.True(tale.IsRestoreWindowElapsed(deleted.AddDays(PublishedTale.TakedownRestoreWindowDays)));
+        Assert.True(tale.IsRestoreWindowElapsed(deleted.AddDays(PublishedTale.TakedownRestoreWindowDays + 5)));
+    }
+
+    [Fact]
+    public void The_takedown_window_matches_the_vault_restore_window()
+    {
+        // AC-04: the SAME restore-window model as the vault's own soft-delete.
+        Assert.Equal(QuibbleStone.Api.Vault.VaultTale.RestoreWindowDays, PublishedTale.TakedownRestoreWindowDays);
+    }
+}

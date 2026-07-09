@@ -42,7 +42,9 @@
 //  NO PII (AC-04): only the already-vetted in-session nickname(s) (the byline) and
 //  the already-filtered story are ever stored; the vault id is a random handle,
 //  never joined to any identity. There is no new free-text entry point - content
-//  is re-vetted, not re-authored.
+//  is re-vetted, not re-authored (and the DELETE / restore paths add NONE either -
+//  a soft-delete flips a marker and a restore returns the already-filtered content
+//  byte-for-byte, keepsake-vault/04 AC-05).
 //
 //  CLAIM + RECOVERY (keepsake-vault/03, issue #230): four more endpoints turn a
 //  vault durable and recoverable. POST /api/vault/claim attaches the SIGNED-IN
@@ -61,6 +63,14 @@
 //  FAMILY only, never a kid profile (AC-04, ADR 0003 Decision 1). The claim code and
 //  the AccountId are bearer/account-plane secrets - never logged, never in an
 //  exception message, and the response never carries the AccountId (AC-06).
+//
+//  SOFT DELETE (keepsake-vault/04, issue #231): DELETE /api/vault/tales/{taleId}
+//  soft-deletes a tale (marks + timestamps it, drops it from the listing) rather
+//  than removing it, so a mistaken delete is recoverable within a restore window.
+//  The vault id still travels in the X-Vault-Id HEADER; only the taleId (not a
+//  bearer credential, meaningless without the header) rides the route. The restore
+//  method is a store method with NO public endpoint here - sysadmin-console/07 owns
+//  that call site, with stronger friction on the takedown-restore path (AC-07).
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -367,6 +377,48 @@ public sealed class VaultController : ControllerBase
         }
 
         return Ok(new SavedVaultTaleResult(tale.TaleId));
+    }
+
+    /// <summary>
+    /// DELETE /api/vault/tales/{taleId} -> 204. SOFT-deletes one tale from the vault
+    /// (keepsake-vault/04, AC-01): the tale is marked deleted and stops appearing in
+    /// the listing immediately, but stays recoverable within the restore window
+    /// (AC-02). The vault id comes from the X-Vault-Id HEADER (a bearer credential,
+    /// AC-02); the taleId is a route segment - deliberately, because it is
+    /// meaningless without the vault-id header and is NOT itself a bearer credential
+    /// (so it does not leak a secret to logs / Referer / history the way the vault id
+    /// would). A missing / malformed vault id is 400 (AC-01); a missing taleId is 400;
+    /// a taleId with no live tale under this vault (unknown, or already gone past its
+    /// window) is 404. Rate limited per IP like the write path (AC-06).
+    ///
+    /// This is a player-facing self-delete only: RestoreAsync is NOT exposed here -
+    /// no console / auth surface exists for it yet (sysadmin-console/07 adds that
+    /// call site), and the higher-friction takedown-restore is a separate, confirmed
+    /// operation on the published-tale store (AC-07).
+    /// </summary>
+    [HttpDelete("tales/{taleId}")]
+    [EnableRateLimiting(VaultRateLimit.SavePolicyName)]
+    public async Task<IActionResult> Delete(string taleId, CancellationToken cancellationToken)
+    {
+        var vaultId = ReadVaultId();
+        if (vaultId is null)
+        {
+            return BadRequest(new { message = "A valid vault id is required." });
+        }
+
+        if (string.IsNullOrWhiteSpace(taleId))
+        {
+            return BadRequest(new { message = "A tale id is required." });
+        }
+
+        var deleted = await _store.SoftDeleteAsync(vaultId, taleId, cancellationToken);
+        if (!deleted)
+        {
+            // Unknown / already-gone tale under this vault - nothing to delete.
+            return NotFound(new { message = "That tale is not in this vault." });
+        }
+
+        return NoContent();
     }
 
     /// <summary>
