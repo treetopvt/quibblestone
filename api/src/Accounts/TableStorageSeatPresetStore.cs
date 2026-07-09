@@ -58,11 +58,14 @@ public sealed class TableStorageSeatPresetStore : ISeatPresetStore
     // is a round-trip only needed on the FIRST write; a benign race is harmless.
     private volatile bool _tableEnsured;
 
-    // A process-local monotonic sequence for the CreatedOrder stamp. It only needs to
-    // be increasing within a process to give a stable list ordering; presets created
-    // across restarts fall back to their stamp value, which is fine for a small,
-    // hand-managed list (a family's handful of kids).
-    private long _sequence;
+    // A monotonic sequence for the CreatedOrder stamp, SEEDED from the current unix-ms
+    // time at construction so it keeps increasing ACROSS restarts (Copilot review): a
+    // fresh process starts counting from "now", always greater than any stamp a prior
+    // process wrote, so a preset created after a restart never sorts BEFORE an older
+    // one. Interlocked.Increment past the seed keeps same-process creates ordered too.
+    // (A plain process-local counter reset to 0 on each restart, and new rows would
+    // wrongly sort ahead of pre-restart rows.)
+    private long _sequence = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     /// <summary>
     /// Constructs the store over a storage connection string (from configuration,

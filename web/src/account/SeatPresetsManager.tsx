@@ -57,7 +57,10 @@ export function SeatPresetsManager({ credential }: SeatPresetsManagerProps) {
   const theme = useTheme();
   const [presets, setPresets] = useState<SeatPreset[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  // The load outcome: 'ok' shows the list, 'signed-out' shows a distinct "sign-in
+  // expired" note (NOT an empty list that invites adds which would then fail - Copilot
+  // review), 'error' shows a calm transport note over whatever list we have.
+  const [loadStatus, setLoadStatus] = useState<'ok' | 'signed-out' | 'error'>('ok');
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
   const [draft, setDraft] = useState<Draft>({ nickname: '', variant: DEFAULT_VARIANT });
   const [formError, setFormError] = useState<string | null>(null);
@@ -71,7 +74,7 @@ export function SeatPresetsManager({ credential }: SeatPresetsManagerProps) {
     void fetchPresets(credential).then((result) => {
       if (!active) return;
       setPresets(result.presets);
-      setLoadError(result.status === 'error');
+      setLoadStatus(result.status);
       setLoading(false);
     });
     return () => {
@@ -138,7 +141,9 @@ export function SeatPresetsManager({ credential }: SeatPresetsManagerProps) {
     if (result === 'ok') {
       setPresets((current) => current.filter((p) => p.id !== preset.id));
     } else {
-      setLoadError(true);
+      // A mid-session credential expiry flips the whole panel to the "sign-in
+      // expired" state so the user is not left tapping actions that will keep failing.
+      setLoadStatus(result === 'signed-out' ? 'signed-out' : 'error');
     }
   };
 
@@ -158,6 +163,12 @@ export function SeatPresetsManager({ credential }: SeatPresetsManagerProps) {
 
       {loading ? (
         <CircularProgress size={22} sx={{ alignSelf: 'center' }} />
+      ) : loadStatus === 'signed-out' ? (
+        // A distinct expired state (Copilot review): do NOT show an empty list + "Add"
+        // that would invite writes which then fail - tell the user to re-authenticate.
+        <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
+          Your sign-in expired - request a fresh link to manage your seat presets.
+        </Typography>
       ) : mode.kind === 'list' ? (
         <>
           {presets.length === 0 ? (
@@ -199,7 +210,7 @@ export function SeatPresetsManager({ credential }: SeatPresetsManagerProps) {
             </Stack>
           )}
 
-          {loadError && (
+          {loadStatus === 'error' && (
             <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'error.main', textAlign: 'center' }}>
               Something did not load quite right - please try again.
             </Typography>
