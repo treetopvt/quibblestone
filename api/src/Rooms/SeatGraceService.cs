@@ -32,10 +32,13 @@
 //  the SAME shared GameHub.BroadcastPlayerLeftAsync the live LeaveRoom path uses -
 //  no forked, mode-specific reconnect logic ("one engine, many thin modes").
 //
-//  The grace window is a SINGLE named constant (DefaultGraceWindow = 180s / 3
-//  minutes) so it is trivially tunable after playtesting, and injectable via the
-//  test constructor so a spec can drive a tiny window instead of waiting for the
-//  real thing.
+//  The grace window's code default is a SINGLE named constant (DefaultGraceWindow =
+//  180s / 3 minutes). control-plane/03 (#232) migrated it onto the
+//  `session.seatGraceWindowSeconds` settings key: the DI path reads the CURRENT value
+//  live when a NEW disconnect schedules its eviction (an operator can retune it with no
+//  redeploy - AC-03), while a timer already awaiting its window keeps its original one.
+//  The test constructor still injects a fixed tiny window so a spec can drive the
+//  deferred eviction deterministically instead of waiting for the real thing.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -43,6 +46,7 @@
 using Microsoft.ApplicationInsights;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Hubs;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Rooms;
 
@@ -56,37 +60,60 @@ namespace QuibbleStone.Api.Rooms;
 public sealed class SeatGraceService
 {
     /// <summary>
-    /// The grace window a dropped seat is held before eviction (session-engine/07).
-    /// Alpha-gate hardening (pre-friends-and-family audit, B3) raised this from the
-    /// original 30-second starting default to 3 minutes: 30 seconds was too eager for
-    /// a real phone-lock / elevator / brief tunnel drop (README section 1's "car dead
-    /// zone" tolerance) and was aborting rounds that a slightly longer wait would have
-    /// let recover cleanly on their own. Still a single named constant, so it stays
-    /// cheap to tune again after the friends-and-family test.
+    /// The seat grace window in SECONDS as the code default (session-engine/07). Alpha-gate
+    /// hardening (pre-friends-and-family audit, B3) raised this from the original 30-second
+    /// starting default to 3 minutes: 30 seconds was too eager for a real phone-lock /
+    /// elevator / brief tunnel drop (README section 1's "car dead zone" tolerance) and was
+    /// aborting rounds that a slightly longer wait would have let recover cleanly on their
+    /// own. control-plane/03 (#232) migrated it onto the `session.seatGraceWindowSeconds`
+    /// settings key: this constant is now the CODE DEFAULT source (asserted by
+    /// KnobMigrationRegressionTests), and the DI path reads the CURRENT effective window
+    /// live when a NEW disconnect schedules its eviction, so an operator can retune it with
+    /// no redeploy (AC-03).
     /// </summary>
-    public static readonly TimeSpan DefaultGraceWindow = TimeSpan.FromSeconds(180);
+    public const int DefaultGraceWindowSeconds = 180;
+
+    /// <summary>The code-default grace window as a TimeSpan (control-plane/03 code default source).</summary>
+    public static readonly TimeSpan DefaultGraceWindow = TimeSpan.FromSeconds(DefaultGraceWindowSeconds);
 
     private readonly IHubContext<GameHub> _hub;
     private readonly RoomRegistry _rooms;
     private readonly TelemetryClient _appInsights;
     private readonly ILogger<SeatGraceService> _logger;
-    private readonly TimeSpan _graceWindow;
+    // control-plane/03 (#232): the runtime settings service the DI path reads the current
+    // grace window from at each new schedule. Null on the test constructor, which pins a
+    // fixed window for deterministic specs (see below).
+    private readonly IRuntimeSettingsService? _settings;
+    // Set ONLY by the test constructor: a fixed window that bypasses the settings read so a
+    // spec runs a tiny, deterministic window. Null on the DI path (read live instead).
+    private readonly TimeSpan? _fixedGraceWindow;
 
-    /// <summary>The DI constructor: the 3-minute <see cref="DefaultGraceWindow"/>.</summary>
+    /// <summary>
+    /// The DI constructor: reads the grace window LIVE from <see cref="IRuntimeSettingsService"/>
+    /// (`session.seatGraceWindowSeconds`, code default 180) when each new disconnect schedules
+    /// its eviction, so an operator override governs the NEXT new disconnect (AC-03). The
+    /// built-in DI container picks this constructor (TimeSpan is not a registered service).
+    /// </summary>
     public SeatGraceService(
         IHubContext<GameHub> hub,
         RoomRegistry rooms,
         TelemetryClient appInsights,
-        ILogger<SeatGraceService> logger)
-        : this(hub, rooms, appInsights, logger, DefaultGraceWindow)
+        ILogger<SeatGraceService> logger,
+        IRuntimeSettingsService settings)
     {
+        _hub = hub;
+        _rooms = rooms;
+        _appInsights = appInsights;
+        _logger = logger;
+        _settings = settings;
+        _fixedGraceWindow = null;
     }
 
     /// <summary>
-    /// The test constructor: an explicit (typically tiny) grace window so a spec can
-    /// verify the deferred eviction without waiting the full 30 seconds. The built-in
-    /// DI container picks the 4-arg constructor above (TimeSpan is not a registered
-    /// service), so this overload is test-only.
+    /// The test constructor: an explicit (typically tiny) grace window so a spec can verify
+    /// the deferred eviction without waiting the full window. This overload pins the window
+    /// (it does NOT read settings), so a spec is fully deterministic. The DI container never
+    /// picks it (TimeSpan is not a registered service), so it is test-only.
     /// </summary>
     public SeatGraceService(
         IHubContext<GameHub> hub,
@@ -99,11 +126,16 @@ public sealed class SeatGraceService
         _rooms = rooms;
         _appInsights = appInsights;
         _logger = logger;
-        _graceWindow = graceWindow;
+        _settings = null;
+        _fixedGraceWindow = graceWindow;
     }
 
-    /// <summary>The grace window in force (30s by default; a test may shorten it).</summary>
-    public TimeSpan GraceWindow => _graceWindow;
+    /// <summary>
+    /// The grace window this service would use for a NEW schedule right now: the fixed
+    /// test window when constructed with one, else the code default (the DI path resolves
+    /// the live value per-schedule in <see cref="ScheduleEviction"/>). For display / tests.
+    /// </summary>
+    public TimeSpan GraceWindow => _fixedGraceWindow ?? DefaultGraceWindow;
 
     /// <summary>
     /// Schedule the one-shot delayed eviction for a held seat. The caller (the hub's
@@ -122,9 +154,15 @@ public sealed class SeatGraceService
     {
         try
         {
+            // control-plane/03 (#232, AC-03): resolve the window ONCE, here, at the start of
+            // THIS disconnect's timer. A new disconnect that starts after an operator override
+            // reads the new window; a timer already awaiting its Task.Delay captured its own
+            // window and keeps running unchanged (no retroactive change to an in-flight timer).
+            var graceWindow = await ResolveGraceWindowAsync(handle.Token).ConfigureAwait(false);
+
             try
             {
-                await Task.Delay(_graceWindow, handle.Token);
+                await Task.Delay(graceWindow, handle.Token);
             }
             catch (OperationCanceledException)
             {
@@ -154,6 +192,41 @@ public sealed class SeatGraceService
             // A fault in a fire-and-forget timer must be logged, never left unobserved -
             // a dropped seat's grace must never crash the host or take down the room.
             _logger.LogWarning(ex, "Grace-expiry eviction faulted (swallowed - the grace timer never gates gameplay).");
+        }
+    }
+
+    /// <summary>
+    /// Resolves the grace window for a new schedule (control-plane/03). The test path returns
+    /// its fixed window (deterministic specs); the DI path reads the current effective
+    /// `session.seatGraceWindowSeconds` live, clamped at >= 1s so a drifted / zero value can
+    /// never evict a seat the instant it drops. Any read failure degrades to the code default
+    /// rather than fault the timer.
+    /// </summary>
+    private async ValueTask<TimeSpan> ResolveGraceWindowAsync(CancellationToken ct)
+    {
+        if (_fixedGraceWindow is { } fixedWindow)
+        {
+            return fixedWindow;
+        }
+
+        if (_settings is null)
+        {
+            // Neither a fixed window nor a settings service (not expected - each constructor
+            // sets one): fall back to the code default rather than throw.
+            return DefaultGraceWindow;
+        }
+
+        try
+        {
+            var seconds = await _settings
+                .GetIntAsync(SettingsCatalog.SessionSeatGraceWindowSeconds, ct)
+                .ConfigureAwait(false);
+            return TimeSpan.FromSeconds(Math.Max(1, seconds));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Seat grace: reading the grace window failed; using the code default.");
+            return DefaultGraceWindow;
         }
     }
 

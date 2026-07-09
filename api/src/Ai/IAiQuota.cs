@@ -35,11 +35,14 @@ public interface IAiQuota
     /// Attempts to consume one AI unit for the given anonymous session. Returns an
     /// allow/deny decision plus the remaining count. Fail-SAFE: story 03's real
     /// implementation returns <see cref="AiQuotaDecision.Denied"/> when the quota
-    /// cannot be read (never silently unlimited).
+    /// cannot be read (never silently unlimited). ASYNC because control-plane/03 (#232)
+    /// reads the per-session allowance LIVE from <c>IRuntimeSettingsService</c> when a
+    /// new session's allowance is established, so an operator can retune it (no redeploy).
     /// </summary>
     /// <param name="instanceId">The anonymous session/room instance id (Room.InstanceId). NEVER a nickname / join code / account (README section 6).</param>
+    /// <param name="ct">Cancellation threaded to the settings read (a dropped client / shed round).</param>
     /// <returns>Whether the call is allowed and how many units remain this session.</returns>
-    AiQuotaDecision TryConsume(string instanceId);
+    ValueTask<AiQuotaDecision> TryConsumeAsync(string instanceId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -67,5 +70,6 @@ public readonly record struct AiQuotaDecision(bool Allowed, int Remaining)
 public sealed class UnlimitedAiQuota : IAiQuota
 {
     /// <inheritdoc />
-    public AiQuotaDecision TryConsume(string instanceId) => new(true, int.MaxValue);
+    public ValueTask<AiQuotaDecision> TryConsumeAsync(string instanceId, CancellationToken ct = default) =>
+        new(new AiQuotaDecision(true, int.MaxValue));
 }

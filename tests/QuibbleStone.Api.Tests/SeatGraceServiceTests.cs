@@ -14,6 +14,7 @@
 
 using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Rooms;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Tests;
 
@@ -106,6 +107,49 @@ public class SeatGraceServiceTests
         // was too eager for a real phone-lock / elevator / brief tunnel drop and was
         // aborting rounds that a slightly longer wait would have let recover on their own.
         Assert.Equal(TimeSpan.FromSeconds(180), SeatGraceService.DefaultGraceWindow);
+    }
+
+    [Fact]
+    public void The_DI_path_over_default_settings_resolves_the_same_default_window()
+    {
+        // control-plane/03 (#232) AC-03/AC-07: the DI constructor reads
+        // `session.seatGraceWindowSeconds` live; over an unconfigured (default-only)
+        // settings service its GraceWindow display value is bit-for-bit the code
+        // default - a fresh clone with no override behaves exactly as before.
+        var registry = new RoomRegistry();
+        var ctx = new FakeGameHubContext();
+        var svc = new SeatGraceService(
+            ctx, registry, TestTelemetry.NoOp, NullLogger<SeatGraceService>.Instance, TestRuntimeSettings.Defaults());
+
+        Assert.Equal(SeatGraceService.DefaultGraceWindow, svc.GraceWindow);
+    }
+
+    [Fact]
+    public async Task An_overridden_window_governs_a_new_disconnects_scheduled_eviction()
+    {
+        // control-plane/03 (#232) AC-03: the DI path resolves the CURRENT settings
+        // value when a NEW disconnect schedules its eviction. The catalog's floor is 1
+        // second, so this drives a real (short, deterministic - not flaky) eviction
+        // under a settings override rather than the 180s code default, proving the
+        // live-read path (not just the fixed-window test constructor) actually governs.
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var ctx = new FakeGameHubContext();
+        var settings = TestRuntimeSettings.WithInt(SettingsCatalog.SessionSeatGraceWindowSeconds, 1);
+        var svc = new SeatGraceService(ctx, registry, TestTelemetry.NoOp, NullLogger<SeatGraceService>.Instance, settings);
+
+        var handle = registry.BeginGrace("conn-joiner");
+        Assert.NotNull(handle);
+
+        await svc.ScheduleEviction(handle!);
+
+        // The overridden 1-second window elapsed and evicted the seat - the DI path
+        // truly reads the settings key live, not just the code default.
+        Assert.Equal(1, room.PlayerCount);
+        Assert.DoesNotContain(room.SnapshotPlayers(), p => p.ConnectionId == "conn-joiner");
+        Assert.Contains(ctx.Recorder.Sends, s => s.Method == "RosterChanged");
     }
 
     [Fact]

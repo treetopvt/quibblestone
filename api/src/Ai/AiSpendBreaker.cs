@@ -48,6 +48,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
+using QuibbleStone.Api.Settings;
 using QuibbleStone.Api.Telemetry;
 
 namespace QuibbleStone.Api.Ai;
@@ -65,6 +66,12 @@ public sealed class AiSpendBreaker : IAiSpendGuard
 {
     private readonly IMonthlySpendStore _store;
     private readonly AiOptions _options;
+    // control-plane/03 (#232): the monthly spend ceiling is read LIVE from here
+    // (`ai.spend.monthlyCeilingUsd`, code default 20) on every breaker check, rather than
+    // from the once-bound AiOptions.MonthlyCeilingUsd, so an operator can retune the
+    // ceiling with no redeploy (AC-05). The per-model rates + hot threshold still come
+    // from AiOptions (unmigrated). The settings service's short cache keeps this cheap.
+    private readonly IRuntimeSettingsService _settings;
     private readonly TelemetryClient _telemetry;
     private readonly ILogger<AiSpendBreaker> _logger;
     private readonly TimeProvider _timeProvider;
@@ -81,19 +88,22 @@ public sealed class AiSpendBreaker : IAiSpendGuard
     /// <see cref="TelemetryClient"/> (as GameHub takes it), and a logger.
     /// </summary>
     /// <param name="store">The persisted running monthly-total store (Table Storage in production).</param>
-    /// <param name="options">The bound AI options (ceiling, rates, hot threshold).</param>
+    /// <param name="options">The bound AI options (per-model rates + hot threshold; the ceiling now lives on a settings key).</param>
+    /// <param name="settings">The runtime settings service the monthly ceiling is read live from (control-plane/03).</param>
     /// <param name="telemetry">The App Insights client the attribution event rides (through the PII scrubber).</param>
     /// <param name="logger">Logs swallowed metering failures server-side (AC-09).</param>
     /// <param name="timeProvider">Clock for the UTC month key; defaults to <see cref="TimeProvider.System"/> (overridable in tests).</param>
     public AiSpendBreaker(
         IMonthlySpendStore store,
         AiOptions options,
+        IRuntimeSettingsService settings,
         TelemetryClient telemetry,
         ILogger<AiSpendBreaker> logger,
         TimeProvider? timeProvider = null)
     {
         _store = store;
         _options = options;
+        _settings = settings;
         _telemetry = telemetry;
         _logger = logger;
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -116,8 +126,15 @@ public sealed class AiSpendBreaker : IAiSpendGuard
                 return false;
             }
 
+            // control-plane/03 (#232, AC-05): read the CURRENT effective ceiling live so an
+            // operator's override governs a NEW check after the settings cache window elapses
+            // (no redeploy). The code default (20) keeps a fresh clone identical (AC-01).
+            var monthlyCeilingUsd = await _settings
+                .GetDecimalAsync(SettingsCatalog.AiSpendMonthlyCeilingUsd, cancellationToken)
+                .ConfigureAwait(false);
+
             // Breaker opens at >= 100% of the configured ceiling (AC-03).
-            return total.Value < _options.MonthlyCeilingUsd;
+            return total.Value < monthlyCeilingUsd;
         }
         catch (OperationCanceledException)
         {

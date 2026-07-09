@@ -23,6 +23,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Ai.Jumble;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Tests.Ai;
 
@@ -163,7 +164,9 @@ public class JumbleWordGeneratorTests
     {
         var counting = new CountingTransport(Reply("moss\nember\nglint\nfrost"));
         // A zero allowance means every consume denies before the transport.
-        var quota = new AiQuota(new AiOptions { QuotaPerSession = 0 }, NullLogger<AiQuota>.Instance);
+        var quota = new AiQuota(
+            TestRuntimeSettings.WithInt(SettingsCatalog.AiQuotaPerSession, 0),
+            NullLogger<AiQuota>.Instance);
         var gen = BuildGenerator(counting, quota);
 
         var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");
@@ -175,7 +178,9 @@ public class JumbleWordGeneratorTests
     [Fact]
     public async Task Remaining_quota_is_carried_for_the_meter()
     {
-        var quota = new AiQuota(new AiOptions { QuotaPerSession = 5 }, NullLogger<AiQuota>.Instance);
+        var quota = new AiQuota(
+            TestRuntimeSettings.WithInt(SettingsCatalog.AiQuotaPerSession, 5),
+            NullLogger<AiQuota>.Instance);
         var gen = BuildGenerator(new StubTransport(Reply("moss\nember\nglint\nfrost")), quota);
 
         var result = await gen.GenerateAsync("noun", Array.Empty<string>(), Array.Empty<string>(), familySafe: false, instanceId: "room-1");

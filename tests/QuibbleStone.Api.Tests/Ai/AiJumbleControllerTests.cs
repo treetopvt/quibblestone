@@ -158,10 +158,10 @@ public class AiJumbleControllerTests
     {
         public string? LastInstanceId { get; private set; }
 
-        public AiQuotaDecision TryConsume(string instanceId)
+        public ValueTask<AiQuotaDecision> TryConsumeAsync(string instanceId, CancellationToken ct = default)
         {
             LastInstanceId = instanceId;
-            return new AiQuotaDecision(Allowed: true, Remaining: 19);
+            return new ValueTask<AiQuotaDecision>(new AiQuotaDecision(Allowed: true, Remaining: 19));
         }
     }
 

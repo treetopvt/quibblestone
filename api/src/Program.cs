@@ -239,6 +239,8 @@ else
         new AiSpendBreaker(
             sp.GetRequiredService<IMonthlySpendStore>(),
             aiOptions,
+            // control-plane/03 (#232): the monthly ceiling is read live from here now.
+            sp.GetRequiredService<IRuntimeSettingsService>(),
             sp.GetRequiredService<Microsoft.ApplicationInsights.TelemetryClient>(),
             sp.GetRequiredService<ILogger<AiSpendBreaker>>()));
 }
@@ -304,10 +306,13 @@ builder.Services.AddRateLimiter(options =>
     // A rejected request degrades gracefully (AC-05): 429 rather than an error page.
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    // Fixed window per remote IP. The limits are coarse abuse-guard values (a family
-    // toy, not a hardened public API): generous for real play, low enough to blunt a
-    // scripted spin-up. Kept as local consts (one place), not scattered literals.
-    const int aiPerIpPermitPerWindow = 30;
+    // Fixed window per remote IP. The permit limit is a coarse abuse-guard value (a
+    // family toy, not a hardened public API): generous for real play, low enough to blunt
+    // a scripted spin-up. control-plane/03 (#232) migrated it onto the
+    // `ai.rateLimit.perIpPermitPerMinute` settings key (code default 30) - read INSIDE the
+    // partition-factory lambda below so a NEW partition picks up an operator override
+    // (AC-06), and CLAMPED [1, 10000] there (AC-08) so a bad value can never disable or
+    // crash the limiter. The window stays a local (unmigrated).
     var aiPerIpWindow = TimeSpan.FromMinutes(1);
 
     options.AddPolicy(AiPerIpRateLimitPolicy, httpContext =>
@@ -316,11 +321,16 @@ builder.Services.AddRateLimiter(options =>
         // missing IP (unusual) folds into one shared "unknown" bucket rather than
         // bypassing the guard.
         var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        // Read + clamp the current effective permit limit when this partition is created
+        // (AC-06 / AC-08). Resolved off HttpContext.RequestServices, never closed over at
+        // registration time, so the value is current for each newly-created partition.
+        var permitLimit = ClampedRateLimitPermits(
+            httpContext, SettingsCatalog.AiRateLimitPerIpPermitPerMinute, codeDefault: 30);
         return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey,
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = aiPerIpPermitPerWindow,
+                PermitLimit = permitLimit,
                 Window = aiPerIpWindow,
                 QueueLimit = 0,
             });
@@ -399,15 +409,26 @@ builder.Services.AddRateLimiter(options =>
     // verify is bounded by the single-use nonce + short expiry, and the game / purchaser
     // paths are untouched. Stops an email-bomb / token-mint flood on the admin request
     // endpoint before an email provider ships. 429 on reject.
+    // control-plane/03 (#232): the operator-login permit limit is migrated onto the
+    // `admin.operatorLogin.rateLimitPermitPerMinute` settings key (code default 5), read
+    // INSIDE this factory lambda so a NEW partition picks up an override (AC-06) and
+    // CLAMPED [1, 10000] there (AC-08) - the same read-site safety net as the AI per-IP
+    // policy above. OperatorLoginRateLimit.PermitLimit is now the code-default source.
     options.AddPolicy(OperatorLoginRateLimit.PolicyName, httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
+    {
+        var permitLimit = ClampedRateLimitPermits(
+            httpContext,
+            SettingsCatalog.AdminOperatorLoginRateLimitPermitPerMinute,
+            codeDefault: OperatorLoginRateLimit.PermitLimit);
+        return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: OperatorLoginRateLimit.PartitionKey(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = OperatorLoginRateLimit.PermitLimit,
+                PermitLimit = permitLimit,
                 Window = OperatorLoginRateLimit.Window,
                 QueueLimit = 0,
-            }));
+            });
+    });
 
     // session-engine/12 (#180): the OPEN, anonymous email-game-invite endpoint's per-IP
     // guard - a SIBLING of the SignInRateLimit policy above for the new invite surface,
@@ -1184,4 +1205,47 @@ public partial class Program
 {
     /// <summary>The named per-IP AI rate-limit policy (ai-cost-gate/03, AC-03).</summary>
     public const string AiPerIpRateLimitPolicy = "ai-per-ip";
+
+    /// <summary>
+    /// control-plane/03 (#232, AC-08): read a rate-limit-permit knob from the runtime
+    /// settings service resolved off the request's <see cref="HttpContext.RequestServices"/>
+    /// (NOT a value closed over at AddRateLimiter registration time, so a newly-created
+    /// partition picks up the latest override, AC-06) and CLAMP it into
+    /// <c>[<see cref="SettingsCatalog.RateLimitPermitClampMin"/>, <see cref="SettingsCatalog.RateLimitPermitClampMax"/>]</c>
+    /// immediately before it is handed to <see cref="FixedWindowRateLimiterOptions.PermitLimit"/>.
+    ///
+    /// The clamp is the independent safety net for this specific crash mode:
+    /// <c>PermitLimit &lt;= 0</c> THROWS inside the partition-factory lambda, which the
+    /// rate-limiter middleware surfaces as a 500 on every request against that partition (an
+    /// outage, not a graceful degrade), and an absurdly large value would silently disable
+    /// the limiter. It must exist even though story 01's catalog <c>Bounds</c> already
+    /// rejects a bad PUT - belt AND suspenders, so a bad value can never reach the read site
+    /// via a stale cache, a race, or a future key added without a catalog bound.
+    ///
+    /// The read is synchronous by necessity (the partition-factory lambda is synchronous);
+    /// the settings service's short cache keeps it cheap and these are low-traffic operator /
+    /// AI surfaces, never a gameplay hot path. On any read failure it degrades to the code
+    /// default rather than crash the limiter.
+    ///
+    /// Exposed on the public <see cref="Program"/> partial (like <see cref="AiPerIpRateLimitPolicy"/>)
+    /// so the read-site clamp (AC-08) is unit-testable directly: a settings value of 0, a
+    /// negative, and an absurdly large value must each produce an in-range permit count.
+    /// </summary>
+    public static int ClampedRateLimitPermits(HttpContext httpContext, string settingsKey, int codeDefault)
+    {
+        int permits;
+        try
+        {
+            var settings = httpContext.RequestServices.GetRequiredService<IRuntimeSettingsService>();
+            permits = settings.GetIntAsync(settingsKey, httpContext.RequestAborted).AsTask().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // Never let a settings-read failure crash the limiter - fall back to the code
+            // default, which the clamp below then guarantees is in-range anyway.
+            permits = codeDefault;
+        }
+
+        return Math.Clamp(permits, SettingsCatalog.RateLimitPermitClampMin, SettingsCatalog.RateLimitPermitClampMax);
+    }
 }

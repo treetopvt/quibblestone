@@ -72,6 +72,51 @@ public static class SettingsCatalog
     /// <summary>System kill switch for email (control-plane/02): reserved (no live capability key yet). Effective value is ANDed with email-provider config-presence.</summary>
     public const string EmailEnabled = "email.enabled";
 
+    // ---- Migrated operational knobs (control-plane/03, #232) ------------------
+    //
+    //  The seven hardcoded operational constants ADR 0003's audit named, migrated onto
+    //  settings keys so an operator can retune them at runtime (no redeploy) while each
+    //  keeps its former hardcoded value as the CODE DEFAULT below - so a fresh clone with
+    //  no override behaves bit-for-bit as before (AC-01). The READ SITE of each knob now
+    //  asks IRuntimeSettingsService for the current effective value at the point of use
+    //  (see PublishedTalesController, AiQuota, AiSpendBreaker, SeatGraceService, and the
+    //  Program.cs rate-limiter factories) rather than a value captured once at startup.
+    //
+    //  EVERY numeric key here carries Bounds (ADR 0003 "the control plane cannot disable
+    //  its own safety rails"): a PUT outside the range is rejected before any write. The
+    //  two rate-limit-permit keys (AI per-IP, operator-login) are ADDITIONALLY clamped to
+    //  [1, sane-max] at their read site (AC-08) - belt AND suspenders, so a zero-or-huge
+    //  value can never disable or crash the limiter even if it somehow reaches the read
+    //  path. The AI monthly spend ceiling is bounded AND confirmation-gated (a spend rail
+    //  is never an accidental one-field PUT).
+
+    /// <summary>Report auto-hide threshold (control-plane/03): reports that push a public tale to "under review". Read in PublishedTalesController.Report. Code default 3.</summary>
+    public const string ModerationTaleAutoHideThreshold = "moderation.tale.autoHideThreshold";
+
+    /// <summary>AI per-IP rate-limit permits per minute (control-plane/03): read + CLAMPED [1, 10000] inside the Program.cs AiPerIp partition factory (AC-08). Code default 30.</summary>
+    public const string AiRateLimitPerIpPermitPerMinute = "ai.rateLimit.perIpPermitPerMinute";
+
+    /// <summary>AI per-anonymous-session call quota (control-plane/03): read live when a new session's allowance is established (AiQuota). Code default 20.</summary>
+    public const string AiQuotaPerSession = "ai.quota.perSession";
+
+    /// <summary>AI monthly spend ceiling in USD (control-plane/03): read live per breaker check (AiSpendBreaker). Bounded AND confirmation-gated (a spend rail). Code default 20.</summary>
+    public const string AiSpendMonthlyCeilingUsd = "ai.spend.monthlyCeilingUsd";
+
+    /// <summary>Seat grace window in seconds (control-plane/03): read live when a NEW disconnect schedules eviction (SeatGraceService); an in-flight timer keeps its original window. Code default 180.</summary>
+    public const string SessionSeatGraceWindowSeconds = "session.seatGraceWindowSeconds";
+
+    /// <summary>Public tale TTL in days (control-plane/03): read live at the publish stamp (PublishedTalesController.Publish); an already-published tale keeps its original expiry. Code default 30.</summary>
+    public const string TalesTtlDays = "tales.ttlDays";
+
+    /// <summary>Operator-login per-IP rate-limit permits per minute (control-plane/03): read + CLAMPED [1, 10000] inside the Program.cs OperatorLogin partition factory (AC-08). Code default 5.</summary>
+    public const string AdminOperatorLoginRateLimitPermitPerMinute = "admin.operatorLogin.rateLimitPermitPerMinute";
+
+    /// <summary>The sane floor/ceiling every rate-limit-permit knob is clamped into at its read site (control-plane/03, AC-08), independent of the catalog Bounds above.</summary>
+    public const int RateLimitPermitClampMin = 1;
+
+    /// <summary>See <see cref="RateLimitPermitClampMin"/>.</summary>
+    public const int RateLimitPermitClampMax = 10_000;
+
     /// <summary>
     /// Every registered settings key (control-plane/01). Append-only: story 02 and story 03 add
     /// their production keys to this list in later waves. Order is display order for the admin
@@ -137,6 +182,82 @@ public static class SettingsCatalog
             CodeDefault: true,
             Description: "System kill switch for email (control-plane/02). Reserved: no consuming capability key yet; effective only when an email provider is configured.",
             RequiresConfirmation: true),
+
+        // ---- Migrated operational knobs (control-plane/03, #232) -------------
+        // Each default MATCHES the former hardcoded constant (asserted knob-by-knob by
+        // KnobMigrationRegressionTests), so no override = identical behavior (AC-01).
+
+        // Report auto-hide threshold (was PublishedTalesController.AutoHideThreshold = 3).
+        // Min 1: a threshold of 0 would auto-hide every tale on its first report - a value
+        // that disables the "a human reported this" signal, so the floor keeps it a real
+        // crowd threshold. Max 1000: generous headroom, never absurd.
+        new SettingDefinition(
+            ModerationTaleAutoHideThreshold,
+            SettingType.Int,
+            CodeDefault: 3,
+            Description: "Number of anonymous reports that push a public tale into the neutral 'under review' state (control-plane/03). Governs a NEW report after the cache window; already-hidden tales are unaffected.",
+            Bounds: new SettingBounds(1, 1000)),
+
+        // AI per-IP rate-limit permits per minute (was Program.cs aiPerIpPermitPerWindow = 30).
+        // Bounds mirror the read-site clamp [1, 10000] (AC-08): the catalog rejects a bad PUT,
+        // and the factory lambda clamps whatever it reads as the independent safety net.
+        new SettingDefinition(
+            AiRateLimitPerIpPermitPerMinute,
+            SettingType.Int,
+            CodeDefault: 30,
+            Description: "AI per-IP request permits per minute (control-plane/03). A NEW rate-limit partition picks up an override; an in-flight partition finishes its window under the old value (documented lag). Clamped [1, 10000] at the read site.",
+            Bounds: new SettingBounds(RateLimitPermitClampMin, RateLimitPermitClampMax)),
+
+        // AI per-anonymous-session quota (was AiOptions.QuotaPerSession = 20). Min 0 is a
+        // legitimate "no allowance" (every AI call falls back - the fail-safe side, never
+        // "unlimited"); the monthly spend ceiling backstops a large value.
+        new SettingDefinition(
+            AiQuotaPerSession,
+            SettingType.Int,
+            CodeDefault: 20,
+            Description: "AI 'Fresh Runes' call allowance per anonymous session (control-plane/03). A NEW session picks up an override; a session already counting keeps its established allowance.",
+            Bounds: new SettingBounds(0, 100_000)),
+
+        // AI monthly spend ceiling in USD (was AiOptions.MonthlyCeilingUsd = 20). A spend
+        // RAIL: a very high ceiling weakens the abuse backstop, so Max is bounded; Min 0 is
+        // the safe side (breaker always open -> AI off). Confirmation-gated: never a
+        // one-field flip (ADR 0003 "cannot disable its own safety rails").
+        new SettingDefinition(
+            AiSpendMonthlyCeilingUsd,
+            SettingType.Decimal,
+            CodeDefault: 20m,
+            Description: "AI monthly spend ceiling in USD (control-plane/03). The breaker opens at 100% of this for the rest of the UTC month. A NEW check after the cache window uses the new value; a call in flight is unaffected. Confirmation-gated.",
+            Bounds: new SettingBounds(0m, 1000m),
+            RequiresConfirmation: true),
+
+        // Seat grace window in seconds (was SeatGraceService.DefaultGraceWindow = 180s).
+        // Min 1: a zero-second window would evict a seat the instant it drops, defeating
+        // "don't lose the room"; Max 3600 (1 hour) is a generous upper tuning bound.
+        new SettingDefinition(
+            SessionSeatGraceWindowSeconds,
+            SettingType.Int,
+            CodeDefault: 180,
+            Description: "Seconds a dropped seat is held before eviction (control-plane/03). A NEW disconnect after an override schedules the new window; a grace timer already running keeps its original window.",
+            Bounds: new SettingBounds(1, 3600)),
+
+        // Public tale TTL in days (was PublishedTalesController.TaleTtl = 30 days). Min 1
+        // (a tale must live at least a day); Max 3650 (10 years) caps an absurd value while
+        // leaving a keepsake ephemeral.
+        new SettingDefinition(
+            TalesTtlDays,
+            SettingType.Int,
+            CodeDefault: 30,
+            Description: "Days a published public tale is retained before it expires (control-plane/03). A NEW tale is stamped with the current value at publish; an already-published tale keeps its original expiry.",
+            Bounds: new SettingBounds(1, 3650)),
+
+        // Operator-login per-IP rate-limit permits per minute (was OperatorLoginRateLimit.PermitLimit = 5).
+        // Bounds mirror the read-site clamp [1, 10000] (AC-08), same posture as the AI per-IP key.
+        new SettingDefinition(
+            AdminOperatorLoginRateLimitPermitPerMinute,
+            SettingType.Int,
+            CodeDefault: 5,
+            Description: "Operator-login-link request permits per minute per IP (control-plane/03). A NEW partition picks up an override; an in-flight partition finishes under the old value (documented lag). Clamped [1, 10000] at the read site.",
+            Bounds: new SettingBounds(RateLimitPermitClampMin, RateLimitPermitClampMax)),
     ];
 
     /// <summary>
