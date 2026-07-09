@@ -39,7 +39,7 @@ public class StripeWebhookHandlerTests
         var processed = new InMemoryProcessedEventStore();
         var options = new StripeOptions { PastDueGraceDays = graceDays };
         var handler = new StripeWebhookHandler(grants, accounts, processed, options);
-        var gate = new StoredValueEntitlementService(new DefaultUnlockedEntitlementService(), accounts, grants);
+        var gate = new StoredValueEntitlementService(new DefaultUnlockedEntitlementService(), accounts, grants, TestSystemFlags.AllEnabled());
         return new Harness(handler, accounts, grants, processed, gate);
     }
 

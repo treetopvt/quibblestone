@@ -45,6 +45,30 @@ public static class SettingsCatalog
     /// <summary>Scaffolding: a plain string knob (proves the String type + default fallback).</summary>
     public const string ExampleLabel = "example.label";
 
+    // ---- System-scope capability flags (control-plane/02, #213) ---------------
+    //
+    //  The first system-scope keys (ADR 0003 Layer 1): app-wide kill switches an
+    //  operator can force OFF, evaluated in the entitlement composition BEFORE any
+    //  account grant (system force-off wins over any grant, for every session). Each
+    //  defaults to true (the code default) so shipping the keys changes zero observed
+    //  behavior - the EFFECTIVE value is (this flag) AND the config-presence floor
+    //  (SystemConfigPresence), so a flag can force a configured capability OFF but can
+    //  never enable an unconfigured one (SystemFlagEvaluator owns that AND). All three
+    //  are confirmation-gated (RequiresConfirmation): a kill switch is never an
+    //  accidental one-field PUT (ADR 0003 "cannot disable its own safety rails", the
+    //  same posture as ExampleEnabled). Only ai.enabled has a live consuming capability
+    //  key (ai.onDemand) in this story; publishing.enabled / email.enabled are reserved
+    //  and effective-value-correct until a future story wires a capability against them.
+
+    /// <summary>System kill switch for AI capabilities (control-plane/02): forces every <c>ai.*</c> capability OFF when false. Effective value is ANDed with AI config-presence.</summary>
+    public const string AiEnabled = "ai.enabled";
+
+    /// <summary>System kill switch for publishing (control-plane/02): reserved (no live capability key yet). Effective value is ANDed with published-tales config-presence.</summary>
+    public const string PublishingEnabled = "publishing.enabled";
+
+    /// <summary>System kill switch for email (control-plane/02): reserved (no live capability key yet). Effective value is ANDed with email-provider config-presence.</summary>
+    public const string EmailEnabled = "email.enabled";
+
     /// <summary>
     /// Every registered settings key (control-plane/01). Append-only: story 02 and story 03 add
     /// their production keys to this list in later waves. Order is display order for the admin
@@ -84,6 +108,32 @@ public static class SettingsCatalog
             SettingType.String,
             CodeDefault: "hello",
             Description: "Scaffolding example (control-plane/01): a plain string knob proving the String type."),
+
+        // ---- System-scope capability flags (control-plane/02, #213) ----------
+        // Boolean kill switches, code default true, confirmation-gated. The EFFECTIVE
+        // value an operator sees / a session evaluates is this flag AND the matching
+        // config-presence floor (SystemFlagEvaluator) - a flag can force a configured
+        // capability OFF but can never enable an unconfigured one (ADR 0003 Layer 1).
+        new SettingDefinition(
+            AiEnabled,
+            SettingType.Bool,
+            CodeDefault: true,
+            Description: "System kill switch for AI capabilities (control-plane/02). Forces every ai.* capability OFF for new sessions when false; effective only when an AI endpoint is configured.",
+            RequiresConfirmation: true),
+
+        new SettingDefinition(
+            PublishingEnabled,
+            SettingType.Bool,
+            CodeDefault: true,
+            Description: "System kill switch for publishing (control-plane/02). Reserved: no consuming capability key yet; effective only when published-tales storage is configured.",
+            RequiresConfirmation: true),
+
+        new SettingDefinition(
+            EmailEnabled,
+            SettingType.Bool,
+            CodeDefault: true,
+            Description: "System kill switch for email (control-plane/02). Reserved: no consuming capability key yet; effective only when an email provider is configured.",
+            RequiresConfirmation: true),
     ];
 
     /// <summary>

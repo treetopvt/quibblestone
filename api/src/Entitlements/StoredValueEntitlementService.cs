@@ -26,6 +26,19 @@
 //  EXTENSIBILITY (AC-07): gating a NEW capability needs only (a) a catalog key and
 //  (b) a grant row carrying it - no change here, to Room.cs, or to any hub method.
 //
+//  SYSTEM-SCOPE FILTER (control-plane/02, #213): a third concern now composes AFTER
+//  the baseline + grant steps above - an app-wide system scope (kill switch /
+//  not-yet-launched flag). This is a POST-COMPOSE FILTER, not an early branch: steps
+//  1-4 run UNCONDITIONALLY and UNCHANGED, then SystemFlagEvaluator subtracts any
+//  capability whose owning system flag reads effectively false, immediately before
+//  the set is captured. So "system force-off wins over any account grant" holds for
+//  every session, without ever skipping grant evaluation. The IEntitlementService
+//  contract and the capture-once discipline are untouched (AC-06); only what feeds
+//  the evaluation changed. The evaluator is injected (it bundles exactly the
+//  IRuntimeSettingsService + SystemConfigPresence the filter needs, keeping this
+//  service single-responsibility and the effective-value logic unit-testable on its
+//  own).
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -46,23 +59,28 @@ public sealed class StoredValueEntitlementService : IEntitlementService
     private readonly DefaultUnlockedEntitlementService _baseline;
     private readonly IAccountStore _accounts;
     private readonly IEntitlementGrantStore _grants;
+    private readonly SystemFlagEvaluator _systemFlags;
 
     /// <summary>
     /// Constructs the stored-value service over the composed default-unlocked
     /// baseline, the purchaser-account store (accounts-identity/02, for AC-06
-    /// purchaser resolution), and the grant store (AC-04/AC-05).
+    /// purchaser resolution), the grant store (AC-04/AC-05), and the system-scope
+    /// flag evaluator (control-plane/02, the post-compose kill-switch filter).
     /// </summary>
     /// <param name="baseline">The shipped default-unlocked service, composed as the "no grant" baseline (AC-03).</param>
     /// <param name="accounts">Resolves whether a purchaser account exists for the session's identity (AC-06) - no duplicate identity logic.</param>
     /// <param name="grants">The purchaser grant store (AC-05).</param>
+    /// <param name="systemFlags">The system-scope flag evaluator (control-plane/02): the post-compose filter that force-removes any capability whose owning system flag reads effectively false.</param>
     public StoredValueEntitlementService(
         DefaultUnlockedEntitlementService baseline,
         IAccountStore accounts,
-        IEntitlementGrantStore grants)
+        IEntitlementGrantStore grants,
+        SystemFlagEvaluator systemFlags)
     {
         _baseline = baseline;
         _accounts = accounts;
         _grants = grants;
+        _systemFlags = systemFlags;
     }
 
     /// <inheritdoc />
@@ -74,39 +92,47 @@ public sealed class StoredValueEntitlementService : IEntitlementService
         var baseline = await _baseline.EvaluateForSession(purchaserIdentity, cancellationToken);
         var unlocked = new HashSet<string>(baseline.UnlockedCapabilities, StringComparer.Ordinal);
 
-        // 2. No purchaser resolved (every anonymous alpha session) -> baseline only.
-        if (string.IsNullOrWhiteSpace(purchaserIdentity))
+        // 2. A resolved purchaser (never in an anonymous alpha session) adds their active
+        // grants on top of the baseline. Anonymous / no-account sessions skip this and keep
+        // exactly the baseline - but ALL paths still fall through to the system-flag filter
+        // in step 4 (a kill switch forces a capability off even for an anonymous session).
+        if (!string.IsNullOrWhiteSpace(purchaserIdentity))
         {
-            return new SessionEntitlements(unlocked);
-        }
-
-        // 3. Confirm an entitled purchaser exists via the account store (AC-06). No
-        // account -> nothing to add beyond the baseline (a valid identity string with
-        // no purchase behind it must not unlock anything paid).
-        var account = await _accounts.GetByIdentityAsync(purchaserIdentity, cancellationToken);
-        if (account is null)
-        {
-            return new SessionEntitlements(unlocked);
-        }
-
-        // 4. Add every capability whose lease is active right now (AC-04). Read grants
-        // keyed off the account's STABLE id (account.Id, accounts-identity/05), NOT a
-        // hash of the (mutable) email. LOAD-BEARING CONTRACT for the write side (stories
-        // 03-04, and the operator grant/revoke #136): a grant MUST be written keyed off
-        // the same value - i.e. resolve the identity to an Account first and key the
-        // grant off account.Id. Because the id never changes (an email change does not
-        // move it, AC-02), a write and this read always align; a grant written off any
-        // other value would silently read back empty and leave a paid capability locked.
-        // An expired lease is simply not added.
-        var now = DateTimeOffset.UtcNow;
-        var grants = await _grants.GetGrantsAsync(account.Id, cancellationToken);
-        foreach (var grant in grants)
-        {
-            if (grant.IsActiveAt(now))
+            // 3. Confirm an entitled purchaser exists via the account store (AC-06). No
+            // account -> nothing to add beyond the baseline (a valid identity string with
+            // no purchase behind it must not unlock anything paid). Add every capability
+            // whose lease is active right now (AC-04). Read grants keyed off the account's
+            // STABLE id (account.Id, accounts-identity/05), NOT a hash of the (mutable)
+            // email. LOAD-BEARING CONTRACT for the write side (stories 03-04, and the
+            // operator grant/revoke #136): a grant MUST be written keyed off the same value
+            // - i.e. resolve the identity to an Account first and key the grant off
+            // account.Id. Because the id never changes (an email change does not move it,
+            // AC-02), a write and this read always align; a grant written off any other
+            // value would silently read back empty and leave a paid capability locked. An
+            // expired lease is simply not added.
+            var account = await _accounts.GetByIdentityAsync(purchaserIdentity, cancellationToken);
+            if (account is not null)
             {
-                unlocked.Add(grant.CapabilityKey);
+                var now = DateTimeOffset.UtcNow;
+                var grants = await _grants.GetGrantsAsync(account.Id, cancellationToken);
+                foreach (var grant in grants)
+                {
+                    if (grant.IsActiveAt(now))
+                    {
+                        unlocked.Add(grant.CapabilityKey);
+                    }
+                }
             }
         }
+
+        // 4. The system-scope POST-COMPOSE FILTER (control-plane/02, AC-03): AFTER the
+        // baseline + grant composition above completes unchanged, force-remove any
+        // capability whose owning system flag reads effectively false (a kill switch, or an
+        // unconfigured infra floor), immediately before the set is captured into
+        // SessionEntitlements. This wins over any account grant added in step 3 - system
+        // force-off has precedence - yet it never SKIPS grant evaluation: the composition
+        // ran in full, and this step only ever SUBTRACTS from its result (AC-03 / AC-06).
+        await _systemFlags.ApplyAsync(unlocked, cancellationToken);
 
         return new SessionEntitlements(unlocked);
     }
