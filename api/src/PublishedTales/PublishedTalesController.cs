@@ -87,8 +87,8 @@ public sealed record PublishTaleRequest(
 [Route("api/tales")]
 public sealed class PublishedTalesController : ControllerBase
 {
-    // TTL (AC-05): a published tale is an ephemeral keepsake, not a system of
-    // record (README section 4). 30 days is generous for a "look what we made"
+    // TTL (keepsake-gallery/04 AC-05): a published tale is an ephemeral keepsake, not a
+    // system of record (README section 4). 30 days is generous for a "look what we made"
     // share while guaranteeing tales do not accumulate unbounded. control-plane/03
     // (#232) migrated this onto the `tales.ttlDays` settings key: this constant is
     // now the CODE DEFAULT source (asserted by KnobMigrationRegressionTests), and

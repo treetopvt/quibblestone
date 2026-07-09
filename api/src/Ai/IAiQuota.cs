@@ -22,7 +22,7 @@ namespace QuibbleStone.Api.Ai;
 
 /// <summary>
 /// The per-anonymous-session AI quota check (story 03). The gate calls
-/// <see cref="TryConsume"/> once per AI request, passing the anonymous session id
+/// <see cref="TryConsumeAsync"/> once per AI request, passing the anonymous session id
 /// (Room.InstanceId); it atomically consumes one unit and reports whether the call
 /// may proceed plus how many remain (for the client meter). Story 03 supplies the
 /// real per-session counter (in-memory is fine - only the spend total must persist)
@@ -46,7 +46,7 @@ public interface IAiQuota
 }
 
 /// <summary>
-/// The outcome of an <see cref="IAiQuota.TryConsume"/> check: whether the AI call
+/// The outcome of an <see cref="IAiQuota.TryConsumeAsync"/> check: whether the AI call
 /// may proceed and how many units remain this session (surfaced on the gate result
 /// envelope for the "N Fresh Runes left" meter). Story 03 may refine the exact
 /// shape; this is the minimum the pipeline needs.

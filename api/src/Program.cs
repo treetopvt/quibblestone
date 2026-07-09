@@ -321,16 +321,19 @@ builder.Services.AddRateLimiter(options =>
         // missing IP (unusual) folds into one shared "unknown" bucket rather than
         // bypassing the guard.
         var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        // Read + clamp the current effective permit limit when this partition is created
-        // (AC-06 / AC-08). Resolved off HttpContext.RequestServices, never closed over at
-        // registration time, so the value is current for each newly-created partition.
-        var permitLimit = ClampedRateLimitPermits(
-            httpContext, SettingsCatalog.AiRateLimitPerIpPermitPerMinute, codeDefault: 30);
         return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey,
+            // The options factory runs ONLY when a NEW partition is created (not per request
+            // against an existing one), so read + clamp the current effective permit limit
+            // HERE (AC-06 / AC-08): a newly-created partition picks up an operator override,
+            // an already-open partition keeps its baked-in options until its window resets,
+            // and existing partitions cost no settings lookup. Resolved off
+            // HttpContext.RequestServices (captured in this closure), never closed over at
+            // registration time, so the value is current for each newly-created partition.
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = permitLimit,
+                PermitLimit = ClampedRateLimitPermits(
+                    httpContext, SettingsCatalog.AiRateLimitPerIpPermitPerMinute, codeDefault: 30),
                 Window = aiPerIpWindow,
                 QueueLimit = 0,
             });
@@ -415,20 +418,20 @@ builder.Services.AddRateLimiter(options =>
     // CLAMPED [1, 10000] there (AC-08) - the same read-site safety net as the AI per-IP
     // policy above. OperatorLoginRateLimit.PermitLimit is now the code-default source.
     options.AddPolicy(OperatorLoginRateLimit.PolicyName, httpContext =>
-    {
-        var permitLimit = ClampedRateLimitPermits(
-            httpContext,
-            SettingsCatalog.AdminOperatorLoginRateLimitPermitPerMinute,
-            codeDefault: OperatorLoginRateLimit.PermitLimit);
-        return RateLimitPartition.GetFixedWindowLimiter(
+        RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: OperatorLoginRateLimit.PartitionKey(httpContext),
+            // Read + clamp inside the options factory (runs only at partition creation), the
+            // same posture as the AI per-IP policy above - a new partition picks up an
+            // override (AC-06), existing partitions cost no settings lookup.
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = permitLimit,
+                PermitLimit = ClampedRateLimitPermits(
+                    httpContext,
+                    SettingsCatalog.AdminOperatorLoginRateLimitPermitPerMinute,
+                    codeDefault: OperatorLoginRateLimit.PermitLimit),
                 Window = OperatorLoginRateLimit.Window,
                 QueueLimit = 0,
-            });
-    });
+            }));
 
     // session-engine/12 (#180): the OPEN, anonymous email-game-invite endpoint's per-IP
     // guard - a SIBLING of the SignInRateLimit policy above for the new invite surface,

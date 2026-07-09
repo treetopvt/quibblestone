@@ -96,20 +96,28 @@ public sealed class AiQuota : IAiQuota
                 return AiQuotaDecision.Denied;
             }
 
-            // Read the CURRENT effective per-session allowance live (AC-05). Clamped at
-            // >= 0: a misconfigured / drifted non-positive value never becomes "unlimited"
-            // - it means "no allowance" (the fail-safe side). The read happens OUTSIDE the
-            // lock (no awaiting under a lock); it only matters when the session is new (an
-            // existing session reads its remaining count from the map, not this value), so
-            // a mid-session change never retroactively alters a session already counting.
+            // FAST PATH: a session already counting reads its remaining from the map and
+            // needs NO settings read - the per-session allowance only matters when a NEW
+            // session's counter is established, so an existing session never pays the lookup
+            // and a mid-session change never retroactively alters a session in flight (AC-05).
+            if (TryConsumeExisting(instanceId, out var existingDecision))
+            {
+                return existingDecision;
+            }
+
+            // MISS: this session has no counter yet. Read the CURRENT effective per-session
+            // allowance live (AC-05), OUTSIDE the lock (no awaiting under a lock). Clamped at
+            // >= 0: a misconfigured / drifted non-positive value never becomes "unlimited" -
+            // it means "no allowance" (the fail-safe side).
             var perSessionLimit = Math.Max(
                 0, await _settings.GetIntAsync(SettingsCatalog.AiQuotaPerSession, ct).ConfigureAwait(false));
 
             lock (_gate)
             {
-                // First call this session starts at the full (current) allowance. A session
-                // at or below zero is out - pin it at zero and deny (a clean deny, never a
-                // throw, so the caller degrades to the deterministic fallback).
+                // Re-check under the lock: a concurrent first-call for the SAME new session
+                // may have established the counter while we read settings. If so, count
+                // against the established value (its allowance, not ours) so two racing
+                // first-calls never double-initialize. Otherwise seed the full allowance.
                 if (!_remaining.TryGetValue(instanceId, out var left))
                 {
                     left = perSessionLimit;
@@ -117,6 +125,8 @@ public sealed class AiQuota : IAiQuota
 
                 if (left <= 0)
                 {
+                    // A session at or below zero is out - pin it at zero and deny (a clean
+                    // deny, never a throw, so the caller degrades to the deterministic fallback).
                     _remaining[instanceId] = 0;
                     return AiQuotaDecision.Denied;
                 }
@@ -133,6 +143,36 @@ public sealed class AiQuota : IAiQuota
             // Log the fact only - never the instanceId as identity (AC-04, no PII).
             _logger.LogWarning(ex, "AI quota: consume failed; failing safe to deny (degrade to fallback).");
             return AiQuotaDecision.Denied;
+        }
+    }
+
+    /// <summary>
+    /// The lock-guarded fast path for a session that ALREADY has a counter: atomically
+    /// consumes one unit (or denies at zero) and returns true, without touching settings.
+    /// Returns false for a session not yet seen, so the caller reads the current allowance
+    /// and establishes it (the slow path). Keeps the read-check-decrement one atomic step.
+    /// </summary>
+    private bool TryConsumeExisting(string instanceId, out AiQuotaDecision decision)
+    {
+        lock (_gate)
+        {
+            if (!_remaining.TryGetValue(instanceId, out var left))
+            {
+                decision = default;
+                return false;
+            }
+
+            if (left <= 0)
+            {
+                _remaining[instanceId] = 0;
+                decision = AiQuotaDecision.Denied;
+                return true;
+            }
+
+            left -= 1;
+            _remaining[instanceId] = left;
+            decision = new AiQuotaDecision(Allowed: true, Remaining: left);
+            return true;
         }
     }
 }
