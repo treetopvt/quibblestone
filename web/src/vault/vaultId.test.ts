@@ -52,8 +52,10 @@ describe('getVaultId', () => {
 
   it('is idempotent: a second call returns the SAME stored id', async () => {
     let calls = 0;
+    // A well-formed (>=36 char, token-shaped) id whose 8th char varies per call, so
+    // a re-mint would visibly differ - proving the second call does NOT re-mint.
     vi.stubGlobal('crypto', {
-      randomUUID: () => `id-${(calls += 1)}-1111-4111-8111-111111111111`,
+      randomUUID: () => `1111111${(calls += 1)}-1111-4111-8111-111111111111`,
     });
 
     const first = await getVaultId();
@@ -61,6 +63,20 @@ describe('getVaultId', () => {
 
     expect(second).toBe(first);
     expect(calls).toBe(1); // the second read never re-mints
+  });
+
+  it('re-mints when the stored id is corrupt / weak (fails the server floor)', async () => {
+    // A tampered / truncated stored value would fail the server's length/format
+    // floor on every save and brick auto-save forever. It must be treated as absent
+    // and re-minted, not presented.
+    localStorage.setItem(VAULT_ID_STORAGE_KEY, 'corrupt');
+    const uuid = '99999999-9999-4999-8999-999999999999';
+    vi.stubGlobal('crypto', { randomUUID: () => uuid });
+
+    const id = await getVaultId();
+
+    expect(id).toBe(uuid);
+    expect(localStorage.getItem(VAULT_ID_STORAGE_KEY)).toBe(uuid); // the corrupt value is replaced
   });
 
   it('never uses a Math.random fallback: with no crypto.randomUUID it asks the server', async () => {

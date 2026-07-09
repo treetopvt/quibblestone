@@ -36,6 +36,29 @@
 /** The single localStorage key the durable vault id is persisted under. */
 export const VAULT_ID_STORAGE_KEY = 'quibblestone.vaultId';
 
+// The client-side mirror of the server's VaultId.IsWellFormed floor (AC-01): a
+// UUID's 36 chars minimum, a generous upper bound, and the random-token charset
+// (ASCII letters, digits, hyphen). Kept in lock-step with api/src/Vault/VaultId.cs
+// so a value this module persists / reads is one the server would also accept.
+const MIN_VAULT_ID_LENGTH = 36;
+const MAX_VAULT_ID_LENGTH = 200;
+const VAULT_ID_SHAPE = /^[A-Za-z0-9-]+$/;
+
+/**
+ * True when a candidate id meets the same length/format floor the server enforces
+ * on every vault endpoint. Used to reject a corrupt / weak / truncated stored value
+ * (user or devtools tampering) so it is re-minted rather than presented forever - a
+ * malformed id would otherwise fail the server floor on every save and silently
+ * brick auto-save until storage is cleared.
+ */
+function isWellFormedVaultId(candidate: string): boolean {
+  return (
+    candidate.length >= MIN_VAULT_ID_LENGTH &&
+    candidate.length <= MAX_VAULT_ID_LENGTH &&
+    VAULT_ID_SHAPE.test(candidate)
+  );
+}
+
 /** Narrows an unknown parsed mint response into the server-minted id, or null. */
 function readMintedId(value: unknown): string | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -43,11 +66,16 @@ function readMintedId(value: unknown): string | null {
   return typeof record.vaultId === 'string' && record.vaultId.length > 0 ? record.vaultId : null;
 }
 
-/** Reads the persisted vault id, swallowing any storage-access failure (private mode, blocked). */
+/**
+ * Reads the persisted vault id, swallowing any storage-access failure (private
+ * mode, blocked). Returns the stored value ONLY when it still meets the floor
+ * (isWellFormedVaultId) - a corrupt / weak / truncated value reads as absent so the
+ * caller re-mints a valid one rather than presenting a bricked id forever.
+ */
 function readStored(): string | null {
   try {
     const stored = localStorage.getItem(VAULT_ID_STORAGE_KEY);
-    return stored !== null && stored.length > 0 ? stored : null;
+    return stored !== null && isWellFormedVaultId(stored) ? stored : null;
   } catch {
     return null;
   }
