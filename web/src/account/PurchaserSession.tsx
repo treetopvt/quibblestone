@@ -17,12 +17,15 @@
 //  gone on a full page reload or a new tab - an accepted trade-off; a durable,
 //  persisted sign-in is a separate decision, not this.
 //
-//  AUTH BOUNDARY (accounts-identity/03, NON-NEGOTIABLE): this is consumed ONLY by
-//  purchaser-facing surfaces (the Account screen and, through it, the keepsake
-//  cloud gallery + the billing restore list). It is NEVER read by the join-code /
-//  lobby / word-entry / reveal flow or the SignalR hook - free play never depends
-//  on sign-in state. The provider holding the value app-wide does not change that:
-//  only purchaser surfaces call usePurchaserSession.
+//  AUTH BOUNDARY (accounts-identity/03, NON-NEGOTIABLE): the join-code / lobby /
+//  word-entry / reveal flow never depends on this - free play stays 100% login-free
+//  whether or not a purchaser is signed in. accounts-identity/06 (ADR 0002 Decision F)
+//  adds ONE narrow reader beyond the purchaser screens: useGameHub reads the CURRENT
+//  `credential` (only) to hand it to the hub via SignalR's accessTokenFactory, so a
+//  signed-in host's family-plan grant can unlock their room at CreateRoom. That does
+//  NOT breach the boundary: signed out the credential is null and an empty token is
+//  sent (identical anonymous play), and the hook renders no purchaser UI. No player-
+//  facing gameplay behavior turns on sign-in state.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------

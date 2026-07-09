@@ -573,6 +573,16 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // the length of a play session and expire when idle (AC-05).
 builder.Services.AddSingleton<RoomRegistry>();
 
+// accounts-identity/06 (ADR 0002 Decision F, finally wired - #210): the per-connection
+// bridge from GameHub.OnConnectedAsync's one-time purchaser-credential resolution to a
+// later CreateRoom on the SAME connection. A SINGLETON for the SAME cold-builder reason
+// RoomRegistry is one - SignalR builds a fresh GameHub per invocation, so this CANNOT be
+// a hub instance field. It holds ONLY resolved capabilities (a SessionEntitlements + a
+// reserved bool) keyed by ConnectionId - never a purchaser identity (ADR 0003 "Identity
+// is discarded at the boundary, structurally"; the value type has no identity field).
+// Written in OnConnectedAsync, read in CreateRoom, cleared in OnDisconnectedAsync.
+builder.Services.AddSingleton<IConnectionEntitlementStore, ConnectionEntitlementStore>();
+
 // session-engine/07 (hold the seat): the ONE scheduled timer in the app. A dropped
 // connection no longer evicts its seat on the spot - GameHub.OnDisconnected holds the
 // seat and hands this singleton a one-shot timer that runs the eventual eviction ONLY

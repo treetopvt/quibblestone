@@ -20,9 +20,11 @@
 //  same small hand-rolled stubs used by GameHubJoinTests.cs / GameHubSubmitWordTests.cs.
 // ----------------------------------------------------------------------------
 
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
+using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
@@ -46,7 +48,7 @@ public class GameHubStartRoundTests
     {
         var registry = new RoomRegistry();
         var sink = telemetry ?? new FakeTelemetrySink();
-        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), sink, TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), sink, TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), NullLogger<GameHub>.Instance);
 
         var clients = new RecordingClients();
         var groups = new RecordingGroups();

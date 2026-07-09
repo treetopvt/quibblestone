@@ -60,7 +60,9 @@
 // ----------------------------------------------------------------------------
 
 using Microsoft.ApplicationInsights;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
+using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Rooms;
@@ -411,6 +413,8 @@ public sealed class GameHub : Hub
     private readonly TelemetryClient _appInsights;
     private readonly IEntitlementService _entitlements;
     private readonly SeatGraceService _grace;
+    private readonly PurchaserCredentialService _purchaserCredentials;
+    private readonly IConnectionEntitlementStore _connectionEntitlements;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -424,6 +428,8 @@ public sealed class GameHub : Hub
         TelemetryClient appInsights,
         IEntitlementService entitlements,
         SeatGraceService grace,
+        PurchaserCredentialService purchaserCredentials,
+        IConnectionEntitlementStore connectionEntitlements,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -458,7 +464,77 @@ public sealed class GameHub : Hub
         // dropped seat's blanks, so eviction must be pushed even if nobody calls the
         // hub in the meantime (see SeatGraceService's header + feature.md Decisions).
         _grace = grace;
+        // accounts-identity/06 (ADR 0002 Decision F, #210): the ALREADY-REGISTERED
+        // purchaser-credential resolver (accounts-identity/03) - the SAME resolver
+        // billing-entitlements/05's restore endpoint uses, never a second auth check.
+        // OnConnectedAsync calls ResolvePurchaserEmail on the connection's access token
+        // and discards the identity the moment EvaluateForSession consumes it.
+        _purchaserCredentials = purchaserCredentials;
+        // accounts-identity/06: the per-connection resolved-CAPABILITY bridge from
+        // OnConnectedAsync to a later CreateRoom on the SAME connection (a fresh hub per
+        // invocation cannot bridge them with an instance field - see the store's header).
+        // Holds ONLY a SessionEntitlements + a reserved bool, never an identity (AC-04).
+        _connectionEntitlements = connectionEntitlements;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// accounts-identity/06 (ADR 0002 Decision F, finally wired - #210): GameHub's
+    /// FIRST <see cref="OnConnectedAsync"/> override (it had none before - only
+    /// <see cref="OnDisconnectedAsync"/>). This is the ONE place a purchaser's session
+    /// credential is turned into a capability set for the connection.
+    ///
+    /// A signed-in purchaser's web client supplies its EXISTING purchaser credential
+    /// (accounts-identity/03's PurchaserSession) via SignalR's standard
+    /// accessTokenFactory, which the transport carries on the negotiate/connect query
+    /// string as <c>access_token</c> (AC-01). Here we:
+    ///   1. Read that token (absent for every anonymous player and every signed-out
+    ///      host - the overwhelming common case, which stores nothing and leaves
+    ///      free play byte-for-byte unchanged, AC-05).
+    ///   2. Resolve it to a purchaser email via the ALREADY-REGISTERED
+    ///      <see cref="PurchaserCredentialService.ResolvePurchaserEmail"/> - the SAME
+    ///      resolver billing-entitlements/05 uses, never a second credential check
+    ///      (AC-02). A malformed / expired / tampered token resolves to null rather
+    ///      than throwing, so a stale token can NEVER break a family's ability to play
+    ///      (AC-06) - it simply falls through to the default-unlocked baseline.
+    ///   3. IMMEDIATELY evaluate the session's capabilities from that identity
+    ///      (<see cref="IEntitlementService.EvaluateForSession"/>) and store ONLY the
+    ///      resulting <see cref="SessionEntitlements"/> (plus the reserved, always-false
+    ///      AdultUnlocked bool story 09 populates) in the per-connection singleton,
+    ///      keyed by <see cref="HubCallerContext.ConnectionId"/>.
+    ///
+    /// THE INVARIANT (AC-04, non-negotiable): the resolved identity string lives ONLY
+    /// in the <c>purchaserIdentity</c> local for the duration of that single
+    /// EvaluateForSession call. It is never stored on the connection, the room, a
+    /// player, the singleton, a DTO, a broadcast, or a log line. CreateRoom later reads
+    /// back the CAPABILITY set (never an identity) from the singleton.
+    /// </summary>
+    public override async Task OnConnectedAsync()
+    {
+        // SignalR's accessTokenFactory value rides the connect query string as
+        // "access_token" (the transport's carrier when it cannot use an Authorization
+        // header) - AC-01 / the story's Technical Notes. Absent for every anonymous
+        // connection, which stores nothing (AC-05).
+        var token = Context.GetHttpContext()?.Request.Query["access_token"].ToString();
+        if (!string.IsNullOrEmpty(token))
+        {
+            // Resolve-and-discard (AC-02): the identity string exists only as this local
+            // for the single EvaluateForSession call below. A bad/expired/tampered token
+            // resolves to null (never throws, AC-06), which evaluates to the same
+            // default-unlocked baseline an anonymous connection gets.
+            var purchaserIdentity = _purchaserCredentials.ResolvePurchaserEmail(token);
+            var capabilities = await _entitlements.EvaluateForSession(
+                purchaserIdentity, Context.ConnectionAborted);
+
+            // Store ONLY the capability set + the reserved (always-false) AdultUnlocked
+            // bool - never the identity (AC-04 / AC-08). purchaserIdentity goes out of
+            // scope here and is never referenced again.
+            _connectionEntitlements.Set(
+                Context.ConnectionId,
+                new ResolvedConnectionIdentity(capabilities, AdultUnlocked: false));
+        }
+
+        await base.OnConnectedAsync();
     }
 
     /// <summary>
@@ -520,21 +596,27 @@ public sealed class GameHub : Hub
         // 4. Mint the room with the host carrying the vetted name + variant.
         var room = _rooms.CreateRoom(Context.ConnectionId, name, chosenVariant);
 
-        // 5. ai-cost-gate/02 (AC-01, AC-03, AC-05, AC-06): evaluate the session's AI
-        //    entitlement EXACTLY ONCE - here, at session-creation, the SINGLE server
-        //    call site - and capture it on the room for its lifetime. Anonymous: alpha
-        //    has no accounts, so there is no purchaser identity (pass null); the
-        //    default-unlocked service returns the reserved ai.* capability UNLOCKED
-        //    (ADR 0001 decision C), so shipping this changes ZERO behavior and the AI
-        //    jumble stays reachable by every session. This is NON-BLOCKING - the real
-        //    runtime gate is quota (story 03) + the spend breaker (story 04), never
-        //    this check (AC-04). Later AI code READS room.Entitlements; it is NEVER
-        //    re-evaluated per tap/round/AI call. (Solo play has no server session
-        //    today - it is client-driven with only anonymous telemetry beacons - so a
-        //    later solo AI feature evaluates the same contract at the point the solo
-        //    AI call is made; see IEntitlementService's header.)
-        var sessionEntitlements = await _entitlements.EvaluateForSession(
-            purchaserIdentity: null, Context.ConnectionAborted);
+        // 5. Capture the session's entitlements on the room for its lifetime
+        //    (ai-cost-gate/02 AC-01: captured once at session-creation, never
+        //    re-evaluated per tap/round/AI call). accounts-identity/06 (ADR 0002
+        //    Decision F, #210) finally wires a REAL identity in: instead of the old
+        //    hardcoded EvaluateForSession(purchaserIdentity: null), this now READS the
+        //    capability set OnConnectedAsync ALREADY resolved for this connection (a
+        //    signed-in purchaser's family-plan grant is applied there, once, and its
+        //    identity discarded - so a family plan can unlock a session for the first
+        //    time). CreateRoom itself makes NO EvaluateForSession call on this hit
+        //    path (AC-03) - the evaluation happened exactly once, in OnConnectedAsync.
+        //
+        //    A MISS (no purchaser token supplied - every anonymous host - or a
+        //    connection that never went through the resolve path, e.g. a direct unit
+        //    test) falls back to the default-unlocked baseline via EvaluateForSession
+        //    with a null identity, byte-for-byte the old behavior (AC-05) - anonymous,
+        //    non-blocking, the AI jumble reachable by every session; the real runtime
+        //    gate stays quota (story 03) + the spend breaker (story 04).
+        var resolved = _connectionEntitlements.TryGet(Context.ConnectionId);
+        var sessionEntitlements = resolved is { } capabilities
+            ? capabilities.Capabilities
+            : await _entitlements.EvaluateForSession(purchaserIdentity: null, Context.ConnectionAborted);
         room.CaptureEntitlements(sessionEntitlements);
 
         // Subscribe the host's connection to the room group so later stories'
@@ -826,6 +908,14 @@ public sealed class GameHub : Hub
     /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        // accounts-identity/06 (AC-03): the physical connection is ending, so drop its
+        // resolved-capability entry from the per-connection singleton. Keyed by
+        // ConnectionId and tied to the CONNECTION's lifecycle (not the room's) - a
+        // deliberate LeaveRoom keeps the shared connection open and does NOT clear it;
+        // only the connection truly ending does. A no-op for an anonymous connection
+        // that stored nothing.
+        _connectionEntitlements.Remove(Context.ConnectionId);
+
         if (exception is not null)
         {
             // Abnormal close only (a clean disconnect passes null). Track the

@@ -19,9 +19,11 @@
 //  the broadcast without standing up a real SignalR pipeline.
 // ----------------------------------------------------------------------------
 
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
+using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
@@ -39,7 +41,7 @@ public class GameHubJoinTests
         BuildHub(string connectionId)
     {
         var registry = new RoomRegistry();
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), NullLogger<GameHub>.Instance);
 
         var clients = new RecordingClients();
         var groups = new RecordingGroups();

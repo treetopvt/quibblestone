@@ -24,9 +24,11 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
+using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Content;
 using QuibbleStone.Api.Entitlements;
 using QuibbleStone.Api.Hubs;
@@ -56,6 +58,8 @@ public class GameHubRejoinTests
             TestTelemetry.NoOp,
             new DefaultUnlockedEntitlementService(),
             grace ?? TestSeatGrace.NoOp(registry),
+            new PurchaserCredentialService(new EphemeralDataProtectionProvider()),
+            new ConnectionEntitlementStore(),
             NullLogger<GameHub>.Instance);
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
