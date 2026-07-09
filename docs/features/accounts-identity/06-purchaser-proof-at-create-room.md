@@ -1,6 +1,6 @@
 # Story: Purchaser proof at CreateRoom (ADR 0002 Decision F, finally wired)
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #210
 
 ## Context
 [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md) Decision F named

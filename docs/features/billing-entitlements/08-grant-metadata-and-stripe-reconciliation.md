@@ -1,6 +1,6 @@
 # Story: Grant metadata + Stripe reconciliation
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #215
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Layer 2 names this feature's half

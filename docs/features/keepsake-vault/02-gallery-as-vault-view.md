@@ -1,6 +1,6 @@
 # Story: The device gallery becomes a view over the vault
 
-**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #212
 
 ## Context
 `keepsake-gallery/03`'s "Tales we've carved" screen reads ONLY the device's
