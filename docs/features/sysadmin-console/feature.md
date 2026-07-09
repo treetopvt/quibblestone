@@ -132,19 +132,23 @@ actually possible. See `implementation.md` for the DAG-ready Wave Plan.
 - **Operator, not audit ceremony.** This is a toy, not a system of record (CLAUDE.md preamble): the
   admin surface is minimal operator convenience, not a compliance/audit console. Resist growing it
   into role hierarchies, audit trails, or dashboards that Azure already provides.
-- **AMENDED 2026-07-08 (ADR 0003 Decision 3 / Amendment 2), REVISED 2026-07-08 (adversarial review):
-  a narrow, deliberate exception now exists on the money/moderation/settings plane.** Story 06 adds a
-  minimal append-only action log (operator, action, target, timestamp, optional note) for six actions
-  today - grant, revoke, takedown confirm/restore, the Stripe mode flip, and (once `control-plane/01`
-  lands and calls the same seam) a settings override change - and story 07's support verbs once they
+- **AMENDED 2026-07-08 (ADR 0003 Decision 3 / Amendment 2), REVISED 2026-07-08 (adversarial review),
+  SHIPPED 2026-07-09 (sysadmin-console/06, #233): a narrow, deliberate exception now exists on the
+  money/moderation/settings plane.** Story 06 SHIPPED a minimal append-only action log (operator,
+  action, target, timestamp, optional note) for six actions today - grant, revoke, takedown
+  confirm/restore, the Stripe mode flip, and (via `control-plane/01`, which already calls the same
+  `IOperatorActionLog` seam) a settings override change - plus story 07's support verbs once they
   land. This is **dispute insurance, not compliance ceremony**: no immutability guarantee, no
-  legal-hold - but it is now built to actually SERVE as dispute insurance: the log row is written
-  BEFORE the effectful action proceeds (never best-effort after), and retention is age-based with a
-  HARD FLOOR no operator setting can lower below, so the log cannot be silently skipped by a failed
-  append or evicted (by volume or by config) by the party a dispute concerns. Gameplay and content
-  stay exactly as ceremony-free as the bullet above still states; the console still does not grow role
-  hierarchies or compliance dashboards - only this one narrow, dispute-insurance log exists, and only
-  for money/moderation/settings-affecting operator actions.
+  legal-hold - but it is built to actually SERVE as dispute insurance: the log row is written
+  BEFORE the effectful action proceeds (log-before-act, never best-effort after - an append failure
+  aborts the action rather than letting it commit with no trail), and retention is age-based with a
+  HARD FLOOR (a compiled `MinRetentionDays`) no operator setting can lower below, so the log cannot be
+  silently skipped by a failed append or evicted (by volume or by config) by the party a dispute
+  concerns. The write side also validates any email-shaped target and the view side relies on React's
+  default text escaping (never `dangerouslySetInnerHTML`). Gameplay and content stay exactly as
+  ceremony-free as the bullet above still states; the console still does not grow role hierarchies or
+  compliance dashboards - only this one narrow, dispute-insurance log exists, and only for
+  money/moderation/settings-affecting operator actions.
 - **REVISED 2026-07-08 (adversarial review): the Support surface's cross-plane firewall is structural,
   not a review discipline.** Story 07's account lookup resolves an email (or `AccountId`) only - a
   vault claim code and a public-tale slug are permanently removed as account-lookup inputs, and the

@@ -762,12 +762,28 @@ else
 }
 builder.Services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
 
-// control-plane/01 (#197, AC-09): the operator action-log WRITE seam every settings PUT /
-// DELETE appends to. Declared narrowly here (dependency-tolerant) with a WORKING in-memory
-// implementation so SettingsController always has something to call - it does NOT hard-block
-// on sysadmin-console/06, which lands the durable Table Storage store in a later wave. When
-// 06 merges, this registration swaps to the real store with ZERO change to the call sites.
-builder.Services.AddSingleton<IOperatorActionLog, InMemoryOperatorActionLog>();
+// sysadmin-console/06 (#233): the operator action-log store, now LIT UP behind the seam
+// control-plane/01 (#197) declared. Chosen at STARTUP by whether a storage connection string
+// is configured - EXACTLY the config-presence idiom of the grant / settings / Stripe-mode
+// stores above, REUSING the SAME Entitlements storage account (no new resource). WITH a
+// connection string the durable TableStorageOperatorActionLog persists rows (survive a recycle)
+// with newest-first listing (AC-03) and the retention floor (AC-04); WITHOUT one (local dev,
+// CI, a fresh clone) the WORKING InMemoryOperatorActionLog keeps every AC exercisable with ZERO
+// Azure setup - same append validation (AC-07), listing, and prune semantics, only durability
+// differs. A singleton so every call site (grant / revoke, takedown / restore, Stripe flip,
+// settings put / delete) and the read view share one store (one seam, AC-02). ZERO change to any
+// of those call sites versus control-plane/01's interim in-memory registration.
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IOperatorActionLog, InMemoryOperatorActionLog>();
+}
+else
+{
+    builder.Services.AddSingleton<IOperatorActionLog>(sp =>
+        new TableStorageOperatorActionLog(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageOperatorActionLog>>()));
+}
 
 // billing-entitlements/03 (#72): the Stripe billing seam. StripeOptions binds the
 // "Stripe" config section (SecretKey + WebhookSigningSecret are Key Vault-backed

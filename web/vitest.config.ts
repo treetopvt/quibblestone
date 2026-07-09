@@ -17,6 +17,12 @@
 //    - `include` stays `src/**/*.test.ts`: specs live next to the code they
 //      cover (e.g. src/engine/template.test.ts, src/engine/assemble.test.ts,
 //      src/content/seedLibrary.test.ts). Add new pure-logic specs the same way.
+//    - `src/**/*.test.tsx` joined the include list for sysadmin-console/06 (issue
+//      #233): the operator action-log view (`admin/ActionLogView.test.tsx`) is the
+//      first spec that renders a component (React Testing Library, `@testing-
+//      library/react` + `jsdom`, added as devDependencies for this story) rather
+//      than testing a pure function - needed to prove AC-07 (operator-supplied
+//      free text renders as literal text, never raw HTML).
 //    - `*.spec.ts` is deliberately NOT matched here - that suffix is reserved
 //      for Playwright e2e under tests/, so the two runners never collide.
 //
@@ -24,7 +30,8 @@
 //  src/content/ is pure TS with no DOM dependency (no React, no MUI), so there is
 //  no reason to pay jsdom's startup cost. If a future spec needs the DOM, give it
 //  jsdom locally via a per-file `// @vitest-environment jsdom` pragma rather than
-//  flipping the whole suite (keep the fast pure-logic path the default).
+//  flipping the whole suite (keep the fast pure-logic path the default) - see
+//  `admin/ActionLogView.test.tsx` for the pragma in use.
 //
 //  Commands (see web/README.md and CLAUDE.md section 9):
 //    npm run test:unit   -> vitest run (CI uses this; it is wired into ci.yml).
@@ -35,6 +42,6 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 });

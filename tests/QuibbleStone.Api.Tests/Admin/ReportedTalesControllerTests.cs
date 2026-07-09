@@ -22,8 +22,10 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -31,11 +33,30 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using QuibbleStone.Api.Admin;
 using QuibbleStone.Api.PublishedTales;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Tests.Admin;
 
 public sealed class ReportedTalesControllerTests
 {
+    private const string OperatorEmail = "ops@quibblestone.com";
+
+    /// <summary>
+    /// Constructs the controller over a fresh InMemoryOperatorActionLog (sysadmin-console/06) with
+    /// a ClaimsPrincipal ControllerContext so User.Identity?.Name is non-null when Confirm / Restore
+    /// append their action-log row.
+    /// </summary>
+    private static (ReportedTalesController Controller, InMemoryOperatorActionLog ActionLog) NewController(FakePublishedTaleStore store)
+    {
+        var actionLog = new InMemoryOperatorActionLog();
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, OperatorEmail)], "Operator"));
+        var controller = new ReportedTalesController(store, actionLog)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = principal } },
+        };
+        return (controller, actionLog);
+    }
+
     private static PublishedTale SampleTale(string slug) => new(
         Slug: slug,
         Title: "The flagged saga",
@@ -60,7 +81,7 @@ public sealed class ReportedTalesControllerTests
         // A second, NOT-hidden tale must not appear in the queue.
         store.Seed(SampleTale("VISIBLESLUG1"));
 
-        var controller = new ReportedTalesController(store);
+        var (controller, _) = NewController(store);
         var result = await controller.Queue(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -80,7 +101,7 @@ public sealed class ReportedTalesControllerTests
         store.Seed(SampleTale("HIDDENSLUG12"));
         store.SeedModeration("HIDDENSLUG12", reportCount: 3, isHidden: true);
 
-        var controller = new ReportedTalesController(store);
+        var (controller, _) = NewController(store);
         var result = await controller.Confirm("HIDDENSLUG12", CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -99,7 +120,7 @@ public sealed class ReportedTalesControllerTests
         store.Seed(SampleTale("HIDDENSLUG12"));
         store.SeedModeration("HIDDENSLUG12", reportCount: 3, isHidden: true);
 
-        var controller = new ReportedTalesController(store);
+        var (controller, _) = NewController(store);
         var result = await controller.Restore("HIDDENSLUG12", CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -119,7 +140,7 @@ public sealed class ReportedTalesControllerTests
         var store = new FakePublishedTaleStore();
         store.Seed(SampleTale("VISIBLESLUG1")); // present but never reported / hidden
 
-        var controller = new ReportedTalesController(store);
+        var (controller, actionLog) = NewController(store);
 
         var confirm = await controller.Confirm("VISIBLESLUG1", CancellationToken.None);
         var restore = await controller.Restore("VISIBLESLUG1", CancellationToken.None);
@@ -130,6 +151,33 @@ public sealed class ReportedTalesControllerTests
         Assert.False(restoreAction.Applied);
         // A not-hidden tale is untouched by either no-op.
         Assert.NotNull(await store.GetAsync("VISIBLESLUG1", CancellationToken.None));
+    }
+
+    // ---- AC-05 (sysadmin-console/06): a no-op writes NO action-log row -----------
+
+    [Fact]
+    public async Task Confirm_and_restore_on_a_not_hidden_slug_write_no_action_log_row()
+    {
+        var store = new FakePublishedTaleStore();
+        store.Seed(SampleTale("VISIBLESLUG1")); // present but never reported / hidden
+        var (controller, actionLog) = NewController(store);
+
+        await controller.Confirm("VISIBLESLUG1", CancellationToken.None);
+        await controller.Restore("VISIBLESLUG1", CancellationToken.None);
+
+        Assert.Empty(actionLog.Entries);
+    }
+
+    [Fact]
+    public async Task Confirm_and_restore_on_an_unknown_slug_write_no_action_log_row()
+    {
+        var store = new FakePublishedTaleStore();
+        var (controller, actionLog) = NewController(store);
+
+        await controller.Confirm("NOSUCHSLUG12", CancellationToken.None);
+        await controller.Restore("NOSUCHSLUG12", CancellationToken.None);
+
+        Assert.Empty(actionLog.Entries);
     }
 
     // ---- Boundary + end-to-end via the REAL app (AC-03 policy) ----------------

@@ -1,9 +1,11 @@
 // ----------------------------------------------------------------------------
-//  OperationsPanel - the Operations JOB tab (sysadmin-console/05, AC-04): the
-//  "keep the app running smoothly" surface, composing the two screens that job
-//  covers today - Stripe mode (story 04's <StripeModePanel/>, relocated as-is,
-//  unchanged) stacked ABOVE the new read-only runtime-settings view
-//  (<SettingsPanel/>, dependency-tolerant of `control-plane/01`, not yet built).
+//  OperationsPanel - the Operations JOB tab (sysadmin-console/05, AC-04; extended
+//  by sysadmin-console/06, issue #233): the "keep the app running smoothly"
+//  surface, composing the screens that job covers today - Stripe mode (story 04's
+//  <StripeModePanel/>, relocated as-is, unchanged), then the read-only
+//  runtime-settings view (<SettingsPanel/>, dependency-tolerant of
+//  `control-plane/01`, not yet built), then the read-only operator action-log
+//  view (<ActionLogView/>, backed by the already-live `GET /api/admin/action-log`).
 //  A future AI-spend snapshot (ADR 0003 Layer 3) joins this same stack rather
 //  than minting its own tab.
 //
@@ -18,6 +20,7 @@
 import { Stack } from '@mui/material';
 import { StripeModePanel } from './StripeModePanel';
 import { SettingsPanel } from './SettingsPanel';
+import { ActionLogView } from './ActionLogView';
 
 /** Props for {@link OperationsPanel}. */
 interface OperationsPanelProps {
@@ -35,6 +38,7 @@ export function OperationsPanel({ operatorEmail, credential }: OperationsPanelPr
     <Stack spacing={4}>
       <StripeModePanel operatorEmail={operatorEmail} credential={credential} />
       <SettingsPanel operatorEmail={operatorEmail} credential={credential} />
+      <ActionLogView operatorEmail={operatorEmail} credential={credential} />
     </Stack>
   );
 }
