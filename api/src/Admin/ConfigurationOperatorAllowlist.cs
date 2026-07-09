@@ -73,6 +73,17 @@ public sealed class ConfigurationOperatorAllowlist : IOperatorAllowlist
     /// operator with no entry is unrestricted (today's zero-config no-op), and adding a
     /// restricted future entry is one config value, never a schema change. See
     /// <see cref="ScopesFor"/>.
+    /// <para>
+    /// SCALAR ALIGNMENT (important when hand-authoring a multi-operator secret): the
+    /// scopes scalar aligns to the emails scalar BY POSITION, so BOTH scalars MUST use
+    /// the SAME ";" position delimiter - e.g. emails <c>"a@x.com;b@x.com"</c> paired with
+    /// scopes <c>"all;support"</c>. The emails scalar ALSO tolerates "," as a legacy
+    /// separator, but "," positions have NO counterpart on the scopes side (scopes reserve
+    /// "," for the array shape's internal scope list), so a ","-delimited emails scalar
+    /// cannot be positionally scope-restricted - author both with ";" (the canonical form)
+    /// whenever any entry restricts an operator. A position that cannot be aligned falls
+    /// back to the all-three default (fail-open on width), never a silent narrowing.
+    /// </para>
     /// </summary>
     public const string ScopesConfigKey = "Operator:Scopes";
 
