@@ -168,8 +168,11 @@ export function VaultClaimPanel({ vaultId, isSignedIn, credential, onRecovered }
   };
 
   const showClaimCta = isSignedIn && vaultId !== null && status !== null && !status.claimed;
-  const showCode = vaultId !== null && status?.claimed === true && status.code !== null;
-  const code: VaultClaimCode | null = showCode ? (status!.code as VaultClaimCode) : null;
+  // Guard rather than assert (TS-strict convention): narrow through the claimed flag
+  // so `code` is a real VaultClaimCode | null without a non-null `!` or a cast.
+  const code: VaultClaimCode | null =
+    vaultId !== null && status?.claimed === true ? status.code : null;
+  const showCode = code !== null;
 
   return (
     <Stack spacing={2.5}>

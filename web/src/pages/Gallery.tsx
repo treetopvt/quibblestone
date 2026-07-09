@@ -200,7 +200,7 @@ export function Gallery({ onBack }: GalleryProps) {
   // This device's own vault id, read WITHOUT minting (keepsake-vault/03): a
   // read-only surface must not create a vault just by being opened. Null when
   // this device has never saved/recovered a tale.
-  const [deviceVaultId] = useState<string | null>(() => readStoredVaultId());
+  const [deviceVaultId, setDeviceVaultId] = useState<string | null>(() => readStoredVaultId());
   // Bumped after a successful claim-code redemption to re-run the load effect
   // below so recovered tales appear without a full page reload.
   const [reloadKey, setReloadKey] = useState(0);
@@ -278,6 +278,10 @@ export function Gallery({ onBack }: GalleryProps) {
   // successful claim-code redemption so recovered tales appear without a full
   // page reload.
   const handleRecovered = useCallback(() => {
+    // Redemption minted + stored this device's own vault id (the alias target), so
+    // re-read it: the panel's claim-code card can now resolve through the alias, and
+    // the load effect below re-runs so the recovered tales appear (no page reload).
+    setDeviceVaultId(readStoredVaultId());
     setReloadKey((key) => key + 1);
   }, []);
 

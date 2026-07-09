@@ -303,6 +303,12 @@ public sealed class TableStorageVaultStore : IVaultStore
 
     // Increment a claim's failed-attempt count and, at the burn threshold (AC-03.3),
     // invalidate the current code and mint a fresh one (which resets the count).
+    // NOTE (store-parity caveat): this is an unguarded read-then-upsert, so under
+    // SIMULTANEOUS failed redemptions increments are last-write-wins and the burn
+    // count can accrue a hair slower than the lock-serialized InMemoryVaultStore. That
+    // is a coarse-bound race on a family toy, already bounded by the global ceiling +
+    // the 7-day window (the same benign-race posture SaveAsync's cap check takes), not
+    // a correctness gap - a per-code burn is defence-in-depth behind two hard bounds.
     private async Task RegisterFailedAttemptAsync(VaultClaim claim, DateTimeOffset now, CancellationToken ct)
     {
         var bumped = claim with { ClaimCodeFailedAttempts = claim.ClaimCodeFailedAttempts + 1 };

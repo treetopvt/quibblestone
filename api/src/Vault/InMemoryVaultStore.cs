@@ -9,8 +9,15 @@
 //  on must be exercisable END TO END on a laptop with zero Azure. The moment
 //  Vault:StorageConnectionString is present (a deployed environment), Program.cs
 //  registers TableStorageVaultStore instead and everything persists across restarts;
-//  the semantics of BOTH stores are identical (same cap, same computed TTL-on-list,
-//  same claim / alias / burn / rotation rules), only durability differs.
+//  the OBSERVABLE semantics of BOTH stores match (same cap, same computed
+//  TTL-on-list, same claim / alias / burn / rotation rules). The one deliberate
+//  difference is concurrency isolation: this store serializes each claim
+//  read-modify-write under a per-vault lock (below), so a burn increment + rotate is
+//  atomic; the Table store does an unguarded read-then-upsert (last-write-wins), so
+//  under simultaneous failed redemptions its burn count can accrue a hair slower.
+//  That is a coarse-bound race on a family toy (README section 4), already bounded by
+//  the global ceiling + the 7-day window - the same benign-race posture the per-vault
+//  cap check already takes - not a correctness divergence in the redeem/recover path.
 //
 //  KEYING: tales are held in a nested map (vaultId -> taleId -> tale), exactly the
 //  PartitionKey (vaultId) / RowKey (taleId) shape the Table store uses. Claim state
