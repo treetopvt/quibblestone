@@ -77,16 +77,23 @@ origin automatically (`Email__LinkBaseUrl`, the bound custom domain if there is 
 
 ## Part 1 - Turn it on (the fast path)
 
-1. **Set the durable signing key** in Key Vault (out of band, so the workflow never sees
-   it and it survives every deploy):
+1. **(Now optional) Set the durable signing key** in Key Vault. As of
+   `platform-devops/08` (#199) `infra/main.bicep` AUTO-PROVISIONS `AccountsTokenSigningKey`
+   with a CSPRNG value (a `deploymentScript` runs `openssl rand`, **create-if-absent**), so
+   a fresh lane gets a durable key with NO manual step - and the durable Data Protection key
+   ring itself is provisioned the same way (the app fails closed in a deployed environment
+   without it). You only need this step to set a **custom** value out of band; if you do,
+   set it BEFORE the first deploy of a lane (the auto-provisioning never overwrites an
+   existing secret):
 
    ```bash
    rg=quibblestone-uat-rg
    vault="$(az keyvault list -g "$rg" --query "[0].name" -o tsv)"
 
-   # AC-07: a DURABLE magic-link signing key (a long random string YOU choose). Without
-   # this the app uses an ephemeral per-process key and a delivered link stops verifying
-   # the moment the App Service recycles or scales out.
+   # A DURABLE magic-link signing key (a long random string YOU choose). Optional now -
+   # the Bicep provisions one automatically if this secret is absent. Without a durable
+   # key the app would use an ephemeral per-process key and a delivered link would stop
+   # verifying the moment the App Service recycles or scales out.
    az keyvault secret set --vault-name "$vault" --name AccountsTokenSigningKey --value "$(openssl rand -base64 48)"
    ```
 

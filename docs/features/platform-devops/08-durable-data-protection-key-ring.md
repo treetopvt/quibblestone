@@ -1,6 +1,21 @@
 # Story: Durable Data Protection key ring + token signing key posture
 
-**Feature:** Platform & DevOps  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Platform & DevOps  ·  **Status:** In Review  ·  **Issue:** #199
+
+> **Implementation note (branch `claude/platform-devops-08-durable-key-ring`).** Built:
+> `api/src/Program.cs` `AddDataProtection` durable wiring + fail-closed guard (AC-01/02/08);
+> the `IConsumedNonceStore` seam (`InMemory*` / `TableStorage*`) wired into
+> `MagicLinkTokenService` with async `TryVerifyAsync` (AC-07); `infra/main.bicep` Blob
+> container + Key Vault key + role assignments + a CSPRNG `deploymentScripts` signing-key
+> provisioner and the `ConsumedMagicLinkNonces` table (AC-04/05/06); the Wave 0 XFF
+> single-hop-trusted-edge item made explicit (`ForwardLimit = 1`, both lanes verified
+> single-hop App Service). Automated coverage: host-boot tests prove AC-02 (Development
+> boots on the in-process fallback) and AC-08 (a deployed env refuses to start), and
+> nonce-store tests prove AC-07's cross-instance single use. AC-01/03/04's deploy-observable
+> halves (inspect the Blob ring entry, restart-and-reverify, fresh-env signing key) remain
+> the manual/first-deploy checks in the Tests table. `az bicep build` could not run in the
+> build sandbox (network policy blocks the Bicep binary download; Bicep is not in CI) - run
+> it locally before merge.
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Layer 0 names this as a

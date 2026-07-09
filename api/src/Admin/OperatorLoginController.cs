@@ -198,16 +198,18 @@ public sealed class OperatorLoginController : ControllerBase
     /// </summary>
     [AllowAnonymous]
     [HttpPost("login/verify")]
-    public IActionResult Verify([FromBody] OperatorLoginVerifyBody? request)
+    public async Task<IActionResult> Verify([FromBody] OperatorLoginVerifyBody? request, CancellationToken cancellationToken)
     {
         var submittedToken = request?.Token ?? string.Empty;
 
         // Fail fast on an over-length token, then verify. An invalid, tampered,
         // expired, or already-used token verifies false (the service never throws)
         // and resolves to the neutral "link-invalid" outcome.
-        if (submittedToken.Length > MaxTokenLength
-            || !_tokens.TryVerify(submittedToken, out var email)
-            || email.Length == 0)
+        var verification = submittedToken.Length > MaxTokenLength
+            ? TokenVerification.Failure
+            : await _tokens.TryVerifyAsync(submittedToken, cancellationToken);
+        var email = verification.Subject;
+        if (!verification.Succeeded || email.Length == 0)
         {
             return Ok(new OperatorLoginVerifyResult(
                 Outcome: "link-invalid",

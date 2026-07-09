@@ -26,21 +26,25 @@ namespace QuibbleStone.Api.Tests.Accounts;
 
 public class MagicLinkTokenServiceTests
 {
+    // The single-use nonce store is now an injected seam (platform-devops/08 AC-07);
+    // a fresh in-memory store per service keeps each test isolated, exactly as the
+    // per-process ConcurrentDictionary was before the seam was extracted.
     private static MagicLinkTokenService NewService() =>
-        new("test-signing-key-not-a-real-secret");
+        new("test-signing-key-not-a-real-secret", new InMemoryConsumedNonceStore());
 
     [Fact]
-    public void IssueThenVerify_RoundtripsSubject()
+    public async Task IssueThenVerify_RoundtripsSubject()
     {
         var service = NewService();
         var token = service.Issue("buyer@example.com");
 
-        Assert.True(service.TryVerify(token, out var subject));
-        Assert.Equal("buyer@example.com", subject);
+        var result = await service.TryVerifyAsync(token);
+        Assert.True(result.Succeeded);
+        Assert.Equal("buyer@example.com", result.Subject);
     }
 
     [Fact]
-    public void TamperedToken_IsRejected()
+    public async Task TamperedToken_IsRejected()
     {
         var service = NewService();
         var token = service.Issue("buyer@example.com");
@@ -53,8 +57,9 @@ public class MagicLinkTokenServiceTests
         var replacement = token[idx] == 'A' ? 'B' : 'A';
         var tampered = token[..idx] + replacement + token[(idx + 1)..];
 
-        Assert.False(service.TryVerify(tampered, out var subject));
-        Assert.Equal(string.Empty, subject);
+        var result = await service.TryVerifyAsync(tampered);
+        Assert.False(result.Succeeded);
+        Assert.Equal(string.Empty, result.Subject);
     }
 
     // Regression for the Gate-1 base64url signature-malleability finding (CR-001):
@@ -64,7 +69,7 @@ public class MagicLinkTokenServiceTests
     // strings must reject EVERY non-original final char. Exhaustive over the whole
     // base64url alphabet, so it is deterministic and can never flake.
     [Fact]
-    public void SignatureMalleability_EveryNonCanonicalFinalChar_IsRejected()
+    public async Task SignatureMalleability_EveryNonCanonicalFinalChar_IsRejected()
     {
         const string base64UrlAlphabet =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -80,34 +85,63 @@ public class MagicLinkTokenServiceTests
             }
 
             var mutated = token[..^1] + candidate;
+            var result = await service.TryVerifyAsync(mutated);
             Assert.False(
-                service.TryVerify(mutated, out var subject),
+                result.Succeeded,
                 $"a token whose final char is '{candidate}' (original '{original}') must be rejected");
-            Assert.Equal(string.Empty, subject);
+            Assert.Equal(string.Empty, result.Subject);
         }
     }
 
     [Fact]
-    public void ExpiredToken_IsRejected()
+    public async Task ExpiredToken_IsRejected()
     {
         var service = NewService();
         // A negative lifetime mints an already-expired token.
         var token = service.Issue("buyer@example.com", TimeSpan.FromSeconds(-1));
 
-        Assert.False(service.TryVerify(token, out var subject));
-        Assert.Equal(string.Empty, subject);
+        var result = await service.TryVerifyAsync(token);
+        Assert.False(result.Succeeded);
+        Assert.Equal(string.Empty, result.Subject);
     }
 
     [Fact]
-    public void SingleUse_SecondVerifyFails()
+    public async Task SingleUse_SecondVerifyFails()
     {
         var service = NewService();
         var token = service.Issue("buyer@example.com");
 
-        Assert.True(service.TryVerify(token, out _));
+        Assert.True((await service.TryVerifyAsync(token)).Succeeded);
         // The nonce is consumed on the first verify; a replay must fail.
-        Assert.False(service.TryVerify(token, out var subject));
-        Assert.Equal(string.Empty, subject);
+        var replay = await service.TryVerifyAsync(token);
+        Assert.False(replay.Succeeded);
+        Assert.Equal(string.Empty, replay.Subject);
+    }
+
+    [Fact]
+    public async Task SingleUse_IsEnforcedAcrossInstances_SharingOneNonceStore()
+    {
+        // platform-devops/08 AC-07 (the scale-out replay gap this closes): two SEPARATE
+        // service instances with the SAME signing key model two App Service instances
+        // behind the load balancer. Because they SHARE one consumed-nonce store, a token
+        // verified on instance A is rejected as a replay on instance B - single use holds
+        // FLEET-wide, not just per-process. Before the seam this replay would have
+        // succeeded once per instance.
+        var sharedNonces = new InMemoryConsumedNonceStore();
+        const string signingKey = "test-signing-key-not-a-real-secret";
+        var instanceA = new MagicLinkTokenService(signingKey, sharedNonces);
+        var instanceB = new MagicLinkTokenService(signingKey, sharedNonces);
+
+        var token = instanceA.Issue("buyer@example.com");
+
+        var first = await instanceA.TryVerifyAsync(token);
+        Assert.True(first.Succeeded);
+        Assert.Equal("buyer@example.com", first.Subject);
+
+        // The OTHER instance must see the nonce as already consumed.
+        var replayOnB = await instanceB.TryVerifyAsync(token);
+        Assert.False(replayOnB.Succeeded);
+        Assert.Equal(string.Empty, replayOnB.Subject);
     }
 
     [Theory]
@@ -115,16 +149,17 @@ public class MagicLinkTokenServiceTests
     [InlineData("not-a-token")]
     [InlineData("a.b")]
     [InlineData("v1|bogus|123|abc.signature")]
-    public void GarbageInput_ReturnsFalse_NeverThrows(string garbage)
+    public async Task GarbageInput_ReturnsFalse_NeverThrows(string garbage)
     {
         var service = NewService();
 
-        Assert.False(service.TryVerify(garbage, out var subject));
-        Assert.Equal(string.Empty, subject);
+        var result = await service.TryVerifyAsync(garbage);
+        Assert.False(result.Succeeded);
+        Assert.Equal(string.Empty, result.Subject);
     }
 
     [Fact]
-    public void Subject_IsOpaque_AdminIdAndEmailBothRoundtrip()
+    public async Task Subject_IsOpaque_AdminIdAndEmailBothRoundtrip()
     {
         var service = NewService();
 
@@ -134,10 +169,12 @@ public class MagicLinkTokenServiceTests
         var adminToken = service.Issue("operator:admin-42");
         var emailToken = service.Issue("purchaser@example.com");
 
-        Assert.True(service.TryVerify(adminToken, out var adminSubject));
-        Assert.Equal("operator:admin-42", adminSubject);
+        var adminResult = await service.TryVerifyAsync(adminToken);
+        Assert.True(adminResult.Succeeded);
+        Assert.Equal("operator:admin-42", adminResult.Subject);
 
-        Assert.True(service.TryVerify(emailToken, out var emailSubject));
-        Assert.Equal("purchaser@example.com", emailSubject);
+        var emailResult = await service.TryVerifyAsync(emailToken);
+        Assert.True(emailResult.Succeeded);
+        Assert.Equal("purchaser@example.com", emailResult.Subject);
     }
 }

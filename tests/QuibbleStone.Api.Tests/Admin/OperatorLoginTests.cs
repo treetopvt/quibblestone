@@ -48,7 +48,7 @@ public class OperatorLoginTests
 
     private static Harness NewHarness(bool development = true)
     {
-        var tokens = new MagicLinkTokenService(TestSigningKey);
+        var tokens = new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore());
         IDataProtectionProvider dataProtection = new EphemeralDataProtectionProvider();
         var allowlist = new FakeOperatorAllowlist(AllowlistedOperator);
         var environment = new FakeWebHostEnvironment(development ? "Development" : "Production");
@@ -68,12 +68,12 @@ public class OperatorLoginTests
     // ---- AC-01: an allowlisted operator establishes a session -------------------
 
     [Fact]
-    public void Verify_AllowlistedOperator_EstablishesAnOperatorSession()
+    public async Task Verify_AllowlistedOperator_EstablishesAnOperatorSession()
     {
         var harness = NewHarness();
         var token = harness.Tokens.Issue(AllowlistedOperator);
 
-        var result = Verify(harness, token);
+        var result = await Verify(harness, token);
 
         Assert.Equal("signed-in", result.Outcome);
         Assert.Equal(AllowlistedOperator, result.Email);
@@ -90,14 +90,14 @@ public class OperatorLoginTests
     }
 
     [Fact]
-    public void Verify_AllowlistedOperator_NormalizesCaseAndWhitespace()
+    public async Task Verify_AllowlistedOperator_NormalizesCaseAndWhitespace()
     {
         var harness = NewHarness();
         // A link issued for a case / whitespace variant still resolves to the one
         // normalized operator identity (matches the account store's normalization).
         var token = harness.Tokens.Issue("  OPS@Quibblestone.com ");
 
-        var result = Verify(harness, token);
+        var result = await Verify(harness, token);
 
         Assert.Equal("signed-in", result.Outcome);
         Assert.Equal(AllowlistedOperator, result.Email);
@@ -106,14 +106,14 @@ public class OperatorLoginTests
     // ---- AC-02: allowlist at VERIFY, not issue ----------------------------------
 
     [Fact]
-    public void Verify_ValidTokenButNotAnOperator_IsRejectedWithNoCredential()
+    public async Task Verify_ValidTokenButNotAnOperator_IsRejectedWithNoCredential()
     {
         var harness = NewHarness();
         // A perfectly valid, single-use link - but for a non-operator email. Proof
         // of inbox control is NOT authorization (AC-02).
         var token = harness.Tokens.Issue("random.purchaser@example.com");
 
-        var result = Verify(harness, token);
+        var result = await Verify(harness, token);
 
         Assert.Equal("not-authorized", result.Outcome);
         Assert.Null(result.Credential);
@@ -159,38 +159,38 @@ public class OperatorLoginTests
     // ---- invalid tokens ---------------------------------------------------------
 
     [Fact]
-    public void Verify_InvalidToken_ReturnsLinkInvalidAndMintsNoSession()
+    public async Task Verify_InvalidToken_ReturnsLinkInvalidAndMintsNoSession()
     {
         var harness = NewHarness();
 
-        var result = Verify(harness, "not-a-real-token");
+        var result = await Verify(harness, "not-a-real-token");
 
         Assert.Equal("link-invalid", result.Outcome);
         Assert.Null(result.Credential);
     }
 
     [Fact]
-    public void Verify_OverLengthToken_ReturnsLinkInvalid()
+    public async Task Verify_OverLengthToken_ReturnsLinkInvalid()
     {
         var harness = NewHarness();
         var oversized = new string('x', OperatorLoginController.MaxTokenLength + 1);
 
-        var result = Verify(harness, oversized);
+        var result = await Verify(harness, oversized);
 
         Assert.Equal("link-invalid", result.Outcome);
         Assert.Null(result.Credential);
     }
 
     [Fact]
-    public void Verify_ReplayedToken_IsRejected()
+    public async Task Verify_ReplayedToken_IsRejected()
     {
         var harness = NewHarness();
         var token = harness.Tokens.Issue(AllowlistedOperator);
 
         // First use signs in; the single-use nonce is consumed.
-        Assert.Equal("signed-in", Verify(harness, token).Outcome);
+        Assert.Equal("signed-in", (await Verify(harness, token)).Outcome);
         // A replay of the SAME token verifies false -> link-invalid.
-        Assert.Equal("link-invalid", Verify(harness, token).Outcome);
+        Assert.Equal("link-invalid", (await Verify(harness, token)).Outcome);
     }
 
     // ---- helpers ----------------------------------------------------------------
@@ -202,9 +202,9 @@ public class OperatorLoginTests
         return Assert.IsType<OperatorLoginRequestResult>(ok.Value);
     }
 
-    private static OperatorLoginVerifyResult Verify(Harness harness, string token)
+    private static async Task<OperatorLoginVerifyResult> Verify(Harness harness, string token)
     {
-        var action = harness.Controller.Verify(new OperatorLoginVerifyBody(token));
+        var action = await harness.Controller.Verify(new OperatorLoginVerifyBody(token), CancellationToken.None);
         var ok = Assert.IsType<OkObjectResult>(action);
         return Assert.IsType<OperatorLoginVerifyResult>(ok.Value);
     }

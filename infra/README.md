@@ -10,8 +10,8 @@ this is intentionally not gold-plated.
 | 1 | Static Web App | `Microsoft.Web/staticSites` | Hosts the React + Vite web client |
 | 2 | App Service (+ Plan) | `Microsoft.Web/sites` (+ `serverfarms`) | Hosts the single ASP.NET Core app (API + SignalR hub) |
 | 3 | Azure SignalR Service | `Microsoft.SignalRService/signalR` | Real-time backplane for production scale-out |
-| 4 | Storage Account | `Microsoft.Storage/storageAccounts` | Table: `StoryServes` / `StoryFeedback` (telemetry) + `PublishedTales` (keepsake-gallery/04 public tale links); Blob (AI images, later) |
-| 5 | Key Vault | `Microsoft.KeyVault/vaults` | Secrets (Stripe, AI provider keys); now also holds the App Insights connection string |
+| 4 | Storage Account | `Microsoft.Storage/storageAccounts` | Table: `StoryServes` / `StoryFeedback` (telemetry) + `PublishedTales` (keepsake-gallery/04 public tale links) + `ConsumedMagicLinkNonces` (platform-devops/08 single-use nonce set); **Blob: `dataprotection-keys` container** (platform-devops/08 Data Protection key ring); Blob (AI images, later) |
+| 5 | Key Vault | `Microsoft.KeyVault/vaults` | Secrets (Stripe, AI provider keys); the App Insights connection string; the durable magic-link signing key (`AccountsTokenSigningKey`); **now also a `dataprotection` KEY** wrapping the Data Protection key ring - `platform-devops/08` |
 | 6 | Application Insights (+ Log Analytics workspace) | `Microsoft.Insights/components` (+ `Microsoft.OperationalInsights/workspaces`) | Operational telemetry for the API (exceptions, failed requests, latency, dependencies) - `platform-devops/04` |
 | 7 | ACS Email (**optional**, `enableEmail`) | `Microsoft.Communication/emailServices` (+ `/domains`) and `Microsoft.Communication/communicationServices` | Magic-link sign-in / operator-login email delivery - `accounts-identity/04`. **OFF by default** (the core footprint is unchanged); provisioned only when `enableEmail=true` (the deploy flips this from `vars.EMAIL_ENABLED`) |
 
@@ -166,9 +166,52 @@ see `api/src/Accounts/AcsEmailSender.cs`). The footprint is **gated behind
   both override the provisioned defaults. See the turn-on procedure in the runbook:
   [`docs/runbooks/enable-magic-link-email.md`](../docs/runbooks/enable-magic-link-email.md).
 
-The one still-manual, out-of-band step is the **durable signing key** Key Vault secret
-(`AccountsTokenSigningKey`) - a value you choose, never in GitHub - so a delivered link
-survives an app recycle. The runbook covers it.
+As of `platform-devops/08`, the **durable signing key is auto-provisioned** (see the next
+section), so it is no longer a required manual step. An operator may still set a stronger
+custom value out of band (the runbook covers it); the auto-provisioning never overwrites an
+existing secret.
+
+## Durable Data Protection key ring + signing key (platform-devops/08)
+
+ADR 0003 Layer 0 foundation ("credentials survive scale-out safely", #199). Purchaser
+sign-in and operator admin-session credentials are protected by ASP.NET Core **Data
+Protection**. On the framework's default key ring those keys are per-instance and do not
+survive an app restart or scale-out - so a credential (or an already-emailed magic link)
+minted before the event stops verifying after it. This makes the key ring **durable and
+shared**, and auto-provisions the magic-link **signing key**, per lane.
+
+- **What it adds (no new resource TYPE, README section 9).** On the ALREADY-provisioned
+  Storage Account: a `dataprotection-keys` **Blob container** (the key ring persists here)
+  and a `ConsumedMagicLinkNonces` **Table** (the single-use nonce set, shared across
+  instances - AC-07). On the ALREADY-provisioned Key Vault: a `dataprotection` **KEY**
+  (wrap/unwrap) that encrypts the key ring at rest, and the `AccountsTokenSigningKey`
+  **secret** (the magic-link HMAC key). Plus a small `deploymentScripts` resource (+ its own
+  managed identity) that generates the signing key.
+- **Keyless, per-lane isolation.** The API reads/writes the ring via its SystemAssigned
+  identity, granted **Storage Blob Data Contributor** (`ba92f5b4-2d11-453d-a403-e96b0029c9fe`)
+  on the container and **Key Vault Crypto User** (`12338af0-0e69-4776-bea7-57ae8d297424`) on
+  the vault - no key material in config, only the non-secret blob URI + key URI app settings.
+  Because each lane (qa / beta) has its OWN storage account + vault, its key ring backing is
+  DISTINCT: a qa-minted credential never verifies against beta.
+- **Fail closed in a deployed environment (AC-08).** The API REFUSES TO START in any
+  non-Development environment when the durable backing (`DataProtection:KeyRingBlobUri` +
+  `DataProtection:KeyVaultKeyUri` + `Accounts:StorageConnectionString`) is absent, rather
+  than silently reverting to per-instance keys (which would invalidate every outstanding
+  credential on the next restart). Local dev / CI keeps the in-process default with zero
+  setup (AC-02). See `api/src/Program.cs`'s `AddDataProtection` block.
+- **CSPRNG signing key, auto-provisioned (AC-04).** The `AccountsTokenSigningKey` secret is
+  generated by the `deploymentScripts` resource with `openssl rand` (a real CSPRNG),
+  **create-if-absent** (a redeploy never overwrites a live key). It is deliberately NOT a
+  `guid()`/`uniqueString()` derivation seeded on `resourceGroup().id` - that would be
+  reproducible from the (discoverable) subscription id + resource-group name and would let an
+  attacker forge an operator magic link (rejected by the 2026-07-08 adversarial review).
+- **Only key material, never gameplay data (AC-05).** The container / key / nonce table hold
+  ONLY Data Protection key material and opaque nonces - never a nickname, room code, session
+  id, or any gameplay/content field.
+
+Validated with `az bicep build --file infra/main.bicep` (Bicep is not in CI; validate
+locally). The signing-key script needs `az`/`openssl` at deploy time (both present in the
+deploymentScripts container image).
 
 ## AI cost gate provider footprint (`infra/ai.bicep`, ai-cost-gate/06)
 

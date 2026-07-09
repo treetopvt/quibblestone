@@ -19,17 +19,18 @@
 //      section 4). The key material lives only in this instance's field and is
 //      NEVER logged or persisted.
 //
-//  SINGLE USE (AC-06): each token carries a unique random nonce (jti). On the first
-//  successful verify the nonce is CONSUMED (added to an in-memory set); a second
-//  verify of the same token finds the nonce already consumed and fails. The set is
-//  pruned opportunistically of entries past their expiry so it cannot grow without
-//  bound. The store is in-memory (thread-safe) and per-process - consistent with
-//  the ephemeral-token posture above.
+//  SINGLE USE (AC-06 + platform-devops/08 AC-07): each token carries a unique random
+//  nonce (jti). On the first successful verify the nonce is CONSUMED via the injected
+//  IConsumedNonceStore; a second verify of the same token finds the nonce already
+//  consumed and fails. The store is DURABLE and SHARED across instances in a deployed
+//  environment (so single use holds fleet-wide, not just per-process) and in-memory
+//  locally - see IConsumedNonceStore. This service no longer owns the set itself;
+//  consuming a nonce is a (possibly storage-bound) call, which is why TryVerifyAsync
+//  is asynchronous.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -39,8 +40,9 @@ namespace QuibbleStone.Api.Accounts;
 /// HMAC-SHA256 issuer / verifier for opaque, single-use magic-link tokens
 /// (accounts-identity/02). Constant-time verification, expiry, and nonce-based
 /// single-use enforcement; identity-neutral subject (see
-/// <see cref="IMagicLinkTokenService"/>). Registered as a singleton so the nonce
-/// set and the signing key are shared process-wide.
+/// <see cref="IMagicLinkTokenService"/>). Registered as a singleton so the signing
+/// key is shared process-wide; the single-use nonce set lives in the injected
+/// <see cref="IConsumedNonceStore"/> (durable + shared when deployed).
 /// </summary>
 public sealed class MagicLinkTokenService : IMagicLinkTokenService
 {
@@ -48,37 +50,33 @@ public sealed class MagicLinkTokenService : IMagicLinkTokenService
     // is meant to be clicked promptly, so this is deliberately short.
     private static readonly TimeSpan DefaultLifetime = TimeSpan.FromMinutes(15);
 
-    // Above this many consumed nonces, opportunistically prune expired entries so
-    // the single-use set cannot grow without bound over a long-lived process.
-    private const int PruneThreshold = 1024;
-
     private readonly byte[] _signingKey;
-
-    // Consumed nonce (jti) -> the token's expiry, so a pruned sweep can drop
-    // entries that can never be replayed anyway (they are already expired). A
-    // ConcurrentDictionary gives a thread-safe TryAdd that IS the single-use check.
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _consumedNonces =
-        new(StringComparer.Ordinal);
+    private readonly IConsumedNonceStore _consumedNonces;
 
     /// <summary>
     /// Constructs the service over the configured signing key (see
-    /// <see cref="ConfigKeyName"/>). When the key is null / empty (local dev / CI),
-    /// a random ephemeral key is generated so tokens work within the process
-    /// lifetime. The key material is never logged or persisted (AC-06).
+    /// <see cref="ConfigKeyName"/>) and the single-use nonce store. When the key is
+    /// null / empty (local dev / CI), a random ephemeral key is generated so tokens
+    /// work within the process lifetime. The key material is never logged or
+    /// persisted (AC-06).
     ///
-    /// DEPLOYED ENVIRONMENTS MUST configure a DURABLE key (accounts-identity/04 AC-07):
+    /// DEPLOYED ENVIRONMENTS get a DURABLE key auto-provisioned into Key Vault
+    /// (platform-devops/08 AC-04, CSPRNG-generated, wired as Accounts:TokenSigningKey):
     /// once real email delivery is on (a link now travels to an inbox and is followed
-    /// minutes later), the ephemeral per-process key would make a delivered link stop
-    /// verifying the moment the app recycles or scales out. Set a durable Key
-    /// Vault-backed Accounts:TokenSigningKey via an app setting - see
-    /// docs/runbooks/enable-magic-link-email.md.
+    /// minutes later), an ephemeral per-process key would make a delivered link stop
+    /// verifying the moment the app recycles or scales out. The paired
+    /// <paramref name="consumedNonces"/> store is likewise durable + shared when
+    /// deployed (AC-07) so a single-use link cannot be replayed once per instance.
+    /// See docs/runbooks/enable-magic-link-email.md.
     /// </summary>
     /// <param name="configuredSigningKey">The Accounts:TokenSigningKey value, or null / empty to use a per-process ephemeral key.</param>
-    public MagicLinkTokenService(string? configuredSigningKey)
+    /// <param name="consumedNonces">The single-use nonce store (durable + shared when deployed, in-memory locally).</param>
+    public MagicLinkTokenService(string? configuredSigningKey, IConsumedNonceStore consumedNonces)
     {
         _signingKey = string.IsNullOrWhiteSpace(configuredSigningKey)
             ? RandomNumberGenerator.GetBytes(32)
             : Encoding.UTF8.GetBytes(configuredSigningKey);
+        _consumedNonces = consumedNonces;
     }
 
     /// <summary>The configuration key the signing secret is read from (never a committed literal, never VITE_*).</summary>
@@ -106,19 +104,18 @@ public sealed class MagicLinkTokenService : IMagicLinkTokenService
     }
 
     /// <inheritdoc />
-    public bool TryVerify(string token, out string subject)
+    public async Task<TokenVerification> TryVerifyAsync(string token, CancellationToken ct = default)
     {
-        subject = string.Empty;
         if (string.IsNullOrEmpty(token))
         {
-            return false;
+            return TokenVerification.Failure;
         }
 
         // Split off the signature (the payload itself never contains '.').
         var dot = token.LastIndexOf('.');
         if (dot <= 0 || dot == token.Length - 1)
         {
-            return false;
+            return TokenVerification.Failure;
         }
 
         var payload = token[..dot];
@@ -137,13 +134,13 @@ public sealed class MagicLinkTokenService : IMagicLinkTokenService
                 Encoding.UTF8.GetBytes(providedSignature),
                 Encoding.UTF8.GetBytes(expectedSignature)))
         {
-            return false;
+            return TokenVerification.Failure;
         }
 
         // Signature authentic - now parse the (trusted) payload fields.
         if (!TryParsePayload(payload, out var parsedSubject, out var expiryMs, out var nonce))
         {
-            return false;
+            return TokenVerification.Failure;
         }
 
         // Expiry check: a token at or past its expiry is dead (and is NOT consumed,
@@ -151,20 +148,18 @@ public sealed class MagicLinkTokenService : IMagicLinkTokenService
         var expiry = DateTimeOffset.FromUnixTimeMilliseconds(expiryMs);
         if (DateTimeOffset.UtcNow >= expiry)
         {
-            return false;
+            return TokenVerification.Failure;
         }
 
-        // Single use: consuming the nonce IS the replay check. TryAdd fails if this
-        // nonce was already consumed by an earlier successful verify.
-        if (!_consumedNonces.TryAdd(nonce, expiry))
+        // Single use: consuming the nonce IS the replay check. TryConsumeAsync
+        // returns false if this nonce was already consumed by an earlier successful
+        // verify - on ANY instance, because the store is shared when deployed.
+        if (!await _consumedNonces.TryConsumeAsync(nonce, expiry, ct))
         {
-            return false;
+            return TokenVerification.Failure;
         }
 
-        PruneExpiredNoncesIfLarge();
-
-        subject = parsedSubject;
-        return true;
+        return TokenVerification.Success(parsedSubject);
     }
 
     // ---- payload encoding -----------------------------------------------------
@@ -210,24 +205,6 @@ public sealed class MagicLinkTokenService : IMagicLinkTokenService
 
     private byte[] SignBytes(string payload) =>
         HMACSHA256.HashData(_signingKey, Encoding.UTF8.GetBytes(payload));
-
-    // ---- single-use bookkeeping ----------------------------------------------
-
-    private void PruneExpiredNoncesIfLarge()
-    {
-        if (_consumedNonces.Count < PruneThreshold)
-        {
-            return;
-        }
-        var now = DateTimeOffset.UtcNow;
-        foreach (var (nonce, expiry) in _consumedNonces)
-        {
-            if (now >= expiry)
-            {
-                _consumedNonces.TryRemove(nonce, out _);
-            }
-        }
-    }
 
     // ---- base64url helpers ----------------------------------------------------
 

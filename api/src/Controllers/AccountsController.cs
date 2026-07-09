@@ -244,9 +244,11 @@ public sealed class AccountsController : ControllerBase
         // An invalid, tampered, expired, or already-used token also verifies false
         // (the service never throws). The holder is told the link did not work
         // and to request a fresh one - no account is touched.
-        if (submittedToken.Length > MaxTokenLength
-            || !_tokens.TryVerify(submittedToken, out var email)
-            || email.Length == 0)
+        var verification = submittedToken.Length > MaxTokenLength
+            ? TokenVerification.Failure
+            : await _tokens.TryVerifyAsync(submittedToken, cancellationToken);
+        var email = verification.Subject;
+        if (!verification.Succeeded || email.Length == 0)
         {
             return Ok(new SignInVerifyResult(
                 Outcome: "link-invalid",

@@ -432,9 +432,14 @@ jobs:
       # re-applies the Email settings AFTER the provision replaced the appSettings
       # array. OVERRIDES: vars.EMAIL_FROM_ADDRESS (verified custom sender) and
       # vars.EMAIL_ENDPOINT (a different ACS you manage) win over the provisioned
-      # defaults. Also wires a durable Key Vault Accounts__TokenSigningKey so a
-      # delivered link survives an app recycle. See
-      # docs/runbooks/enable-magic-link-email.md.
+      # defaults. NOTE (platform-devops/08, #199): the durable Key Vault
+      # Accounts__TokenSigningKey is now AUTO-PROVISIONED by infra/main.bicep (a
+      # CSPRNG deploymentScript sets the secret create-if-absent, and the provision
+      # step already wires the app setting), so it is no longer a required manual Key
+      # Vault step - the docs/runbooks/enable-magic-link-email.md manual-creation
+      # instruction is now a FALLBACK/OVERRIDE path (an operator MAY set a stronger
+      # custom value; the script leaves an existing secret untouched). This step
+      # re-asserting the same KV reference below is a harmless, idempotent no-op.
       - name: Wire magic-link email delivery (optional)
         if: ${{ vars.EMAIL_ENABLED == 'true' }}
         env:

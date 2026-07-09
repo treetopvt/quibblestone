@@ -74,6 +74,11 @@ var commonTags = {
 var storageAccountName = take(toLower('${namePrefix}${environmentName}${suffix}'), 24)
 var keyVaultName = take(toLower('${namePrefix}-${environmentName}-${suffix}'), 24)
 
+// platform-devops/08: the Key Vault secret name the durable magic-link signing key
+// lives under (AC-04). Kept in one place so the app-setting KV reference above and
+// the create-if-absent deploymentScript below cannot drift.
+var tokenSigningKeySecretName = 'AccountsTokenSigningKey'
+
 // --- 2a. App Service Plan (Linux) -------------------------------------------
 // Hosting the API on App Service requires a plan.
 resource appServicePlan 'Microsoft.Web/serverfarms@2024-04-01' = {
@@ -157,6 +162,45 @@ resource apiApp 'Microsoft.Web/sites@2024-04-01' = {
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: '@Microsoft.KeyVault(SecretUri=${appInsightsConnectionSecret.properties.secretUri})'
+        }
+        // platform-devops/08 (durable Data Protection key ring, AC-01/AC-08): the
+        // two NON-SECRET pointers the API chains onto AddDataProtection so the key
+        // ring persists to Blob Storage and is wrapped by a Key Vault key (keyless
+        // via the API's managed identity - see api/src/Program.cs). Composed at
+        // DEPLOY time from THIS lane's own storage account + vault, so each lane's
+        // key ring backing is DISTINCT (a qa-minted credential never verifies against
+        // beta). Their PRESENCE is what lets the app start in a deployed environment
+        // (AC-08 fails closed when they are absent); neither value is a secret.
+        {
+          name: 'DataProtection__KeyRingBlobUri'
+          value: '${storage.properties.primaryEndpoints.blob}${dataProtectionKeysContainer.name}/keyring.xml'
+        }
+        {
+          name: 'DataProtection__KeyVaultKeyUri'
+          value: dataProtectionKey.properties.keyUriWithVersion
+        }
+        // platform-devops/08 (AC-07): the storage connection the durable, SHARED
+        // consumed-nonce table (ConsumedMagicLinkNonces) rides, so a single-use magic
+        // link consumed on one instance is rejected on every other instance. Composed
+        // at DEPLOY time from this lane's own storage key (NEVER a committed literal),
+        // the same posture as Telemetry above. Reuses the already-provisioned Storage
+        // Account (a new table, not a new resource type).
+        {
+          name: 'Accounts__StorageConnectionString'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+        }
+        // platform-devops/08 (AC-04): the durable magic-link HMAC signing key, read
+        // as a Key Vault reference (the API identity is already "Key Vault Secrets
+        // User" on this vault). The secret VALUE is CSPRNG-generated and set
+        // create-if-absent by the deploymentScript below - never derived from any
+        // publicly-discoverable input (resourceGroup().id / uniqueString), which would
+        // be reproducible and let an attacker forge an operator magic link. So a
+        // delivered link survives an app recycle / scale-out with no manual Key Vault
+        // step. An operator MAY still set a stronger custom value out of band (the
+        // create-if-absent script leaves an existing secret untouched).
+        {
+          name: 'Accounts__TokenSigningKey'
+          value: '@Microsoft.KeyVault(VaultName=${keyVault.name};SecretName=${tokenSigningKeySecretName})'
         }
       ]
     }
@@ -255,6 +299,19 @@ resource storyFeedbackTable 'Microsoft.Storage/storageAccounts/tableServices/tab
 resource publishedTalesTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
   parent: storageTableService
   name: 'PublishedTales'
+}
+
+// platform-devops/08 (AC-07): the ConsumedMagicLinkNonces table the API's durable,
+// SHARED single-use nonce store writes to (one row per consumed magic-link nonce -
+// the opaque jti + its expiry, NEVER a subject / email / PII, AC-05). It makes a
+// single-use link single-use FLEET-wide, not just per-instance, once the signing key
+// is durable and shared. Rides the SAME storage account's Table service as the tables
+// above (no new resource type); the store also creates it on first write, so this
+// just makes the footprint explicit in IaC. Only ever touched in a deployed
+// environment (local dev keeps the in-memory nonce set - see api/src/Program.cs).
+resource consumedMagicLinkNoncesTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: storageTableService
+  name: 'ConsumedMagicLinkNonces'
 }
 
 // --- 5. Key Vault - secrets (Stripe keys, AI provider keys) once they exist --
@@ -406,6 +463,173 @@ resource communicationService 'Microsoft.Communication/communicationServices@202
   }
 }
 
+// --- 8. Durable Data Protection key ring + signing key (platform-devops/08) ---
+// ADR 0003 Layer 0 foundation item ("credentials survive scale-out safely", #199).
+// Reuses the ALREADY-provisioned Storage Account + Key Vault (a new Blob container +
+// a new Key Vault KEY + a small provisioning script - NOT a new resource TYPE, README
+// section 9 / AC-06). Nothing here holds gameplay data - ONLY Data Protection key
+// material and the magic-link nonce table (AC-05).
+
+// 8a. The Blob container the Data Protection key ring persists to (AC-01). The API's
+//     .PersistKeysToAzureBlobStorage writes the single key-ring blob (keyring.xml)
+//     here, so purchaser + operator credentials survive an app restart / scale-out.
+//     A dedicated container keeps key material isolated from every other blob.
+resource storageBlobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+}
+
+resource dataProtectionKeysContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: storageBlobService
+  name: 'dataprotection-keys'
+  properties: {
+    publicAccess: 'None' // key material is never publicly reachable
+  }
+}
+
+// 8b. The Key Vault KEY that ENCRYPTS the key ring at rest (AC-01). This is a KEY
+//     (wrap/unwrap), distinct from the SECRETS already in this vault - Data
+//     Protection's .ProtectKeysWithAzureKeyVault wraps the ring's master key with it.
+resource dataProtectionKey 'Microsoft.KeyVault/vaults/keys@2023-07-01' = {
+  parent: keyVault
+  name: 'dataprotection'
+  properties: {
+    kty: 'RSA'
+    keySize: 2048
+    keyOps: [
+      'wrapKey'
+      'unwrapKey'
+    ]
+  }
+}
+
+// 8c. Grant the API's SystemAssigned identity the two KEYLESS data-plane roles it
+//     needs (mirroring the "Key Vault Secrets User" grant already in this file for
+//     App Insights): "Storage Blob Data Contributor" on the key-ring container so it
+//     can read/write the ring, and "Key Vault Crypto User" on the vault so it can
+//     wrap/unwrap with the key. Both role ids are the documented built-ins
+//     (verified against Microsoft Learn - Azure built-in roles), scoped as tightly
+//     as the story asks (the container, not the whole account).
+var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var keyVaultCryptoUserRoleId = '12338af0-0e69-4776-bea7-57ae8d297424'
+var keyVaultSecretsOfficerRoleId = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
+
+resource apiKeyRingBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(dataProtectionKeysContainer.id, apiApp.id, storageBlobDataContributorRoleId)
+  scope: dataProtectionKeysContainer
+  properties: {
+    principalId: apiApp.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource apiKeyVaultCryptoUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, apiApp.id, keyVaultCryptoUserRoleId)
+  scope: keyVault
+  properties: {
+    principalId: apiApp.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultCryptoUserRoleId)
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// 8d. Auto-provision the durable magic-link signing key (AC-04), CSPRNG-generated,
+//     CREATE-IF-ABSENT. This is the ONLY Bicep-native mechanism that is NOT
+//     reproducible from public inputs: the earlier "guid(resourceGroup().id, ...)"
+//     derivation was REJECTED by the adversarial review because resourceGroup().id is
+//     derivable from the subscription id + resource-group name (both discoverable),
+//     so anyone who guesses them could forge a valid operator magic link. A
+//     deploymentScript instead generates real random bytes (openssl rand) and writes
+//     them to the Key Vault secret the API reads. It is a heavier resource (its own
+//     managed identity, and the script host provisions a transient storage account +
+//     container) - that cost is ACCEPTED because the cheaper derivation is a security
+//     defect, not a lighter alternative. NEVER overwrites an existing value (that
+//     would invalidate every outstanding magic link at redeploy).
+//
+//     An operator MAY still set a stronger custom value out of band BEFORE first
+//     deploy (docs/runbooks/enable-magic-link-email.md) - the create-if-absent guard
+//     leaves it untouched; that path is supported, just no longer REQUIRED (AC-04).
+resource tokenSigningKeyScriptIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${baseName}-tsk-id-${suffix}'
+  location: location
+  tags: commonTags
+}
+
+// The script identity needs to CREATE the secret (Secrets Officer), which is more
+// than the API identity's read-only "Secrets User" - so it is a separate, tightly
+// scoped grant that exists only for the provisioning script.
+resource tokenSigningKeyScriptSecretsOfficer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, tokenSigningKeyScriptIdentity.id, keyVaultSecretsOfficerRoleId)
+  scope: keyVault
+  properties: {
+    principalId: tokenSigningKeyScriptIdentity.properties.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsOfficerRoleId)
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource tokenSigningKeyScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
+  name: '${baseName}-tsk-provision-${suffix}'
+  location: location
+  tags: commonTags
+  kind: 'AzureCLI'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${tokenSigningKeyScriptIdentity.id}': {}
+    }
+  }
+  // The role assignment must land before the script runs, or the identity cannot
+  // write the secret. (The keyVault/name reference is an implicit dependency too.)
+  dependsOn: [
+    tokenSigningKeyScriptSecretsOfficer
+  ]
+  properties: {
+    azCliVersion: '2.61.0'
+    retentionInterval: 'PT1H'
+    timeout: 'PT15M'
+    cleanupPreference: 'OnSuccess'
+    environmentVariables: [
+      {
+        name: 'VAULT_NAME'
+        value: keyVault.name
+      }
+      {
+        name: 'SECRET_NAME'
+        value: tokenSigningKeySecretName
+      }
+    ]
+    // CSPRNG value, create-if-absent. openssl rand is a real cryptographic RNG; the
+    // value is NEVER derived from any ARM input, so it is not reproducible from the
+    // subscription id / resource group name.
+    scriptContent: '''
+      set -euo pipefail
+      # RBAC data-plane propagation can lag ARM ordering by seconds-to-minutes on a
+      # first deploy, so a data-plane call may 403 briefly even though dependsOn put the
+      # role assignment first. Retry the read/write with backoff rather than failing the
+      # whole deploy on a transient propagation gap.
+      retry() {
+        local n=0
+        until "$@"; do
+          n=$((n + 1))
+          if [ "$n" -ge 6 ]; then return 1; fi
+          echo "attempt $n failed (likely RBAC propagation); retrying in $((n * 10))s..."
+          sleep $((n * 10))
+        done
+      }
+      existing=$(retry az keyvault secret list --vault-name "$VAULT_NAME" --query "[?name=='$SECRET_NAME'] | [0].name" -o tsv || true)
+      if [ -n "$existing" ]; then
+        echo "Secret $SECRET_NAME already present - leaving it unchanged (idempotent; never overwrite a live signing key)."
+      else
+        value=$(openssl rand -base64 32)
+        retry az keyvault secret set --vault-name "$VAULT_NAME" --name "$SECRET_NAME" --value "$value" --output none
+        echo "Created $SECRET_NAME from a CSPRNG value (openssl rand)."
+      fi
+    '''
+  }
+}
+
 // --- Outputs -----------------------------------------------------------------
 output resourceGroupName string = resourceGroup().name
 output appServicePlanSku string = appServicePlanSku
@@ -418,6 +642,12 @@ output storageAccount string = storage.name
 output keyVault string = keyVault.name
 output appInsightsName string = appInsights.name
 output logAnalyticsWorkspaceName string = logAnalytics.name
+// platform-devops/08 (durable Data Protection key ring, #199). Non-secret pointers,
+// surfaced for the runbook / a diagnostic - the API already receives them as app
+// settings above, so the deploy workflow needs no extra wiring step for the key ring.
+output dataProtectionKeyRingBlobUri string = '${storage.properties.primaryEndpoints.blob}${dataProtectionKeysContainer.name}/keyring.xml'
+output dataProtectionKeyVaultKeyUri string = dataProtectionKey.properties.keyUriWithVersion
+output tokenSigningKeySecretName string = tokenSigningKeySecretName
 // Magic-link email (accounts-identity/04). Empty strings when enableEmail is false, so
 // the deploy workflow's email-wiring step is a clean no-op unless email is turned on.
 // emailAcsEndpoint -> the API's Email:Endpoint (keyless send target). emailSenderAddress
