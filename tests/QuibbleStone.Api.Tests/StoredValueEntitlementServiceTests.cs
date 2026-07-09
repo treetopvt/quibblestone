@@ -43,29 +43,24 @@ public class StoredValueEntitlementServiceTests
     // The default fixture: AI is configured and every system flag is at its true code
     // default (no override), so the system-scope filter is a NO-OP and the baseline +
     // grant behavior is exactly what billing-entitlements/01 shipped (AC-02). Tests that
-    // exercise the kill switch pass an explicit presence / override instead.
+    // exercise the kill switch pass an explicit presence / override instead. Reuses the
+    // shared TestSystemFlags.AllEnabled() so there is ONE "default evaluator" definition.
     private static StoredValueEntitlementService NewService(
         IAccountStore accounts,
         IEntitlementGrantStore grants)
-        => new(new DefaultUnlockedEntitlementService(), accounts, grants, AllConfiguredFlags());
-
-    // A SystemFlagEvaluator over a real RuntimeSettingsService (in-memory store) with every
-    // capability's infrastructure configured and no override applied - the shipped default.
-    private static SystemFlagEvaluator AllConfiguredFlags()
-        => new(
-            new RuntimeSettingsService(new InMemoryRuntimeSettingsStore()),
-            new SystemConfigPresence(AiConfigured: true, PublishingConfigured: true, EmailConfigured: true));
+        => new(new DefaultUnlockedEntitlementService(), accounts, grants, TestSystemFlags.AllEnabled());
 
     // A SystemFlagEvaluator with a chosen AI config-presence and an optional ai.enabled
     // override already written - so a test can drive the configured-and-forced-off (AC-03)
-    // and the unconfigured (AC-05) scenarios through the real settings composition.
-    private static SystemFlagEvaluator Flags(bool aiConfigured, bool? aiEnabledOverride = null)
+    // and the unconfigured (AC-05) scenarios through the real settings composition. Async so
+    // the override write is awaited (no sync-over-async block on the store).
+    private static async Task<SystemFlagEvaluator> Flags(bool aiConfigured, bool? aiEnabledOverride = null)
     {
         var store = new InMemoryRuntimeSettingsStore();
         if (aiEnabledOverride is { } value)
         {
-            store.SetOverrideAsync(SettingsCatalog.AiEnabled, value ? "true" : "false", "op@example.com", DateTimeOffset.UtcNow)
-                .GetAwaiter().GetResult();
+            await store.SetOverrideAsync(
+                SettingsCatalog.AiEnabled, value ? "true" : "false", "op@example.com", DateTimeOffset.UtcNow);
         }
 
         return new SystemFlagEvaluator(
@@ -167,7 +162,7 @@ public class StoredValueEntitlementServiceTests
             new DefaultUnlockedEntitlementService(),
             new InMemoryAccountStore(),
             new InMemoryEntitlementGrantStore(),
-            Flags(aiConfigured: true)); // no override -> code default true
+            await Flags(aiConfigured: true)); // no override -> code default true
 
         var entitlements = await service.EvaluateForSession(purchaserIdentity: null);
 
@@ -193,7 +188,7 @@ public class StoredValueEntitlementServiceTests
             new DefaultUnlockedEntitlementService(),
             accounts,
             grants,
-            Flags(aiConfigured: true, aiEnabledOverride: false));
+            await Flags(aiConfigured: true, aiEnabledOverride: false));
 
         var entitlements = await service.EvaluateForSession(Purchaser);
 
@@ -245,7 +240,7 @@ public class StoredValueEntitlementServiceTests
             new DefaultUnlockedEntitlementService(),
             new InMemoryAccountStore(),
             new InMemoryEntitlementGrantStore(),
-            Flags(aiConfigured: false, aiEnabledOverride: true)); // flag true, but infra absent
+            await Flags(aiConfigured: false, aiEnabledOverride: true)); // flag true, but infra absent
 
         var entitlements = await service.EvaluateForSession(purchaserIdentity: null);
 
@@ -262,12 +257,12 @@ public class StoredValueEntitlementServiceTests
             new DefaultUnlockedEntitlementService(),
             new InMemoryAccountStore(),
             new InMemoryEntitlementGrantStore(),
-            Flags(aiConfigured: true, aiEnabledOverride: false));
+            await Flags(aiConfigured: true, aiEnabledOverride: false));
         var unconfigured = new StoredValueEntitlementService(
             new DefaultUnlockedEntitlementService(),
             new InMemoryAccountStore(),
             new InMemoryEntitlementGrantStore(),
-            Flags(aiConfigured: false));
+            await Flags(aiConfigured: false));
 
         var forcedOffSession = await forcedOff.EvaluateForSession(purchaserIdentity: null);
         var unconfiguredSession = await unconfigured.EvaluateForSession(purchaserIdentity: null);

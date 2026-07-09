@@ -48,9 +48,12 @@ public static class SettingsCatalog
     // ---- System-scope capability flags (control-plane/02, #213) ---------------
     //
     //  The first system-scope keys (ADR 0003 Layer 1): app-wide kill switches an
-    //  operator can force OFF, evaluated in the entitlement composition BEFORE any
-    //  account grant (system force-off wins over any grant, for every session). Each
-    //  defaults to true (the code default) so shipping the keys changes zero observed
+    //  operator can force OFF. In PRECEDENCE they win over any account grant - a system
+    //  force-off can never be re-enabled by a grant, for any session - but that
+    //  precedence is IMPLEMENTED as a post-compose filter (baseline + grants compose
+    //  first, then the system flag SUBTRACTS), not a pre-grant branch (see
+    //  SystemFlagEvaluator / StoredValueEntitlementService). Each defaults to true (the
+    //  code default) so shipping the keys changes zero observed
     //  behavior - the EFFECTIVE value is (this flag) AND the config-presence floor
     //  (SystemConfigPresence), so a flag can force a configured capability OFF but can
     //  never enable an unconfigured one (SystemFlagEvaluator owns that AND). All three
