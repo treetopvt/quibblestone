@@ -87,12 +87,15 @@ public static class SettingsCatalog
     ];
 
     /// <summary>
-    /// Validates the catalog's internal coherence once at type load: a <see cref="SettingBounds"/>
-    /// may only sit on a numeric key (a bound on a Bool / String key would be silently ignored at
-    /// PUT time, so fail fast instead), and every key is unique. This guards a mis-declaration
-    /// story 02 / 03 could introduce when they append keys - a bad definition breaks startup with a
-    /// clear message rather than passing unnoticed. It does NOT enforce "every numeric key has
-    /// Bounds" - that stays a review blocker in story 02 / 03, not a runtime policy here.
+    /// Validates the catalog's internal coherence once at type load, so a mis-declaration story
+    /// 02 / 03 could introduce when they append keys breaks startup with a clear message rather
+    /// than passing unnoticed (a bad cast in a typed getter, or a bounds range nothing can satisfy).
+    /// Enforced: every key is unique; a <see cref="SettingBounds"/> sits only on a numeric key (a
+    /// bound on a Bool / String key would be silently ignored at PUT time); a bound is well-formed
+    /// (<c>Max &gt;= Min</c>); and <see cref="SettingDefinition.CodeDefault"/> is the CLR type the
+    /// declared <see cref="SettingType"/> implies (so a typed getter's cast can never fail). It does
+    /// NOT enforce "every numeric key has Bounds" - that stays a review blocker in story 02 / 03,
+    /// not a runtime policy here.
     /// </summary>
     static SettingsCatalog()
     {
@@ -109,8 +112,32 @@ public static class SettingsCatalog
                 throw new InvalidOperationException(
                     $"Settings key '{def.Key}' declares Bounds but is {def.Type} - bounds apply to numeric keys only.");
             }
+
+            if (def.Bounds is { } bounds && bounds.Max < bounds.Min)
+            {
+                throw new InvalidOperationException(
+                    $"Settings key '{def.Key}' has Bounds with Max ({bounds.Max}) below Min ({bounds.Min}) - no value could satisfy it.");
+            }
+
+            if (!CodeDefaultMatchesType(def))
+            {
+                throw new InvalidOperationException(
+                    $"Settings key '{def.Key}' CodeDefault does not match its declared type {def.Type} - a typed getter's cast would throw.");
+            }
         }
     }
+
+    // The CodeDefault must be the CLR type the declared SettingType implies, so
+    // RuntimeSettingsService's typed getters (which cast the resolved value) can never fail on a
+    // never-overridden key. Checked once at startup, not per read.
+    private static bool CodeDefaultMatchesType(SettingDefinition def) => def.Type switch
+    {
+        SettingType.Bool => def.CodeDefault is bool,
+        SettingType.Int => def.CodeDefault is int,
+        SettingType.Decimal => def.CodeDefault is decimal,
+        SettingType.String => def.CodeDefault is string,
+        _ => false,
+    };
 
     /// <summary>
     /// Looks up a definition by exact (ordinal) key. Returns null for an unknown key, which the

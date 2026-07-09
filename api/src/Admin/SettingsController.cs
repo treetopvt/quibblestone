@@ -95,9 +95,14 @@ public sealed class SettingsController : ControllerBase
             return BadRequest(new { message = $"'{key}' is not a settings key." });
         }
 
-        // (2) The value must parse against the declared type. Coerce the JSON element to the wire
-        // string first (a JSON number / bool / string all reduce to their wire form), then parse.
-        var wire = ToWire(valueElement);
+        // (2) The value must be a JSON SCALAR (string / number / bool) and parse against the
+        // declared type. A JSON null / object / array is not a settings value - reject it here so
+        // a structural or null payload can never be persisted (notably under a String key, whose
+        // parse would otherwise accept any raw JSON text).
+        if (!TryToWire(valueElement, out var wire))
+        {
+            return BadRequest(new { message = $"{def.Key} needs a string, number, or boolean value." });
+        }
         if (!SettingValue.TryParse(def.Type, wire, out var parsed))
         {
             return BadRequest(new { message = $"'{wire}' is not a valid {def.Type} value for {def.Key}." });
@@ -169,18 +174,32 @@ public sealed class SettingsController : ControllerBase
     }
 
     /// <summary>
-    /// Reduces a JSON value to its wire-string form for parsing against a declared type. A JSON
-    /// string yields its content; a number / bool yields its literal text (so <c>42</c> and
-    /// <c>"42"</c> both reach the Int parser, and <c>true</c> / <c>"true"</c> both reach Bool).
-    /// A structural value (object / array / null) yields its raw text, which then fails to parse
-    /// for any scalar type - a clean 400.
+    /// Reduces a JSON SCALAR to its wire-string form for parsing against a declared type, returning
+    /// false for any non-scalar. A JSON string yields its content; a number / bool yields its literal
+    /// text (so <c>42</c> and <c>"42"</c> both reach the Int parser, and <c>true</c> / <c>"true"</c>
+    /// both reach Bool). A JSON null / object / array / undefined is NOT a settings value and returns
+    /// false - a clean 400 - so a structural or null payload can never be persisted, notably under a
+    /// String key (whose parse always succeeds and would otherwise store raw JSON text).
     /// </summary>
-    private static string ToWire(JsonElement value) => value.ValueKind switch
+    private static bool TryToWire(JsonElement value, out string wire)
     {
-        JsonValueKind.String => value.GetString() ?? string.Empty,
-        JsonValueKind.True => "true",
-        JsonValueKind.False => "false",
-        JsonValueKind.Number => value.GetRawText(),
-        _ => value.GetRawText(),
-    };
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.String:
+                wire = value.GetString() ?? string.Empty;
+                return true;
+            case JsonValueKind.True:
+                wire = "true";
+                return true;
+            case JsonValueKind.False:
+                wire = "false";
+                return true;
+            case JsonValueKind.Number:
+                wire = value.GetRawText();
+                return true;
+            default:
+                wire = string.Empty;
+                return false;
+        }
+    }
 }

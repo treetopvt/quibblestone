@@ -115,6 +115,59 @@ public sealed class SettingsControllerTests
     }
 
     [Fact]
+    public async Task Put_accepts_a_plain_string_value()
+    {
+        var (controller, settings, _) = NewSut();
+
+        var result = await controller.Put(SettingsCatalog.ExampleLabel, Request("world"), CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("world", await settings.GetStringAsync(SettingsCatalog.ExampleLabel));
+    }
+
+    [Fact]
+    public async Task Put_rejects_a_json_object_value_even_for_a_string_key()
+    {
+        var (controller, settings, log) = NewSut();
+        // A structural JSON value is not a settings value - it must not persist as raw JSON text
+        // under a String key (whose parse always succeeds).
+        var obj = JsonSerializer.SerializeToElement(new { nested = "x" });
+
+        var result = await controller.Put(SettingsCatalog.ExampleLabel, new UpdateSettingRequest(obj, null), CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Null((await settings.GetViewAsync(SettingsCatalog.ExampleLabel))!.Override);
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
+    public async Task Put_rejects_a_json_array_value()
+    {
+        var (controller, settings, log) = NewSut();
+        var arr = JsonSerializer.SerializeToElement(new[] { 1, 2, 3 });
+
+        var result = await controller.Put(SettingsCatalog.ExampleLabel, new UpdateSettingRequest(arr, null), CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Null((await settings.GetViewAsync(SettingsCatalog.ExampleLabel))!.Override);
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
+    public async Task Put_rejects_a_json_null_value_even_for_a_string_key()
+    {
+        var (controller, settings, log) = NewSut();
+        // A JSON null literal arrives as ValueKind.Null - not a value, a 400.
+        var nullEl = JsonSerializer.SerializeToElement<object?>(null);
+
+        var result = await controller.Put(SettingsCatalog.ExampleLabel, new UpdateSettingRequest(nullEl, null), CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Null((await settings.GetViewAsync(SettingsCatalog.ExampleLabel))!.Override);
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
     public async Task Put_rejects_a_malformed_value_for_the_declared_type()
     {
         var (controller, settings, log) = NewSut();
