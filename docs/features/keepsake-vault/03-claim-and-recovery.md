@@ -1,6 +1,6 @@
 # Story: Claim and recovery
 
-**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #230
 
 ## Context
 A vault (`keepsake-vault/01`) is anonymous and device-bound by default: it

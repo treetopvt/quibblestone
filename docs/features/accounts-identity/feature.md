@@ -35,8 +35,8 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 | 05 | #195 | Stable account id spine | Complete |
 | 06 | #210 | Purchaser proof at CreateRoom (ADR 0002 Decision F, finally wired) | Complete |
 | 07 | #211 | The free family account | Complete |
-| 08 | #TBD | Kid seat presets | Not Started |
-| 09 | #TBD | Family device link | Not Started |
+| 08 | #228 | Kid seat presets | Not Started |
+| 09 | #229 | Family device link | Not Started |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:

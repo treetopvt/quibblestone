@@ -1,6 +1,6 @@
 # Story: Soft delete and restore
 
-**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #231
 
 ## Context
 Deletion in every existing keepsake surface is hard and immediate:
