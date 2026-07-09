@@ -57,6 +57,10 @@ import {
   faHammer,
   faWandMagicSparkles,
   faPenNib,
+  // accounts-identity/08: the kid-seat-presets manager uses faPen (edit a preset)
+  // and faTrash (delete a preset) on the Account page.
+  faPen,
+  faTrash,
   faEyeSlash,
   // FamilySafeToggle icon (child-safety/02): the shield-heart glyph reads as
   // "protected and kid-friendly" beside the "Family-safe" toggle label.
@@ -186,6 +190,8 @@ library.add(
   faHammer,
   faWandMagicSparkles,
   faPenNib,
+  faPen,
+  faTrash,
   faEyeSlash,
   faShieldHeart,
   faDice,

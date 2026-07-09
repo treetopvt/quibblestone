@@ -68,6 +68,7 @@ import {
 } from '../account/signInClient';
 import { fetchEntitlements, type OwnedEntitlement } from '../account/entitlementsClient';
 import { usePurchaserSession } from '../account/PurchaserSession';
+import { SeatPresetsManager } from '../account/SeatPresetsManager';
 import { CloudGallery } from './CloudGallery';
 
 export interface AccountProps {
@@ -449,6 +450,11 @@ export function Account({ onBack }: AccountProps) {
               </Typography>
             )}
             {session.credential && <PurchaseList credential={session.credential} />}
+            {/* accounts-identity/08: the kid-seat-presets manager lives HERE, in the
+                signed-in phase, where the family `credential` is in scope - so it is
+                managed ONLY from the adult Account page (never a kid's device) and an
+                anonymous player can never reach it. */}
+            {session.credential && <SeatPresetsManager credential={session.credential} />}
             {/* keepsake-gallery/05: the cloud-gallery affordance lives HERE, in
                 the signed-in state, where the purchaser `credential` is in scope
                 (AC-02: anonymous players can never reach it). Behind a tap so

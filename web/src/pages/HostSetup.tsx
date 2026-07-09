@@ -37,7 +37,7 @@ import {
   AppBar,
   BottomActionBar,
   BottomActionBarSpacer,
-  PlayerIdentityFields,
+  PresetIdentityFields,
   DEFAULT_VARIANT,
 } from '../components';
 import type { GuardianVariant } from '../components';
@@ -111,9 +111,12 @@ export function HostSetup({
       <Box component="form" onSubmit={onSubmit} noValidate>
         <Stack spacing={4} sx={{ px: 5.5, pt: 3 }}>
           {/* CHARACTER CARD: the shared identity controls (build/host-identity) -
-              display name + "Choose your guardian" avatar grid. The same
-              <PlayerIdentityFields> Join uses, wired to this screen's
-              react-hook-form Controllers. */}
+              display name + "Choose your guardian" avatar grid, via the same
+              <PresetIdentityFields> Join uses (accounts-identity/08: a one-tap kid
+              seat-preset picker sits ABOVE the manual fields when this device holds a
+              family credential, identical to the bare fields otherwise). Wired to this
+              screen's react-hook-form Controllers - a tapped preset fills these SAME
+              fields and the host submits through the SAME CreateRoom invoke (AC-03). */}
           <Stack
             spacing={2.5}
             sx={{
@@ -131,7 +134,7 @@ export function HostSetup({
                   name="selectedVariant"
                   control={control}
                   render={({ field: variantField }) => (
-                    <PlayerIdentityFields
+                    <PresetIdentityFields
                       nickname={nameField.value}
                       variant={variantField.value}
                       onNicknameChange={nameField.onChange}

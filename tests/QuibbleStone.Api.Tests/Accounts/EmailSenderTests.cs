@@ -32,6 +32,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Admin;
 using QuibbleStone.Api.Controllers;
+using QuibbleStone.Api.Safety;
 
 namespace QuibbleStone.Api.Tests.Accounts;
 
@@ -235,7 +236,9 @@ public class EmailSenderTests
             sender,
             options,
             environment,
-            logger ?? NullLogger<AccountsController>.Instance)
+            logger ?? NullLogger<AccountsController>.Instance,
+            new InMemorySeatPresetStore(),
+            new ContentSafetyFilter())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

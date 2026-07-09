@@ -828,6 +828,29 @@ else
             sp.GetRequiredService<ILogger<TableStorageAccountStore>>()));
 }
 
+// accounts-identity/08 (kid seat presets, #228): the seat-preset store, chosen at
+// STARTUP by the SAME Accounts:StorageConnectionString the account store above uses
+// - the identical config-presence idiom. WITH a connection string it persists presets
+// to Azure Table Storage partitioned by the family AccountId; WITHOUT one (local dev,
+// CI, a fresh clone) it degrades to a WORKING in-memory store (NOT a no-op) so the
+// presets manager + join-flow picker are exercisable with ZERO Azure setup. A preset
+// holds ONLY { Id, Nickname, Variant } (SeatPreset) and NO room / player reference,
+// so this store stays entirely on the account plane (AC-03/AC-05). A singleton either
+// way. NOTE: Program.cs is a Wave-3 hotspot (four ADR stories add registrations here)
+// - this is a small, separately-rebased addition, per the serial-merge rule.
+var seatPresetsConnectionString = builder.Configuration["Accounts:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(seatPresetsConnectionString))
+{
+    builder.Services.AddSingleton<ISeatPresetStore, InMemorySeatPresetStore>();
+}
+else
+{
+    builder.Services.AddSingleton<ISeatPresetStore>(sp =>
+        new TableStorageSeatPresetStore(
+            seatPresetsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageSeatPresetStore>>()));
+}
+
 // platform-devops/08 (AC-07): the single-use magic-link nonce store. Config-presence
 // split mirroring the account store above: WITH a storage connection string
 // (Accounts:StorageConnectionString - a deployed environment) it persists consumed

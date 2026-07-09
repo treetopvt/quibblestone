@@ -60,6 +60,18 @@ export {
 } from './PlayerIdentityFields';
 export type { PlayerIdentityFieldsProps } from './PlayerIdentityFields';
 
+// accounts-identity/08: the shared identity controls WITH a one-tap kid seat-preset
+// picker layered above them. Join + HostSetup render this in place of the bare
+// PlayerIdentityFields; on a device with no family credential (or no saved presets)
+// it renders exactly the same manual fields (AC-06). A tap fills the SAME controlled
+// name/variant and submits through the SAME hub invoke (AC-03).
+export { PresetIdentityFields } from './PresetIdentityFields';
+
+// The presentational one-tap preset chip row (accounts-identity/08) - normally used
+// via PresetIdentityFields, exported for direct/test use.
+export { SeatPresetPicker } from './SeatPresetPicker';
+export type { SeatPresetPickerProps } from './SeatPresetPicker';
+
 // The session-level story-length choice (story-selection/02): a controlled
 // Quick tale / Full tale segmented pair, in the same visual family as
 // FamilySafeToggle. Pair with the pure length pipeline in
