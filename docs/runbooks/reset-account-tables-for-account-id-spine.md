@@ -36,17 +36,23 @@ it (an account read misses the new index; a grant / gallery read hits an empty
 `AccountId` partition). Nothing is corrupted; the old rows are just inert. The
 reset removes them so no stale, unreachable rows linger.
 
-## The reset (run once, after this change deploys to UAT)
+## The reset (run once, after this change deploys to qa)
 
-Do this once, against the **UAT** Storage account only. Two equivalent options -
-pick whichever you prefer:
+Do this once, against the **qa lane's** Storage account only (resource group
+`quibblestone-qa-rg` - the isolated platform-work lane, NOT beta). Beta runs on the
+rebadged `quibblestone-uat-rg` footprint, so never point this at that RG. Two
+equivalent options - pick whichever you prefer:
 
 - **Drop and recreate the three tables.** The app recreates each table lazily on
   its first write (`CreateIfNotExists`), so simply deleting the three tables is
   enough - no manual recreate step. With Azure CLI:
 
   ```bash
-  # RG=quibblestone-uat-rg ; ACCOUNT=<uat storage account name>
+  # The qa lane RG (platform-work lane), NEVER quibblestone-uat-rg (that is beta).
+  RG=quibblestone-qa-rg
+  # Discover the qa Storage account name (Bicep derives it with a uniqueString suffix):
+  ACCOUNT=$(az storage account list -g "$RG" --query "[0].name" -o tsv)
+  echo "About to reset account tables on: $ACCOUNT (RG $RG) - confirm this is qa, not beta."
   KEY=$(az storage account keys list -g "$RG" -n "$ACCOUNT" --query "[0].value" -o tsv)
   for t in PurchaserAccounts EntitlementGrants CloudGalleryTales; do
     az storage table delete --account-name "$ACCOUNT" --account-key "$KEY" --name "$t"
