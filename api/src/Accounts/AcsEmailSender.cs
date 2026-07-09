@@ -95,6 +95,12 @@ public sealed class AcsEmailSender : IEmailSender
             MagicLinkPurpose.OperatorLogin =>
                 ("Your QuibbleStone operator sign-in link",
                  "Here is your one-time link to sign in to the QuibbleStone operator console."),
+            MagicLinkPurpose.FamilySignUp =>
+                // accounts-identity/07: a FREE family account is created without a purchase,
+                // so "restore your purchase" would read wrong here. Copy reflects create-or-open,
+                // not restore - the ONLY difference from the purchaser path (same transport, same token).
+                ("Your QuibbleStone family account link",
+                 "Here is your one-time link to create or open your QuibbleStone family account."),
             _ =>
                 ("Your QuibbleStone sign-in link",
                  "Here is your one-time link to sign in to QuibbleStone and restore your purchase."),

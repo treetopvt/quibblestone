@@ -1,10 +1,30 @@
 // ----------------------------------------------------------------------------
-//  AccountsController - the REST sign-in / restore surface for a returning
-//  PURCHASER (accounts-identity/03, issue #69). Two endpoints, both purchaser-
-//  facing and both kept entirely OFF the game path:
+//  AccountsController - the REST sign-in / restore surface for a FAMILY account
+//  (accounts-identity/03, issue #69; widened by accounts-identity/07, issue #211).
+//  Two endpoints, both adult-facing and both kept entirely OFF the game path:
 //
-//    POST /api/accounts/signin/request  { email }  -> issue + "deliver" a link
-//    POST /api/accounts/signin/verify   { token }  -> resolve the account + sign in
+//    POST /api/accounts/signin/request  { email, intent? }  -> issue + "deliver" a link
+//    POST /api/accounts/signin/verify   { token, intent? }  -> resolve/create + sign in
+//
+//  THE TWO INTENTS (accounts-identity/07, ADR 0003 Amendment 1): an account
+//  decouples from purchase - it is "an adult who wants things to persist," and a
+//  purchaser is an account that ALSO holds paid grants. The optional `intent` on
+//  both endpoints selects which entry point the SAME plumbing serves:
+//    - "signin" (the DEFAULT): a returning PURCHASER restores an EXISTING account.
+//      A valid token for an email with no account resolves to "no-account" - it
+//      NEVER creates (the story-03 no-create-on-miss behavior is unchanged). Only
+//      the user-facing guidance copy is reworded to also point at the free family
+//      account (per AC-04's reframing) - the branch itself still creates nothing.
+//    - "signup" (accounts-identity/07): a FREE family account. A valid token for
+//      an email with no account CREATES one via IAccountStore.CreateOrGetAsync (the
+//      SAME idempotent create-or-get story 02 already built) holding email +
+//      created-at and ZERO entitlement grants - reachable WITHOUT a purchase. An
+//      email that ALREADY has an account (purchaser or free) resolves to that SAME
+//      account (create-or-get idempotency), never a duplicate.
+//  Both intents ride the EXACT SAME IMagicLinkTokenService and the SAME neutral,
+//  no-enumeration request contract (AC-02); intent only ever (a) selects the email
+//  copy and (b) changes the VERIFY-time miss branch (create vs guide) - never the
+//  request path's shape or timing.
 //
 //  WHAT THIS BUILDS ON (and never reimplements):
 //    - accounts-identity/02's IMagicLinkTokenService issues + verifies the one-
@@ -66,13 +86,15 @@ using QuibbleStone.Api.Accounts;
 
 namespace QuibbleStone.Api.Controllers;
 
-/// <summary>Request body for POST /api/accounts/signin/request: the email to send a sign-in link to.</summary>
-/// <param name="Email">The purchaser's email. May be null/empty - handled as a no-op-shaped neutral response.</param>
-public sealed record SignInRequestBody(string? Email);
+/// <summary>Request body for POST /api/accounts/signin/request: the email to send a link to.</summary>
+/// <param name="Email">The account email. May be null/empty - handled as a no-op-shaped neutral response.</param>
+/// <param name="Intent">Optional entry-point selector: "signup" for a free family account (accounts-identity/07), anything else (or null) for the default purchaser sign-in. Selects the email copy ONLY on the request path - never the response shape/timing (AC-02).</param>
+public sealed record SignInRequestBody(string? Email, string? Intent = null);
 
 /// <summary>Request body for POST /api/accounts/signin/verify: the token from a followed magic link.</summary>
 /// <param name="Token">The single-use magic-link token. May be null/empty - resolves to the "link invalid" outcome.</param>
-public sealed record SignInVerifyBody(string? Token);
+/// <param name="Intent">Optional entry-point selector: "signup" makes a valid-token-but-no-account outcome CREATE a free family account (accounts-identity/07, AC-01); anything else (or null) keeps the story-03 sign-in behavior (no create on miss). Carried across the emailed link via its query string.</param>
+public sealed record SignInVerifyBody(string? Token, string? Intent = null);
 
 /// <summary>
 /// Response for the request-a-link endpoint. Deliberately NEUTRAL (AC-05): the
@@ -136,6 +158,16 @@ public sealed class AccountsController : ControllerBase
     /// </summary>
     public const string MagicLinkPath = "/account";
 
+    /// <summary>
+    /// The `intent` value that selects the FREE FAMILY ACCOUNT path (accounts-identity/07):
+    /// on the request endpoint it picks the "create your account" email copy; on verify it
+    /// makes a no-account outcome CREATE (via CreateOrGetAsync) instead of guiding to
+    /// purchase. Any other value (or null) is the default story-03 purchaser sign-in.
+    /// Compared case-insensitively after a trim. Also the query-string key/value the
+    /// emailed link carries so the intent survives the email round-trip.
+    /// </summary>
+    public const string SignUpIntent = "signup";
+
     private readonly IMagicLinkTokenService _tokens;
     private readonly IAccountStore _accounts;
     private readonly PurchaserCredentialService _credential;
@@ -178,10 +210,17 @@ public sealed class AccountsController : ControllerBase
     [EnableRateLimiting(SignInRateLimit.PolicyName)]
     public async Task<IActionResult> RequestLink([FromBody] SignInRequestBody? request)
     {
+        // accounts-identity/07: intent is a CLIENT-supplied entry-point selector, not
+        // derived from the store - so keying copy on it reveals nothing about account
+        // existence (AC-02). The response SHAPE and TIMING are identical for both
+        // intents and for a known vs unknown email; only the copy string differs.
+        var signUp = IsSignUp(request?.Intent);
+
         // The one neutral acknowledgement, identical for a known and an unknown
-        // email (AC-05). It intentionally does not confirm an account exists.
-        const string neutralMessage =
-            "If that email has a QuibbleStone purchase, a sign-in link is on its way. Check your inbox.";
+        // email (AC-02/AC-05). It intentionally does not confirm an account exists.
+        var neutralMessage = signUp
+            ? "We're sending a link to create or open your QuibbleStone family account. Check your inbox."
+            : "If that email has a QuibbleStone purchase, a sign-in link is on its way. Check your inbox.";
 
         var email = (request?.Email ?? string.Empty).Trim();
         if (email.Length == 0 || email.Length > MaxEmailLength)
@@ -204,7 +243,9 @@ public sealed class AccountsController : ControllerBase
         // NoOpEmailSender (a no-op, AC-03); with a provider it emails the link. The
         // send happens for ANY well-formed email regardless of account existence
         // (the store is never read here), so it is not an enumeration oracle (AC-04).
-        await DeliverMagicLinkAsync(email, token);
+        // The purpose selects ONLY the copy (accounts-identity/07): a family sign-up
+        // reads "create your account", a sign-in reads "restore your purchase".
+        await DeliverMagicLinkAsync(email, token, signUp);
 
         // Development ONLY: echo the token + a follow path so the sign-in flow is
         // exercisable locally with no email provider. In any non-dev environment
@@ -223,13 +264,22 @@ public sealed class AccountsController : ControllerBase
     /// <summary>
     /// POST /api/accounts/signin/verify -> { outcome, message, email?, credential? }.
     /// Verifies the followed magic-link token (recovering the email subject) and
-    /// resolves it to an EXISTING account via the READ-ONLY GetByIdentityAsync -
-    /// it never creates a row (AC-01 no-duplicate, AC-05 no-create-on-miss).
+    /// resolves it to an account.
     ///
-    /// On a hit: mints the short-lived purchaser credential (AC-02) and returns
-    /// "signed-in". On a valid-token-but-no-account: returns "no-account" guiding
-    /// the user to purchase (AC-05). On an invalid/expired/replayed token: returns
-    /// "link-invalid". No account is ever created on any path.
+    /// On a hit (an account already exists for the email): mints the short-lived
+    /// credential (AC-02) and returns "signed-in".
+    ///
+    /// On a valid-token-but-no-account, the behavior forks on `intent`:
+    ///   - DEFAULT / "signin" (story 03 behavior): returns "no-account" and NEVER
+    ///     creates a row (AC-05 no-create-on-miss). Its guidance copy is reworded to
+    ///     also mention the free family account, but the branch creates nothing.
+    ///   - "signup" (accounts-identity/07, AC-01): CREATES a free family account via
+    ///     IAccountStore.CreateOrGetAsync (the SAME idempotent create-or-get) holding
+    ///     email + created-at and ZERO grants, then signs in exactly like a hit. The
+    ///     holder proved control of the inbox by following the link, so creating their
+    ///     own zero-grant account here is safe and is not an enumeration oracle.
+    ///
+    /// On an invalid/expired/replayed token: returns "link-invalid" and creates nothing.
     /// </summary>
     [HttpPost("signin/verify")]
     public async Task<IActionResult> Verify([FromBody] SignInVerifyBody? request, CancellationToken cancellationToken)
@@ -257,24 +307,38 @@ public sealed class AccountsController : ControllerBase
                 Credential: null));
         }
 
-        // READ ONLY (AC-01/AC-05): resolve the verified email to an EXISTING
-        // account. A miss returns null and NEVER creates a row - a valid token for
-        // an email that never purchased must not mint an account.
+        var signUp = IsSignUp(request?.Intent);
+
+        // Resolve the verified email to an EXISTING account (READ ONLY - never
+        // creates). A hit signs in on either intent.
         var account = await _accounts.GetByIdentityAsync(email, cancellationToken);
+        var created = false;
         if (account is null)
         {
-            // Valid link, but no purchase behind this email. Guide the holder to
-            // purchase rather than leave them in an ambiguous state (AC-05). The
-            // holder controls this inbox (they received the link), so this is not
-            // an enumeration oracle.
-            return Ok(new SignInVerifyResult(
-                Outcome: "no-account",
-                Message: "We could not find a QuibbleStone purchase for that email yet. Buy the family plan to unlock it - free play never needs an account.",
-                Email: null,
-                Credential: null));
+            if (!signUp)
+            {
+                // DEFAULT / sign-in path (story 03, AC-05 no-create-on-miss): a valid
+                // link but no purchase behind this email. Guide the holder rather than
+                // leave them ambiguous. The holder controls this inbox (they received
+                // the link), so this is not an enumeration oracle.
+                return Ok(new SignInVerifyResult(
+                    Outcome: "no-account",
+                    Message: "We could not find a QuibbleStone purchase for that email yet. Create a free family account or buy the family plan - free play never needs an account.",
+                    Email: null,
+                    Credential: null));
+            }
+
+            // accounts-identity/07 SIGN-UP path (AC-01): create the free family account
+            // via the SAME idempotent create-or-get story 02 already built - never a
+            // second creation path. It holds email + created-at and ZERO entitlement
+            // grants (AC-05): this call grants NOTHING and does not touch the grant
+            // store. If a concurrent request already created it, CreateOrGetAsync
+            // returns that SAME account (AC-03 no-duplicate).
+            account = await _accounts.CreateOrGetAsync(email, cancellationToken);
+            created = true;
         }
 
-        // A hit: mint the short-lived, purchaser-scoped credential (AC-02). This
+        // A hit (or a freshly-created free account): mint the short-lived credential (AC-02). This
         // is the "signed in as purchaser X" token billing-entitlements/05's
         // restore view will consume, with no device-specific state. Built on the
         // framework's time-limited data protector - no new dependency, no hand-
@@ -297,12 +361,33 @@ public sealed class AccountsController : ControllerBase
             Path = "/",
         });
 
+        // Pick the confirmation copy by INTENT, not merely by whether a row was just
+        // created (Copilot review): a family sign-up that lands on an ALREADY-existing
+        // free account (created == false) must still read as a family account, never
+        // the purchaser-only "restore your purchase" wording. Only the default sign-in
+        // intent (a returning purchaser) keeps the restore copy.
+        var signedInMessage =
+            created
+                ? "Your free family account is ready. Your keepsakes and any purchases can follow you across your devices."
+            : signUp
+                ? "You're signed in to your family account. Your keepsakes and any purchases can follow you across your devices."
+                : "You are signed in. Your purchase can now be restored on this device.";
+
         return Ok(new SignInVerifyResult(
             Outcome: "signed-in",
-            Message: "You are signed in. Your purchase can now be restored on this device.",
+            Message: signedInMessage,
             Email: account.Email,
             Credential: credential));
     }
+
+    /// <summary>
+    /// True when <paramref name="intent"/> selects the free family-account sign-up
+    /// path (accounts-identity/07) - a case-insensitive, trimmed match against
+    /// <see cref="SignUpIntent"/>. Any other value (or null) is the default
+    /// purchaser sign-in. A shared helper so the request and verify paths agree.
+    /// </summary>
+    private static bool IsSignUp(string? intent) =>
+        string.Equals(intent?.Trim(), SignUpIntent, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Protects the purchaser-session payload (email + issued-at) with a time-
@@ -325,15 +410,20 @@ public sealed class AccountsController : ControllerBase
     /// origin (EmailOptions.LinkBaseUrl); when that is unset it falls back to the
     /// request's own origin (a local dev walkthrough uses the dev-token echo anyway).
     /// </summary>
-    private async Task DeliverMagicLinkAsync(string email, string token)
+    private async Task DeliverMagicLinkAsync(string email, string token, bool signUp)
     {
         try
         {
-            var link = BuildMagicLink(token);
+            // accounts-identity/07: the followed link must carry the intent so a family
+            // sign-up still creates on verify AFTER the email round-trip (the token itself
+            // is intent-agnostic - it signs only the email, never widened). The purpose
+            // selects the "create your account" vs "restore your purchase" copy.
+            var link = BuildMagicLink(token, signUp);
+            var purpose = signUp ? MagicLinkPurpose.FamilySignUp : MagicLinkPurpose.PurchaserSignIn;
             // Flow the request-aborted token so a client disconnect or graceful shutdown
             // cancels the outbound send; the catch below still swallows the cancellation
             // into the SAME neutral acknowledgement (AC-08), so behavior is unchanged.
-            await _email.SendMagicLinkAsync(email, link, MagicLinkPurpose.PurchaserSignIn, HttpContext.RequestAborted);
+            await _email.SendMagicLinkAsync(email, link, purpose, HttpContext.RequestAborted);
         }
         catch (Exception ex)
         {
@@ -343,8 +433,13 @@ public sealed class AccountsController : ControllerBase
         }
     }
 
-    /// <summary>Builds {LinkBaseUrl-or-request-origin}{MagicLinkPath}?token=... (the token is URL-escaped).</summary>
-    private string BuildMagicLink(string token)
+    /// <summary>
+    /// Builds {LinkBaseUrl-or-request-origin}{MagicLinkPath}?token=... (the token is
+    /// URL-escaped). On the family sign-up path (accounts-identity/07) it also appends
+    /// &amp;intent=signup so the followed link keeps its intent across the email round-trip;
+    /// the web reads that query value and passes it back to verify.
+    /// </summary>
+    private string BuildMagicLink(string token, bool signUp)
     {
         var linkBase = (_emailOptions.LinkBaseUrl ?? string.Empty).Trim();
         if (linkBase.Length == 0)
@@ -352,6 +447,7 @@ public sealed class AccountsController : ControllerBase
             linkBase = $"{Request.Scheme}://{Request.Host}";
         }
 
-        return $"{linkBase.TrimEnd('/')}{MagicLinkPath}?token={Uri.EscapeDataString(token)}";
+        var intentSuffix = signUp ? $"&intent={SignUpIntent}" : string.Empty;
+        return $"{linkBase.TrimEnd('/')}{MagicLinkPath}?token={Uri.EscapeDataString(token)}{intentSuffix}";
     }
 }

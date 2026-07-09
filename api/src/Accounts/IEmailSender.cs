@@ -73,6 +73,17 @@ public enum MagicLinkPurpose
 
     /// <summary>An operator's back-office login link (OperatorLoginController).</summary>
     OperatorLogin,
+
+    /// <summary>
+    /// A free FAMILY ACCOUNT sign-up / sign-in link (accounts-identity/07,
+    /// AccountsController's sign-up path). Rides the SAME transport and the SAME
+    /// IMagicLinkTokenService as <see cref="PurchaserSignIn"/> - it differs ONLY in
+    /// the "create your account" wording the sender picks (a family account is
+    /// created free, without a purchase, so "restore your purchase" copy would read
+    /// wrong). It carries NO authorization meaning: creating a free account grants
+    /// nothing, and the create-or-get happens at verify time regardless of copy.
+    /// </summary>
+    FamilySignUp,
 }
 
 /// <summary>
