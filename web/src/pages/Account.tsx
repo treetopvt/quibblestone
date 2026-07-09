@@ -262,10 +262,12 @@ export function Account({ onBack }: AccountProps) {
     // family-account (signup) intent, so the SAME email entry both creates a
     // brand-new free account and signs into an existing one - the server's
     // create-or-get decides transparently, and the request response stays
-    // neutral either way (no existence tell). The web only ever drives this
-    // unified 'signup' intent; the server's 'signin'-copy request and its
-    // 'no-account' verify branch are retained purely for API / back-compat
-    // callers (accounts-identity/03), so they are unreachable from here.
+    // neutral either way (no existence tell). Every REQUEST initiated from this
+    // UI uses the 'signup' intent; the server's 'signin'-copy request path is
+    // retained purely for API / back-compat callers (accounts-identity/03). The
+    // verify path can still receive a legacy link that lacks intent=signup (e.g.
+    // an older sign-in link), which the server handles with its default sign-in
+    // behavior - so the 'no-account' outcome remains reachable via such a link.
     const result = await requestSignInLink(values.email.trim(), 'signup');
     setMessage(result.message);
     setDevToken(result.devToken ?? null);

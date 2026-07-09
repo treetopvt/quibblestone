@@ -10,9 +10,11 @@
 //  decouples from purchase - it is "an adult who wants things to persist," and a
 //  purchaser is an account that ALSO holds paid grants. The optional `intent` on
 //  both endpoints selects which entry point the SAME plumbing serves:
-//    - "signin" (the DEFAULT, unchanged from story 03): a returning PURCHASER
-//      restores an EXISTING account. A valid token for an email with no account
-//      resolves to "no-account" (guide to purchase / create) - it NEVER creates.
+//    - "signin" (the DEFAULT): a returning PURCHASER restores an EXISTING account.
+//      A valid token for an email with no account resolves to "no-account" - it
+//      NEVER creates (the story-03 no-create-on-miss behavior is unchanged). Only
+//      the user-facing guidance copy is reworded to also point at the free family
+//      account (per AC-04's reframing) - the branch itself still creates nothing.
 //    - "signup" (accounts-identity/07): a FREE family account. A valid token for
 //      an email with no account CREATES one via IAccountStore.CreateOrGetAsync (the
 //      SAME idempotent create-or-get story 02 already built) holding email +
@@ -268,8 +270,9 @@ public sealed class AccountsController : ControllerBase
     /// credential (AC-02) and returns "signed-in".
     ///
     /// On a valid-token-but-no-account, the behavior forks on `intent`:
-    ///   - DEFAULT / "signin" (story 03, UNCHANGED): returns "no-account" guiding the
-    ///     user to purchase - it NEVER creates a row (AC-05 no-create-on-miss).
+    ///   - DEFAULT / "signin" (story 03 behavior): returns "no-account" and NEVER
+    ///     creates a row (AC-05 no-create-on-miss). Its guidance copy is reworded to
+    ///     also mention the free family account, but the branch creates nothing.
     ///   - "signup" (accounts-identity/07, AC-01): CREATES a free family account via
     ///     IAccountStore.CreateOrGetAsync (the SAME idempotent create-or-get) holding
     ///     email + created-at and ZERO grants, then signs in exactly like a hit. The
@@ -358,11 +361,21 @@ public sealed class AccountsController : ControllerBase
             Path = "/",
         });
 
+        // Pick the confirmation copy by INTENT, not merely by whether a row was just
+        // created (Copilot review): a family sign-up that lands on an ALREADY-existing
+        // free account (created == false) must still read as a family account, never
+        // the purchaser-only "restore your purchase" wording. Only the default sign-in
+        // intent (a returning purchaser) keeps the restore copy.
+        var signedInMessage =
+            created
+                ? "Your free family account is ready. Your keepsakes and any purchases can follow you across your devices."
+            : signUp
+                ? "You're signed in to your family account. Your keepsakes and any purchases can follow you across your devices."
+                : "You are signed in. Your purchase can now be restored on this device.";
+
         return Ok(new SignInVerifyResult(
             Outcome: "signed-in",
-            Message: created
-                ? "Your free family account is ready. Your keepsakes and any purchases can follow you across your devices."
-                : "You are signed in. Your purchase can now be restored on this device.",
+            Message: signedInMessage,
             Email: account.Email,
             Credential: credential));
     }

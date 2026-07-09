@@ -13,7 +13,7 @@
 //      story 02 already built) holding email + created-at and ZERO grants - the
 //      harness wires no grant store at all, so "zero grants" is structural here,
 //      not merely asserted; the entitlement regression (AC-05) lives in
-//      Entitlements/StoredValueEntitlementServiceTests.cs and is not duplicated.
+//      StoredValueEntitlementServiceTests.cs and is not duplicated.
 //    - AC-03 (no duplicate): a "signup" verify for an email that ALREADY has an
 //      account (purchaser-created or free-created) resolves to that SAME account -
 //      its created-at never moves, so no second row is minted.
@@ -51,7 +51,8 @@ public class SignUpTests
         AccountsController Controller,
         InMemoryAccountStore Store,
         IMagicLinkTokenService Tokens,
-        IDataProtectionProvider DataProtection);
+        IDataProtectionProvider DataProtection,
+        RecordingEmailSender Email);
 
     private static Harness NewHarness(bool development = true)
     {
@@ -63,9 +64,10 @@ public class SignUpTests
         IDataProtectionProvider dataProtection = new EphemeralDataProtectionProvider();
         var credential = new PurchaserCredentialService(dataProtection);
         var environment = new FakeWebHostEnvironment(development ? "Development" : "Production");
-        // No email provider configured => the no-op sender (AC-03); these tests do not
-        // assert on delivery (EmailSenderTests covers that seam), only sign-up logic.
-        IEmailSender email = new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance);
+        // A recording sender captures the delivered link + purpose so the intent
+        // round-trip (the &intent=signup the followed link must carry) is assertable
+        // (Copilot review). It does not otherwise send - behaves like the no-op sender.
+        var email = new RecordingEmailSender();
 
         var controller = new AccountsController(
             tokens, store, credential, email, new EmailOptions(), environment, NullLogger<AccountsController>.Instance)
@@ -73,7 +75,7 @@ public class SignUpTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
 
-        return new Harness(controller, store, tokens, dataProtection);
+        return new Harness(controller, store, tokens, dataProtection, email);
     }
 
     // ---- AC-01: brand-new email, signup intent creates exactly one account ------
@@ -103,8 +105,7 @@ public class SignUpTests
         // the Account row (email + created-at) - it has no code path that could
         // touch a grant. The entitlement-level regression (a fresh free account
         // resolving to the default-unlocked baseline) lives in
-        // Entitlements/StoredValueEntitlementServiceTests.cs and is not duplicated
-        // here.
+        // StoredValueEntitlementServiceTests.cs and is not duplicated here.
     }
 
     // ---- AC-03: no duplicate for an existing purchaser ---------------------------
@@ -219,6 +220,37 @@ public class SignUpTests
         Assert.Null(await harness.Store.GetByIdentityAsync("newfamily@example.com"));
     }
 
+    // ---- the emailed link carries the intent across the round-trip ----------------
+
+    [Fact]
+    public async Task RequestLink_SignUpIntent_DeliversALinkCarryingIntentSignup()
+    {
+        // The followed link must keep the signup intent so a family sign-up still
+        // creates on verify AFTER the email round-trip (the token itself is intent-
+        // agnostic). Assert the delivered link embeds the intent query param.
+        var harness = NewHarness();
+
+        await RequestLink(harness, "newfamily@example.com", AccountsController.SignUpIntent);
+
+        var send = Assert.Single(harness.Email.Sends);
+        Assert.Equal(MagicLinkPurpose.FamilySignUp, send.Purpose);
+        Assert.Contains($"intent={AccountsController.SignUpIntent}", send.Link);
+    }
+
+    [Fact]
+    public async Task RequestLink_DefaultIntent_DeliversALinkWithoutTheSignupIntent()
+    {
+        // The default (purchaser sign-in) link must NOT carry intent=signup, so a
+        // followed default link keeps the story-03 no-create-on-miss behavior.
+        var harness = NewHarness();
+
+        await RequestLink(harness, "buyer@example.com", intent: null);
+
+        var send = Assert.Single(harness.Email.Sends);
+        Assert.Equal(MagicLinkPurpose.PurchaserSignIn, send.Purpose);
+        Assert.DoesNotContain($"intent={AccountsController.SignUpIntent}", send.Link);
+    }
+
     // ---- regression: default intent still does not create on a miss --------------
 
     [Fact]
@@ -268,5 +300,32 @@ public class SignUpTests
         public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
         public string ContentRootPath { get; set; } = string.Empty;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    /// <summary>
+    /// A capturing <see cref="IEmailSender"/> that records each delivered magic link
+    /// (and its purpose) instead of sending, so a test can assert the intent query
+    /// param the followed link must carry. Game invites are irrelevant here and are
+    /// captured-but-ignored. Never throws (mirrors the no-op sender's fail-safe shape).
+    /// </summary>
+    private sealed class RecordingEmailSender : IEmailSender
+    {
+        public List<(string Email, string Link, MagicLinkPurpose Purpose)> Sends { get; } = new();
+
+        public Task SendMagicLinkAsync(
+            string toEmail,
+            string link,
+            MagicLinkPurpose purpose,
+            CancellationToken cancellationToken = default)
+        {
+            Sends.Add((toEmail, link, purpose));
+            return Task.CompletedTask;
+        }
+
+        public Task SendGameInviteAsync(
+            string toEmail,
+            string joinLink,
+            string roomCode,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }
