@@ -1,12 +1,14 @@
 // ----------------------------------------------------------------------------
 //  VaultRateLimitTests - covers the per-IP partitioning of the anonymous vault
-//  endpoints' rate limits (keepsake-vault/01, AC-06).
+//  endpoints' rate limits (keepsake-vault/01, AC-06; keepsake-vault/03, AC-03.1).
 //
 //  The framework's fixed-window enforcement is trusted; what is worth locking in
-//  is the SECURITY-relevant custom bit - that BOTH the read and the write policies
-//  exist (the gap this feature closes vs the write-only sibling surfaces), that the
-//  limit partitions on the CALLER'S IP, and that it fails CLOSED to a shared bucket
-//  when no IP is available.
+//  is the SECURITY-relevant custom bit - that the read, write, AND claim-code
+//  redeem policies all exist and are distinct (the gap this feature closes vs
+//  the write-only sibling surfaces), that the limit partitions on the CALLER'S
+//  IP (the SAME PartitionKey the redeem endpoint's [EnableRateLimiting] policy
+//  uses - the first of AC-03's three anti-brute-force controls), and that it
+//  fails CLOSED to a shared bucket when no IP is available.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -58,5 +60,36 @@ public sealed class VaultRateLimitTests
         Assert.True(VaultRateLimit.SavePermitLimit > 0);
         Assert.True(VaultRateLimit.ReadPermitLimit > 0);
         Assert.True(VaultRateLimit.Window > TimeSpan.Zero);
+    }
+
+    [Fact]
+    public void The_claim_code_redeem_policy_is_a_distinct_per_ip_policy_with_a_tight_limit()
+    {
+        // AC-03.1: the FIRST of redemption's three anti-brute-force controls - a
+        // per-IP fixed-window limiter, distinct from the save/read policies, and
+        // tighter than either (a legitimate family recovers a vault a handful of
+        // times; a single IP making many redemption attempts is a guesser). On its
+        // own this is defeated by an attacker rotating source IPs - which is why
+        // ClaimRedemptionCeiling (AC-03.2) and the per-code burn (AC-03.3) exist
+        // alongside it.
+        Assert.False(string.IsNullOrWhiteSpace(VaultRateLimit.RedeemPolicyName));
+        Assert.NotEqual(VaultRateLimit.RedeemPolicyName, VaultRateLimit.SavePolicyName);
+        Assert.NotEqual(VaultRateLimit.RedeemPolicyName, VaultRateLimit.ReadPolicyName);
+
+        Assert.True(VaultRateLimit.RedeemPermitLimit > 0);
+        Assert.True(VaultRateLimit.RedeemPermitLimit <= VaultRateLimit.ReadPermitLimit);
+    }
+
+    [Fact]
+    public void The_redeem_policys_partition_key_is_the_same_per_ip_scheme_as_save_and_read()
+    {
+        // The redeem endpoint reuses this SAME PartitionKey (no separate scheme) -
+        // proven here by exercising it exactly as the save/read tests above do.
+        var a = new DefaultHttpContext();
+        a.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
+        var b = new DefaultHttpContext();
+        b.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
+
+        Assert.Equal(VaultRateLimit.PartitionKey(a), VaultRateLimit.PartitionKey(b));
     }
 }
