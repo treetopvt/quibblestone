@@ -1,6 +1,6 @@
 # Story: Support lookup + verbs
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #243
 
 ## Context
 This is the Support job's real payload - ADR 0003 Layer 3's "find a person, fix their problem,"
@@ -221,7 +221,7 @@ section ("the support console cannot bridge the planes").
 | AC-08 | `manual + static: code review of AccountSupportController.cs and SupportLookup.tsx - confirm no import from api/src/Rooms or the hubs, no injected dependency whose return type carries a byline/timestamp (grep for IVaultStore.ListAsync or PublishedTale.Byline in this controller - zero hits), and no field beyond account/content-plane data anywhere in the response or the UI.` |
 
 ## Dependencies
-- `sysadmin-console/06` (#TBD) - the action log every verb writes to; this story can start the
+- `sysadmin-console/06` (#233, Complete) - the action log every verb writes to; this story can start the
   moment 06 lands.
 - `sysadmin-console/01`'s `SignInRateLimit`-equivalent pattern (`accounts-identity/03`, shipped) -
   the per-IP policy AC-03's resend verb reuses.
