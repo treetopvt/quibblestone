@@ -36,10 +36,12 @@ public class StripeReconciliationServiceTests
     {
         public bool IsEnabled => enabled;
         public string? LastEmail { get; private set; }
+        public StripeMode? LastMode { get; private set; }
 
-        public Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, CancellationToken ct = default)
+        public Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, StripeMode mode, CancellationToken ct = default)
         {
             LastEmail = email;
+            LastMode = mode;
             return Task.FromResult(candidates);
         }
     }
@@ -91,6 +93,8 @@ public class StripeReconciliationServiceTests
         Assert.Equal(EntitlementCatalog.PlayRemote, Assert.Single(grants).CapabilityKey);
         Assert.Equal(1, result.Reconciled);
         Assert.Equal(1, result.SkippedUnmatchedIdentity);
+        // WARN-002: candidates were listed from the SAME mode the run guards + stamps with.
+        Assert.Equal(StripeMode.Test, h.Source.LastMode);
     }
 
     // AC-04: a candidate whose qs_purchaser is a DIFFERENT email (someone else's real

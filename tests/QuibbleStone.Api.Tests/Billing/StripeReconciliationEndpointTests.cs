@@ -47,7 +47,7 @@ public sealed class StripeReconciliationEndpointTests
 
         public bool IsEnabled => true;
 
-        public Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, CancellationToken ct = default)
+        public Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, StripeMode mode, CancellationToken ct = default)
         {
             IReadOnlyList<ReconciliationCandidate> candidates =
             [

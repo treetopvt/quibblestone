@@ -75,8 +75,11 @@ public sealed class StripeReconciliationService : IStripeReconciliationService
             return new ResyncResult(BillingConfigured: false, ActiveMode: null, 0, 0, 0, 0);
         }
 
+        // Resolve the active mode ONCE and read candidates FROM that same mode (passed in),
+        // so the candidate data, the mode guard, and the stamped grant Mode are provably the
+        // same mode even if an operator flips it mid-run (no two-read TOCTOU - WARN-002).
         var activeMode = (await _context.GetStateAsync(ct)).Mode;
-        var candidates = await _source.ListCandidatesAsync(account.Email, ct);
+        var candidates = await _source.ListCandidatesAsync(account.Email, activeMode, ct);
 
         // Read the account's pre-existing grants ONCE, before any write, so the mode guard
         // compares against the state at resync start (AC-08) rather than this run's own writes.

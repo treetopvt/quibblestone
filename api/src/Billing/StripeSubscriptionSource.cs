@@ -5,9 +5,11 @@
 //  StripeEventMapper isolates the webhook's Stripe coupling - so the security-critical
 //  StripeReconciliationService stays pure and unit-testable.
 //
-//  WHAT IT DOES (AC-04 step 1-3): in the ACTIVE mode (IActiveStripeContext - reuse it,
-//  do not build a second mode-resolution path), it lists Stripe customers filtered by
-//  the account's email as CANDIDATES, then each candidate customer's subscriptions, and
+//  WHAT IT DOES (AC-04 step 1-3): in the mode the service resolved and passed in
+//  (IActiveStripeContext.ForMode - reuse it, do not build a second mode-resolution path;
+//  taking the mode as a parameter is what keeps the data source and the guarded/stamped
+//  mode from drifting under a concurrent flip), it lists Stripe customers filtered by the
+//  account's email as CANDIDATES, then each candidate customer's subscriptions, and
 //  projects every subscription to a normalized ReconciliationCandidate carrying its
 //  qs_purchaser / qs_capabilities / qs_product metadata + status + current period end.
 //  It applies NO trust decision itself - the bare email match is deliberately broad; the
@@ -56,9 +58,12 @@ public sealed class StripeSubscriptionSource : IStripeSubscriptionSource
     public bool IsEnabled => _context.IsBillingConfigured;
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, StripeMode mode, CancellationToken ct = default)
     {
-        var config = await _context.GetActiveConfigAsync(ct);
+        // Read the credentials for the EXACT mode the service resolved (ForMode, not the
+        // active-mode lookup again) - so the data source and the guarded/stamped mode cannot
+        // drift under a concurrent mode flip (WARN-002).
+        var config = _context.ForMode(mode);
         if (string.IsNullOrWhiteSpace(config.SecretKey) || string.IsNullOrWhiteSpace(email))
         {
             // Billing on overall, but the ACTIVE mode has no secret (an operator misconfig),
@@ -150,6 +155,6 @@ public sealed class DisabledStripeSubscriptionSource : IStripeSubscriptionSource
     public bool IsEnabled => false;
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, CancellationToken ct = default) =>
+    public Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, StripeMode mode, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ReconciliationCandidate>>([]);
 }

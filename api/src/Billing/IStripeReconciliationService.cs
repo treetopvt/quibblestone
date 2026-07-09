@@ -110,9 +110,16 @@ public interface IStripeSubscriptionSource
 
     /// <summary>
     /// Lists EVERY subscription of EVERY Stripe customer whose email matches
-    /// <paramref name="email"/> in the currently-active mode, as normalized candidates. The
+    /// <paramref name="email"/> in <paramref name="mode"/>, as normalized candidates. The
     /// bare email match is deliberately broad (candidates, not winners) - the caller applies
     /// the `qs_purchaser` metadata check that makes the match un-steerable (AC-04).
     /// </summary>
-    Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, CancellationToken ct = default);
+    /// <param name="email">The account's canonical email to filter Stripe customers by.</param>
+    /// <param name="mode">
+    /// The mode to read from - passed in by the service (resolved ONCE alongside the mode it
+    /// guards + stamps with), so the candidate DATA and the grant's stamped Mode provably come
+    /// from the SAME mode even if an operator flips the active mode mid-run (no two-read TOCTOU).
+    /// </param>
+    /// <param name="ct">Cancellation for the Stripe reads.</param>
+    Task<IReadOnlyList<ReconciliationCandidate>> ListCandidatesAsync(string email, StripeMode mode, CancellationToken ct = default);
 }
