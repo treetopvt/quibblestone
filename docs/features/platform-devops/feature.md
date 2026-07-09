@@ -25,7 +25,7 @@ README section 7 (Epic Map - Phase 0, Platform & DevOps) and section 9 (IaC -
 | 03 | - | Continuous delivery to UAT on merge to main | Complete |
 | 04 | #106 | Operational observability (App Insights) | Complete |
 | 05 | #107 | Anonymous product-usage metrics | Complete |
-| 06 | - | Repair the drifted e2e suite and gate it in CI | Not Started |
+| 06 | #189 | Repair the drifted e2e suite and gate it in CI | Complete |
 | 07 | - | QA lane + tag-based promotion to beta | Complete |
 | 08 | #199 | Durable Data Protection key ring + token signing key posture | Complete |
 
