@@ -312,6 +312,72 @@ export function SupportLookup({ operatorEmail, credential }: SupportLookupProps)
   const extendSlug = extend.watch('slug').trim();
   const restoreVault = restore.watch('vaultId').trim();
   const restoreTale = restore.watch('taleId').trim();
+  // A grant / comp is offered whenever the resolved-or-searched identity is an EMAIL: for a resolved
+  // account, and ALSO for an email that has no account yet - granting there CREATES the account (the
+  // unstick case, story 02's create-or-get). A not-found AccountId search offers no grant control (an
+  // account cannot be created from an id).
+  const grantableEmail = summary !== null && EMAIL_PATTERN.test(summary.email);
+
+  // The comp/extend control (AC-06), reused in the resolved-account and not-found-email states so the
+  // "granting creates the account" copy is always truthful. Reuses story 02's grant plumbing verbatim.
+  const grantForm = (
+    <Box component="form" onSubmit={onGrant} noValidate>
+      <Stack spacing={2}>
+        <Controller
+          name="capabilityChoice"
+          control={grant.control}
+          render={({ field }) => (
+            <TextField {...field} select fullWidth label="Comp or extend a capability">
+              {GRANTABLE_CAPABILITIES.map((cap) => (
+                <MenuItem key={cap.key} value={cap.key}>
+                  {cap.label} ({cap.key})
+                </MenuItem>
+              ))}
+              <MenuItem value={PACK_SENTINEL}>Add-on pack...</MenuItem>
+            </TextField>
+          )}
+        />
+        {isPack && (
+          <Controller
+            name="packId"
+            control={grant.control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                fullWidth
+                label="Pack id"
+                placeholder="spooky"
+                helperText={`The grant key will be ${PACK_PREFIX}${(packId || '<id>').trim()}`}
+              />
+            )}
+          />
+        )}
+        <Controller
+          name="validThrough"
+          control={grant.control}
+          render={({ field }) => (
+            <TextField
+              {...field}
+              type="date"
+              fullWidth
+              label="Valid through"
+              slotProps={{ inputLabel: { shrink: true } }}
+              helperText="Leave blank for no expiry (a one-time pack)."
+            />
+          )}
+        />
+        <Button
+          type="submit"
+          variant="contained"
+          fullWidth
+          disabled={!canGrant}
+          startIcon={<FontAwesomeIcon icon="plus" style={{ width: 16, height: 16 }} />}
+        >
+          {grant.formState.isSubmitting ? 'Granting...' : 'Grant capability'}
+        </Button>
+      </Stack>
+    </Box>
+  );
 
   return (
     <Box sx={{ minHeight: '100dvh', maxWidth: 620, mx: 'auto' }}>
@@ -378,19 +444,32 @@ export function SupportLookup({ operatorEmail, credential }: SupportLookupProps)
           </Typography>
         )}
 
-        {/* The clear "no account found" state (AC-01). */}
+        {/* The clear "no account found" state (AC-01). For an EMAIL search, the grant control is
+            offered here too - granting creates the account (the unstick case). For an AccountId
+            search there is nothing to create, so no grant control is shown. */}
         {summary && !summary.accountExists && (
-          <Stack spacing={2} alignItems="center" sx={{ py: 3, textAlign: 'center' }}>
-            <Box aria-hidden sx={{ color: 'gold.main', fontSize: 30 }}>
-              <FontAwesomeIcon icon="triangle-exclamation" />
-            </Box>
-            <Typography sx={{ fontWeight: 800, fontSize: 16.5, color: 'text.primary' }}>
-              No account found
-            </Typography>
-            <Typography sx={{ fontWeight: 600, fontSize: 13.5, color: 'text.secondary', maxWidth: 360 }}>
-              No account exists for {summary.email}. Granting a capability below will create the account
-              and attach the grant.
-            </Typography>
+          <Stack spacing={3}>
+            <Stack spacing={2} alignItems="center" sx={{ py: 3, textAlign: 'center' }}>
+              <Box aria-hidden sx={{ color: 'gold.main', fontSize: 30 }}>
+                <FontAwesomeIcon icon="triangle-exclamation" />
+              </Box>
+              <Typography sx={{ fontWeight: 800, fontSize: 16.5, color: 'text.primary' }}>
+                No account found
+              </Typography>
+              <Typography sx={{ fontWeight: 600, fontSize: 13.5, color: 'text.secondary', maxWidth: 360 }}>
+                {grantableEmail
+                  ? `No account exists for ${summary.email}. Granting a capability below will create the account and attach the grant.`
+                  : 'No account exists for that id.'}
+              </Typography>
+            </Stack>
+            {grantableEmail && (
+              <SectionCard>
+                <Stack spacing={2}>
+                  <SectionHeading icon="key" label="Comp an entitlement" />
+                  {grantForm}
+                </Stack>
+              </SectionCard>
+            )}
           </Stack>
         )}
 
@@ -493,62 +572,7 @@ export function SupportLookup({ operatorEmail, credential }: SupportLookupProps)
                   </Stack>
                 )}
 
-                <Box component="form" onSubmit={onGrant} noValidate>
-                  <Stack spacing={2}>
-                    <Controller
-                      name="capabilityChoice"
-                      control={grant.control}
-                      render={({ field }) => (
-                        <TextField {...field} select fullWidth label="Comp or extend a capability">
-                          {GRANTABLE_CAPABILITIES.map((cap) => (
-                            <MenuItem key={cap.key} value={cap.key}>
-                              {cap.label} ({cap.key})
-                            </MenuItem>
-                          ))}
-                          <MenuItem value={PACK_SENTINEL}>Add-on pack...</MenuItem>
-                        </TextField>
-                      )}
-                    />
-                    {isPack && (
-                      <Controller
-                        name="packId"
-                        control={grant.control}
-                        render={({ field }) => (
-                          <TextField
-                            {...field}
-                            fullWidth
-                            label="Pack id"
-                            placeholder="spooky"
-                            helperText={`The grant key will be ${PACK_PREFIX}${(packId || '<id>').trim()}`}
-                          />
-                        )}
-                      />
-                    )}
-                    <Controller
-                      name="validThrough"
-                      control={grant.control}
-                      render={({ field }) => (
-                        <TextField
-                          {...field}
-                          type="date"
-                          fullWidth
-                          label="Valid through"
-                          slotProps={{ inputLabel: { shrink: true } }}
-                          helperText="Leave blank for no expiry (a one-time pack)."
-                        />
-                      )}
-                    />
-                    <Button
-                      type="submit"
-                      variant="contained"
-                      fullWidth
-                      disabled={!canGrant}
-                      startIcon={<FontAwesomeIcon icon="plus" style={{ width: 16, height: 16 }} />}
-                    >
-                      {grant.formState.isSubmitting ? 'Granting...' : 'Grant capability'}
-                    </Button>
-                  </Stack>
-                </Box>
+                {grantForm}
               </Stack>
             </SectionCard>
 
