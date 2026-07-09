@@ -59,9 +59,27 @@ equivalent options - pick whichever you prefer:
   done
   ```
 
+  Or the SAME steps in **PowerShell** (Windows `az` uses PowerShell variable +
+  `foreach` syntax, not bash `RG=...` / `for ... do ... done`):
+
+  ```powershell
+  az account show --query "{subscription:name}" -o table   # sanity-check the subscription
+  $RG      = "quibblestone-qa-rg"                           # qa lane ONLY (never quibblestone-uat-rg = beta)
+  $ACCOUNT = az storage account list -g $RG --query "[0].name" -o tsv
+  $KEY     = az storage account keys list -g $RG -n $ACCOUNT --query "[0].value" -o tsv
+  Write-Host "Target: storage account '$ACCOUNT' in RG '$RG' - confirm this is qa, not beta."
+  if ((Read-Host "Type yes to proceed") -eq "yes") {
+    foreach ($t in "PurchaserAccounts","EntitlementGrants","CloudGalleryTales") {
+      az storage table delete --account-name $ACCOUNT --account-key $KEY --name $t
+    }
+  } else { Write-Host "Aborted - nothing deleted." }
+  ```
+
   (Azure may hold a deleted table name for a short interval before it can be
   recreated; the app's first write retries `CreateIfNotExists`, so a brief delay
-  is harmless.)
+  is harmless. If `$ACCOUNT` / `ACCOUNT` comes back empty, the qa lane has not
+  provisioned its Storage account yet - wait for Wave 1's qa deploy to finish,
+  then re-run.)
 
 - **Short manual re-seed.** If any of the handful of UAT rows is worth keeping,
   note the email(s), delete the tables as above, then re-create each account via
