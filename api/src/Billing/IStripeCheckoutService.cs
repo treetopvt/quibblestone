@@ -54,6 +54,14 @@ public static class BillingMetadata
     /// <summary>Metadata key holding the purchaser email the resulting grant is keyed to.</summary>
     public const string PurchaserKey = "qs_purchaser";
 
+    /// <summary>
+    /// Metadata key holding the ProductCatalog product id a purchase is for
+    /// (billing-entitlements/08). Rides into Stripe the same way the capabilities +
+    /// purchaser already do, so the webhook / resync can record which product produced
+    /// a grant (PlanId) without a second lookup. Empty / absent for a legacy checkout.
+    /// </summary>
+    public const string ProductKey = "qs_product";
+
     /// <summary>Joins capability keys into the single metadata string value (comma-separated).</summary>
     public static string JoinCapabilities(IEnumerable<string> capabilityKeys) => string.Join(',', capabilityKeys);
 

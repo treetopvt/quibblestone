@@ -168,6 +168,58 @@ public class StripeWebhookHandlerTests
         Assert.True(entitlements.IsUnlocked(EntitlementCatalog.AiOnDemand));
     }
 
+    // billing-entitlements/08 AC-02: a checkout event carrying a PlanId + StripeSubscriptionId
+    // writes a grant with both populated, a non-empty GrantId, and the Mode that verified the
+    // event - stamped from the mode PASSED to HandleAsync (the event's provenance), NOT inferred.
+    [Fact]
+    public async Task Grant_records_plan_subscription_and_the_verifying_mode()
+    {
+        var h = NewHarness();
+        var evt = new BillingEvent(
+            "evt_meta", BillingEventKind.CheckoutCompleted, GrantSource.Subscription, Purchaser,
+            [EntitlementCatalog.PlayRemote], DateTimeOffset.UtcNow.AddDays(30),
+            PlanId: "family-plan", StripeSubscriptionId: "sub_meta_1");
+
+        // The event was verified under the LIVE secret - so the grant records Live even
+        // though nothing here says "Live is the active mode".
+        await h.Handler.HandleAsync(evt, StripeMode.Live);
+
+        var grant = Assert.Single(await GrantsFor(h));
+        Assert.Equal("family-plan", grant.PlanId);
+        Assert.Equal("sub_meta_1", grant.StripeSubscriptionId);
+        Assert.Equal(StripeMode.Live, grant.Mode);
+        Assert.NotEqual(Guid.Empty, grant.GrantId);
+    }
+
+    // AC-02: the past_due and canceled write sites also stamp the metadata + mode.
+    [Fact]
+    public async Task PastDue_and_cancel_writes_also_record_metadata_and_mode()
+    {
+        var h = NewHarness();
+        await h.Handler.HandleAsync(
+            new BillingEvent("evt_pd_c", BillingEventKind.CheckoutCompleted, GrantSource.Subscription, Purchaser,
+                [EntitlementCatalog.PlayRemote], DateTimeOffset.UtcNow.AddDays(1), PlanId: "family-plan", StripeSubscriptionId: "sub_x"),
+            StripeMode.Test);
+
+        await h.Handler.HandleAsync(
+            new BillingEvent("evt_pd", BillingEventKind.SubscriptionPastDue, GrantSource.Subscription, Purchaser,
+                [EntitlementCatalog.PlayRemote], null, PlanId: "family-plan", StripeSubscriptionId: "sub_x"),
+            StripeMode.Test);
+
+        var afterPastDue = Assert.Single(await GrantsFor(h));
+        Assert.Equal("sub_x", afterPastDue.StripeSubscriptionId);
+        Assert.Equal(StripeMode.Test, afterPastDue.Mode);
+
+        await h.Handler.HandleAsync(
+            new BillingEvent("evt_cancel2", BillingEventKind.SubscriptionCanceled, GrantSource.Subscription, Purchaser,
+                [EntitlementCatalog.PlayRemote], null, PlanId: "family-plan", StripeSubscriptionId: "sub_x"),
+            StripeMode.Test);
+
+        var afterCancel = Assert.Single(await GrantsFor(h));
+        Assert.Equal("sub_x", afterCancel.StripeSubscriptionId);
+        Assert.Equal(StripeMode.Test, afterCancel.Mode);
+    }
+
     // An Ignored event (unrecognized) is acknowledged and never recorded/applied.
     [Fact]
     public async Task Ignored_event_is_a_no_op()

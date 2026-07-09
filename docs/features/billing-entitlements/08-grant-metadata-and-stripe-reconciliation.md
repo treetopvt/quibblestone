@@ -1,6 +1,6 @@
 # Story: Grant metadata + Stripe reconciliation
 
-**Feature:** Billing & Entitlements  ·  **Status:** Not Started  ·  **Issue:** #215
+**Feature:** Billing & Entitlements  ·  **Status:** In Review  ·  **Issue:** #215
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Layer 2 names this feature's half
@@ -43,7 +43,7 @@ building it before `accounts-identity/05` lands means the resync's target identi
 identity/05` first so this story's identity-resolution plumbing is written once, not twice.
 
 ## Acceptance Criteria
-- [ ] AC-01 (grant carries metadata): Given `EntitlementGrant`, then it carries a `GrantId` (a
+- [x] AC-01 (grant carries metadata): Given `EntitlementGrant`, then it carries a `GrantId` (a
       fresh GUID stamped at write time - identifies THIS write, not the whole lease history), a
       nullable `PlanId` (the `ProductCatalog` product id that produced the grant, e.g.
       `"family-plan"` or `"pack.spooky"`; null for a grant with no known product, e.g. a legacy row
@@ -51,7 +51,7 @@ identity/05` first so this story's identity-resolution plumbing is written once,
       for a subscription-sourced grant; null for a one-time pack or an operator grant), and a
       nullable `Mode` (`StripeMode?` - `Live` or `Test`, the Stripe mode that produced this grant;
       null only for a `Source = Operator` comp, which has no Stripe transaction behind it at all).
-- [ ] AC-02 (webhook populates it): Given `StripeWebhookHandler` processes a `CheckoutCompleted`,
+- [x] AC-02 (webhook populates it): Given `StripeWebhookHandler` processes a `CheckoutCompleted`,
       `SubscriptionRenewed`, `SubscriptionPastDue`, or `SubscriptionCanceled` event, then every
       `EntitlementGrant` it writes has a freshly-minted `GrantId`, a `PlanId` resolved from the
       checkout/subscription metadata's stamped product id, the Stripe subscription id carried
@@ -60,7 +60,7 @@ identity/05` first so this story's identity-resolution plumbing is written once,
       `Test` - billing-entitlements/06's dual-secret verification already knows which one matched;
       `Mode` is NEVER inferred from "whichever mode happens to be currently active," since the two
       can differ and a webhook must record its own true provenance).
-- [ ] AC-03 (back-compat read): Given a grant row written by the already-shipped code (no
+- [x] AC-03 (back-compat read): Given a grant row written by the already-shipped code (no
       `GrantId`/`PlanId`/`StripeSubscriptionId`/`Mode` columns), when it is read, then it
       deserializes without error - `GrantId` defaults to a fresh value rather than throwing,
       `PlanId` and `StripeSubscriptionId` default to null, `Mode` defaults to `Test` (every grant
@@ -68,7 +68,7 @@ identity/05` first so this story's identity-resolution plumbing is written once,
       this environment - ADR 0003 Decision 4: "Stripe live waits for Layers 0-1" - so `Test` is the
       factually correct default, not merely a safe guess) - and the row's lease/capability behavior
       (`IsActiveAt`) is byte-for-byte unchanged from today.
-- [ ] AC-04 (per-account resync, identity-verified, never email-steerable): Given an operator
+- [x] AC-04 (per-account resync, identity-verified, never email-steerable): Given an operator
       invokes the resync endpoint for a target account (identified by `AccountId` once
       `accounts-identity/05` lands, or by the account's stored canonical email - resolved through
       `IAccountStore`, never a raw ad hoc string typed at call time - before then), when it runs,
@@ -83,12 +83,12 @@ identity/05` first so this story's identity-resolution plumbing is written once,
       never picked); and (c) for a matching subscription, writes/overwrites the corresponding
       `EntitlementGrant` (capability key, lease end, `Source = Subscription`, `PlanId`,
       `StripeSubscriptionId`, `Mode = the active mode`) subject to AC-08's mode-safety guard.
-- [ ] AC-05 (one-time grants untouched): Given a purchaser holds a one-time pack grant
+- [x] AC-05 (one-time grants untouched): Given a purchaser holds a one-time pack grant
       (permanent, `ValidThrough = null`, no Stripe subscription), when a resync runs for that
       purchaser, then the one-time grant is left exactly as it was - Stripe has no ongoing
       "active" state to reconcile a one-time purchase against, so resync only ever rewrites
       subscription-sourced grants (and never an operator-comp grant either, for the same reason).
-- [ ] AC-06 (operator-only, idempotent, no automatic run, rate-limited): Given the resync endpoint,
+- [x] AC-06 (operator-only, idempotent, no automatic run, rate-limited): Given the resync endpoint,
       then it (a) is reachable only behind the `Operator` authorization policy
       (`sysadmin-console/01`'s `[Authorize(Policy = "Operator")]`), never from the kid PWA or any
       player-facing route; (b) is idempotent - invoking it twice in a row against the same Stripe
@@ -100,11 +100,11 @@ identity/05` first so this story's identity-resolution plumbing is written once,
       `SubscriptionService.List` traffic against Stripe's API and disrupt concurrent live webhook
       processing - a request beyond the limit is rejected with 429, the same posture as every other
       throttled endpoint in the app.
-- [ ] AC-07 (anonymity invariant): Given a resync run, then it operates solely on the purchaser
+- [x] AC-07 (anonymity invariant): Given a resync run, then it operates solely on the purchaser
       plane (account identity in, Stripe customer/subscription lookups, grant rows out) - it never
       looks up, joins, or displays any player nickname, room code, or session id, matching the same
       boundary `sysadmin-console/02`'s grant/revoke endpoints already hold.
-- [ ] AC-08 (mode-safety: a Test-mode resync can never modify a Live-derived grant): Given the
+- [x] AC-08 (mode-safety: a Test-mode resync can never modify a Live-derived grant): Given the
       grant store's per-row `Mode`, when a resync runs, then it compares the CURRENTLY ACTIVE mode
       against each existing subscription-sourced grant row's stored `Mode` BEFORE writing to it -
       a row whose stored `Mode` differs from the active mode (e.g. a `Live`-mode grant encountered
@@ -237,9 +237,9 @@ identity/05` first so this story's identity-resolution plumbing is written once,
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `tests/QuibbleStone.Api.Tests/Entitlements/EntitlementGrantTests.cs (new/extended): constructing a grant with GrantId/PlanId/StripeSubscriptionId/Mode round-trips through TableStorageEntitlementGrantStore (or its test double) unchanged.` |
+| AC-01 | `tests/QuibbleStone.Api.Tests/EntitlementGrantStoreTests.cs (extended) + EntitlementGrantTableMappingTests.cs (new): constructing a grant with GrantId/PlanId/StripeSubscriptionId/Mode round-trips through the in-memory store and through TableStorageEntitlementGrantStore's ToEntity/FromEntity (public static, no Azure) unchanged; GrantId is freshly minted per construction.` |
 | AC-02 | `tests/QuibbleStone.Api.Tests/Billing/StripeWebhookHandlerTests.cs (extended): a CheckoutCompleted/SubscriptionRenewed/SubscriptionPastDue/SubscriptionCanceled BillingEvent carrying a PlanId + StripeSubscriptionId writes a grant with both populated, a non-empty GrantId, and Mode set to the mode that verified the event (not the currently-active mode, when the two are made to differ in the test).` |
-| AC-03 | `tests/QuibbleStone.Api.Tests/Entitlements/TableStorageEntitlementGrantStoreTests.cs: reading a TableEntity written without the new columns (simulating a pre-story row) returns a grant with a defaulted GrantId, null PlanId/StripeSubscriptionId, Mode defaulted to Test, and IsActiveAt behaves identically to before.` |
+| AC-03 | `tests/QuibbleStone.Api.Tests/EntitlementGrantTableMappingTests.cs: reading a TableEntity written without the new columns (simulating a pre-story row) returns a grant with a defaulted GrantId, null PlanId/StripeSubscriptionId, Mode defaulted to Test, and IsActiveAt behaves identically to before; an operator comp's null Mode round-trips via the sentinel.` |
 | AC-04 | `tests/QuibbleStone.Api.Tests/Billing/StripeReconciliationServiceTests.cs (new): given TWO fake Stripe customers sharing an email - one with matching qs_purchaser metadata, one without (simulating an attacker-created customer) - resync reconciles only the metadata-matching one's subscription and never touches/reads the other's data for a write.` |
 | AC-05 | `tests/QuibbleStone.Api.Tests/Billing/StripeReconciliationServiceTests.cs: a purchaser holding only a one-time pack grant is unchanged by a resync run (no Stripe subscription exists to reconcile against).` |
 | AC-06 | `tests/QuibbleStone.Api.Tests/Billing/StripeReconciliationEndpointTests.cs (new): a non-operator/unauthenticated request is rejected; invoking resync twice in a row against the same fake Stripe state produces no duplicate grant rows; a burst of calls beyond StripeResyncRateLimit's PermitLimit gets a 429.` |

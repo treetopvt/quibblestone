@@ -123,6 +123,10 @@ public class StripeWebhookControllerTests
         Assert.IsType<OkObjectResult>(action);
         var held = await GrantsFor(accounts, grants);
         Assert.Contains(held, g => g.CapabilityKey == EntitlementCatalog.LibraryFull);
+        // billing-entitlements/08 AC-02: the grant records the mode that VERIFIED the event
+        // (Live - the secret that matched), NOT the currently-active mode (Test). Provenance,
+        // never inference.
+        Assert.All(held, g => Assert.Equal(StripeMode.Live, g.Mode));
     }
 
     [Fact]

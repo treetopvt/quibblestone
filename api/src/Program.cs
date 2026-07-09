@@ -455,6 +455,25 @@ builder.Services.AddRateLimiter(options =>
                 Window = VaultRateLimit.Window,
                 QueueLimit = 0,
             }));
+
+    // billing-entitlements/08 (#215, AC-06d): the OPERATOR-only Stripe-resync endpoint's
+    // guard, in this SAME registration alongside the policies above. UNLIKE the per-IP
+    // siblings, this partitions on a CONSTANT GLOBAL key - the abuse scenario is repeated
+    // INVOCATION against Stripe's API (the operator-only auth already scopes the caller to
+    // one trusted actor), so the whole endpoint shares one small budget rather than each IP
+    // getting its own. Only POST /api/admin/billing/resync opts in (via
+    // [EnableRateLimiting(StripeResyncRateLimit.PolicyName)]); a call beyond the budget gets
+    // 429, so a scripted loop cannot fan out unbounded CustomerService.List +
+    // SubscriptionService.List traffic and disrupt live webhook processing.
+    options.AddPolicy(StripeResyncRateLimit.PolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: StripeResyncRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = StripeResyncRateLimit.PermitLimit,
+                Window = StripeResyncRateLimit.Window,
+                QueueLimit = 0,
+            }));
 });
 
 // keepsake-gallery/04 (shareable tale link): the published-tale store, chosen at
@@ -756,6 +775,27 @@ else
 // the grant store, idempotently (AC-05), keyed to the purchaser account (AC-06), with
 // the subscription lifecycle lease math (AC-08). A singleton over the stores + options.
 builder.Services.AddSingleton<StripeWebhookHandler>();
+
+// billing-entitlements/08 (#215, ADR 0003 Layer 2): the per-account Stripe RESYNC path.
+// The Stripe-coupled candidate SOURCE follows the SAME config-presence idiom as the
+// checkout service: WITH Stripe configured, the live StripeSubscriptionSource lists an
+// email's candidate customers + subscriptions in the ACTIVE mode; WITHOUT it, the
+// disabled no-op so the reconciliation service short-circuits to a clean "not configured"
+// result with ZERO Stripe setup. The reconciliation SERVICE (pure, SDK-free) enforces the
+// two binding security rules - metadata-matched identity (AC-04) + the mode-aware guard
+// (AC-08) - over that source, the active-mode context, and the grant store. Both singletons.
+if (stripeOptions.IsConfigured)
+{
+    builder.Services.AddSingleton<IStripeSubscriptionSource>(sp =>
+        new StripeSubscriptionSource(
+            sp.GetRequiredService<IActiveStripeContext>(),
+            sp.GetRequiredService<ILogger<StripeSubscriptionSource>>()));
+}
+else
+{
+    builder.Services.AddSingleton<IStripeSubscriptionSource, DisabledStripeSubscriptionSource>();
+}
+builder.Services.AddSingleton<IStripeReconciliationService, StripeReconciliationService>();
 
 // billing-entitlements/04 (#73): the product -> capability-bundle map (the family plan
 // + add-on packs + the goodwill tip), the server-side lookup BillingController uses so

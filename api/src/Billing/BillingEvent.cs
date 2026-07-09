@@ -46,7 +46,9 @@ public enum BillingEventKind
 /// the domain handler needs: the Stripe event id (for idempotency, AC-05), the kind,
 /// the grant source, the purchaser email the grant is keyed to (AC-06), the capability
 /// keys the purchase unlocks (empty for a tip, which grants nothing - story 02 AC-02),
-/// and the subscription period end where relevant (AC-08). No Stripe SDK type leaks in.
+/// the subscription period end where relevant (AC-08), and (billing-entitlements/08)
+/// the plan id + Stripe subscription id the grant records for support / resync. No
+/// Stripe SDK type leaks in - the mapper reads all of this off the verified event once.
 /// </summary>
 /// <param name="EventId">Stripe's unique event id - the idempotency key (AC-05).</param>
 /// <param name="Kind">The normalized event kind.</param>
@@ -54,13 +56,17 @@ public enum BillingEventKind
 /// <param name="PurchaserEmail">The purchaser's email the grant is keyed to; null/empty => nothing to grant (e.g. an anonymous tip).</param>
 /// <param name="CapabilityKeys">The capability keys this purchase unlocks; empty => grant nothing (a tip, or an unrecognized product).</param>
 /// <param name="PeriodEnd">The subscription period end (renewal/checkout of a subscription); null for a permanent one-time pack.</param>
+/// <param name="PlanId">The ProductCatalog product id stamped at checkout (billing-entitlements/08's <c>qs_product</c> metadata); null when the event carries no product id (a legacy subscription, an unrecognized product). Written onto every grant so a support lookup / resync can tell which purchase produced the row.</param>
+/// <param name="StripeSubscriptionId">The Stripe subscription id for a subscription-sourced event, carried through from the event shape (billing-entitlements/08); null for a one-time pack or a tip.</param>
 public sealed record BillingEvent(
     string EventId,
     BillingEventKind Kind,
     GrantSource Source,
     string? PurchaserEmail,
     IReadOnlyList<string> CapabilityKeys,
-    DateTimeOffset? PeriodEnd);
+    DateTimeOffset? PeriodEnd,
+    string? PlanId = null,
+    string? StripeSubscriptionId = null);
 
 /// <summary>The outcome of handling a <see cref="BillingEvent"/>, for the controller's response + logging (no PII).</summary>
 public enum WebhookOutcome

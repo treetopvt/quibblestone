@@ -38,13 +38,15 @@ public enum CheckoutMode
 /// <param name="CancelUrl">Where Stripe redirects on cancel/abandon (AC-07: no grant on this path).</param>
 /// <param name="CapabilityKeys">The catalog capability keys this purchase unlocks; EMPTY grants nothing (a tip).</param>
 /// <param name="PurchaserEmail">Optional purchaser email to prefill checkout and key the resulting grant to (AC-06).</param>
+/// <param name="ProductId">The ProductCatalog product id this checkout is for (billing-entitlements/08). Stamped as <c>qs_product</c> onto the session + subscription metadata so the resulting grant records its PlanId. Null/empty for a checkout with no product id.</param>
 public sealed record CheckoutRequest(
     CheckoutMode Mode,
     string PriceId,
     string SuccessUrl,
     string CancelUrl,
     IReadOnlyList<string> CapabilityKeys,
-    string? PurchaserEmail = null)
+    string? PurchaserEmail = null,
+    string? ProductId = null)
 {
     /// <summary>The grant source implied by the mode: a subscription lease vs a permanent one-time grant.</summary>
     public GrantSource Source => Mode == CheckoutMode.Subscription ? GrantSource.Subscription : GrantSource.OneTime;
