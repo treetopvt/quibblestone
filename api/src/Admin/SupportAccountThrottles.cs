@@ -109,28 +109,36 @@ public sealed class SupportResyncAccountThrottle
     /// Tries to admit one resync for <paramref name="accountId"/>. Returns true and stamps "now"
     /// when no resync ran for this account within <see cref="MinInterval"/>; false (stamping nothing)
     /// when a resync is still inside the debounce window - the caller returns 429 without calling
-    /// Stripe. An AddOrUpdate keeps the check-and-stamp atomic per account under concurrency.
+    /// Stripe. The admit decision depends ONLY on a COMMITTED write (a successful TryAdd / TryUpdate):
+    /// an explicit compare-and-swap loop, not AddOrUpdate with a captured flag (whose update delegate
+    /// can run more than once under contention and leave a stale "admitted" set - the review-flagged
+    /// race where two concurrent resyncs for one account could both be admitted).
     /// </summary>
     public bool TryAcquire(Guid accountId)
     {
         var now = _clock.GetUtcNow();
-        var admitted = false;
-        _lastResync.AddOrUpdate(
-            accountId,
-            _ =>
+        while (true)
+        {
+            if (_lastResync.TryGetValue(accountId, out var last))
             {
-                admitted = true;
-                return now;
-            },
-            (_, last) =>
-            {
-                if (now - last >= MinInterval)
+                // Still inside the debounce window - refuse without stamping.
+                if (now - last < MinInterval)
                 {
-                    admitted = true;
-                    return now;
+                    return false;
                 }
-                return last;
-            });
-        return admitted;
+                // Admit ONLY if we win the CAS against the exact value we read; a lost race retries
+                // and re-reads (a concurrent winner will now hold a fresh stamp -> we get debounced).
+                if (_lastResync.TryUpdate(accountId, now, last))
+                {
+                    return true;
+                }
+            }
+            else if (_lastResync.TryAdd(accountId, now))
+            {
+                // We committed the first stamp for this account - admit. A lost TryAdd retries and
+                // falls into the TryGetValue branch above (the other thread's stamp now debounces us).
+                return true;
+            }
+        }
     }
 }

@@ -242,13 +242,28 @@ export function SupportLookup({ operatorEmail, credential }: SupportLookupProps)
   };
 
   const onSearch = search.handleSubmit(async (values) => {
-    const result = await lookupAccount(values.query.trim(), credential);
+    const q = values.query.trim();
+    // Enter can submit the form past the disabled button - enforce the email/AccountId-only rule
+    // HERE too, so a slug / claim-code shape never even reaches the server (which would only miss
+    // anyway). This is the firewall reinforced at the UI: the lookup takes an email or a GUID.
+    if (!EMAIL_PATTERN.test(q) && !GUID_PATTERN.test(q)) {
+      setSummary(null);
+      setMessage('Search by a purchaser email or an account id - not a claim code or a tale link.');
+      return;
+    }
+    const result = await lookupAccount(q, credential);
     setMessage(result.ok ? '' : result.message);
     setSummary(result.summary);
   });
 
   const onGrant = grant.handleSubmit(async (values) => {
     if (!summary) return;
+    // Enter can submit past the disabled button - require a pack id before building a `pack.` key,
+    // so we never send the server an empty-id pack it would only reject.
+    if (isPack && values.packId.trim().length === 0) {
+      setMessage('Enter a pack id before granting an add-on pack.');
+      return;
+    }
     const capabilityKey = isPack ? `${PACK_PREFIX}${values.packId.trim()}` : values.capabilityChoice;
     // Pin the lease end to the END of the chosen day (UTC) so "valid through" stays active for
     // all of it (EntitlementGrant.IsActiveAt treats the lease end as exclusive).
