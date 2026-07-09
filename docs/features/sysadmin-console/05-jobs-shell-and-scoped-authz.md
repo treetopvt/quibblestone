@@ -1,6 +1,6 @@
 # Story: The jobs shell + scoped authz
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #214
+**Feature:** Sys-Admin Console  ·  **Status:** In Review (built, PR open)  ·  **Issue:** #214
 
 ## Context
 ADR 0003 Layer 3's second finding: the console should be organized around **jobs an operator does**,
@@ -25,28 +25,28 @@ today, so scopes are a real, usable boundary the moment a restricted entry is ad
 3 and its "Security posture" section.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in operator, when the console shell renders, then it shows three tabs -
+- [x] AC-01: Given a signed-in operator, when the console shell renders, then it shows three tabs -
       Support, Content, Operations - replacing the prior two-tab (Reported tales / Entitlements)
       shell in `web/src/admin/main.tsx`.
-- [ ] AC-02: Given the Support tab, when opened, then it shows the existing purchaser lookup +
+- [x] AC-02: Given the Support tab, when opened, then it shows the existing purchaser lookup +
       grant/revoke screen (`PurchaserEntitlements.tsx`, story 02, #136) relocated as-is - the
       component is not rewritten, only re-homed under the Support tab (the "find a person, fix
       their problem" job).
-- [ ] AC-03: Given the Content tab, when opened, then it shows the existing reported-tales review
+- [x] AC-03: Given the Content tab, when opened, then it shows the existing reported-tales review
       queue (`ReviewQueue.tsx`, story 03, #137) relocated as-is, unchanged.
-- [ ] AC-04: Given the Operations tab, when opened, then it shows the Stripe-mode panel (story 04)
+- [x] AC-04: Given the Operations tab, when opened, then it shows the Stripe-mode panel (story 04)
       relocated into it, plus a control-plane settings panel that is dependency-tolerant: it
       renders its content only when its backing endpoint (`control-plane/01`, not yet built)
       responds successfully, and otherwise renders a plain "settings controls are not available
       yet" state - never an error, a blank screen, or a crash of the surrounding shell.
-- [ ] AC-05 (scope metadata, no behavior change today): Given every existing admin endpoint
+- [x] AC-05 (scope metadata, no behavior change today): Given every existing admin endpoint
       (`AdminEntitlementsController`, `ReportedTalesController`, `StripeModeController`), when this
       story ships, then each is decorated with a scope tag (`support`, `content`, or `ops`
       respectively) implemented as authorization policy/attribute metadata that the `"Operator"`
       authorization pipeline checks - and because the current `IOperatorAllowlist` grants every
       allowlisted operator every scope, the existing (single-operator) test suite for all three
       controllers passes UNMODIFIED, proving zero behavior change.
-- [ ] AC-06 (the config shape is real, not theater - REVISED 2026-07-08 adversarial review):
+- [x] AC-06 (the config shape is real, not theater - REVISED 2026-07-08 adversarial review):
       Given the new `Operator:Scopes` configuration key (defined and shipped BY THIS STORY,
       index-aligned with `Operator:AllowedEmails` and read via the identical dual-shape pattern
       `ConfigurationOperatorAllowlist` already uses for emails - an indexed array locally/in tests,
@@ -61,7 +61,7 @@ today, so scopes are a real, usable boundary the moment a restricted entry is ad
       this AC "proves the mechanism by structure" without ever defining a config format capable of
       expressing a restricted email - production `Operator:AllowedEmails` is a flat list with no
       per-email scope field, so the promise was half-true. This AC closes that gap.)
-- [ ] AC-07 (out-of-scope guard): Given this story, then no role-management UI, no operator list
+- [x] AC-07 (out-of-scope guard): Given this story, then no role-management UI, no operator list
       editor, and no per-operator scope-editing screen is added anywhere in the console - Parked in
       feature.md; this story is authorization plumbing only.
 
@@ -139,10 +139,10 @@ today, so scopes are a real, usable boundary the moment a restricted entry is ad
 ## Tests
 | AC | Test |
 |---|---|
-| AC-01 | `manual + a small web/src/admin/main.test.tsx: three tabs render (Support/Content/Operations) after a signed-in session.` |
+| AC-01 | `web/src/admin/adminTabs.test.ts: the tab set is exactly three (Support/Content/Operations, values support/content/ops, in order) - the DOM-free pure module main.tsx maps over, so AC-01 is unit-covered without a component render (Vitest is node-only per web/vitest.config.ts). Plus manual: the three tabs render after a signed-in session.` |
 | AC-02 | `manual: Support tab renders PurchaserEntitlements's existing lookup + grant/revoke controls.` |
 | AC-03 | `manual: Content tab renders ReviewQueue's existing reported-tales list.` |
-| AC-04 | `web/src/admin/SettingsPanel.test.tsx: a 404/network failure from the settings endpoint renders the "not available yet" state, not an error; a successful response renders controls.` |
+| AC-04 | `web/src/admin/settingsClient.test.ts: a 404/network/500/non-array response from the settings endpoint collapses to the "unavailable" outcome (the panel then renders the "not available yet" state, not an error); a successful array response yields "available" and renders the settings. Harness reality (web/vitest.config.ts): Vitest is node-only, .test.ts, no DOM - so the dependency-tolerance LOGIC is covered as a pure client spec rather than a component-render .test.tsx.` |
 | AC-05 | `tests/QuibbleStone.Api.Tests/Admin/AdminEntitlementsControllerTests.cs, ReportedTalesControllerTests.cs, StripeModeControllerTests.cs re-run UNMODIFIED: all still pass, proving the scope check is a no-op for the current allowlist.` |
 | AC-06 | `tests/QuibbleStone.Api.Tests/Admin/OperatorScopeTests.cs (new): an operator with no Operator:Scopes entry resolves to all three scopes (default); an operator with a configured "support" entry is rejected by a policy requiring Content or Ops and accepted by one requiring Support - covering both the array config shape and the delimited-scalar (Key Vault) shape.` |
 | AC-07 | `manual: code/UI audit - no operator-list or scope-editor control exists anywhere in the admin bundle.` |

@@ -38,6 +38,10 @@ import {
   // sysadmin-console/04 (one console, one auth) - the Stripe-mode panel: the credit
   // card reads "billing mode"; the triangle above doubles as the go-live warning.
   faCreditCard,
+  // sysadmin-console/05 (#214) - the Operations tab settings panel: the gear reads
+  // "runtime settings" on both the available list header and the "not wired up yet"
+  // dependency-tolerant fallback row.
+  faGear,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -54,4 +58,5 @@ library.add(
   faPlus,
   faBan,
   faCreditCard,
+  faGear,
 );

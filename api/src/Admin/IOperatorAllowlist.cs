@@ -51,4 +51,26 @@ public interface IOperatorAllowlist
     /// <param name="email">The candidate operator email (raw; normalized here).</param>
     /// <returns>True only for an allowlisted operator email; false otherwise.</returns>
     bool IsOperator(string? email);
+
+    /// <summary>
+    /// Resolves the SCOPE SET an operator holds (sysadmin-console/05, AC-06) - the
+    /// subset of Support / Content / Ops jobs their allowlist entry permits. The
+    /// contract:
+    /// <list type="bullet">
+    /// <item>A NON-operator email (one <see cref="IsOperator"/> rejects) resolves to
+    /// the EMPTY set - the scope check never runs ahead of the membership check.</item>
+    /// <item>An operator with NO restricting configuration resolves to ALL THREE
+    /// scopes (the backward-compatible default) - so today's single operator needs
+    /// zero config change and behavior is unchanged (AC-05).</item>
+    /// <item>An operator whose configuration restricts them to a subset resolves to
+    /// exactly that subset, honored by the scope policy checks (AC-06).</item>
+    /// </list>
+    /// The default implementation here (all-three for any operator, empty otherwise)
+    /// is the zero-config posture; <see cref="ConfigurationOperatorAllowlist"/>
+    /// overrides it to read the per-entry Operator:Scopes config. Never throws.
+    /// </summary>
+    /// <param name="email">The candidate operator email (raw; normalized by the implementation).</param>
+    /// <returns>The scopes the operator holds; the empty set for a non-operator.</returns>
+    IReadOnlySet<OperatorScope> ScopesFor(string? email) =>
+        IsOperator(email) ? OperatorScopes.All : OperatorScopes.None;
 }
