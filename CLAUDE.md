@@ -195,6 +195,12 @@ Ship to qa: merge to `main`. Promote to beta:
 **Promote to Beta** with an older `ref`). `deploy-qa.yml` + `promote-beta.yml` call the
 shared `deploy-env.yml` core; the old `deploy.yml` is retired.
 
+**When a feature lands, offer to promote it (ask - never auto-tag).** As soon as a
+feature/story is finished - its acceptance criteria met, merged to `main`, and validated
+on qa - proactively ask the user whether it should get a new `v*` version bump and be
+promoted to beta. Suggest the next semver (bump from the last tag), but surface the
+decision and let the user choose; beta only ever moves on a deliberate tag.
+
 ## 10. Things that look wrong but aren't
 
 - **`net10.0` on a preview SDK.** `.NET` 10 is the latest LTS; this machine
