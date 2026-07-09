@@ -153,6 +153,46 @@ public class SeatGraceServiceTests
     }
 
     [Fact]
+    public async Task An_override_landing_mid_flight_does_not_shorten_a_grace_timer_already_running()
+    {
+        // control-plane/03 (#232) AC-03, the reciprocal half: a grace timer already
+        // awaiting its window captured that window BEFORE Task.Delay, so an operator
+        // override that lands mid-flight must NOT retroactively shorten (or lengthen) it.
+        // Schedule under a long (10s) window, then flip the override to the 1-second floor;
+        // the seat must still be held a moment later - the in-flight timer keeps its
+        // original window. (The 10s timer is then cancelled so nothing dangles.)
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        // A mutable store so the override can be changed AFTER the eviction is scheduled.
+        var store = new InMemoryRuntimeSettingsStore();
+        await store.SetOverrideAsync(SettingsCatalog.SessionSeatGraceWindowSeconds, "10", "test-operator", DateTimeOffset.UtcNow);
+        var settings = new RuntimeSettingsService(store);
+
+        var ctx = new FakeGameHubContext();
+        var svc = new SeatGraceService(ctx, registry, TestTelemetry.NoOp, NullLogger<SeatGraceService>.Instance, settings);
+
+        var handle = registry.BeginGrace("conn-joiner");
+        Assert.NotNull(handle);
+
+        var evictionTask = svc.ScheduleEviction(handle!);
+
+        // Operator lowers the window to the 1-second floor mid-flight.
+        await store.SetOverrideAsync(SettingsCatalog.SessionSeatGraceWindowSeconds, "1", "test-operator", DateTimeOffset.UtcNow);
+
+        // Well past the NEW 1s window but far short of the captured 10s one: the seat is
+        // still held, proving the running timer ignored the mid-flight change.
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        Assert.Equal(2, room.PlayerCount);
+        Assert.Contains(room.SnapshotPlayers(), p => p.ConnectionId == "conn-joiner");
+
+        // Cancel the still-pending 10s timer so the test leaves nothing running.
+        Assert.True(room.CancelGrace("conn-joiner"));
+        await evictionTask;
+    }
+
+    [Fact]
     public async Task Grace_expiry_of_a_non_round_seat_evicts_without_aborting()
     {
         var registry = new RoomRegistry();

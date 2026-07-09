@@ -6,7 +6,7 @@
 
 # Story: Knob migration
 
-**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Not Started  ·  **Issue:** #232
+**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Complete  ·  **Issue:** #232
 
 ## Context
 ADR 0003's audit named seven hardcoded operational constants, each already documented in its own file
@@ -35,34 +35,34 @@ This story does NOT invent placeholder settings keys for a store that does not e
 them onto this same pattern in its own story, noted in its `feature.md`.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given each of the seven knobs above is migrated to a settings key carrying its current
+- [x] AC-01: Given each of the seven knobs above is migrated to a settings key carrying its current
       hardcoded value as the code default, when no operator override exists for any of them, then
       observed behavior (auto-hide decisions, the AI per-IP limit, the AI per-session quota, the AI
       monthly ceiling, the seat grace window, published-tale TTL, the operator-login rate limit) is
       IDENTICAL to before this story, verified per knob - zero regression.
-- [ ] AC-02: Given an operator overrides the report auto-hide threshold, when a published tale
+- [x] AC-02: Given an operator overrides the report auto-hide threshold, when a published tale
       accumulates reports after the cache window (story 01) elapses, then the NEW threshold governs the
       auto-hide decision from that point forward - no redeploy.
-- [ ] AC-03: Given an operator overrides the seat grace window, when a NEW disconnect is handled after
+- [x] AC-03: Given an operator overrides the seat grace window, when a NEW disconnect is handled after
       the change, then `SeatGraceService` schedules the NEW window for it; a grace timer already
       scheduled for a disconnect that started BEFORE the change keeps running with its ORIGINAL window
       (no retroactive change to an in-flight timer).
-- [ ] AC-04: Given an operator overrides the public tale TTL, when a NEW tale is published after the
+- [x] AC-04: Given an operator overrides the public tale TTL, when a NEW tale is published after the
       change, then it is stamped with the NEW TTL; a tale published BEFORE the change keeps the TTL it
       was originally stamped with at publish time (no retroactive extension or shortening of an
       already-published tale's expiry).
-- [ ] AC-05: Given an operator overrides the AI per-session quota or the AI monthly spend ceiling, when
+- [x] AC-05: Given an operator overrides the AI per-session quota or the AI monthly spend ceiling, when
       a new quota check or spend evaluation happens after the cache window elapses, then the NEW value
       governs - without an app redeploy, and without a behavior change to any AI call already in flight.
-- [ ] AC-06: Given the rate-limiter-backed knobs (AI per-IP, operator-login), when a NEW rate-limit
+- [x] AC-06: Given the rate-limiter-backed knobs (AI per-IP, operator-login), when a NEW rate-limit
       partition is created after the cache window elapses, then it is built with the current settings
       value; an already-live partition (an IP mid-window) may finish its current window under the OLD
       value - a documented, acceptable lag, not a bug, since ASP.NET Core's rate limiter bakes a
       partition's options in at the point the partition is created.
-- [ ] AC-07: Given no storage is configured (the in-memory settings fallback, story 01 AC-05), when any
+- [x] AC-07: Given no storage is configured (the in-memory settings fallback, story 01 AC-05), when any
       of these seven knobs is read, then it behaves identically to the Table-Storage-backed path (code
       default, or an in-process override) - local dev / CI need zero setup.
-- [ ] AC-08 (rate-limit permits are CLAMPED at the read site, closing the adversarial-review finding):
+- [x] AC-08 (rate-limit permits are CLAMPED at the read site, closing the adversarial-review finding):
       Given a rate-limit-permit knob (AI per-IP, operator-login, and any future rate-limit key this
       story or a later one migrates), when the partition-creation factory lambda reads the current
       effective settings value, then it clamps that value into `[1, sane-max]` (a per-knob constant
@@ -163,9 +163,9 @@ that general rule, corrected/added 2026-07-08:
 | AC | Test |
 |---|---|
 | AC-01 | `tests/QuibbleStone.Api.Tests/Settings/KnobMigrationRegressionTests.cs` - one assertion per knob at its code default matches today's shipped constant |
-| AC-02 | `tests/QuibbleStone.Api.Tests/PublishedTales/PublishedTalesControllerTests.cs` (or `ReportedTalesControllerTests.cs`) - overridden threshold changes the auto-hide decision |
+| AC-02 | `tests/QuibbleStone.Api.Tests/PublishedTales/PublishedTalesKnobOverrideTests.cs` - overridden threshold changes the auto-hide decision |
 | AC-03 | `tests/QuibbleStone.Api.Tests/Rooms/SeatGraceServiceTests.cs` - in-flight timer unaffected by a mid-flight override; a new disconnect after the override uses the new window |
-| AC-04 | `PublishedTalesControllerTests.cs` - a tale published before a TTL override keeps its original expiry; one published after gets the new TTL |
+| AC-04 | `PublishedTales/PublishedTalesKnobOverrideTests.cs` - a tale published before a TTL override keeps its original expiry; one published after gets the new TTL |
 | AC-05 | `tests/QuibbleStone.Api.Tests/Ai/AiQuotaTests.cs`, `AiSpendBreakerTests.cs` - overridden quota/ceiling governs a check made after the override |
 | AC-06 | manual: exercise the AI per-IP and operator-login rate limits before/after an override, noting the documented partition-creation-time lag |
 | AC-07 | same test files, constructed over `InMemoryRuntimeSettingsStore` - identical assertions with no storage configured |
