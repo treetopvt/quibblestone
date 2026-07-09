@@ -540,7 +540,7 @@ resource apiKeyVaultCryptoUser 'Microsoft.Authorization/roleAssignments@2022-04-
 //     derivation was REJECTED by the adversarial review because resourceGroup().id is
 //     derivable from the subscription id + resource-group name (both discoverable),
 //     so anyone who guesses them could forge a valid operator magic link. A
-//     deploymentScript instead generates real random bytes (openssl rand) and writes
+//     deploymentScript instead generates real random bytes (/dev/urandom) and writes
 //     them to the Key Vault secret the API reads. It is a heavier resource (its own
 //     managed identity, and the script host provisions a transient storage account +
 //     container) - that cost is ACCEPTED because the cheaper derivation is a security
@@ -600,8 +600,9 @@ resource tokenSigningKeyScript 'Microsoft.Resources/deploymentScripts@2023-08-01
         value: tokenSigningKeySecretName
       }
     ]
-    // CSPRNG value, create-if-absent. openssl rand is a real cryptographic RNG; the
-    // value is NEVER derived from any ARM input, so it is not reproducible from the
+    // CSPRNG value, create-if-absent. /dev/urandom is the kernel CSPRNG (openssl is
+    // NOT installed in the AzureCLI deploymentScript container image); the value is
+    // NEVER derived from any ARM input, so it is not reproducible from the
     // subscription id / resource group name.
     scriptContent: '''
       set -euo pipefail
@@ -622,9 +623,9 @@ resource tokenSigningKeyScript 'Microsoft.Resources/deploymentScripts@2023-08-01
       if [ -n "$existing" ]; then
         echo "Secret $SECRET_NAME already present - leaving it unchanged (idempotent; never overwrite a live signing key)."
       else
-        value=$(openssl rand -base64 32)
+        value=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
         retry az keyvault secret set --vault-name "$VAULT_NAME" --name "$SECRET_NAME" --value "$value" --output none
-        echo "Created $SECRET_NAME from a CSPRNG value (openssl rand)."
+        echo "Created $SECRET_NAME from a CSPRNG value (/dev/urandom)."
       fi
     '''
   }
