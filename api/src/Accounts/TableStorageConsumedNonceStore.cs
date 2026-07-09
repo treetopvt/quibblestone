@@ -137,8 +137,16 @@ public sealed class TableStorageConsumedNonceStore : IConsumedNonceStore
     {
         try
         {
-            var expired = _table.QueryAsync<TableEntity>(e =>
-                e.PartitionKey == Partition && e.GetDateTimeOffset(ExpiresAtColumn) < olderThan);
+            // Filter server-side with an OData STRING, not a LINQ predicate: the
+            // expression translator cannot render the client-side TableEntity helper
+            // (GetDateTimeOffset) into OData, so a predicate would throw at runtime and
+            // the table would grow unbounded. CreateQueryFilter escapes each
+            // interpolation hole as a typed VALUE (Partition -> a quoted string,
+            // olderThan -> an OData datetime literal), so the column NAME "ExpiresAt"
+            // must stay LITERAL text in the format string - it mirrors ExpiresAtColumn.
+            var filter = TableClient.CreateQueryFilter(
+                $"PartitionKey eq {Partition} and ExpiresAt lt {olderThan}");
+            var expired = _table.QueryAsync<TableEntity>(filter);
             await foreach (var row in expired)
             {
                 await _table.DeleteEntityAsync(row.PartitionKey, row.RowKey, ETag.All);

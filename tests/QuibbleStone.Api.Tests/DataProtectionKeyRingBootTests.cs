@@ -125,10 +125,18 @@ public class DataProtectionKeyRingBootTests
             builder.UseEnvironment(environment);
             builder.ConfigureAppConfiguration((_, config) =>
             {
-                // Explicitly ABSENT (never set here): DataProtection:KeyRingBlobUri,
-                // DataProtection:KeyVaultKeyUri, Accounts:StorageConnectionString -
-                // their absence is the whole point of this test.
-                config.AddInMemoryCollection(new Dictionary<string, string?>());
+                // Force the three durable-backing settings ABSENT - their absence is the
+                // whole point of this test. This provider runs AFTER the app's own
+                // appsettings / env sources, so setting each key to null here OVERRIDES
+                // any value a future appsettings.json or environment variable might
+                // introduce, keeping the "missing durable backing" path genuinely
+                // exercised rather than silently passing on a stray configured value.
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["DataProtection:KeyRingBlobUri"] = null,
+                    ["DataProtection:KeyVaultKeyUri"] = null,
+                    ["Accounts:StorageConnectionString"] = null,
+                });
             });
         }
     }
