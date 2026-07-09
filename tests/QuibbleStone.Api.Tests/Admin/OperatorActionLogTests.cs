@@ -447,6 +447,32 @@ public sealed class OperatorActionLogTests
         Assert.False(OperatorActionLogPolicy.IsValidTarget(target));
     }
 
+    // ---- the actor is part of the trail: a row must always identify WHO acted -------
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AppendAsync_rejects_a_missing_operator_identity(string? operatorEmail)
+    {
+        var actionLog = new InMemoryOperatorActionLog();
+
+        // A row with no actor is a useless trail - fail fast BEFORE any write (log-before-act, so
+        // this also aborts the effect at a real call site) rather than persist an unattributed row.
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            actionLog.AppendAsync(operatorEmail!, "settings.put", "some-key", "note", CancellationToken.None));
+        Assert.Empty(actionLog.Entries);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void IsValidOperatorIdentity_rejects_an_empty_or_whitespace_actor(string? operatorEmail)
+    {
+        Assert.False(OperatorActionLogPolicy.IsValidOperatorIdentity(operatorEmail));
+    }
+
     [Fact]
     public void IsValidTarget_rejects_a_target_over_the_max_length()
     {

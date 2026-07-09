@@ -58,6 +58,18 @@ public static class OperatorActionLogPolicy
     public const int MaxTargetLength = 320; // The RFC 5321 maximum email length; ample for a slug / settings key too.
 
     /// <summary>
+    /// Validates the ACTOR of a row BEFORE it is written: an action-log row must always identify WHO
+    /// performed the action (the dispute-insurance contract - a trail with no actor is a degraded
+    /// trail). Rejects a null / empty / whitespace-only operator identity and an over-long one. In
+    /// practice every operator endpoint runs behind the Operator policy, which always sets a Name
+    /// claim, so this never rejects a legitimate action - it is defense-in-depth against a future
+    /// auth / pipeline regression that produced a principal with no Name. Returns false rather than
+    /// throwing so the caller (the store's AppendAsync) decides how to surface the rejection.
+    /// </summary>
+    public static bool IsValidOperatorIdentity(string? operatorEmail)
+        => !string.IsNullOrWhiteSpace(operatorEmail) && operatorEmail.Length <= MaxTargetLength;
+
+    /// <summary>
     /// Clamps a (possibly null, possibly hostile) configured retention value UP to
     /// <see cref="MinRetentionDays"/> (AC-04). A null / absent override, a zero, or any
     /// value below the floor all resolve to the floor; only a value ABOVE the floor is

@@ -119,9 +119,15 @@ public sealed class InMemoryOperatorActionLog : IOperatorActionLog
     /// <inheritdoc />
     public Task AppendAsync(string operatorEmail, string action, string target, string note, CancellationToken ct = default)
     {
-        // Validate BEFORE recording (AC-07): a malformed / markup-bearing email-shaped target is
-        // refused at write time. Because the money / moderation call sites append BEFORE their
-        // effect (log-before-act), this throw aborts the action rather than persisting a bad row.
+        // Validate BEFORE recording. Because the money / moderation call sites append BEFORE their
+        // effect (log-before-act), a throw here aborts the action rather than persisting a bad row.
+        // (1) The ACTOR must be present - a row with no operator identity is a useless trail.
+        if (!OperatorActionLogPolicy.IsValidOperatorIdentity(operatorEmail))
+        {
+            throw new ArgumentException(
+                "An operator identity is required to append an action-log row.", nameof(operatorEmail));
+        }
+        // (2) The TARGET must be valid (AC-07): a malformed / markup-bearing email-shaped target is refused.
         if (!OperatorActionLogPolicy.IsValidTarget(target))
         {
             throw new InvalidOperatorActionTargetException($"'{target}' is not a valid action-log target.");

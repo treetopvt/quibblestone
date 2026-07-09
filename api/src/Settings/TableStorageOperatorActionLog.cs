@@ -75,9 +75,16 @@ public sealed class TableStorageOperatorActionLog : IOperatorActionLog
     /// <inheritdoc />
     public async Task AppendAsync(string operatorEmail, string action, string target, string note, CancellationToken ct = default)
     {
-        // Validate the target BEFORE any write (AC-07). Because the money / moderation call sites
-        // append BEFORE their effect (log-before-act, AC-01a), this throw aborts the action - a
-        // malformed / markup-bearing email target is never persisted and its effect never commits.
+        // Validate BEFORE any write. Because the money / moderation call sites append BEFORE their
+        // effect (log-before-act, AC-01a), a throw here aborts the action - nothing is persisted and
+        // the effect never commits. (1) The ACTOR must be present: a row that does not identify who
+        // acted is a useless trail (the dispute-insurance contract).
+        if (!OperatorActionLogPolicy.IsValidOperatorIdentity(operatorEmail))
+        {
+            throw new ArgumentException(
+                "An operator identity is required to append an action-log row.", nameof(operatorEmail));
+        }
+        // (2) The TARGET must be valid (AC-07): a malformed / markup-bearing email target is refused.
         if (!OperatorActionLogPolicy.IsValidTarget(target))
         {
             throw new InvalidOperatorActionTargetException($"'{target}' is not a valid action-log target.");
