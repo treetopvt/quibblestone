@@ -88,10 +88,12 @@ public sealed class PiiScrubbingTelemetryInitializer : ITelemetryInitializer
         // path/query scrub above already covers the request URL; this is the
         // belt-and-braces for a custom property).
         "vaultId",
-        // keepsake-vault/03 (#230) + ADR 0003 "Telemetry knows the new identifiers":
-        // the claim code is a bearer secret (like the vault id); the account id / email
-        // / credential tokens are account-plane identity. None may ride telemetry
-        // through a custom property (belt-and-braces for a future call site).
+        // keepsake-vault/03 (#230) + accounts-identity (ADR 0003 "Telemetry knows the
+        // new identifiers"): the claim code is a bearer secret (like the vault id); the
+        // account id / email / credential tokens are account-plane identity. None may
+        // ride telemetry through a custom property (belt-and-braces for a future call
+        // site). The device-link token (accounts-identity/09) is the newest of these -
+        // see "deviceToken" below.
         "claimCode", "accountId", "email",
         "token", "access_token", "deviceToken",
     };

@@ -389,6 +389,26 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             }));
 
+    // accounts-identity/09 (#229, ADR 0003 "Security posture"): the family-device redeem /
+    // refresh endpoints' PER-IP guard, in this SAME registration alongside the policies
+    // above. The redeem endpoint mints a long-lived bearer token from a short, enumerable
+    // link code with no auth. This per-IP limit is the FIRST of three layers; the GLOBAL
+    // ceiling (a per-IP-only limiter is defeated by IP rotation) is enforced in-code by
+    // FamilyDeviceRedeemGlobalThrottle (ASP.NET allows only one [EnableRateLimiting] per
+    // endpoint), and the per-code attempt burn is the third, in InMemoryFamilyLinkCodeStore.
+    // Only POST /api/accounts/devices/redeem and /refresh opt in; the game path and the
+    // authenticated list/revoke/toggle endpoints are untouched. 429 on reject; per-IP behind
+    // App Service via the ForwardedHeaders config below.
+    options.AddPolicy(FamilyDeviceRedeemRateLimit.PerIpPolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: FamilyDeviceRedeemRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = FamilyDeviceRedeemRateLimit.PerIpPermitLimit,
+                Window = FamilyDeviceRedeemRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
     // keepsake-gallery/05 (#154): the signed-in cloud-gallery SAVE endpoint's per-IP
     // guard, in this SAME registration alongside the policies above. Only POST
     // /api/account/gallery opts in (via [EnableRateLimiting(CloudGalleryRateLimit.PolicyName)]);
@@ -898,6 +918,48 @@ else
             seatPresetsConnectionString,
             sp.GetRequiredService<ILogger<TableStorageSeatPresetStore>>()));
 }
+
+// accounts-identity/09 (family device link + teen-plus adult-signal gate, #229): the
+// linked-device token store, chosen at STARTUP by the SAME config-presence idiom as the
+// account store above and REUSING the SAME Accounts storage account (no new resource).
+// WITH a connection string it persists device rows to Azure Table Storage (PartitionKey =
+// the family AccountId, RowKey = the DeviceTokenId) so a linked device survives restarts;
+// WITHOUT one (local dev, CI, a fresh clone) a WORKING in-memory store keeps the
+// redeem -> resolve -> list -> revoke -> adult-confirm flow exercisable with ZERO Azure
+// setup. It stores ONLY a HASH of each token (never the raw secret, AC-05) and no PII
+// beyond the AccountId it resolves to. A singleton either way. This is one of the FOUR
+// ADR 0003 Wave-3 Program.cs registrations - it lands as its own small, rebased PR.
+if (string.IsNullOrWhiteSpace(accountsConnectionString))
+{
+    builder.Services.AddSingleton<IFamilyDeviceTokenStore, InMemoryFamilyDeviceTokenStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IFamilyDeviceTokenStore>(sp =>
+        new TableStorageFamilyDeviceTokenStore(
+            accountsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageFamilyDeviceTokenStore>>()));
+}
+
+// accounts-identity/09: the short-lived link-code ledger. ALWAYS in-memory (a link code
+// lives only minutes - a process restart harmlessly invalidates any outstanding code and
+// the parent mints a fresh one), mirroring the room registry / AI quota singletons. It
+// enforces single-use, short-TTL, and the per-code attempt burn (ADR 0003 security
+// posture) that the per-IP + global rate limits below cannot provide on their own.
+builder.Services.AddSingleton<IFamilyLinkCodeStore, InMemoryFamilyLinkCodeStore>();
+
+// accounts-identity/09: the ONE family-device-link crypto + orchestration service - it
+// mints CSPRNG link codes (AC-01) and opaque device tokens, hashes them for storage
+// (AC-05), and owns the redeem / resolve / refresh flow over the two stores above. A
+// singleton (no per-request state; shared by AccountsController and GameHub's connect-time
+// resolver, which resolves a presented device token to its family + adult-unlock signal).
+builder.Services.AddSingleton<FamilyDeviceLinkService>();
+
+// accounts-identity/09: the GLOBAL redeem/refresh ceiling (ADR 0003 security posture - a
+// per-IP-only limiter is defeated by IP rotation). In-code rather than a second rate-limit
+// policy because ASP.NET allows only one [EnableRateLimiting] per endpoint (the per-IP
+// policy claims it); the controller checks this process-wide fixed-window counter first.
+builder.Services.AddSingleton<FamilyDeviceRedeemGlobalThrottle>();
 
 // platform-devops/08 (AC-07): the single-use magic-link nonce store. Config-presence
 // split mirroring the account store above: WITH a storage connection string

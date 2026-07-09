@@ -140,6 +140,50 @@ public sealed record SeatPresetsResult(IReadOnlyList<SeatPresetView> Presets);
 /// <summary>A friendly, kid-readable validation message when a preset nickname is rejected (AC-04/AC-07).</summary>
 public sealed record SeatPresetError(string Message);
 
+/// <summary>
+/// Response for POST /api/accounts/devices/link (accounts-identity/09, AC-01): the
+/// short, human-enterable link code the parent hands to the kid's device, and when it
+/// expires. Displayed on the Account page for the family to type into the device's
+/// redeem screen within the short window.
+/// </summary>
+/// <param name="Code">The CSPRNG-minted link code (AC-01).</param>
+/// <param name="ExpiresUtc">When the code stops being redeemable (minutes out).</param>
+public sealed record LinkDeviceResult(string Code, DateTimeOffset ExpiresUtc);
+
+/// <summary>Request body for POST /api/accounts/devices/redeem: the link code typed on the kid's device.</summary>
+/// <param name="Code">The link code from the parent's Account page. May be null/empty - resolves to the neutral "did not work" outcome.</param>
+public sealed record RedeemDeviceBody(string? Code);
+
+/// <summary>
+/// Response for POST /api/accounts/devices/redeem (accounts-identity/09, AC-02). On
+/// success the RAW family-device token to persist on the device ONCE (only its hash is
+/// kept server-side, AC-05) plus the device's non-identifying label; on failure neither,
+/// with a friendly message. A freshly redeemed device is family-safe by default (AC-07) -
+/// nothing in this response unlocks teen-plus.
+/// </summary>
+/// <param name="Ok">True when the code redeemed and a device token was minted.</param>
+/// <param name="Message">A friendly, non-enumerating message for either outcome.</param>
+/// <param name="Token">The raw device token to persist (success only), returned exactly once.</param>
+/// <param name="Label">The device's short, random label (success only, AC-04).</param>
+public sealed record RedeemDeviceResult(bool Ok, string Message, string? Token, string? Label);
+
+/// <summary>Request body for POST /api/accounts/devices/refresh: the current device token to rotate.</summary>
+/// <param name="Token">The device's current raw token. May be null/empty - resolves to a neutral failure.</param>
+public sealed record RefreshDeviceBody(string? Token);
+
+/// <summary>
+/// Response for POST /api/accounts/devices/refresh (accounts-identity/09, security
+/// posture): on success the REPLACEMENT raw token to persist (the old value is
+/// invalidated server-side); on failure none, so the client keeps using / re-links.
+/// </summary>
+/// <param name="Ok">True when the token was rotated.</param>
+/// <param name="Token">The new raw token to persist (success only).</param>
+public sealed record RefreshDeviceResult(bool Ok, string? Token);
+
+/// <summary>Request body for POST /api/accounts/devices/{deviceTokenId}/adult-confirm: the new toggle position.</summary>
+/// <param name="Confirmed">True to opt this device into the teen-plus tier (AC-07), false to return it to family-safe.</param>
+public sealed record AdultConfirmBody(bool Confirmed);
+
 [ApiController]
 [Route("api/accounts")]
 public sealed class AccountsController : ControllerBase
@@ -200,6 +244,9 @@ public sealed class AccountsController : ControllerBase
     private readonly IEmailSender _email;
     private readonly EmailOptions _emailOptions;
     private readonly IWebHostEnvironment _environment;
+    private readonly FamilyDeviceLinkService _deviceLinks;
+    private readonly IFamilyDeviceTokenStore _deviceTokens;
+    private readonly FamilyDeviceRedeemGlobalThrottle _globalThrottle;
     private readonly ILogger<AccountsController> _logger;
     // accounts-identity/08: the kid-seat-preset store (account-plane, keyed by the
     // resolved family AccountId) and the SAME server-side safety filter every free-text
@@ -214,6 +261,9 @@ public sealed class AccountsController : ControllerBase
         IEmailSender email,
         EmailOptions emailOptions,
         IWebHostEnvironment environment,
+        FamilyDeviceLinkService deviceLinks,
+        IFamilyDeviceTokenStore deviceTokens,
+        FamilyDeviceRedeemGlobalThrottle globalThrottle,
         ILogger<AccountsController> logger,
         ISeatPresetStore presets,
         IContentSafetyFilter safety)
@@ -224,6 +274,14 @@ public sealed class AccountsController : ControllerBase
         _email = email;
         _emailOptions = emailOptions;
         _environment = environment;
+        // accounts-identity/09 (#229): the family-device-link crypto/orchestration service
+        // (mint link code, redeem, refresh) and the linked-device store (list, revoke, the
+        // adult-confirm toggle - all plain row updates behind the account holder's own auth).
+        _deviceLinks = deviceLinks;
+        _deviceTokens = deviceTokens;
+        // accounts-identity/09: the GLOBAL redeem/refresh ceiling (per-IP is defeated by IP
+        // rotation, ADR 0003) - checked before any store work on those two endpoints.
+        _globalThrottle = globalThrottle;
         _logger = logger;
         _presets = presets;
         _safety = safety;
@@ -413,6 +471,241 @@ public sealed class AccountsController : ControllerBase
             Message: signedInMessage,
             Email: account.Email,
             Credential: credential));
+    }
+
+    // ========================================================================
+    //  accounts-identity/09 (#229): the family-device link surface.
+    //
+    //  Two UNauthenticated, rate-limited endpoints a kid's device (never signed in)
+    //  calls - redeem + refresh - and four endpoints behind the account holder's OWN
+    //  purchaser credential (the SAME reused guard the entitlement/preset surfaces use,
+    //  never a second auth check): link (mint a code), list, revoke, adult-confirm.
+    //
+    //  The adult-confirm toggle (AC-07) is the ONLY way to opt a device into teen-plus,
+    //  and it is edited HERE, through the authenticated account holder, never from the
+    //  unauthenticated device. A freshly redeemed device is always family-safe (AC-02).
+    // ========================================================================
+
+    /// <summary>
+    /// POST /api/accounts/devices/link (AC-01): the signed-in account holder mints a
+    /// short, human-enterable link code tied to their AccountId. The parent reads it off
+    /// the Account page and types it into the kid's device within the short window. The
+    /// code is CSPRNG-minted from a distinct, higher-entropy alphabet than a room code.
+    /// Requires the caller's own valid purchaser credential (401 otherwise).
+    /// </summary>
+    [HttpPost("devices/link")]
+    public async Task<IActionResult> LinkDevice(CancellationToken cancellationToken)
+    {
+        var account = await ResolveAccountAsync(cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized();
+        }
+
+        var (code, expiresUtc) = _deviceLinks.MintLinkCode(account.Id);
+        return Ok(new LinkDeviceResult(code, expiresUtc));
+    }
+
+    /// <summary>
+    /// POST /api/accounts/devices/redeem { code } (AC-02): a kid's device (NOT signed in)
+    /// redeems a link code for a long-lived family-device token. The code travels in the
+    /// BODY, never the URL (handles are secrets - a path segment leaks to logs / Referer /
+    /// history). On success the RAW token is returned ONCE (only its hash is stored, AC-05)
+    /// and the device defaults to the SAFE state (IsAdultConfirmedDevice = false, AC-07).
+    /// Rate-limited per-IP AND globally (an IP-rotating attacker still hits the ceiling);
+    /// the per-code attempt burn lives in the code store. A missing / expired / used /
+    /// burned code returns a friendly, non-enumerating failure.
+    /// </summary>
+    [HttpPost("devices/redeem")]
+    [EnableRateLimiting(FamilyDeviceRedeemRateLimit.PerIpPolicyName)]
+    public async Task<IActionResult> RedeemDevice([FromBody] RedeemDeviceBody? request, CancellationToken cancellationToken)
+    {
+        // The GLOBAL ceiling (ADR 0003: per-IP is defeated by IP rotation). Checked FIRST,
+        // before any store work, so an IP-rotating flood cannot mint / enumerate past the
+        // aggregate budget. 429 when the process-wide window is spent.
+        if (!_globalThrottle.TryAcquire())
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        var code = (request?.Code ?? string.Empty).Trim();
+        var outcome = code.Length == 0
+            ? DeviceRedeemOutcome.Miss
+            : await _deviceLinks.RedeemAsync(code, cancellationToken);
+
+        if (!outcome.Success)
+        {
+            // Neutral failure (no oracle): the same shape whether the code was unknown,
+            // expired, already used, or burned. Never says which.
+            return Ok(new RedeemDeviceResult(
+                Ok: false,
+                Message: "That link code did not work - it may have expired or already been used. Ask for a fresh code and try again.",
+                Token: null,
+                Label: null));
+        }
+
+        return Ok(new RedeemDeviceResult(
+            Ok: true,
+            Message: "This device is linked to your family. Every game you start here now carries the family's unlocks.",
+            Token: outcome.RawToken,
+            Label: outcome.Label));
+    }
+
+    /// <summary>
+    /// POST /api/accounts/devices/refresh { token } (security posture: rolling TTL +
+    /// silent re-issue): the device calls this once per app launch to rotate its token
+    /// (verify by hash, mint a replacement on the SAME row, invalidate the old value,
+    /// slide the TTL). The token travels in the BODY, never the URL. Bounds how long a
+    /// copied/stolen token stays valid. A dead / revoked / unknown token fails cleanly so
+    /// the client re-links. Rate-limited exactly like redeem.
+    /// </summary>
+    [HttpPost("devices/refresh")]
+    [EnableRateLimiting(FamilyDeviceRedeemRateLimit.PerIpPolicyName)]
+    public async Task<IActionResult> RefreshDevice([FromBody] RefreshDeviceBody? request, CancellationToken cancellationToken)
+    {
+        // The GLOBAL ceiling, checked first (same rationale as redeem).
+        if (!_globalThrottle.TryAcquire())
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        var token = (request?.Token ?? string.Empty).Trim();
+        var rotated = token.Length == 0
+            ? null
+            : await _deviceLinks.RefreshAsync(token, cancellationToken);
+
+        return rotated is null
+            ? Ok(new RefreshDeviceResult(Ok: false, Token: null))
+            : Ok(new RefreshDeviceResult(Ok: true, Token: rotated));
+    }
+
+    /// <summary>
+    /// GET /api/accounts/devices (AC-04): the signed-in account holder lists their linked
+    /// devices with enough NON-PII context to make revocation actionable - the random
+    /// label + a relative last-seen + the adult-confirm toggle position - and NOTHING
+    /// device-identifying (no IP / user agent / raw token). Requires the caller's own
+    /// credential (401 otherwise).
+    /// </summary>
+    [HttpGet("devices")]
+    public async Task<IActionResult> ListDevices(CancellationToken cancellationToken)
+    {
+        var account = await ResolveAccountAsync(cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized();
+        }
+
+        var devices = await _deviceTokens.ListByAccountAsync(account.Id, cancellationToken);
+        // Project to the NON-PII summary - deliberately dropping the token hash so a list
+        // read can never leak credential material (AC-04/AC-05).
+        var summaries = devices
+            .Select(d => new LinkedDeviceSummary(
+                d.DeviceTokenId,
+                d.Label,
+                d.CreatedUtc,
+                d.LastUsedUtc,
+                d.IsAdultConfirmedDevice,
+                d.Revoked))
+            .ToList();
+        return Ok(summaries);
+    }
+
+    /// <summary>
+    /// POST /api/accounts/devices/{deviceTokenId}/revoke (AC-04): the account holder revokes
+    /// one device; its token stops resolving immediately (a room created from it afterwards
+    /// falls back to the default-unlocked, family-safe baseline, not an error). Idempotent -
+    /// revoking an already-revoked or unknown device is a clean success. Requires the
+    /// caller's own credential; the device is read within the caller's OWN account partition,
+    /// so one account can never revoke another's device.
+    /// </summary>
+    [HttpPost("devices/{deviceTokenId:guid}/revoke")]
+    public async Task<IActionResult> RevokeDevice(Guid deviceTokenId, CancellationToken cancellationToken)
+    {
+        var account = await ResolveAccountAsync(cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized();
+        }
+
+        var device = await _deviceTokens.GetAsync(account.Id, deviceTokenId, cancellationToken);
+        if (device is null)
+        {
+            // Unknown (or another account's) device - idempotent no-op success, no oracle.
+            return NoContent();
+        }
+
+        if (!device.Revoked)
+        {
+            await _deviceTokens.UpdateAsync(device with { Revoked = true }, cancellationToken);
+        }
+        return NoContent();
+    }
+
+    /// <summary>
+    /// POST /api/accounts/devices/{deviceTokenId}/adult-confirm { confirmed } (AC-07): the
+    /// account holder flips a device's adult-unlock signal - the ONLY way to opt a device
+    /// into the teen-plus tier, performed HERE through the authenticated adult, never from
+    /// the device. A plain property update on the SAME row (not a new record). Setting it
+    /// true takes effect at the NEXT room the device creates (entitlements are session-
+    /// captured); setting it false returns the device to family-safe. Requires the caller's
+    /// own credential; the device is read within the caller's own account partition.
+    /// </summary>
+    [HttpPost("devices/{deviceTokenId:guid}/adult-confirm")]
+    public async Task<IActionResult> SetAdultConfirmed(Guid deviceTokenId, [FromBody] AdultConfirmBody? request, CancellationToken cancellationToken)
+    {
+        var account = await ResolveAccountAsync(cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized();
+        }
+
+        var device = await _deviceTokens.GetAsync(account.Id, deviceTokenId, cancellationToken);
+        if (device is null)
+        {
+            return NotFound();
+        }
+
+        var confirmed = request?.Confirmed ?? false;
+        if (device.IsAdultConfirmedDevice != confirmed)
+        {
+            await _deviceTokens.UpdateAsync(device with { IsAdultConfirmedDevice = confirmed }, cancellationToken);
+        }
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Resolves the caller's OWN family account from their purchaser credential (the reused
+    /// guard, accounts-identity/03 / billing-entitlements/05 - never a second auth check),
+    /// or null when no valid credential is presented. Used by the authenticated device
+    /// endpoints (link / list / revoke / adult-confirm) so only the account holder can act
+    /// on their own account's devices.
+    /// </summary>
+    private async Task<Account?> ResolveAccountAsync(CancellationToken cancellationToken)
+    {
+        var email = _credential.ResolvePurchaserEmail(ReadCredential());
+        if (string.IsNullOrEmpty(email))
+        {
+            return null;
+        }
+        return await _accounts.GetByIdentityAsync(email, cancellationToken);
+    }
+
+    // The credential: prefer the Authorization: Bearer value (the cross-origin path the
+    // SPA holds from sign-in), fall back to the HttpOnly cookie (same-site deployment).
+    // Mirrors EntitlementsController.ReadCredential exactly (the one shared shape).
+    private string? ReadCredential()
+    {
+        var authorization = Request.Headers.Authorization.ToString();
+        const string bearerPrefix = "Bearer ";
+        if (authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var value = authorization[bearerPrefix.Length..].Trim();
+            if (value.Length > 0)
+            {
+                return value;
+            }
+        }
+        return Request.Cookies.TryGetValue(PurchaserCredentialService.CookieName, out var cookie) ? cookie : null;
     }
 
     /// <summary>

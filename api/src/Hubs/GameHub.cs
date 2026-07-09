@@ -415,6 +415,8 @@ public sealed class GameHub : Hub
     private readonly SeatGraceService _grace;
     private readonly PurchaserCredentialService _purchaserCredentials;
     private readonly IConnectionEntitlementStore _connectionEntitlements;
+    private readonly FamilyDeviceLinkService _deviceLinks;
+    private readonly IAccountStore _accounts;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -430,6 +432,8 @@ public sealed class GameHub : Hub
         SeatGraceService grace,
         PurchaserCredentialService purchaserCredentials,
         IConnectionEntitlementStore connectionEntitlements,
+        FamilyDeviceLinkService deviceLinks,
+        IAccountStore accounts,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -475,6 +479,14 @@ public sealed class GameHub : Hub
         // invocation cannot bridge them with an instance field - see the store's header).
         // Holds ONLY a SessionEntitlements + a reserved bool, never an identity (AC-04).
         _connectionEntitlements = connectionEntitlements;
+        // accounts-identity/09 (#229): the family-device link resolver. OnConnectedAsync
+        // asks it to resolve a presented family-device token to its family + adult-unlock
+        // signal (identity discarded at the boundary, exactly like the purchaser path).
+        _deviceLinks = deviceLinks;
+        // accounts-identity/09: the account store, used ONLY to turn a device-token's
+        // resolved AccountId into the family identity string EvaluateForSession expects
+        // (the account email), consumed for that one call and discarded (AC-03/AC-04).
+        _accounts = accounts;
         _logger = logger;
     }
 
@@ -518,18 +530,24 @@ public sealed class GameHub : Hub
         var token = Context.GetHttpContext()?.Request.Query["access_token"].ToString();
         if (!string.IsNullOrEmpty(token))
         {
-            // Resolve-and-discard (AC-02): the identity string exists only as this local
-            // for the single EvaluateForSession call below. A bad/expired/tampered token
-            // resolves to null (never throws, AC-06), which evaluates to the same
-            // default-unlocked baseline an anonymous connection gets.
+            // Resolve-and-discard (AC-02 / accounts-identity/09 AC-03): the identity string
+            // exists only as a local for the single EvaluateForSession call. A bad / expired
+            // / tampered token resolves to null and falls through to the default-unlocked,
+            // family-safe baseline an anonymous connection gets - never throws (AC-06).
             //
-            // Defense in depth: the token is attacker-controllable query input.
-            // ResolvePurchaserEmail already swallows Unprotect's CryptographicException,
-            // but the base64url decode AHEAD of it can throw FormatException on
-            // non-base64url input - which would otherwise escape here and abort the
-            // connection. AC-06 is absolute (a corrupt token must NEVER break a
-            // family's play), so treat ANY resolve failure as "not signed in" and fall
-            // through to the default-unlocked baseline, exactly as an empty token does.
+            // The web client's accessTokenFactory supplies EITHER a signed-in purchaser
+            // credential OR a stored family-device token in this ONE slot, preferring the
+            // purchaser credential. So we try purchaser first, then a device token:
+            //
+            //   1. PURCHASER credential -> capabilities from the purchaser identity, and
+            //      AdultUnlocked = TRUE unconditionally (adult-by-construction: only an
+            //      adult completes a magic-link sign-in, ADR 0002 Decision A / AC-07a).
+            //   2. Else a FAMILY-DEVICE token (accounts-identity/09) -> capabilities from
+            //      the family's account identity, and AdultUnlocked = that device row's
+            //      IsAdultConfirmedDevice flag (AC-07b: false is the family-safe default).
+            //   3. Else (neither) -> store nothing; CreateRoom falls back to the baseline.
+
+            // 1. Try the purchaser credential.
             string? purchaserIdentity;
             try
             {
@@ -537,26 +555,78 @@ public sealed class GameHub : Hub
             }
             catch
             {
-                // A bad token is an EXPECTED condition here (attacker-controllable query
-                // input), not an error, so this stays a cheap, message-only Trace line -
-                // no exception object (an attacker cannot inflate log volume / allocation)
-                // and the lowest level (off by default). The catch stays BROAD rather than
-                // enumerating the resolver's internal exception types (base64url
-                // FormatException + crypto): AC-06 is absolute, so an unforeseen throw must
-                // still fall through to anonymous, never abort the connection.
+                // A bad token is an EXPECTED condition (attacker-controllable query input),
+                // not an error - a cheap, message-only Trace line (no exception object). The
+                // catch stays BROAD: AC-06 is absolute, so an unforeseen throw must fall
+                // through to anonymous, never abort the connection.
                 _logger.LogTrace("Ignoring an unresolvable purchaser access token on connect (treating as anonymous).");
                 purchaserIdentity = null;
             }
 
-            var capabilities = await _entitlements.EvaluateForSession(
-                purchaserIdentity, Context.ConnectionAborted);
+            if (!string.IsNullOrEmpty(purchaserIdentity))
+            {
+                var capabilities = await _entitlements.EvaluateForSession(
+                    purchaserIdentity, Context.ConnectionAborted);
 
-            // Store ONLY the capability set + the reserved (always-false) AdultUnlocked
-            // bool - never the identity (AC-04 / AC-08). purchaserIdentity goes out of
-            // scope here and is never referenced again.
-            _connectionEntitlements.Set(
-                Context.ConnectionId,
-                new ResolvedConnectionIdentity(capabilities, AdultUnlocked: false));
+                // Store ONLY the capability set + the adult-unlock bool - never the identity
+                // (AC-04 / AC-08). purchaserIdentity goes out of scope here. A signed-in
+                // purchaser is adult-by-construction, so AdultUnlocked = true (AC-07a).
+                _connectionEntitlements.Set(
+                    Context.ConnectionId,
+                    new ResolvedConnectionIdentity(capabilities, AdultUnlocked: true));
+            }
+            else
+            {
+                // 2. Not a purchaser credential - try a family-device token. ResolveAsync
+                //    parses, hash-verifies, and liveness-checks the token, returning the
+                //    family AccountId + the device's adult-unlock signal, or null on any
+                //    miss (unknown / tampered / revoked / expired) - never throws (AC-06).
+                ResolvedDeviceToken? device;
+                try
+                {
+                    device = await _deviceLinks.ResolveAsync(token, Context.ConnectionAborted);
+                }
+                catch
+                {
+                    _logger.LogTrace("Ignoring an unresolvable family-device token on connect (treating as anonymous).");
+                    device = null;
+                }
+
+                if (device is { } resolvedDevice)
+                {
+                    // Turn the resolved AccountId into the family identity string
+                    // EvaluateForSession expects (the account email, what GetByIdentityAsync
+                    // keys on). This identity lives ONLY in the familyIdentity local for the
+                    // single EvaluateForSession call and is never stored (AC-03/AC-04) - the
+                    // SAME resolve-and-discard discipline as the purchaser path.
+                    string? familyIdentity;
+                    try
+                    {
+                        var account = await _accounts.GetByIdAsync(resolvedDevice.AccountId, Context.ConnectionAborted);
+                        familyIdentity = account?.Email;
+                    }
+                    catch
+                    {
+                        // A family whose account row cannot be read resolves to the baseline
+                        // rather than breaking the connection (AC-06).
+                        familyIdentity = null;
+                    }
+
+                    var capabilities = await _entitlements.EvaluateForSession(
+                        familyIdentity, Context.ConnectionAborted);
+
+                    // A family-device token ALWAYS resolves the family's PAID capabilities,
+                    // independent of the adult-unlock signal (AC-03): the two axes are captured
+                    // together but never conflated. AdultUnlocked mirrors the device row's flag
+                    // (false is the family-safe default a freshly linked device carries, AC-07b).
+                    _connectionEntitlements.Set(
+                        Context.ConnectionId,
+                        new ResolvedConnectionIdentity(capabilities, resolvedDevice.IsAdultConfirmedDevice));
+                }
+                // 3. Neither purchaser nor device token: store nothing. CreateRoom's miss
+                //    path evaluates the same default-unlocked baseline (AC-05), and
+                //    AdultUnlocked stays false (family-safe, AC-07).
+            }
         }
 
         await base.OnConnectedAsync();
@@ -643,6 +713,16 @@ public sealed class GameHub : Hub
             ? capabilities.Capabilities
             : await _entitlements.EvaluateForSession(purchaserIdentity: null, Context.ConnectionAborted);
         room.CaptureEntitlements(sessionEntitlements);
+
+        // accounts-identity/09 (AC-07): capture the session's CONTENT-SAFETY adult-unlock
+        // signal on the room, ONCE, alongside (never folded into) the capability set above -
+        // two distinct capture-once axes (AC-03). It is true only when this connection
+        // resolved to a signed-in adult/purchaser session or an adult-confirmed family
+        // device; a miss (no credential, or a token that resolved to neither) captures
+        // false, so the room is family-safe by default (AC-06). Because it is captured here
+        // from the ORIGINAL creating connection and never rewritten, host migration can
+        // never flip the teen-plus gate on later (AC-08).
+        room.CaptureAdultUnlocked(resolved?.AdultUnlocked ?? false);
 
         // Subscribe the host's connection to the room group so later stories'
         // roster/round broadcasts (Clients.Group(room.Code)) reach them.
@@ -1135,11 +1215,25 @@ public sealed class GameHub : Hub
         //    (story-selection/01 AC-03). The stages run in a FIXED order and the
         //    family-safe gate is ALWAYS FIRST - no path around it:
         //
-        //    Stage 1 - FAMILY-SAFE GATE (always first, AC-04): the family-safe
-        //    toggle the host sent decides which catalog entries are allowed.
-        //    Filtering happens HERE, server-side, so the toggle is authoritative -
-        //    the client never sends a template id.
-        var familySafePool = _familySafe.SelectAllowed(_catalog.Entries, familySafe);
+        //    accounts-identity/09 (AC-07, the load-bearing child-safety gate): compute the
+        //    EFFECTIVE family-safe value BEFORE the selector ever sees one. The teen-plus
+        //    content tier is served ONLY when this room's session carried an affirmative
+        //    adult-unlock signal (a signed-in adult/purchaser or an adult-confirmed family
+        //    device), captured on Room.AdultUnlocked at CreateRoom. If the room has NO adult
+        //    signal (anonymous play, a signed-out host, incognito, a cleared-storage device,
+        //    or a linked-but-unconfirmed device), the client's own familySafe value is
+        //    IGNORED OUTRIGHT and the round is forced family-safe - even a modified / raw hub
+        //    call that sends familySafe=false gets family-safe content, because the server,
+        //    not the client, is the boundary. The client's value is honored ONLY once an adult
+        //    has already unlocked the room. This one-line call-site change is the entire
+        //    child-safety touch; FamilySafeContentSelector's own filtering logic is untouched.
+        var effectiveFamilySafe = room.AdultUnlocked ? familySafe : true;
+
+        //    Stage 1 - FAMILY-SAFE GATE (always first, AC-04): the EFFECTIVE family-safe
+        //    value (above) decides which catalog entries are allowed. Filtering happens
+        //    HERE, server-side, so the toggle is authoritative - the client never sends a
+        //    template id.
+        var familySafePool = _familySafe.SelectAllowed(_catalog.Entries, effectiveFamilySafe);
         if (familySafePool.Count == 0)
         {
             // Defensive: every current seed template is family-safe, so this is
@@ -1292,7 +1386,11 @@ public sealed class GameHub : Hub
                 // story-01's single threshold (mirrors the web's classifyLength).
                 LengthClass: chosen.BlankCount <= LengthContentSelector.QuickMaxBlanks ? "quick" : "full",
                 PlayerCount: room.PlayerCount,
-                FamilySafe: familySafe,
+                // Log the EFFECTIVE family-safe value actually applied (accounts-identity/09,
+                // AC-07) - not the raw client toggle - so the serve log reflects the content
+                // tier really served (a no-adult-signal room is family-safe regardless of the
+                // client's value).
+                FamilySafe: effectiveFamilySafe,
                 InstanceId: room.InstanceId);
             FireServeEvent(serveEvent);
         }
