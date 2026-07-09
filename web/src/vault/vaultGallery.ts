@@ -35,10 +35,11 @@
 //       NORMALIZES each side the way the vault server does before it stores a
 //       tale (trims the title and byline, drops empty coral-word slots - see
 //       api/src/Vault/VaultController.cs Save), so a stored vault copy and its
-//       local original still produce the same signature. Fields and parts are
-//       joined with an ASCII unit-separator control char that filtered display
-//       text can never contain, so no field-boundary ambiguity can collapse two
-//       distinct tales into one (or split one into two).
+//       local original still produce the same signature. The signature is a
+//       structured JSON encoding of the normalized fields (title, byline, and
+//       the ordered [isWord, text] parts), so field boundaries are unambiguous
+//       by construction - correctness never depends on a delimiter being absent
+//       from the content.
 //
 //    Residual caveat (inherent to signature-based dedup, not a regression):
 //    two DISTINCT plays that produce byte-identical normalized content (same
@@ -87,14 +88,6 @@ export interface MergedTale extends TaleMeta {
   source: 'local' | 'vault';
 }
 
-// The field/part delimiter: an ASCII unit-separator control char (U+001F) that
-// cannot occur in filtered display text (titles, bylines, and story parts are
-// ordinary visible text). Joining with a bare space would be ambiguous - a
-// space occurs freely inside every field, so two different field splits could
-// render the same string and collide (one tale silently swallowing another).
-// This char cannot appear in the content, so every field boundary is exact.
-const SIGNATURE_SEP = '\u001f';
-
 /**
  * A stable content signature (title + byline + ordered parts) used to dedupe a
  * local record against its vault counterpart when no `vaultTaleId` stamp links
@@ -116,11 +109,13 @@ const SIGNATURE_SEP = '\u001f';
  * never needs to match a vault tale.
  */
 function contentSignature(title: string, bylineNames: string, parts: readonly TalePart[]): string {
-  const partsSig = parts
+  const normalizedParts = parts
     .filter((part) => !(part.isWord && part.text.trim().length === 0))
-    .map((part) => `${part.isWord ? 'w' : 't'}:${part.text}`)
-    .join(SIGNATURE_SEP);
-  return [title.trim(), bylineNames.trim(), partsSig].join(SIGNATURE_SEP);
+    .map((part) => [part.isWord, part.text]);
+  // A structured JSON encoding of the normalized fields - field boundaries are
+  // unambiguous by construction, so dedupe correctness never rests on any
+  // delimiter being absent from a title, byline, or (literal or player) part.
+  return JSON.stringify([title.trim(), bylineNames.trim(), normalizedParts]);
 }
 
 /** The content signature of a local record (its `parts`/`bylineNames` may be absent - treated as empty). */

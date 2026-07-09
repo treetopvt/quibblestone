@@ -223,21 +223,25 @@ export function Gallery({ onBack }: GalleryProps) {
       const localOnly = mergeGalleryTales(local, null);
       setTales(localOnly);
 
-      // Start the vault fetch NOW so it runs concurrently with the local image
-      // reads below - the reconcile is not serialized behind every IndexedDB
-      // blob load. The paint above already happened, so nothing here blocks it.
+      // Kick off BOTH the vault fetch and the local image reads concurrently -
+      // neither waits on the other. Every image that exists lives on a LOCAL
+      // tale (a vault-only entry is image-less by construction), so one image
+      // pass over `localOnly` covers them all - there is no second pass to run
+      // after the reconcile, and the two never race on the same id.
       const vaultPromise = fetchVaultTales();
-      await loadImages(localOnly);
-      if (cancelled) return;
+      const imagesPromise = loadImages(localOnly);
 
-      // 2. Reconcile with the vault (or its failure) - a null result degrades to
-      //    the local list already shown (AC-02); vault-only tales are added
-      //    (AC-03/AC-04).
+      // 2. Reconcile as soon as the vault resolves - NOT gated behind the image
+      //    reads, so vault-only cards (AC-03/AC-04) appear promptly. A null
+      //    result degrades to the local list already shown (AC-02).
       const vault = await vaultPromise;
-      if (cancelled) return;
-      const merged = mergeGalleryTales(local, vault);
-      setTales(merged);
-      await loadImages(merged);
+      if (!cancelled) {
+        setTales(mergeGalleryTales(local, vault));
+      }
+
+      // Let the (concurrent) image reads finish so their object URLs are all
+      // tracked in `urls` for the cleanup below - this never blocks the paint.
+      await imagesPromise;
     }
     void load();
 
