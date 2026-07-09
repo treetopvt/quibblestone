@@ -494,6 +494,31 @@ public sealed class Room
     // the anonymous session, not a player (README section 6, AC-05).
     private SessionEntitlements? _entitlements;
 
+    // accounts-identity/09 (AC-07): the CONTENT-SAFETY adult-unlock signal for this
+    // session, captured EXACTLY ONCE at room-creation from the creating connection's
+    // resolved identity (see CaptureAdultUnlocked). True ONLY when the room was created
+    // by a signed-in adult/purchaser session or a family-device token whose row is
+    // adult-confirmed; false for anonymous play, a signed-out host, an incognito window,
+    // a cleared-storage device, or a linked-but-not-confirmed device. It gates the
+    // teen-plus content tier server-side in GameHub.StartRound (effective familySafe =
+    // AdultUnlocked ? clientFamilySafe : true), so a token-less session is family-safe by
+    // default regardless of what the client sends.
+    //
+    // DELIBERATELY SEPARATE from _entitlements (two distinct axes, never conflated - AC-03):
+    // _entitlements is the family's PAID capability set; this is the content-safety adult
+    // signal. A family-device token can carry full paid capabilities while this stays
+    // false. It is a property of the room's CAPTURED session, not of whoever holds the
+    // host role - so host migration (EnsureHostLocked/PassHost) never reads or writes it
+    // and can never flip the teen-plus gate on (AC-08). Defaults to false (family-safe)
+    // and is set at most once. Guarded by _gate. Carries no PII (a single boolean).
+    private bool _adultUnlocked;
+
+    // accounts-identity/09: whether _adultUnlocked has been captured yet - distinct from
+    // its value (the common default IS false, so "captured false" and "never captured"
+    // must be told apart to keep CaptureAdultUnlocked idempotent for a repeat default but
+    // throwing on a genuine value change). Guarded by _gate.
+    private bool _adultUnlockedCaptured;
+
     private Room(string code)
     {
         Code = code;
@@ -568,6 +593,55 @@ public sealed class Room
                     "Session entitlements were already captured for this room - they are evaluated exactly once at creation (ai-cost-gate/02, AC-01).");
             }
             _entitlements = entitlements;
+        }
+    }
+
+    /// <summary>
+    /// accounts-identity/09 (AC-07): the CONTENT-SAFETY adult-unlock signal captured once
+    /// at room-creation (see <see cref="CaptureAdultUnlocked"/>). True ONLY when the room
+    /// was created by a signed-in adult/purchaser session or an adult-confirmed family
+    /// device; false for every token-less or unconfirmed session. GameHub.StartRound reads
+    /// this to compute the EFFECTIVE family-safe value (<c>AdultUnlocked ? clientFamilySafe
+    /// : true</c>), so a room with no adult signal is family-safe regardless of what the
+    /// client sends. Orthogonal to <see cref="Entitlements"/> (the paid capability set) -
+    /// the two axes are never conflated. Read under the lock.
+    /// </summary>
+    public bool AdultUnlocked
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _adultUnlocked;
+            }
+        }
+    }
+
+    /// <summary>
+    /// accounts-identity/09 (AC-07): capture the session's content-safety adult-unlock
+    /// signal EXACTLY ONCE, at room-creation, from the creating connection's resolved
+    /// identity. GameHub.CreateRoom calls this once, alongside (NOT folded into)
+    /// <see cref="CaptureEntitlements"/> - keeping content-safety state and capability
+    /// state as two distinct capture-once fields (AC-03). Idempotent for the common
+    /// default (a repeat <c>false</c> capture is a harmless no-op, so a test or caller
+    /// that captures the default twice does not throw); a second capture that would CHANGE
+    /// the value is a programming error and throws, because the signal is a property of the
+    /// original creating session and must never be re-decided later (AC-07/AC-08).
+    /// Guarded by <see cref="_gate"/>.
+    /// </summary>
+    /// <param name="adultUnlocked">The resolved adult-unlock signal for the creating connection.</param>
+    /// <exception cref="InvalidOperationException">If a DIFFERENT value was already captured for this room.</exception>
+    public void CaptureAdultUnlocked(bool adultUnlocked)
+    {
+        lock (_gate)
+        {
+            if (_adultUnlockedCaptured && _adultUnlocked != adultUnlocked)
+            {
+                throw new InvalidOperationException(
+                    "The room's adult-unlock signal was already captured with a different value - it is decided exactly once at creation from the original session (accounts-identity/09, AC-07/AC-08).");
+            }
+            _adultUnlocked = adultUnlocked;
+            _adultUnlockedCaptured = true;
         }
     }
 

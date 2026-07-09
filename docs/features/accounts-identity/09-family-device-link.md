@@ -1,6 +1,6 @@
 # Story: Family device link
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #229
+**Feature:** Accounts & Identity  ·  **Status:** In Review (PR open, held for owner sign-off - child-safety seam)  ·  **Issue:** #229
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md)'s "How a
@@ -41,7 +41,7 @@ above and in the earlier draft of AC-07 - see the rewritten AC-07 below, which
 is now the load-bearing AC of this whole story.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in family account (accounts-identity/07), when the
+- [x] AC-01: Given a signed-in family account (accounts-identity/07), when the
       account holder taps "Link a device" on the Account page, then the server
       mints a short-lived, human-enterable link code tied to that account's
       `AccountId` (accounts-identity/05), displayed for the parent to hand to
@@ -51,7 +51,7 @@ is now the load-bearing AC of this whole story.
       guards actual entitlement access and must resist brute force even under
       its short validity window) - server-minted via a CSPRNG, never a
       predictable or low-entropy generator.
-- [ ] AC-02: Given a kid's device (running QuibbleStone, never signed in), when
+- [x] AC-02: Given a kid's device (running QuibbleStone, never signed in), when
       it enters that link code within its short validity window, then the
       server verifies the code, mints a long-lived, opaque, single-device
       family-device token, and the device stores it. The code itself expires
@@ -62,7 +62,7 @@ is now the load-bearing AC of this whole story.
       `IsAdultConfirmedDevice = false`) - a freshly linked device unlocks
       nothing beyond the family's paid capabilities until an adult explicitly
       opts it into teen-plus (AC-07).
-- [ ] AC-03: Given a device holding a valid family-device token, when its
+- [x] AC-03: Given a device holding a valid family-device token, when its
       SignalR hub connection is established and it creates a room, then
       `CreateRoom` resolves that token to the family's capabilities the SAME
       way accounts-identity/06 resolves a purchaser credential -
@@ -73,7 +73,7 @@ is now the load-bearing AC of this whole story.
       (entitlements), independent of whether that same device also carries an
       adult-unlock signal for CONTENT safety - the two are separate axes
       captured together but never conflated.
-- [ ] AC-04: Given the Account page, when the account holder views it, then it
+- [x] AC-04: Given the Account page, when the account holder views it, then it
       lists every linked device with enough NON-PII context to make revocation
       an actionable decision - a short, random, non-identifying label (e.g. a
       two-word adjective-noun tag minted at redeem time, not a device
@@ -82,7 +82,7 @@ is now the load-bearing AC of this whole story.
       or user agent - with a one-tap Revoke per device; revoking immediately
       invalidates that device's token (a room created from it after revocation
       falls back to the default-unlocked, family-safe baseline, not an error).
-- [ ] AC-05 (no PII, handled as a secret): Given the family-device token, then
+- [x] AC-05 (no PII, handled as a secret): Given the family-device token, then
       it carries no PII beyond an opaque device-token id and the `AccountId`
       it resolves to - no kid nickname, birthdate, or any identifying field is
       ever collected or stored as part of linking a device. The server stores
@@ -90,13 +90,13 @@ is now the load-bearing AC of this whole story.
       "handle as a secret" discipline the ADR's security posture applies to
       vault ids and claim codes - a stored-data leak cannot be replayed
       directly.
-- [ ] AC-06: Given a device with no family-device token and no signed-in
+- [x] AC-06: Given a device with no family-device token and no signed-in
       purchaser session, when it creates or joins a room, then nothing changes
       - the default-unlocked-for-paid-capabilities, family-safe-for-content
       baseline applies exactly as today (and exactly as AC-07 restates as the
       content-safety default for every session with no adult signal, whether
       or not a device token is present).
-- [ ] AC-07 (REDESIGNED 2026-07-08 - the teen-plus gate, child safety,
+- [x] AC-07 (REDESIGNED 2026-07-08 - the teen-plus gate, child safety,
       server-enforced, the load-bearing AC of this story): Given a room's
       session, then the teen-plus content tier is served ONLY when that
       session carries an explicit, affirmative ADULT-UNLOCK signal, resolved
@@ -126,7 +126,7 @@ is now the load-bearing AC of this whole story.
       via a modified/raw hub call that bypasses any client UI. A client-visible
       family-safe toggle, if shown at all for a session with no adult-unlock
       signal, is informational/disabled - never the source of truth.
-- [ ] AC-08 (host-migration cannot open the gate): Given a room whose captured
+- [x] AC-08 (host-migration cannot open the gate): Given a room whose captured
       `Room.AdultUnlocked` is `false` (the family-safe default), when host
       migration occurs (`EnsureHostLocked`/`PassHost` promotes a different
       player - possibly a kid - to host), then `Room.AdultUnlocked` is

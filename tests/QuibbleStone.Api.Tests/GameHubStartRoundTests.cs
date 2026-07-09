@@ -48,7 +48,7 @@ public class GameHubStartRoundTests
     {
         var registry = new RoomRegistry();
         var sink = telemetry ?? new FakeTelemetrySink();
-        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), sink, TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), Catalog, new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), sink, TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), NullLogger<GameHub>.Instance);
 
         var clients = new RecordingClients();
         var groups = new RecordingGroups();

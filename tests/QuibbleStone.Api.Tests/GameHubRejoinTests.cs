@@ -60,6 +60,8 @@ public class GameHubRejoinTests
             grace ?? TestSeatGrace.NoOp(registry),
             new PurchaserCredentialService(new EphemeralDataProtectionProvider()),
             new ConnectionEntitlementStore(),
+            new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()),
+            new InMemoryAccountStore(),
             NullLogger<GameHub>.Instance);
         var clients = new RecordingClients();
         var groups = new RecordingGroups();

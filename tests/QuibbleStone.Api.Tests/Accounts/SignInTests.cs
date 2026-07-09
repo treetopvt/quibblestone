@@ -61,8 +61,13 @@ public class SignInTests
         // assert on delivery (EmailSenderTests covers that seam), only sign-in logic.
         IEmailSender email = new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance);
 
+        var deviceTokens = new InMemoryFamilyDeviceTokenStore();
         var controller = new AccountsController(
-            tokens, store, credential, email, new EmailOptions(), environment, NullLogger<AccountsController>.Instance,
+            tokens, store, credential, email, new EmailOptions(), environment,
+            new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), deviceTokens),
+            deviceTokens,
+            new FamilyDeviceRedeemGlobalThrottle(),
+            NullLogger<AccountsController>.Instance,
             new InMemorySeatPresetStore(), new ContentSafetyFilter())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
