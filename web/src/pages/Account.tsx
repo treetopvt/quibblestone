@@ -1,38 +1,50 @@
 // ----------------------------------------------------------------------------
-//  Account - the PURCHASER-only sign-in / restore surface (accounts-identity/03,
-//  issue #69). A returning purchaser (who bought the family plan on another
-//  device) enters their email, follows the emailed magic link, and their EXISTING
-//  lightweight account (accounts-identity/02) is recognized on this device - the
-//  read-side trigger for billing-entitlements/05's restore of what they own.
+//  Account - the family-account sign-up / sign-in surface (accounts-identity/03,
+//  issue #69; reframed by accounts-identity/07, issue #211). A family account is
+//  free, email-only, and open to ANYONE - not just a returning purchaser. One
+//  email-entry flow both creates a brand-new free account and signs into an
+//  existing one (purchaser or free): the entry request/verify always carries
+//  `intent: 'signup'`, and the server's idempotent create-or-get decides,
+//  transparently, whether that email is new or already known. A free account
+//  holds zero entitlement grants by itself (AC-05 of story 07) - signing up is
+//  what lets keepsakes and any later purchase follow a family across devices,
+//  it does not unlock anything on its own.
 //
 //  WHERE IT LIVES (AC-04, NON-NEGOTIABLE): this screen is reachable ONLY from the
-//  Home "Account" entry link - a purchaser-facing, adult area. It is NEVER placed
-//  in the join-code, lobby, word-entry (GroupRound), or reveal flow a child uses.
-//  It reuses the SHARED <AppBar> (a left "back to home" action) - it does not fork
+//  Home "Account" entry link - an adult area. It is NEVER placed in the
+//  join-code, lobby, word-entry (GroupRound), or reveal flow a child uses. It
+//  reuses the SHARED <AppBar> (a left "back to home" action) - it does not fork
 //  a second app-bar. App wires it at the '/account' route (an ordinary user-driven
 //  entry screen, alongside '/favorites' and '/gallery' - not a live-game route).
 //
-//  FREE PLAY IS UNTOUCHED (AC-03): nothing here is required to play. A player who
+//  FREE PLAY IS UNTOUCHED (AC-07): nothing here is required to play. A player who
 //  never opens this screen (or opens it and leaves) plays the full free tier -
 //  single-player or joining a group by code - with no prompt and no effect. This
-//  surface talks ONLY to the purchaser sign-in client (../account/signInClient),
+//  surface talks ONLY to the account sign-in client (../account/signInClient),
 //  never to the SignalR hub or any room/player state.
 //
-//  DAY ONE / EMPTY (AC-06): with zero purchases anywhere, a sign-in attempt simply
-//  resolves to the friendly "no purchase found - buy the family plan" state (a
-//  guide, not an error, not a dead end). The screen loads and behaves fine with
-//  nothing to restore.
+//  NO PAID-FEATURES WALL (AC-04): with zero purchases anywhere, a signed-in
+//  family account simply shows a friendly "nothing unlocked yet, here's how to
+//  get more" empty state (a guide, not an error, not a purchase requirement).
+//  The screen never presents as purchase-only or purchase-required.
 //
-//  NO ENUMERATION (AC-05): the request step shows the SAME neutral "check your
-//  inbox" confirmation whether or not an account exists (the server does not
-//  branch on existence). Only after following a real link does a genuine
-//  purchaser get "signed in" or a non-purchaser get "guided to purchase".
+//  NO PII (AC-06): the form collects ONLY an email - no name, birthdate,
+//  address, or any other field is ever requested or stored.
+//
+//  NO ENUMERATION (AC-02 of story 07): the request step shows the SAME neutral
+//  "check your inbox" confirmation whether or not an account already exists
+//  (the server does not branch on existence). Only after following a real link
+//  does sign-in complete (creating the free account first, if it did not
+//  already exist).
 //
 //  DEV WALKABILITY: in the Development environment the API echoes the magic-link
 //  token in the request response; when present, this screen offers a "Continue"
 //  affordance so the whole flow is walkable locally with no email provider. In a
 //  deployed environment there is no token in the response, so that affordance
-//  never appears and the user follows the emailed link.
+//  never appears and the user follows the emailed link. A followed link also
+//  carries `&intent=signup` in its URL - this screen reads it from the query
+//  string and passes it through to verify, so a sign-up link still creates the
+//  account after the email round-trip.
 //
 //  Styling: theme tokens ONLY (web/src/theme.ts) - no hex/raw-px in this file.
 //  Stone-tablet / Guardian visual language, big tap targets, kid-readable (the
@@ -165,7 +177,8 @@ function PurchaseList({ credential }: { credential: string }) {
     // AC-03: friendly empty state - a tip-only or never-purchased account is not an error.
     return (
       <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
-        Nothing unlocked yet - and free play is always on. When you buy something, it shows up here.
+        Nothing unlocked yet - and free play is always on. Visit the shop to unlock extras, and
+        anything you buy will show up here, on every device you sign in on.
       </Typography>
     );
   }
@@ -216,6 +229,10 @@ export function Account({ onBack }: AccountProps) {
   // path (the dev-token echo only exists locally). Read from the router's query.
   const [searchParams, setSearchParams] = useSearchParams();
   const urlToken = searchParams.get('token');
+  // The intent carried alongside the token (`&intent=signup` on a family-account
+  // link) - passed through to verify so a followed sign-up link still creates
+  // the free account after the email round-trip (accounts-identity/07).
+  const urlIntent = searchParams.get('intent');
   // Guards the one-time URL-token verify against StrictMode's dev double-invoke
   // (and the re-render after we strip the token from the URL).
   const verifiedFromUrl = useRef(false);
@@ -241,7 +258,15 @@ export function Account({ onBack }: AccountProps) {
   const canSubmit = !formState.isSubmitting && EMAIL_PATTERN.test(email.trim());
 
   const onSubmit = handleSubmit(async (values) => {
-    const result = await requestSignInLink(values.email.trim());
+    // The one unified flow (AC-04 of story 07): always request with the
+    // family-account (signup) intent, so the SAME email entry both creates a
+    // brand-new free account and signs into an existing one - the server's
+    // create-or-get decides transparently, and the request response stays
+    // neutral either way (no existence tell). The web only ever drives this
+    // unified 'signup' intent; the server's 'signin'-copy request and its
+    // 'no-account' verify branch are retained purely for API / back-compat
+    // callers (accounts-identity/03), so they are unreachable from here.
+    const result = await requestSignInLink(values.email.trim(), 'signup');
     setMessage(result.message);
     setDevToken(result.devToken ?? null);
     // Always advance to the neutral "check your email" state on an accepted
@@ -251,11 +276,13 @@ export function Account({ onBack }: AccountProps) {
   });
 
   // Complete sign-in from a magic-link token (the ONE verify path, shared by the
-  // followed-email-link flow below and the Development dev-token button).
-  const verifyToken = async (token: string) => {
+  // followed-email-link flow below and the Development dev-token button). The
+  // 'signup' intent is what lets a brand-new email's token create the free
+  // family account on verify (accounts-identity/07).
+  const verifyToken = async (token: string, intent?: 'signin' | 'signup') => {
     setVerifying(true);
     try {
-      const result = await verifySignIn(token);
+      const result = await verifySignIn(token, intent);
       if (result.outcome === 'signed-in' && result.credential) {
         // Record the sign-in in the app-wide session so it survives navigation.
         session.signIn(result.credential, result.email ?? '');
@@ -285,22 +312,25 @@ export function Account({ onBack }: AccountProps) {
     // flip a signed-in purchaser to a "link invalid" state.
     if (verifiedFromUrl.current || !urlToken || session.isSignedIn) return;
     verifiedFromUrl.current = true;
+    const intent = urlIntent === 'signin' || urlIntent === 'signup' ? urlIntent : undefined;
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
         next.delete('token');
+        next.delete('intent');
         return next;
       },
       { replace: true },
     );
-    void verifyToken(urlToken);
+    void verifyToken(urlToken, intent);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlToken]);
 
-  // DEV walkability only: follow the echoed token to complete sign-in locally.
+  // DEV walkability only: follow the echoed token to complete sign-in locally,
+  // using the SAME intent the request used ('signup' - the one unified flow).
   const handleContinueWithDevToken = async () => {
     if (!devToken || verifying) return;
-    await verifyToken(devToken);
+    await verifyToken(devToken, 'signup');
   };
 
   return (
@@ -321,11 +351,12 @@ export function Account({ onBack }: AccountProps) {
           <>
             <Stack spacing={1.5} sx={{ textAlign: 'center' }}>
               <Typography sx={{ fontWeight: 800, fontSize: 18, color: 'text.primary' }}>
-                Restore your purchase
+                Your family account
               </Typography>
               <Typography sx={{ fontWeight: 600, fontSize: 14.5, color: 'text.secondary' }}>
-                Bought the family plan on another device? Enter your email and we will send a
-                one-tap sign-in link to restore it here.
+                Free and email-only - saves your keepsakes and carries any purchase across
+                devices. Enter your email and we will send a one-tap link to create your
+                account or sign back in.
               </Typography>
             </Stack>
 
@@ -354,7 +385,7 @@ export function Account({ onBack }: AccountProps) {
                   disabled={!canSubmit}
                   startIcon={<FontAwesomeIcon icon="envelope" style={{ width: 18, height: 18 }} />}
                 >
-                  {formState.isSubmitting ? 'Sending...' : 'Email me a sign-in link'}
+                  {formState.isSubmitting ? 'Sending...' : 'Email me a link'}
                 </Button>
                 {message && (
                   <Typography
@@ -367,7 +398,7 @@ export function Account({ onBack }: AccountProps) {
               </Stack>
             </Box>
 
-            {/* Free-play reassurance (AC-03): signing in is only for purchasers. */}
+            {/* Free-play reassurance (AC-07): a family account is optional, never required. */}
             <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="center">
               <Box sx={{ color: 'teal.main', fontSize: 15, display: 'flex' }}>
                 <FontAwesomeIcon icon="shield-heart" />
@@ -453,7 +484,7 @@ export function Account({ onBack }: AccountProps) {
           <OutcomePanel
             icon="shield-heart"
             tint={theme.palette.gold.main}
-            title={phase === 'no-account' ? 'No purchase found yet' : 'That link did not work'}
+            title={phase === 'no-account' ? 'We could not find that account' : 'That link did not work'}
             body={message}
           >
             <Button

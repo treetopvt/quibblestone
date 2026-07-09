@@ -1,9 +1,10 @@
 // ----------------------------------------------------------------------------
-//  signInClient.ts - the web client for the PURCHASER sign-in / restore flow
-//  (accounts-identity/03, issue #69). A thin REST client, NOT the feature: the
-//  real magic-link issue/verify, the account lookup, and the credential all live
-//  server-side in api/src/Controllers/AccountsController.cs. This module only
-//  POSTs the two sign-in steps and shapes their responses.
+//  signInClient.ts - the web client for the account sign-in / sign-up flow
+//  (accounts-identity/03, issue #69; accounts-identity/07, issue #211). A thin
+//  REST client, NOT the feature: the real magic-link issue/verify, the account
+//  lookup/create-or-get, and the credential all live server-side in
+//  api/src/Controllers/AccountsController.cs. This module only POSTs the two
+//  sign-in steps and shapes their responses.
 //
 //  Mirrors web/src/gallery/publishTale.ts and web/src/safety/checkWord.ts: the
 //  API base URL comes from `import.meta.env.VITE_API_BASE_URL` (never hardcoded,
@@ -12,16 +13,23 @@
 //  friendly result rather than throwing, so the Account surface never shows a raw
 //  error (AC-06).
 //
-//  AUTH BOUNDARY (AC-03/AC-04): this is a PURCHASER-only client. It is imported
-//  ONLY by the Account page (a Home-reachable, adult-facing surface) - never by
-//  the join-code / lobby / word-entry / reveal flow, never by the SignalR hook.
-//  Nothing about free play depends on it; a player who never signs in plays the
-//  full free tier untouched.
+//  INTENT (accounts-identity/07): both calls take an optional `intent` -
+//  `'signup'` selects the free family-account path (a create-or-get on verify
+//  for an email with no existing account), while omitting it (or any other
+//  value) keeps the legacy purchaser sign-in copy and behavior. The response
+//  shape is UNCHANGED either way - the server picks copy/behavior server-side.
+//
+//  AUTH BOUNDARY (AC-03/AC-04): this is an account-surface client. It is
+//  imported ONLY by the Account page (a Home-reachable, adult-facing surface) -
+//  never by the join-code / lobby / word-entry / reveal flow, never by the
+//  SignalR hook. Nothing about free play depends on it; a player who never
+//  signs in plays the full free tier untouched.
 //
 //  NO ENUMERATION (AC-05): the request step returns the SAME neutral message
-//  whether or not an account exists (the server does not branch on existence).
-//  The verify step is where a real purchaser learns they are signed in, or a
-//  non-purchaser is guided to buy.
+//  whether or not an account exists (the server does not branch on existence),
+//  for either intent. The verify step is where a real account holder learns
+//  they are signed in, a free sign-up is created, or a non-account sign-in is
+//  guided to purchase.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -96,14 +104,19 @@ function asVerifyResult(
  * Requests a magic-link sign-in email for `email` (POST
  * /api/accounts/signin/request). Resolves a neutral acknowledgement on success
  * and a friendly fallback on any failure - never throws (AC-06). The message is
- * deliberately the same whether or not an account exists (AC-05).
+ * deliberately the same whether or not an account exists (AC-05). Pass
+ * `intent: 'signup'` for the free family-account path (accounts-identity/07);
+ * omit it (or pass 'signin') to keep the legacy purchaser copy.
  */
-export async function requestSignInLink(email: string): Promise<SignInRequestResult> {
+export async function requestSignInLink(
+  email: string,
+  intent?: 'signin' | 'signup',
+): Promise<SignInRequestResult> {
   try {
     const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/accounts/signin/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, intent }),
     });
 
     if (!response.ok) {
@@ -125,11 +138,18 @@ export async function requestSignInLink(email: string): Promise<SignInRequestRes
  * Completes sign-in by verifying a followed magic-link token (POST
  * /api/accounts/signin/verify). Resolves one of the server outcomes, or
  * `{ outcome: 'error' }` on any transport failure - never throws (AC-06). The
- * short-lived purchaser credential is set by the server (an HttpOnly cookie) and
- * also returned in the body; this client surfaces it (plus the outcome + email) so
- * the restore view (billing-entitlements/05) can present it as a bearer.
+ * short-lived credential is set by the server (an HttpOnly cookie) and also
+ * returned in the body; this client surfaces it (plus the outcome + email) so
+ * the restore view (billing-entitlements/05) can present it as a bearer. Pass
+ * the SAME `intent` used for the request step - on `'signup'`, a valid token
+ * for an email with no existing account creates a free family account
+ * (accounts-identity/07) via the server's idempotent create-or-get before
+ * returning 'signed-in'; an existing account signs in normally either way.
  */
-export async function verifySignIn(token: string): Promise<SignInVerifyResult> {
+export async function verifySignIn(
+  token: string,
+  intent?: 'signin' | 'signup',
+): Promise<SignInVerifyResult> {
   try {
     const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/accounts/signin/verify`, {
       method: 'POST',
@@ -138,7 +158,7 @@ export async function verifySignIn(token: string): Promise<SignInVerifyResult> {
       // for a same-origin deployment; harmless cross-origin in dev (the body is
       // the primary path there).
       credentials: 'include',
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, intent }),
     });
 
     if (!response.ok) {

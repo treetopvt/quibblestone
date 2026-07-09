@@ -1,6 +1,6 @@
 # Story: The free family account
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #211
+**Feature:** Accounts & Identity  ·  **Status:** In Progress  ·  **Issue:** #211
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Amendment 1
@@ -17,43 +17,43 @@ Amendment 1: "purchase-only accounts - not player anonymity - are what made
 keepsakes unrecoverable and support blind. Player anonymity is untouched."
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a person who has never purchased anything, when they use a
+- [x] AC-01: Given a person who has never purchased anything, when they use a
       new "Create your family account" sign-up flow (email only), then a new
       `Account` (accounts-identity/05's `AccountId`-keyed record) is created
       holding email + created-at and NO entitlement grants - exactly the same
       minimal shape story 02 already established, just reachable WITHOUT a
       purchase.
-- [ ] AC-02: Given the sign-up flow, when it issues or verifies a magic link,
+- [x] AC-02: Given the sign-up flow, when it issues or verifies a magic link,
       then it reuses the EXACT SAME `IMagicLinkTokenService` issue/verify
       plumbing and the SAME neutral, no-enumeration response contract
       accounts-identity/02 AC and accounts-identity/03 AC-05 already
       established (identical response shape/timing whether or not an account
       already exists for that email) - no second token or response
       implementation.
-- [ ] AC-03: Given an existing purchaser account (created via a purchase,
+- [x] AC-03: Given an existing purchaser account (created via a purchase,
       story 02) or a free family account created here, when the SAME email
       later goes through the OTHER path (a free sign-up for an existing
       purchaser, or a purchase for an existing free account), then exactly ONE
       account exists for that email - `CreateOrGetAsync`'s existing idempotency
       is exercised as create-or-attach, never a duplicate.
-- [ ] AC-04: Given the Account page (`web/src/pages/Account.tsx`), when it is
+- [x] AC-04: Given the Account page (`web/src/pages/Account.tsx`), when it is
       viewed, then it reframes as a "Family account" surface: it offers
       create/sign-in for anyone (not just a returning purchaser), and for an
       account with no purchase it shows "no paid features unlocked yet, here's
       how to get them" rather than presenting as purchase-only or
       purchase-required.
-- [ ] AC-05 (entitlement AC): Given a brand-new free family account (no
+- [x] AC-05 (entitlement AC): Given a brand-new free family account (no
       purchase), when a session is created from a device signed into it (via
       accounts-identity/06's wiring), then `EvaluateForSession` resolves it to
       EXACTLY the default-unlocked baseline - identical to an anonymous session
       - because it holds zero `EntitlementGrant` rows; creating a free account
       grants NOTHING by itself, and this story does not touch
       billing-entitlements/01's grant store.
-- [ ] AC-06 (child safety / no PII): Given the sign-up flow, then it collects
+- [x] AC-06 (child safety / no PII): Given the sign-up flow, then it collects
       ONLY an email - no name, birthdate, address, or any other field is ever
       requested or stored, identical to story 02's minimal-data posture
       (README section 6).
-- [ ] AC-07: Given free play (single-player or a same-code group), when it is
+- [x] AC-07: Given free play (single-player or a same-code group), when it is
       played with no family account anywhere, then it is completely unaffected
       - declining/ignoring the new "Create a family account" affordance has
       zero effect on play (mirrors story 03 AC-03's existing guard).
@@ -97,9 +97,10 @@ keepsakes unrecoverable and support blind. Player anonymity is untouched."
   adds a second CALLER of `CreateOrGetAsync` and a copy-selecting purpose.
 - **Files:** `api/src/Controllers/AccountsController.cs` (extend `Verify`/the
   request body with a sign-up purpose), `api/src/Accounts/IEmailSender.cs`
-  (`MagicLinkPurpose.FamilySignUp` + updated copy in `AcsEmailSender.cs`/
-  `NoOpEmailSender.cs`), `web/src/pages/Account.tsx` (reframe + a create-account
-  affordance). No hub or `Room` changes.
+  (`MagicLinkPurpose.FamilySignUp` + the matching copy in `AcsEmailSender.cs`;
+  `NoOpEmailSender.cs` has no copy to update - it logs the purpose only),
+  `web/src/pages/Account.tsx` (reframe + a create-account affordance). No hub or
+  `Room` changes.
 - **Gotcha (no enumeration regression):** a sign-up request must remain
   neutral in the SAME way sign-in already is - a constant response regardless
   of whether the email already has an account. The only place existence is
@@ -114,7 +115,7 @@ keepsakes unrecoverable and support blind. Player anonymity is untouched."
 | AC-02 | `manual: code read - the sign-up request/verify endpoints call the SAME IMagicLinkTokenService and return the SAME response shape/timing as the existing sign-in endpoints.` |
 | AC-03 | `tests/QuibbleStone.Api.Tests/Accounts/SignUpTests.cs: a sign-up verify for an email that already has a purchaser account resolves to that SAME account (no duplicate); a purchase for an email that already has a free account attaches to it.` |
 | AC-04 | `manual: UI walkthrough of /account with no purchase - confirm "Family account" framing and a "no paid features yet" message, not a purchase wall.` |
-| AC-05 | `tests/QuibbleStone.Api.Tests/Entitlements/StoredValueEntitlementServiceTests.cs (existing, re-run as regression): a resolved identity with an account but zero grants returns exactly the default-unlocked baseline.` |
+| AC-05 | `tests/QuibbleStone.Api.Tests/StoredValueEntitlementServiceTests.cs (existing, re-run as regression): a resolved identity with an account but zero grants returns exactly the default-unlocked baseline.` |
 | AC-06 | `manual: code read of the sign-up request body/Account record - confirm only email is ever collected.` |
 | AC-07 | `manual/Playwright (tests/*.spec.ts, not in CI): a full free-play round with the "Create a family account" affordance visible but untouched.` |
 
