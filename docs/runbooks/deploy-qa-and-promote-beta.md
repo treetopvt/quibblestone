@@ -80,6 +80,13 @@ beta's `$20`); everything else (SWA, SignalR, Storage, Key Vault) is Free/near-z
 
 ## Part 2 - One-time bootstrap (owner-only; DONE 2026-07-08, kept for reproducibility)
 
+> **OUTSTANDING (added 2026-07-09, story 08):** the original 2026-07-08 bootstrap did NOT
+> register `Microsoft.ContainerInstance` (story 08's `deploymentScripts` signing-key
+> provisioner did not exist yet). Until it is registered on the qa PAYG subscription, every
+> QA deploy after platform-devops/08 (#207) FAILS at the signing-key step. Run the single
+> `az provider register -n Microsoft.ContainerInstance` command in step 1c below (and the
+> same on the beta subscription before promoting Wave 1). Everything else in Part 2 is done.
+
 Prerequisite: the original OIDC bootstrap from
 [`deploy-to-uat.md`](./deploy-to-uat.md) Part 1 (the app registration
 `quibblestone-github-oidc` + the three repo secrets). QA adds two resource groups on
@@ -118,10 +125,21 @@ az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-typ
 az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
   --role "Role Based Access Control Administrator" --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-ai-qa-rg"
 
-# 1c. Register the resource provider Playground was missing (main.bicep provisions Azure
-#     SignalR). The rest (Storage/KeyVault/Insights/OperationalInsights/Web/CognitiveServices)
-#     were already registered. Registration is async (~1-2 min to "Registered").
+# 1c. Register the resource providers Playground was missing. main.bicep provisions Azure
+#     SignalR, and (platform-devops/08, ADR 0003) a Microsoft.Resources/deploymentScripts
+#     that mints the durable magic-link signing key - deploymentScripts run inside an Azure
+#     Container Instance, so Microsoft.ContainerInstance MUST be registered or the deploy
+#     fails with "does not have authorization to perform action
+#     'Microsoft.ContainerInstance/register/action'" (the CI OIDC identity cannot self-register
+#     at subscription scope). The rest (Storage/KeyVault/Insights/OperationalInsights/Web/
+#     CognitiveServices) were already registered. Registration is async (~1-2 min to
+#     "Registered"); it is permanent per subscription.
 az provider register -n Microsoft.SignalRService --subscription "$PLAY"
+az provider register -n Microsoft.ContainerInstance --subscription "$PLAY"
+# NOTE: the BETA lane's subscription (the student sub, $SUB) needs the SAME
+# Microsoft.ContainerInstance registration before Wave 1 (story 08) is promoted to beta,
+# or the first beta promotion carrying the deploymentScript fails identically:
+#   az provider register -n Microsoft.ContainerInstance --subscription "$SUB"
 
 # 1d. Trust GitHub Actions running in the QA environment (beta reuses the existing
 #     environment:uat subject, so it needs no new subject).
