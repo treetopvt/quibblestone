@@ -230,6 +230,12 @@ public sealed class OperatorActionLogTests
             RestoreCalled = true;
             return _inner.RestoreAsync(slug, cancellationToken);
         }
+
+        // keepsake-vault/04 (#237, now on main) added this to IPublishedTaleStore; this
+        // spy predates it, so delegate to the inner fake (no action-log test exercises
+        // the takedown-restore path).
+        public Task<bool> RestoreFromTakedownAsync(string slug, bool confirmedByOperator, CancellationToken cancellationToken = default) =>
+            _inner.RestoreFromTakedownAsync(slug, confirmedByOperator, cancellationToken);
     }
 
     /// <summary>Wraps a real ActiveStripeContext (over an in-memory mode store) and records whether SetModeAsync ran.</summary>
