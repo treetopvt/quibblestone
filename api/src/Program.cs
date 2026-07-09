@@ -41,6 +41,7 @@ using QuibbleStone.Api.Invite;
 using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Settings;
 using QuibbleStone.Api.Telemetry;
 using QuibbleStone.Api.Vault;
 
@@ -611,6 +612,33 @@ else
             entitlementsConnectionString,
             sp.GetRequiredService<ILogger<TableStorageEntitlementGrantStore>>()));
 }
+
+// control-plane/01 (#197): the runtime settings service - one typed key catalog with
+// code defaults + persisted overrides, generalizing the Stripe-mode store's single-row
+// pattern into one row per key. The store is chosen at STARTUP by the SAME config-presence
+// idiom, reusing the SAME Entitlements storage account (no new resource): WITH a connection
+// string the overrides persist to Table Storage (survive a recycle); WITHOUT one (local dev,
+// CI, a fresh clone) a WORKING in-memory store keeps every AC exercisable with ZERO Azure
+// setup (AC-05). The service is a singleton so its short read cache is shared.
+if (string.IsNullOrWhiteSpace(entitlementsConnectionString))
+{
+    builder.Services.AddSingleton<IRuntimeSettingsStore, InMemoryRuntimeSettingsStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IRuntimeSettingsStore>(sp =>
+        new TableStorageRuntimeSettingsStore(
+            entitlementsConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageRuntimeSettingsStore>>()));
+}
+builder.Services.AddSingleton<IRuntimeSettingsService, RuntimeSettingsService>();
+
+// control-plane/01 (#197, AC-09): the operator action-log WRITE seam every settings PUT /
+// DELETE appends to. Declared narrowly here (dependency-tolerant) with a WORKING in-memory
+// implementation so SettingsController always has something to call - it does NOT hard-block
+// on sysadmin-console/06, which lands the durable Table Storage store in a later wave. When
+// 06 merges, this registration swaps to the real store with ZERO change to the call sites.
+builder.Services.AddSingleton<IOperatorActionLog, InMemoryOperatorActionLog>();
 
 // billing-entitlements/03 (#72): the Stripe billing seam. StripeOptions binds the
 // "Stripe" config section (SecretKey + WebhookSigningSecret are Key Vault-backed
