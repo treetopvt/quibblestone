@@ -1,6 +1,6 @@
 # Story: One console, one auth
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Sys-Admin Console  ·  **Status:** In Review  ·  **Issue:** #198
 
 ## Context
 ADR 0003 Layer 3 names this feature's first job: "one bundle, one auth." Today there are two

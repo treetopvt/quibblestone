@@ -14,12 +14,10 @@
 //  faithful refactor of the prior view-state router - the flow is unchanged; the
 //  URL now reflects it (design-system/04, AC-03).
 //
-//  '/admin/billing-mode' (billing-entitlements/07) is a DELIBERATE OUTLIER:
-//  the operator-only Stripe mode screen (AdminBillingMode.tsx). It is wired
-//  as a plain Route like any entry screen, but NO Home/Join/Lobby/FillBlank/
-//  Reveal link points to it and nothing here ever navigates to it - it is
-//  reachable only by an operator typing the exact URL. Temporary until
-//  sysadmin-console/01 (#135) gives it a real back-office home.
+//  NOTE (sysadmin-console/04): an operator-only billing screen used to live here as
+//  a link-less outlier route. It has moved into the SEPARATE operator console bundle
+//  (web/src/admin/), behind the real "Operator" policy - so the kid app no longer
+//  carries any admin-only route, page, or string.
 //
 //  App owns the ONE SignalR connection via useGameHub, called ABOVE <Routes> so
 //  navigation never remounts or duplicates it (AC-02). The LIVE room state lives
@@ -133,7 +131,6 @@ import { Gallery } from './pages/Gallery';
 import { Account } from './pages/Account';
 import { GetMore } from './pages/GetMore';
 import { Support } from './pages/Support';
-import { AdminBillingMode } from './pages/AdminBillingMode';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { findGroupMode } from './pages/modeRegistry';
@@ -1169,14 +1166,6 @@ export default function App() {
         }
       />
       <Route path="/recap" element={recapElement} />
-      {/* billing-entitlements/07 (AC-05): the operator-only Stripe mode screen.
-          Reachable ONLY by knowing this exact URL - no Home/Join/Lobby/
-          FillBlank/Reveal link points here, and nothing above navigates to it
-          automatically. It renders its own secret prompt + fetches nothing
-          until submitted (AdminBillingMode.tsx), so simply mounting this
-          route is harmless with no operator secret in hand. `onBack` returns
-          to Home only as a graceful escape hatch, not a discovery path. */}
-      <Route path="/admin/billing-mode" element={<AdminBillingMode onBack={handleGoHome} />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

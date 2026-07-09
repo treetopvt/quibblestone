@@ -241,3 +241,13 @@ even if the UI is minimal").
   previously mislabeled "wave 7" in this feature's own numbering, which the
   review flagged as misleading for an orchestrator reading across features -
   see ADR 0003's "Canonical wave numbers" note).
+- 2026-07-09: the story-07 "relocate the billing-mode toggle" follow-up is now
+  closed by `sysadmin-console/04` (one console, one auth): the interim
+  `X-Operator-Secret` / `IOperatorGate` gate and the link-less kid-bundle
+  `/admin/billing-mode` page (`AdminBillingMode.tsx`) are deleted, and the Stripe
+  live/test mode toggle moves into the SEPARATE operator console
+  (`web/src/admin/StripeModePanel.tsx`) behind the real "Operator" policy - so this
+  feature's mode toggle is now authenticated the same way every other admin screen
+  is, never a re-entered shared secret. This feature's stories 01-08 are otherwise
+  untouched (only the authorization mechanism guarding the existing
+  `StripeModeController` endpoints changed).

@@ -35,6 +35,9 @@ import {
   faMagnifyingGlass,
   faPlus,
   faBan,
+  // sysadmin-console/04 (one console, one auth) - the Stripe-mode panel: the credit
+  // card reads "billing mode"; the triangle above doubles as the go-live warning.
+  faCreditCard,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -50,4 +53,5 @@ library.add(
   faMagnifyingGlass,
   faPlus,
   faBan,
+  faCreditCard,
 );

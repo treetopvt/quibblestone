@@ -366,12 +366,13 @@ jobs:
                       --query "[?status=='Ready'].domainName" -o tsv | head -n1)"
           [ -n "$custom" ] && client_base="https://$custom"
 
-          # Always set: the mode-independent client base + the operator console gate
-          # secrets (the operator sign-in allowlist rides this gated step next to the
-          # mode-toggle gate). Values are KV refs; unset => empty => fail closed.
+          # Always set: the mode-independent client base + the operator console
+          # sign-in allowlist. (sysadmin-console/04 retired the interim Stripe-mode
+          # shared-secret gate; the Stripe-mode toggle now rides the real operator
+          # session, so no separate mode-toggle secret is injected here.) Values are
+          # KV refs; unset => empty => fail closed.
           settings=(
             "Stripe__ClientBaseUrl=${client_base}"
-            "Admin__ModeToggleSecret=$(kv OperatorModeToggleSecret)"
             "Operator__AllowedEmails=$(kv OperatorAllowedEmails)"
           )
           have_price=0

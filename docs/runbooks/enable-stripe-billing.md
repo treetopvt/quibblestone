@@ -65,7 +65,7 @@ no secret-swap. This supersedes the "two-pass, swap the secret" flow described i
 Parts 1-4 below (those still work as a single-mode **legacy fallback**, but prefer the
 dual-mode wiring here).
 
-**Key Vault secrets (set once, out of band - per mode + the toggle gate):**
+**Key Vault secrets (set once, out of band - per mode):**
 ```powershell
 $vault = "quibblestone-uat-7achtfu"   # az keyvault list -g quibblestone-uat-rg --query "[0].name" -o tsv
 # Test mode
@@ -74,10 +74,11 @@ az keyvault secret set --vault-name $vault --name StripeTestWebhookSigningSecret
 # Live mode
 az keyvault secret set --vault-name $vault --name StripeLiveSecretKey            --value 'sk_live_...'
 az keyvault secret set --vault-name $vault --name StripeLiveWebhookSigningSecret --value 'whsec_...'   # from the LIVE-mode webhook
-# The operator toggle gate (a strong random string YOU choose - this is what the
-# /admin/billing-mode screen asks for). Unset => the toggle endpoint denies all (inert).
-az keyvault secret set --vault-name $vault --name OperatorModeToggleSecret       --value '<a long random secret>'
 ```
+The Stripe-mode toggle no longer needs its own shared secret: sysadmin-console/04
+retired the interim gate, and the toggle now lives in the operator console behind the
+real operator sign-in (the `Operator__AllowedEmails` allowlist below). The old
+`OperatorModeToggleSecret` Key Vault secret is no longer read and can be deleted.
 
 **Repo variables (per-mode price ids + the master switch):**
 ```bash
@@ -93,9 +94,9 @@ pointing at the SAME `.../api/stripe/webhook` URL. The app verifies an incoming 
 against *both* modes' signing secrets, so a webhook for a checkout started under the
 other mode is never spuriously rejected.
 
-**Using the toggle:** browse to `https://quibblestone.com/admin/billing-mode` (no link
-points here - operator-only, by URL). Enter the `OperatorModeToggleSecret`, and you
-see the current active mode + when it last changed. Switching **to Live** carries a
+**Using the toggle:** sign in to the operator console (magic link, operator allowlist)
+and open its **Stripe mode** tab - no shared secret to re-enter. You see the current
+active mode + when it last changed. Switching **to Live** carries a
 stronger confirmation ("real cards will be charged") than switching to Test. The
 **safe default is Test** - a fresh environment can never take a real charge until an
 operator deliberately flips to Live. The flip takes effect immediately on UAT

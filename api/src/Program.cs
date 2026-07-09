@@ -673,13 +673,12 @@ else
 // options so the cache is shared.
 builder.Services.AddSingleton<IActiveStripeContext, ActiveStripeContext>();
 
-// billing-entitlements/06 (AC-06): the INTERIM operator gate for the mode-toggle endpoint
-// - a constant-time compare against a single Key Vault-backed operator secret
-// (Admin:ModeToggleSecret, NEVER a committed literal / VITE_* var). Behind IOperatorGate
-// so swapping to the real sysadmin-console/01 operator session later is a one-file change.
-// No secret configured => the gate denies all, so the toggle endpoint is inert (not open).
-builder.Services.AddSingleton<IOperatorGate>(sp =>
-    new InterimSecretOperatorGate(sp.GetRequiredService<IConfiguration>()[InterimSecretOperatorGate.ConfigKeyName]));
+// sysadmin-console/04 (one console, one auth): the mode-toggle endpoint
+// (StripeModeController) is now guarded by the REAL "Operator" authorization policy,
+// exactly like the other admin controllers - so the interim shared-secret gate that
+// used to be registered here (and its config key) is deleted. No dedicated DI is
+// needed: the [Authorize(Policy = ...)] attribute uses the operator authentication +
+// policy already registered above.
 
 // The checkout service, chosen at STARTUP by whether Stripe is configured in ANY mode (the
 // same config-presence idiom as the AI client / stores above). WITH a secret key, the real
