@@ -137,6 +137,7 @@ import { getBlanks, type Template } from '../engine/template';
 import type { RemixableBlank } from '../engine/remixHelpers';
 import { renderTabletImage } from '../gallery/renderTablet';
 import { saveTale } from '../gallery/localGallery';
+import { autoSaveTaleToVault } from '../vault/vaultClient';
 import { shareImageFile, slugifyTitle } from '../gallery/shareImageFile';
 import { buildRevealParts } from './revealParts';
 import { FillBlank } from './FillBlank';
@@ -972,6 +973,24 @@ export function Reveal({
       void saveTale({
         title: assembled.title,
         image: blob,
+        bylineNames: saveImageByline,
+        parts: parts.map((part) => ({
+          isWord: part.kind === 'word',
+          text: part.kind === 'word' ? part.word : part.text,
+        })),
+      });
+      // keepsake-vault/01 (AC-02): ALSO auto-save this completed reveal to the
+      // anonymous server-side keepsake vault - a SIBLING fire-and-forget call to
+      // saveTale above, same posture, same place. It resolves the durable device
+      // vault id (minting on first use, see vault/vaultId.ts) and POSTs the SAME
+      // already-vetted flattened parts + byline, with the vault id in the
+      // X-Vault-Id header (never a URL path). It swallows every failure, so a
+      // vault/network problem can never block, delay, or degrade the download that
+      // has already completed above. This adds NO credential/sign-in awareness to
+      // the child-facing reveal (a vault id is an anonymous random handle, not an
+      // account).
+      void autoSaveTaleToVault({
+        title: assembled.title,
         bylineNames: saveImageByline,
         parts: parts.map((part) => ({
           isWord: part.kind === 'word',

@@ -1,6 +1,6 @@
 # Story: The vault: auto-save every completed reveal server-side
 
-**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Keepsake Vault  ·  **Status:** In Review  ·  **Issue:** #196
 
 ## Context
 Today, a finished tale's ONLY durable copy is the device-local IndexedDB
@@ -18,7 +18,7 @@ random vault id, that every completed reveal auto-saves into. See
 Layer 2).
 
 ## Acceptance Criteria
-- [ ] AC-01 (handle-is-a-secret, entropy floor): Given a device with no
+- [x] AC-01 (handle-is-a-secret, entropy floor): Given a device with no
       existing vault id, when it needs one (first reveal, or app load), then
       the client mints the vault id using `crypto.randomUUID()` ONLY and
       persists it durably on-device (`localStorage`), reusing the SAME id for
@@ -35,7 +35,7 @@ Layer 2).
       anything shorter than a UUID's 36 characters or failing a basic
       random-looking-token shape check) - a weak, client-forged id is never
       accepted as a bearer credential regardless of what the client sent.
-- [ ] AC-02 (bearer credential, never in the URL): Given a completed reveal on
+- [x] AC-02 (bearer credential, never in the URL): Given a completed reveal on
       a device holding a vault id, when the reveal finishes, then the client
       auto-saves the tale (title, ordered parts, byline nicknames - NOT
       `createdUtc`, see below) to the vault as a fire-and-forget call - the
@@ -54,7 +54,7 @@ Layer 2).
       and is never accepted from the client request body - this endpoint is
       anonymous and abusable, and the TTL (AC-03) keys off `CreatedUtc`, so a
       client-supplied timestamp would be directly spoofable to defeat expiry.
-- [ ] AC-03 (TTL, computed not stored): Given an unclaimed vault (no family
+- [x] AC-03 (TTL, computed not stored): Given an unclaimed vault (no family
       account has claimed it - see story 03), then its stored tales expire on
       a TTL - **default 90 days** from the tale's server-stamped `CreatedUtc`
       - computed as `CreatedUtc + TtlDays` AT READ TIME (no `ExpiresUtc`
@@ -71,7 +71,7 @@ Layer 2).
       is a settings-key candidate (see the Technical Notes' control-plane
       note) - ship it as a code constant default until `control-plane/01`'s
       catalog exists; do not block this story on `control-plane`.
-- [ ] AC-04 (child-safety / no PII): Given any tale saved to the vault, then
+- [x] AC-04 (child-safety / no PII): Given any tale saved to the vault, then
       the server re-vets EVERY non-empty part (coral player-words AND
       "literal" template runs) plus the byline through the authoritative
       `IContentSafetyFilter` before storing - the client's word/literal
@@ -86,13 +86,13 @@ Layer 2).
       (`keepsake-vault/03`) - only from that point on do they become
       account-plane/household data under ADR 0003's carve-out (an adult
       claimed it), never before.
-- [ ] AC-05: Given no Table Storage connection string is configured (local
+- [x] AC-05: Given no Table Storage connection string is configured (local
       dev, CI, a fresh clone), then a genuinely WORKING in-memory vault store
       is registered instead - mirroring `ICloudGalleryStore`'s
       `InMemoryCloudGalleryStore` split (a real, thread-safe fallback, NOT
       `DisabledPublishedTaleStore`'s no-op), so the whole save/list flow this
       and later stories build on is exercisable with zero Azure setup.
-- [ ] AC-06 (rate limit, read AND write): Given the vault's endpoints (an
+- [x] AC-06 (rate limit, read AND write): Given the vault's endpoints (an
       anonymous, unauthenticated-by-design surface reachable by every device),
       then BOTH the write (`POST /api/vault/tales`) and the READ
       (`GET /api/vault/tales`) endpoints are rate-limited per client IP -
@@ -100,7 +100,7 @@ Layer 2).
       pattern - so a scripted/abusive caller cannot flood the store OR
       enumerate/scrape reads. (Previous drafts of this story rate-limited the
       write endpoint only - that gap is closed here.)
-- [ ] AC-07 (storage-bloat bound): Given a single vault id, then it is capped
+- [x] AC-07 (storage-bloat bound): Given a single vault id, then it is capped
       at **`MaxTalesPerVault` = 500** stored tales; a save that would push a
       vault past this cap is rejected (the client's fire-and-forget call
       simply fails silently, matching AC-02's never-block posture - a family
