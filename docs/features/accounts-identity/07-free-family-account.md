@@ -1,6 +1,6 @@
 # Story: The free family account
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #211
 
 ## Context
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Amendment 1

@@ -1,6 +1,6 @@
 # Story: The jobs shell + scoped authz
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #214
 
 ## Context
 ADR 0003 Layer 3's second finding: the console should be organized around **jobs an operator does**,

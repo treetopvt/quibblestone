@@ -6,7 +6,7 @@
 
 # Story: Capability scopes: system flags in the entitlement evaluation
 
-**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Not Started  ·  **Issue:** #213
 
 ## Context
 `IEntitlementService.EvaluateForSession` (`api/src/Entitlements/IEntitlementService.cs`) today composes
