@@ -73,6 +73,10 @@ public class SeatPresetTests
 
         var controller = new AccountsController(
             tokens, accounts, credential, email, new EmailOptions(), environment,
+            // accounts-identity/09 device deps: valid instances for the ctor; these
+            // preset tests never call a device endpoint, so they are inert here.
+            new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()),
+            new InMemoryFamilyDeviceTokenStore(), new FamilyDeviceRedeemGlobalThrottle(),
             NullLogger<AccountsController>.Instance, presets, safety)
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext },
@@ -214,6 +218,8 @@ public class SeatPresetTests
             new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore()),
             accounts, credential, new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance),
             new EmailOptions(), new FakeWebHostEnvironment("Development"),
+            new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()),
+            new InMemoryFamilyDeviceTokenStore(), new FamilyDeviceRedeemGlobalThrottle(),
             NullLogger<AccountsController>.Instance, presets, new ContentSafetyFilter())
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext },
@@ -277,6 +283,8 @@ public class SeatPresetTests
             new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore()),
             familyA.Accounts, familyA.Credential, new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance),
             new EmailOptions(), new FakeWebHostEnvironment("Development"),
+            new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()),
+            new InMemoryFamilyDeviceTokenStore(), new FamilyDeviceRedeemGlobalThrottle(),
             NullLogger<AccountsController>.Instance, familyA.Presets, new SpySafetyFilter(true))
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext },

@@ -959,26 +959,4 @@ public sealed class AccountsController : ControllerBase
     /// <summary>Maps a stored preset to its wire view (a pure { id, nickname, variant } tuple, AC-05).</summary>
     private static SeatPresetView ToView(SeatPreset preset) =>
         new(preset.Id.ToString(), preset.Nickname, preset.Variant);
-
-    /// <summary>
-    /// Reads the purchaser credential from the request: prefer the Authorization:
-    /// Bearer value (the cross-origin path the SPA holds from sign-in), fall back to
-    /// the HttpOnly cookie (a same-site deployment). MIRRORS EntitlementsController -
-    /// the SAME credential accounts-identity/03 mints, resolved via the SAME
-    /// PurchaserCredentialService (no new auth mechanism).
-    /// </summary>
-    private string? ReadCredential()
-    {
-        var authorization = Request.Headers.Authorization.ToString();
-        const string bearerPrefix = "Bearer ";
-        if (authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
-        {
-            var value = authorization[bearerPrefix.Length..].Trim();
-            if (value.Length > 0)
-            {
-                return value;
-            }
-        }
-        return Request.Cookies.TryGetValue(PurchaserCredentialService.CookieName, out var cookie) ? cookie : null;
-    }
 }
