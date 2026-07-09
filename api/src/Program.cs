@@ -881,6 +881,36 @@ else
 }
 builder.Services.AddSingleton<IStripeReconciliationService, StripeReconciliationService>();
 
+// sysadmin-console/07 (#243, ADR 0003 Layer 3): the support console's NARROW, byline-free
+// seams + per-target-account throttles. The AccountSupportController injects ONLY these
+// count-only / enum-only / instant-only contracts - never the byline-bearing IVaultStore /
+// IFamilyDeviceTokenStore / IPublishedTaleStore - so it is STRUCTURALLY incapable of
+// projecting a nickname / byline / timestamp to an operator (AC-08, the cross-plane firewall).
+//   - IVaultAccountSummary: the aggregate vault/tale COUNT (AC-02). Registered as the
+//     UnavailableVaultAccountSummary sentinel because keepsake-vault does not yet expose an
+//     account -> vaults index; the section reports "not available yet" until it does (swap the
+//     registration then, with NO controller change).
+//   - IVaultTaleRestorer: restore a user's own deleted keepsake (AC-05) over keepsake-vault/04's
+//     merged IVaultStore.RestoreAsync, returning only an outcome enum (the byline stays inside).
+//   - IPublishedTaleTtlExtender: extend a public tale's TTL (AC-04) via the store's EXISTING
+//     PublishAsync upsert, returning only slug + new expiry.
+//   - ILinkedDeviceCounter: the linked-devices COUNT (AC-02) over accounts-identity/09's store,
+//     returning a bare int.
+//   - ISupportMagicLinkResend: issues + delivers a purchaser magic link (AC-03) through the SAME
+//     accounts-identity/04 email seam, so the controller never touches IEmailSender directly.
+//   - SupportResendAccountThrottle / SupportResyncAccountThrottle: the per-TARGET-account caps
+//     (AC-03b / AC-07) that close the email-bomb + Stripe-hammer vectors a per-IP limiter cannot,
+//     keyed on the target account and independent of the operator IP. Singletons (they hold the
+//     per-account windows across requests). No new rate-limit POLICY is registered - the caller-
+//     side per-IP axes reuse the existing SignInRateLimit + StripeResyncRateLimit policies.
+builder.Services.AddSingleton<IVaultAccountSummary, UnavailableVaultAccountSummary>();
+builder.Services.AddSingleton<IVaultTaleRestorer, VaultTaleRestorer>();
+builder.Services.AddSingleton<IPublishedTaleTtlExtender, PublishedTaleTtlExtender>();
+builder.Services.AddSingleton<ILinkedDeviceCounter, LinkedDeviceCounter>();
+builder.Services.AddSingleton<ISupportMagicLinkResend, SupportMagicLinkResend>();
+builder.Services.AddSingleton<SupportResendAccountThrottle>();
+builder.Services.AddSingleton<SupportResyncAccountThrottle>();
+
 // billing-entitlements/04 (#73): the product -> capability-bundle map (the family plan
 // + add-on packs + the goodwill tip), the server-side lookup BillingController uses so
 // the client only ever sends a product id, never capability keys. A singleton - the map
