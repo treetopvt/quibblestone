@@ -535,9 +535,16 @@ public sealed class GameHub : Hub
             {
                 purchaserIdentity = _purchaserCredentials.ResolvePurchaserEmail(token);
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogDebug(ex, "Ignoring an unresolvable purchaser access token on connect (treating as anonymous).");
+                // A bad token is an EXPECTED condition here (attacker-controllable query
+                // input), not an error, so this stays a cheap, message-only Trace line -
+                // no exception object (an attacker cannot inflate log volume / allocation)
+                // and the lowest level (off by default). The catch stays BROAD rather than
+                // enumerating the resolver's internal exception types (base64url
+                // FormatException + crypto): AC-06 is absolute, so an unforeseen throw must
+                // still fall through to anonymous, never abort the connection.
+                _logger.LogTrace("Ignoring an unresolvable purchaser access token on connect (treating as anonymous).");
                 purchaserIdentity = null;
             }
 
