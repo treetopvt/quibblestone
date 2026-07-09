@@ -60,6 +60,7 @@ using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.PublishedTales;
 
@@ -86,17 +87,27 @@ public sealed record PublishTaleRequest(
 [Route("api/tales")]
 public sealed class PublishedTalesController : ControllerBase
 {
-    // TTL (AC-05): a published tale is an ephemeral keepsake, not a system of
-    // record (README section 4). 30 days is generous for a "look what we made"
-    // share while guaranteeing tales do not accumulate unbounded.
-    public static readonly TimeSpan TaleTtl = TimeSpan.FromDays(30);
+    // TTL (keepsake-gallery/04 AC-05): a published tale is an ephemeral keepsake, not a
+    // system of record (README section 4). 30 days is generous for a "look what we made"
+    // share while guaranteeing tales do not accumulate unbounded. control-plane/03
+    // (#232) migrated this onto the `tales.ttlDays` settings key: this constant is
+    // now the CODE DEFAULT source (asserted by KnobMigrationRegressionTests), and
+    // Publish reads the CURRENT effective value at the stamp so an operator can retune
+    // the TTL without a redeploy - a tale already published keeps its original expiry.
+    public const int TaleTtlDays = 30;
+
+    /// <summary>The code-default TTL as a TimeSpan (control-plane/03 code default source). The stamped value is read live from settings on publish.</summary>
+    public static readonly TimeSpan TaleTtl = TimeSpan.FromDays(TaleTtlDays);
 
     // Auto-hide threshold (sysadmin-console/03, AC-02): the number of anonymous
     // reports that pushes a public tale into the neutral "under review" state until
     // an operator reviews it. Deliberately SMALL - a keepsake is a toy, and a couple
     // of "hey, this looks off" taps should quiet a tale quickly (fail toward safety),
-    // with the per-IP report rate limit stopping one actor from reaching it alone. A
-    // tunable starting point - raise / lower it from real signal once we have any.
+    // with the per-IP report rate limit stopping one actor from reaching it alone.
+    // control-plane/03 (#232) migrated this onto the `moderation.tale.autoHideThreshold`
+    // settings key: this constant is now the CODE DEFAULT source (asserted by
+    // KnobMigrationRegressionTests), and Report reads the CURRENT effective value at
+    // the point of use so an operator can retune it at runtime (no redeploy).
     public const int AutoHideThreshold = 3;
 
     // Anti-abuse caps for an open, anonymous write endpoint. Generous for a real
@@ -112,12 +123,20 @@ public sealed class PublishedTalesController : ControllerBase
 
     private readonly IPublishedTaleStore _store;
     private readonly IContentSafetyFilter _safety;
+    private readonly IRuntimeSettingsService _settings;
     private readonly string _webAppBaseUrl;
 
-    public PublishedTalesController(IPublishedTaleStore store, IContentSafetyFilter safety, IConfiguration configuration)
+    public PublishedTalesController(
+        IPublishedTaleStore store,
+        IContentSafetyFilter safety,
+        IRuntimeSettingsService settings,
+        IConfiguration configuration)
     {
         _store = store;
         _safety = safety;
+        // control-plane/03 (#232): the runtime settings service the TTL + auto-hide
+        // threshold read sites go through, so an operator can retune either at runtime.
+        _settings = settings;
         // The web app base for the public page's CTAs. Configured per-environment
         // (composed in Bicep from the Static Web App host name, NEVER hardcoded);
         // falls back to the Vite dev origin for local runs.
@@ -232,6 +251,12 @@ public sealed class PublishedTalesController : ControllerBase
             }
         }
 
+        // control-plane/03 (#232, AC-04): read the CURRENT effective TTL at the moment
+        // of publish and stamp THIS tale with it. Reading live (not the captured const)
+        // is what lets an operator retune the TTL without a redeploy; stamping at publish
+        // is what keeps an already-published tale on its ORIGINAL expiry (no retroactive
+        // change). The code default (TaleTtlDays) keeps a fresh clone identical (AC-01).
+        var ttlDays = await _settings.GetIntAsync(SettingsCatalog.TalesTtlDays, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var tale = new PublishedTale(
             Slug: SlugGenerator.Generate(),
@@ -239,7 +264,7 @@ public sealed class PublishedTalesController : ControllerBase
             Parts: parts,
             BylineNames: byline,
             CreatedUtc: now,
-            ExpiresUtc: now + TaleTtl);
+            ExpiresUtc: now + TimeSpan.FromDays(ttlDays));
 
         try
         {
@@ -286,10 +311,16 @@ public sealed class PublishedTalesController : ControllerBase
     [EnableRateLimiting(ReportTalesRateLimit.PolicyName)]
     public async Task<IActionResult> Report(string slug, CancellationToken cancellationToken)
     {
-        // Record the report (a no-op for an unknown / expired slug). The outcome is
-        // never echoed - the reporter always gets the same neutral acknowledgement, so
-        // the endpoint is not an existence / hidden-state oracle and leaks nothing.
-        await _store.ReportAsync(slug, AutoHideThreshold, cancellationToken);
+        // control-plane/03 (#232, AC-02): read the CURRENT effective auto-hide threshold
+        // at the point of use so an operator's override governs a NEW report immediately
+        // after the settings cache window elapses (no redeploy). The code default keeps a
+        // fresh clone identical (AC-01). Record the report (a no-op for an unknown /
+        // expired slug). The outcome is never echoed - the reporter always gets the same
+        // neutral acknowledgement, so the endpoint is not an existence / hidden-state
+        // oracle and leaks nothing.
+        var autoHideThreshold = await _settings.GetIntAsync(
+            SettingsCatalog.ModerationTaleAutoHideThreshold, cancellationToken);
+        await _store.ReportAsync(slug, autoHideThreshold, cancellationToken);
         return Ok(new { message = "Thanks - we will take a look." });
     }
 

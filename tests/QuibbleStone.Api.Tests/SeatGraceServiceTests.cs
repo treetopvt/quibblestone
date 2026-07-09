@@ -14,6 +14,7 @@
 
 using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Rooms;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Tests;
 
@@ -106,6 +107,89 @@ public class SeatGraceServiceTests
         // was too eager for a real phone-lock / elevator / brief tunnel drop and was
         // aborting rounds that a slightly longer wait would have let recover on their own.
         Assert.Equal(TimeSpan.FromSeconds(180), SeatGraceService.DefaultGraceWindow);
+    }
+
+    [Fact]
+    public void The_DI_path_over_default_settings_resolves_the_same_default_window()
+    {
+        // control-plane/03 (#232) AC-03/AC-07: the DI constructor reads
+        // `session.seatGraceWindowSeconds` live; over an unconfigured (default-only)
+        // settings service its GraceWindow display value is bit-for-bit the code
+        // default - a fresh clone with no override behaves exactly as before.
+        var registry = new RoomRegistry();
+        var ctx = new FakeGameHubContext();
+        var svc = new SeatGraceService(
+            ctx, registry, TestTelemetry.NoOp, NullLogger<SeatGraceService>.Instance, TestRuntimeSettings.Defaults());
+
+        Assert.Equal(SeatGraceService.DefaultGraceWindow, svc.GraceWindow);
+    }
+
+    [Fact]
+    public async Task An_overridden_window_governs_a_new_disconnects_scheduled_eviction()
+    {
+        // control-plane/03 (#232) AC-03: the DI path resolves the CURRENT settings
+        // value when a NEW disconnect schedules its eviction. The catalog's floor is 1
+        // second, so this drives a real (short, deterministic - not flaky) eviction
+        // under a settings override rather than the 180s code default, proving the
+        // live-read path (not just the fixed-window test constructor) actually governs.
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        var ctx = new FakeGameHubContext();
+        var settings = TestRuntimeSettings.WithInt(SettingsCatalog.SessionSeatGraceWindowSeconds, 1);
+        var svc = new SeatGraceService(ctx, registry, TestTelemetry.NoOp, NullLogger<SeatGraceService>.Instance, settings);
+
+        var handle = registry.BeginGrace("conn-joiner");
+        Assert.NotNull(handle);
+
+        await svc.ScheduleEviction(handle!);
+
+        // The overridden 1-second window elapsed and evicted the seat - the DI path
+        // truly reads the settings key live, not just the code default.
+        Assert.Equal(1, room.PlayerCount);
+        Assert.DoesNotContain(room.SnapshotPlayers(), p => p.ConnectionId == "conn-joiner");
+        Assert.Contains(ctx.Recorder.Sends, s => s.Method == "RosterChanged");
+    }
+
+    [Fact]
+    public async Task An_override_landing_mid_flight_does_not_shorten_a_grace_timer_already_running()
+    {
+        // control-plane/03 (#232) AC-03, the reciprocal half: a grace timer already
+        // awaiting its window captured that window BEFORE Task.Delay, so an operator
+        // override that lands mid-flight must NOT retroactively shorten (or lengthen) it.
+        // Schedule under a long (10s) window, then flip the override to the 1-second floor;
+        // the seat must still be held a moment later - the in-flight timer keeps its
+        // original window. (The 10s timer is then cancelled so nothing dangles.)
+        var registry = new RoomRegistry();
+        var room = registry.CreateRoom("conn-host", "Mossy", "teal");
+        Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
+
+        // A mutable store so the override can be changed AFTER the eviction is scheduled.
+        var store = new InMemoryRuntimeSettingsStore();
+        await store.SetOverrideAsync(SettingsCatalog.SessionSeatGraceWindowSeconds, "10", "test-operator", DateTimeOffset.UtcNow);
+        var settings = new RuntimeSettingsService(store);
+
+        var ctx = new FakeGameHubContext();
+        var svc = new SeatGraceService(ctx, registry, TestTelemetry.NoOp, NullLogger<SeatGraceService>.Instance, settings);
+
+        var handle = registry.BeginGrace("conn-joiner");
+        Assert.NotNull(handle);
+
+        var evictionTask = svc.ScheduleEviction(handle!);
+
+        // Operator lowers the window to the 1-second floor mid-flight.
+        await store.SetOverrideAsync(SettingsCatalog.SessionSeatGraceWindowSeconds, "1", "test-operator", DateTimeOffset.UtcNow);
+
+        // Well past the NEW 1s window but far short of the captured 10s one: the seat is
+        // still held, proving the running timer ignored the mid-flight change.
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        Assert.Equal(2, room.PlayerCount);
+        Assert.Contains(room.SnapshotPlayers(), p => p.ConnectionId == "conn-joiner");
+
+        // Cancel the still-pending 10s timer so the test leaves nothing running.
+        Assert.True(room.CancelGrace("conn-joiner"));
+        await evictionTask;
     }
 
     [Fact]

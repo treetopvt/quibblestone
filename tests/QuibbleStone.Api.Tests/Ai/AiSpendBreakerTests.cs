@@ -12,14 +12,16 @@
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Logging.Abstractions;
 using QuibbleStone.Api.Ai;
+using QuibbleStone.Api.Settings;
 using QuibbleStone.Api.Telemetry;
 
 namespace QuibbleStone.Api.Tests.Ai;
 
 public class AiSpendBreakerTests
 {
-    // A small test ceiling keeps the arithmetic obvious; the breaker reads it from
-    // AiOptions.MonthlyCeilingUsd (the single config place), never a literal.
+    // A small test ceiling keeps the arithmetic obvious. control-plane/03 (#232) moved
+    // the ceiling onto the `ai.spend.monthlyCeilingUsd` settings key read live, so the
+    // Build helper seeds that key (not AiOptions.MonthlyCeilingUsd) with this value.
     private const decimal TestCeiling = 10m;
 
     private static readonly DateTimeOffset July = new(2026, 7, 15, 12, 0, 0, TimeSpan.Zero);
@@ -39,10 +41,15 @@ public class AiSpendBreakerTests
     private static AiSpendBreaker Build(
         FakeMonthlySpendStore store,
         TimeProvider clock,
-        Microsoft.ApplicationInsights.TelemetryClient? telemetry = null) =>
+        Microsoft.ApplicationInsights.TelemetryClient? telemetry = null,
+        IRuntimeSettingsService? settings = null) =>
         new(
             store,
             Options(),
+            // control-plane/03 (#232): the ceiling is read live from settings now - seed
+            // the key with TestCeiling so the existing arithmetic holds unless a test
+            // passes its own service (e.g. to prove an override takes effect).
+            settings ?? TestRuntimeSettings.WithDecimal(SettingsCatalog.AiSpendMonthlyCeilingUsd, TestCeiling),
             telemetry ?? TestTelemetry.NoOp,
             NullLogger<AiSpendBreaker>.Instance,
             clock);
@@ -73,6 +80,24 @@ public class AiSpendBreakerTests
         var breaker = Build(store, new FixedTimeProvider(July));
 
         Assert.False(await breaker.IsUnderCeilingAsync());
+    }
+
+    [Fact]
+    public async Task An_overridden_lower_ceiling_opens_the_breaker_where_the_default_would_stay_closed()
+    {
+        // control-plane/03 (#232) AC-05: the ceiling is read live from the settings
+        // service, not the captured AiOptions.MonthlyCeilingUsd. Spend of 8 sits UNDER
+        // Build()'s default TestCeiling (10) - the breaker would stay CLOSED with no
+        // override. A settings override of 5 (below the 8 already spent) governs
+        // instead, opening the breaker - proving the override, not AiOptions, wins.
+        var store = new FakeMonthlySpendStore().Seed(JulyKey, 8m);
+        var defaultCeilingBreaker = Build(store, new FixedTimeProvider(July));
+        Assert.True(await defaultCeilingBreaker.IsUnderCeilingAsync()); // sanity: default stays closed
+
+        var lowCeilingSettings = TestRuntimeSettings.WithDecimal(SettingsCatalog.AiSpendMonthlyCeilingUsd, 5m);
+        var overriddenBreaker = Build(store, new FixedTimeProvider(July), settings: lowCeilingSettings);
+
+        Assert.False(await overriddenBreaker.IsUnderCeilingAsync());
     }
 
     [Fact]

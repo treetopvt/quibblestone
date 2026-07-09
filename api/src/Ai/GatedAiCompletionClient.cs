@@ -102,7 +102,7 @@ public sealed class GatedAiCompletionClient
         AiQuotaDecision quota;
         try
         {
-            quota = _quota.TryConsume(instanceId);
+            quota = await _quota.TryConsumeAsync(instanceId, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

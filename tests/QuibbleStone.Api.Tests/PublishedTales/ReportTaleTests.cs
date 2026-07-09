@@ -24,6 +24,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Tests;
 
@@ -41,7 +42,7 @@ public sealed class ReportTaleTests
 
     private static PublishedTalesController NewController(IPublishedTaleStore store)
     {
-        var controller = new PublishedTalesController(store, Safety, Config())
+        var controller = new PublishedTalesController(store, Safety, TestRuntimeSettings.Defaults(), Config())
         {
             ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
             {
@@ -201,7 +202,7 @@ public sealed class ReportTaleTests
         // reporting a perfectly clean tale still records a report (the path is
         // orthogonal to the filter). A throwing filter would prove a re-vet ran.
         var store = new FakePublishedTaleStore();
-        var controller = new PublishedTalesController(store, new ThrowingContentSafetyFilter(), Config())
+        var controller = new PublishedTalesController(store, new ThrowingContentSafetyFilter(), TestRuntimeSettings.Defaults(), Config())
         {
             ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
             {

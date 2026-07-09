@@ -29,6 +29,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Safety;
+using QuibbleStone.Api.Settings;
 
 namespace QuibbleStone.Api.Tests;
 
@@ -46,7 +47,7 @@ public class PublishedTalesControllerTests
 
     private static PublishedTalesController NewController(IPublishedTaleStore store)
     {
-        var controller = new PublishedTalesController(store, Safety, Config())
+        var controller = new PublishedTalesController(store, Safety, TestRuntimeSettings.Defaults(), Config())
         {
             ControllerContext = new ControllerContext
             {
@@ -270,7 +271,7 @@ public class PublishedTalesControllerTests
     [Fact]
     public async Task Publish_returns_503_when_the_store_is_disabled()
     {
-        var controller = new PublishedTalesController(new DisabledPublishedTaleStore(), Safety, Config())
+        var controller = new PublishedTalesController(new DisabledPublishedTaleStore(), Safety, TestRuntimeSettings.Defaults(), Config())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
@@ -284,7 +285,7 @@ public class PublishedTalesControllerTests
     [Fact]
     public async Task Public_page_404s_when_the_store_is_disabled()
     {
-        var controller = new PublishedTalesController(new DisabledPublishedTaleStore(), Safety, Config())
+        var controller = new PublishedTalesController(new DisabledPublishedTaleStore(), Safety, TestRuntimeSettings.Defaults(), Config())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
