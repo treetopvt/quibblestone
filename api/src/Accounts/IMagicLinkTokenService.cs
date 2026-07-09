@@ -24,9 +24,16 @@
 //      (Accounts:TokenSigningKey, Key Vault-backed in a deployed environment,
 //      NEVER a committed literal and NEVER a VITE_* var). Absent (local dev / CI),
 //      a random ephemeral key is generated per process - tokens work within the
-//      process lifetime, which is all a toy needs (README section 4).
+//      process lifetime, which is all a toy needs (README section 4). A deployed
+//      environment gets a DURABLE, CSPRNG-generated key auto-provisioned into Key
+//      Vault (platform-devops/08 AC-04), so a delivered link survives a recycle /
+//      scale-out.
 //    - Verification is CONSTANT TIME, checks expiry, and enforces SINGLE USE (the
-//      token's nonce is consumed on first successful verify; a replay fails).
+//      token's nonce is consumed on first successful verify; a replay fails). The
+//      consumed-nonce set lives in an IConsumedNonceStore - a durable, SHARED store
+//      in a deployed environment (platform-devops/08 AC-07) so single use holds
+//      across every instance, and an in-memory set locally. Verification is async
+//      because consuming the nonce is a (possibly storage-bound) call.
 //    - The token and the signing key are NEVER logged or persisted in plaintext.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
@@ -59,13 +66,31 @@ public interface IMagicLinkTokenService
 
     /// <summary>
     /// Validates a token in CONSTANT TIME, checks its expiry, and enforces SINGLE
-    /// USE (consumes the nonce - a second verify of the same token returns false).
-    /// Returns false (never throws) on ANY tampering, garbage, expiry, or replay,
-    /// with <paramref name="subject"/> set to empty in that case; returns true with
-    /// the bound subject on success.
+    /// USE (consumes the nonce in the shared store - a second verify of the same
+    /// token returns a failed result). Never throws on ANY tampering, garbage,
+    /// expiry, or replay - it returns <see cref="TokenVerification.Failure"/> in
+    /// those cases and <see cref="TokenVerification"/> carrying the bound subject on
+    /// success. Async because consuming the nonce may be a storage-bound call.
     /// </summary>
     /// <param name="token">The token to verify (as received from a magic link).</param>
-    /// <param name="subject">On success, the opaque subject the token was issued for; empty otherwise.</param>
-    /// <returns>True if the token is authentic, unexpired, and being used for the first time.</returns>
-    bool TryVerify(string token, out string subject);
+    /// <param name="ct">Cancellation for the (possibly storage-bound) nonce consume.</param>
+    /// <returns>A success result carrying the opaque subject, or a failure result.</returns>
+    Task<TokenVerification> TryVerifyAsync(string token, CancellationToken ct = default);
+}
+
+/// <summary>
+/// The outcome of <see cref="IMagicLinkTokenService.TryVerifyAsync"/>: whether the
+/// token was authentic, unexpired, and being used for the first time, and (on
+/// success) the opaque subject it was issued for. On failure <see cref="Subject"/>
+/// is the empty string, never null.
+/// </summary>
+/// <param name="Succeeded">True if the token verified and was consumed for the first time.</param>
+/// <param name="Subject">The opaque subject on success; the empty string on failure.</param>
+public readonly record struct TokenVerification(bool Succeeded, string Subject)
+{
+    /// <summary>A failed verification (bad signature, garbage, expired, or replayed).</summary>
+    public static TokenVerification Failure { get; } = new(false, string.Empty);
+
+    /// <summary>A successful verification carrying the recovered opaque subject.</summary>
+    public static TokenVerification Success(string subject) => new(true, subject);
 }

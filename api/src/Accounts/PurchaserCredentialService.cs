@@ -15,11 +15,13 @@
 //  player reference). It is NEVER required by, nor checked in, GameHub or any player-
 //  facing endpoint - free play stays 100% login-free (AC-03/AC-04 of story 03).
 //
-//  KEY RING (deliberately the framework DEFAULT for now, carried from accounts-identity/03):
-//  the default key ring is per-instance and non-durable. Fine for this slice (short TTL,
-//  re-sign-in is a cheap magic link). A durable, Key Vault-backed shared key ring
-//  (.PersistKeysToAzureBlobStorage + .ProtectKeysWithAzureKeyVault) is the
-//  billing-entitlements DEPLOYMENT follow-up - see Program.cs's AddDataProtection note.
+//  KEY RING: this service does not choose the key ring - it consumes whatever
+//  IDataProtectionProvider Program.cs registered. In a DEPLOYED environment that is a
+//  DURABLE, shared key ring (.PersistKeysToAzureBlobStorage + .ProtectKeysWithAzureKeyVault,
+//  platform-devops/08), so a credential minted before an app restart / scale-out still
+//  resolves after it; in local dev / CI it is the framework's in-process default (no
+//  Azure setup). Either way this file is unchanged - see Program.cs's AddDataProtection
+//  block for the config-presence + fail-closed wiring.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------

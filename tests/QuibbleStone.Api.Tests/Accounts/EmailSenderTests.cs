@@ -47,7 +47,7 @@ public class EmailSenderTests
     [Fact]
     public async Task PurchaserRequest_DeliversTheIssuedLinkThroughTheOneSeam()
     {
-        var tokens = new MagicLinkTokenService(TestSigningKey);
+        var tokens = new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore());
         var sender = new RecordingEmailSender();
         var controller = NewAccountsController(tokens, sender, development: false);
 
@@ -61,14 +61,15 @@ public class EmailSenderTests
         Assert.StartsWith($"{LinkBaseUrl}{AccountsController.MagicLinkPath}?token=", send.Link);
 
         // The delivered link carries a REAL, verifiable magic-link token for the email.
-        Assert.True(tokens.TryVerify(ExtractToken(send.Link), out var subject));
-        Assert.Equal("Buyer@Example.com", subject);
+        var verification = await tokens.TryVerifyAsync(ExtractToken(send.Link));
+        Assert.True(verification.Succeeded);
+        Assert.Equal("Buyer@Example.com", verification.Subject);
     }
 
     [Fact]
     public async Task OperatorRequest_DeliversThroughTheSameSeam_DifferingOnlyInPurposeAndPath()
     {
-        var tokens = new MagicLinkTokenService(TestSigningKey);
+        var tokens = new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore());
         var sender = new RecordingEmailSender();
         // A NON-operator email: the request endpoint never consults the allowlist, so
         // it still delivers (the gate is at verify, AC-02) - and it uses the SAME seam.
@@ -82,8 +83,9 @@ public class EmailSenderTests
         Assert.Equal(MagicLinkPurpose.OperatorLogin, send.Purpose);
         Assert.StartsWith($"{LinkBaseUrl}{OperatorLoginController.MagicLinkPath}?token=", send.Link);
 
-        Assert.True(tokens.TryVerify(ExtractToken(send.Link), out var subject));
-        Assert.Equal("someone@example.com", subject);
+        var verification = await tokens.TryVerifyAsync(ExtractToken(send.Link));
+        Assert.True(verification.Succeeded);
+        Assert.Equal("someone@example.com", verification.Subject);
     }
 
     // ---- AC-03: no provider configured => the no-op sender, flow unchanged --------
@@ -95,7 +97,7 @@ public class EmailSenderTests
         // register the NoOpEmailSender; use it here directly.
         Assert.False(new EmailOptions().IsConfigured);
         IEmailSender noOp = new NoOpEmailSender(NullLogger<NoOpEmailSender>.Instance);
-        var tokens = new MagicLinkTokenService(TestSigningKey);
+        var tokens = new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore());
         var controller = NewAccountsController(tokens, noOp, development: true);
 
         var action = await controller.RequestLink(new SignInRequestBody("buyer@example.com"));
@@ -105,8 +107,9 @@ public class EmailSenderTests
         // The Development dev-token echo is UNCHANGED by the seam (walkable locally
         // with zero email setup), and nothing threw.
         Assert.NotNull(result.DevToken);
-        Assert.True(tokens.TryVerify(result.DevToken!, out var email));
-        Assert.Equal("buyer@example.com", email);
+        var verification = await tokens.TryVerifyAsync(result.DevToken!);
+        Assert.True(verification.Succeeded);
+        Assert.Equal("buyer@example.com", verification.Subject);
     }
 
     [Fact]
@@ -140,7 +143,7 @@ public class EmailSenderTests
     {
         // Even with a KNOWN account present, the request endpoint never reads the
         // store, so the response cannot differ from the unknown-email case.
-        var tokens = new MagicLinkTokenService(TestSigningKey);
+        var tokens = new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore());
         var sender = new RecordingEmailSender();
         var store = new InMemoryAccountStore();
         await store.CreateOrGetAsync("known@example.com");
@@ -156,7 +159,7 @@ public class EmailSenderTests
     [Fact]
     public async Task Request_ResponseIsIdentical_WhenTheSenderSucceedsVsThrows()
     {
-        var tokens = new MagicLinkTokenService(TestSigningKey);
+        var tokens = new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore());
 
         var okController = NewAccountsController(tokens, new RecordingEmailSender(), development: false);
         var throwController = NewAccountsController(tokens, new ThrowingEmailSender(), development: false);
@@ -173,7 +176,7 @@ public class EmailSenderTests
     [Fact]
     public async Task ThrowingSender_StillReturnsNeutral200_AndLogsNoTokenLinkOrEmail()
     {
-        var tokens = new MagicLinkTokenService(TestSigningKey);
+        var tokens = new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore());
         var sender = new ThrowingEmailSender();
         var logger = new CapturingLogger<AccountsController>();
         var controller = NewAccountsController(tokens, sender, development: false, logger: logger);

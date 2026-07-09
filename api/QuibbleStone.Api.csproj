@@ -116,4 +116,23 @@
     <PackageReference Include="Azure.Communication.Email" Version="1.1.0" />
   </ItemGroup>
 
+  <!--
+    platform-devops/08 (durable Data Protection key ring, #199): the two
+    Microsoft-published Azure Data Protection extensions - the STANDARD pairing for
+    a Blob-persisted, Key-Vault-wrapped key ring. Blobs persists the key ring to
+    Azure Blob Storage (so purchaser + operator credentials survive an app restart /
+    scale-out); Keys encrypts that ring at rest with a Key Vault key. Both are
+    Azure-native (NOT on CLAUDE.md's deliberately-excluded list; NO Azure Functions),
+    keyless via the SAME DefaultAzureCredential the ACS email path uses (Azure.Identity
+    above supplies it), and restore with NO auth token. With NO durable backing
+    configured (local dev, CI, a fresh clone) the app never touches these SDKs - it
+    uses the framework's in-process key ring (see Program.cs AddDataProtection, AC-02) -
+    so these refs add a dependency but no runtime coupling until a deployed environment
+    wires DataProtection:KeyRingBlobUri + DataProtection:KeyVaultKeyUri.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Blobs" Version="1.4.0" />
+    <PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Keys" Version="1.4.0" />
+  </ItemGroup>
+
 </Project>

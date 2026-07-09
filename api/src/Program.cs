@@ -25,7 +25,9 @@
 // ----------------------------------------------------------------------------
 
 using System.Threading.RateLimiting;
+using Azure.Identity;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Accounts;
@@ -539,13 +541,27 @@ else
 // front end, so Connection.RemoteIpAddress is the load balancer unless we honor
 // the forwarded header - without this the limiter (PublishTalesRateLimit.PartitionKey
 // reads RemoteIpAddress) would collapse every caller into ONE bucket. Trust only
-// X-Forwarded-For; the App Service edge is the one hop (default ForwardLimit = 1
-// takes the client IP it appends), and KnownNetworks/Proxies are cleared because
-// that edge IP is not fixed. The PII scrubber still zeroes the IP before any
-// telemetry leaves the process (README section 6), so this stays no-PII.
+// X-Forwarded-For; the App Service edge is the one hop (ForwardLimit = 1 takes the
+// single client IP it appends), and KnownNetworks/Proxies are cleared because that
+// edge IP is not fixed. The PII scrubber still zeroes the IP before any telemetry
+// leaves the process (README section 6), so this stays no-PII.
+//
+// platform-devops/08 (ADR 0003 "Credentials survive scale-out safely" - the XFF
+// single-hop-trusted-edge verification item): ForwardLimit is pinned to 1 EXPLICITLY
+// (not left to the framework default) so the trust boundary is unmistakable - the app
+// takes exactly the LAST hop's appended client IP and trusts no caller-supplied
+// X-Forwarded-For beyond it. This is only safe because EVERY lane platform-devops/07
+// stands up (qa AND beta) sits behind the SAME single-hop trusted edge (the Azure App
+// Service front end, which strips any inbound XFF and appends the real client IP). If
+// a lane were ever fronted by an additional proxy (a CDN / WAF in front of App
+// Service), ForwardLimit would need raising to match the real hop count AND that
+// proxy's network added to KnownProxies - otherwise every per-IP limiter is spoofable.
+// Both current lanes are single-hop App Service edges, so 1 is correct; revisit here
+// if the lane topology changes.
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.ForwardLimit = 1;
     options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
 });
@@ -746,17 +762,48 @@ else
             sp.GetRequiredService<ILogger<TableStorageAccountStore>>()));
 }
 
+// platform-devops/08 (AC-07): the single-use magic-link nonce store. Config-presence
+// split mirroring the account store above: WITH a storage connection string
+// (Accounts:StorageConnectionString - a deployed environment) it persists consumed
+// nonces to Azure Table Storage, SHARED across every instance, so a single-use link
+// consumed on one instance is recognized as consumed by every other instance behind
+// the load balancer (the replay-once-per-instance gap a durable, shared signing key
+// would otherwise open - see IConsumedNonceStore). WITHOUT one (local dev, CI, a
+// fresh clone) it degrades to a WORKING in-memory set - NOT a no-op - so single use
+// is exercisable with ZERO Azure setup, exactly as it was before this story (AC-02).
+// It holds ONLY the opaque nonce + its expiry, never a subject / email / room /
+// player field (AC-05). A singleton either way (the shared set / the Table client).
+// NOTE: a DEPLOYED environment that configures the durable key ring below MUST also
+// configure this (see the fail-closed guard) - a shared signing key with a
+// per-process nonce set is the exact replay gap AC-07 closes.
+var accountsConnectionStringForNonces = builder.Configuration["Accounts:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(accountsConnectionStringForNonces))
+{
+    builder.Services.AddSingleton<IConsumedNonceStore, InMemoryConsumedNonceStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IConsumedNonceStore>(sp =>
+        new TableStorageConsumedNonceStore(
+            accountsConnectionStringForNonces,
+            sp.GetRequiredService<ILogger<TableStorageConsumedNonceStore>>()));
+}
+
 // accounts-identity/02 (#68): the REUSABLE magic-link token service - a SINGLETON
-// because it owns the process-wide single-use nonce set AND the signing key
-// (regenerated per process only when Accounts:TokenSigningKey is absent, so all
-// callers must share the ONE instance or tokens would not verify across it). The
-// signing secret is read from configuration (Key Vault-backed when deployed, NEVER
+// because it owns the signing key (regenerated per process only when
+// Accounts:TokenSigningKey is absent, so all callers must share the ONE instance or
+// tokens would not verify across it); the single-use nonce set now lives in the
+// injected IConsumedNonceStore (durable + shared when deployed, platform-devops/08
+// AC-07). The signing secret is read from configuration (Key Vault-backed when
+// deployed - platform-devops/08 auto-provisions a durable CSPRNG value, AC-04 - NEVER
 // a committed literal and NEVER a VITE_* var, AC-06); the service NEVER logs the
 // token or the key. It is deliberately identity-neutral (subject is opaque), so
 // sysadmin-console/01's operator login reuses this SAME registration against a
 // SEPARATE allowlist - purchaser and admin stay structurally distinct here.
 builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
-    new MagicLinkTokenService(sp.GetRequiredService<IConfiguration>()[MagicLinkTokenService.ConfigKeyName]));
+    new MagicLinkTokenService(
+        sp.GetRequiredService<IConfiguration>()[MagicLinkTokenService.ConfigKeyName],
+        sp.GetRequiredService<IConsumedNonceStore>()));
 
 // accounts-identity/04 (magic-link email delivery, #167): the ONE email transport
 // seam both request endpoints deliver through (AC-02), chosen at STARTUP by whether
@@ -783,28 +830,88 @@ else
         new AcsEmailSender(emailOptions, sp.GetRequiredService<ILogger<AcsEmailSender>>()));
 }
 
-// accounts-identity/03 (sign-in / restore on a new device, #69): ASP.NET Core
-// Data Protection, used by AccountsController to mint the SHORT-LIVED, purchaser-
-// scoped sign-in credential (a time-limited protector under a dedicated purpose
-// string - see AccountsController.PurchaserSessionPurpose). This is built INTO
-// the framework, so it adds NO NuGet dependency and NO hand-rolled crypto, and no
-// key material is ever a committed literal or a VITE_* var (AC-06).
+// accounts-identity/03 + platform-devops/08 (durable key ring, #199): ASP.NET Core
+// Data Protection, used by PurchaserCredentialService to mint the SHORT-LIVED
+// purchaser sign-in credential AND by OperatorSession for the operator admin-session
+// credential (both under their own dedicated purpose strings). No key material is
+// ever a committed literal or a VITE_* var (AC-06 / AC-01).
 //
-// KEY RING SCOPE (deliberately the framework DEFAULT for now): this bare
-// registration uses the default key ring (local key store), which is NOT shared
-// across App Service scale-out and does NOT survive an app restart. That is fine
-// for this thin slice - the credential TTL is short (12h) and re-signing-in is a
-// cheap magic link, and the consumer (billing-entitlements/05) is still future.
-// A durable, shared key ring (`.PersistKeysToAzureBlobStorage(...)` +
-// `.ProtectKeysWithAzureKeyVault(...)`) is a FOLLOW-UP for the billing-entitlements
-// deployment, alongside its Stripe / Key Vault wiring - NOT pulled in now so this
-// slice takes on no unvalidatable Azure config.
+// DURABLE, SHARED KEY RING when deployed (platform-devops/08 AC-01): extends the
+// config-presence idiom used throughout this file (Telemetry, Stripe, Email). When
+// BOTH a key-ring blob URI (DataProtection:KeyRingBlobUri) AND a Key Vault key URI
+// (DataProtection:KeyVaultKeyUri) are configured, the key ring PERSISTS to Azure Blob
+// Storage and is ENCRYPTED AT REST by a Key Vault key - so a purchaser or operator
+// credential minted before an app restart or a scale-out event still verifies after
+// it (AC-03). Both URIs are non-secret pointers (not key material); auth is KEYLESS
+// via the SAME DefaultAzureCredential the ACS email path already uses (the App
+// Service SystemAssigned identity, granted "Storage Blob Data Contributor" on the
+// container + "Key Vault Crypto User" on the key in infra/main.bicep). Each lane
+// (qa / beta) points at its OWN Storage account + Key Vault, so its key ring backing
+// is DISTINCT and a qa-minted credential never verifies against beta (ADR 0003
+// "Credentials survive scale-out safely").
 //
-// Registered here beside the account / token domain services it serves. CRITICAL
-// boundary (AC-03/AC-04): this credential is consumed ONLY by the purchaser
-// sign-in / restore surface - it is never required by, nor checked in, GameHub or
-// any player-facing endpoint, so free play stays 100% login-free.
-builder.Services.AddDataProtection();
+// FAIL CLOSED in a deployed environment (AC-08): when the durable backing is absent
+// we branch on environment. In Development (local dev / CI) we leave the bare default
+// in-process key ring exactly as before - zero Azure setup, no behavior change
+// (AC-02). In ANY other environment we THROW at startup naming the missing config,
+// rather than silently reverting to per-instance keys - a silent fallback there would
+// invalidate every outstanding purchaser + operator credential on the next
+// restart / scale-out with no error to point at (a self-inflicted lockout). The
+// consumed-nonce store (AC-07) is folded into the SAME guard: a shared signing key
+// with a per-process nonce set is the exact replay gap that story closes, so a
+// deployed environment must configure Accounts:StorageConnectionString too.
+//
+// CRITICAL boundary (accounts-identity AC-03/AC-04): the purchaser credential is
+// consumed ONLY by the purchaser sign-in / restore surface - never required by, nor
+// checked in, GameHub or any player-facing endpoint, so free play stays login-free.
+var dpBlobUri = builder.Configuration["DataProtection:KeyRingBlobUri"];
+var dpKeyVaultKeyUri = builder.Configuration["DataProtection:KeyVaultKeyUri"];
+var dpKeyRingConfigured = !string.IsNullOrWhiteSpace(dpBlobUri) && !string.IsNullOrWhiteSpace(dpKeyVaultKeyUri);
+
+// FAIL CLOSED first (AC-08): in ANY deployed (non-Development) environment the FULL
+// durable backing must be present - the key ring (Blob + Key Vault) AND the shared
+// nonce store (Accounts:StorageConnectionString). We check the nonce connection string
+// here too because a durable, SHARED signing key paired with a per-process nonce set is
+// the exact replay-once-per-instance gap AC-07 closes: allowing the key ring durable but
+// the nonce store in-memory would silently reopen it. So the deployed environment either
+// has ALL of it, or the app refuses to start (never a silent partial degrade). Local
+// development (AC-02) is exempt and needs no configuration.
+if (!builder.Environment.IsDevelopment() &&
+    (!dpKeyRingConfigured || string.IsNullOrWhiteSpace(accountsConnectionStringForNonces)))
+{
+    // Name the exact missing configuration so the failure is actionable (no secret is
+    // interpolated - these are non-secret URIs / config KEY names, not the values).
+    var missing = new List<string>();
+    if (string.IsNullOrWhiteSpace(dpBlobUri)) missing.Add("DataProtection:KeyRingBlobUri");
+    if (string.IsNullOrWhiteSpace(dpKeyVaultKeyUri)) missing.Add("DataProtection:KeyVaultKeyUri");
+    if (string.IsNullOrWhiteSpace(accountsConnectionStringForNonces)) missing.Add("Accounts:StorageConnectionString");
+    throw new InvalidOperationException(
+        $"Durable Data Protection key ring is not configured in environment '{builder.Environment.EnvironmentName}'. " +
+        $"Missing: {string.Join(", ", missing)}. A deployed environment MUST persist the key ring to durable, " +
+        "shared storage (Blob + Key Vault) AND back the single-use magic-link nonce set with the same shared store, " +
+        "so purchaser and operator credentials survive restart / scale-out and a single-use link cannot be replayed " +
+        "per instance; the app refuses to start rather than silently fall back to per-instance keys (platform-devops/08 " +
+        "AC-08). See infra/main.bicep and docs/runbooks/enable-magic-link-email.md. In local development this fallback " +
+        "is intentional and no configuration is required.");
+}
+
+if (dpKeyRingConfigured)
+{
+    // Keyless: the same DefaultAzureCredential AcsEmailSender uses (the App Service
+    // managed identity in a deployed environment). No stored key material beyond the
+    // two non-secret URIs.
+    var dataProtectionCredential = new DefaultAzureCredential();
+    builder.Services.AddDataProtection()
+        .PersistKeysToAzureBlobStorage(new Uri(dpBlobUri!), dataProtectionCredential)
+        .ProtectKeysWithAzureKeyVault(new Uri(dpKeyVaultKeyUri!), dataProtectionCredential);
+}
+else
+{
+    // Only reachable in Development (a deployed environment without the durable backing
+    // already threw above): the framework's default in-process key ring, unchanged from
+    // before this story - zero Azure setup for local dev / CI (AC-02).
+    builder.Services.AddDataProtection();
+}
 
 // accounts-identity/03 + billing-entitlements/05: the ONE purchaser-credential
 // minter+resolver over Data Protection. AccountsController mints it on sign-in;

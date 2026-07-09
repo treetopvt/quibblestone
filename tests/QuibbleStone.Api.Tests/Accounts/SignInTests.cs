@@ -49,7 +49,7 @@ public class SignInTests
     private static Harness NewHarness(bool development = true)
     {
         var store = new InMemoryAccountStore();
-        var tokens = new MagicLinkTokenService(TestSigningKey);
+        var tokens = new MagicLinkTokenService(TestSigningKey, new InMemoryConsumedNonceStore());
         // The framework's ephemeral provider (a fresh key per instance): perfect
         // for a test - reused here so the test can unprotect what the controller
         // protected.
@@ -185,8 +185,9 @@ public class SignInTests
         // Dev-only affordance: a token is echoed so the flow is walkable with no
         // email provider. It verifies to the same email (the flow works).
         Assert.NotNull(result.DevToken);
-        Assert.True(harness.Tokens.TryVerify(result.DevToken!, out var email));
-        Assert.Equal("buyer@example.com", email);
+        var verification = await harness.Tokens.TryVerifyAsync(result.DevToken!);
+        Assert.True(verification.Succeeded);
+        Assert.Equal("buyer@example.com", verification.Subject);
     }
 
     // ---- input-length guards (Copilot review) -----------------------------------
