@@ -6,7 +6,7 @@
 
 # Story: The runtime settings service
 
-**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Not Started  ·  **Issue:** #TBD
+**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Complete  ·  **Issue:** #197
 
 ## Context
 Today every operational knob is one of three ad-hoc mechanisms (ADR 0003 Context): a startup
@@ -20,37 +20,37 @@ and every future knob - have a single home instead of a fourth bespoke pattern. 
 Design notes for the config-presence-vs-settings razor this story enforces.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given the settings catalog declares a key with a type and a code default, when no override
+- [x] AC-01: Given the settings catalog declares a key with a type and a code default, when no override
       has ever been written for that key, then reading it returns the code default (the same
       "safe/known default when nothing is stored" posture as the Stripe-mode precedent).
-- [ ] AC-02: Given an operator PUTs a value for a settings key via the admin endpoint, when any caller
+- [x] AC-02: Given an operator PUTs a value for a settings key via the admin endpoint, when any caller
       reads that key afterward, then it returns the override value once the short read cache
       (a few seconds, mirroring `ActiveStripeContext`'s `CacheTtl`) has elapsed - immediately on the
       node that wrote it, within the cache window everywhere else.
-- [ ] AC-03: Given an override is written (PUT) or cleared (DELETE), when that override is read back
+- [x] AC-03: Given an override is written (PUT) or cleared (DELETE), when that override is read back
       (individually or via the GET-all endpoint), then it carries a `changedBy` (the operator's
       identity, from the existing operator session credential) and a `changedAt` (UTC timestamp) stamp;
       a key with no override present shows no stamp. This row-level stamp is a display convenience,
       NOT the audit trail (see AC-08 - the two are different mechanisms with different failure modes:
       the stamp is overwritable by the next PUT, the log row is append-only history).
-- [ ] AC-04: Given an operator DELETEs an override for a key, when the key is next read (after the
+- [x] AC-04: Given an operator DELETEs an override for a key, when the key is next read (after the
       cache window), then it returns to the code default, and the GET-all response no longer lists an
       override for that key.
-- [ ] AC-05: Given no storage connection string is configured (local dev, CI, a fresh clone), when the
+- [x] AC-05: Given no storage connection string is configured (local dev, CI, a fresh clone), when the
       app starts, then the settings service runs on a working in-memory store (not a no-op) - AC-01
       through AC-04 all still hold; only durability across a process restart is lost, mirroring the
       `InMemoryActiveStripeModeStore` / `InMemoryEntitlementGrantStore` config-presence split (no new
       Azure resource: it reuses the same `Entitlements:StorageConnectionString` the entitlement grant
       store and the Stripe-mode store already use).
-- [ ] AC-06: Given a caller without a valid operator session credential, when they call GET, PUT, or
+- [x] AC-06: Given a caller without a valid operator session credential, when they call GET, PUT, or
       DELETE on any settings endpoint, then they receive 401/403 - every settings endpoint in this
       story is operator-only (mirrors `AdminEntitlementsController`'s `[Authorize(Policy =
       OperatorSession.PolicyName)]` boundary; there is no anonymous or player-facing read).
-- [ ] AC-07: Given a stored override row is missing, or a stored value fails to parse against its
+- [x] AC-07: Given a stored override row is missing, or a stored value fails to parse against its
       declared type (schema drift, a hand-edited row), when the service reads that key, then it
       degrades to the code default rather than throwing - the same "a storage hiccup never crashes the
       app" posture as `TableStorageActiveStripeModeStore.GetAsync`'s 404-and-unparseable handling.
-- [ ] AC-08 (bounds, not just type - closes the adversarial-review finding): Given a `SettingDefinition`
+- [x] AC-08 (bounds, not just type - closes the adversarial-review finding): Given a `SettingDefinition`
       declares a numeric `Min`/`Max` (see Technical Notes' `Bounds`), when a PUT value type-parses
       correctly but falls outside `[Min, Max]`, then the endpoint rejects it with 400 and writes NO
       override - a type-only check is not sufficient. Boolean kill switches use the separate
@@ -60,7 +60,7 @@ Design notes for the config-presence-vs-settings razor this story enforces.
       cannot set a rate-limit-permit key (e.g. `admin.operatorLogin.rateLimitPermitPerMinute`, and any
       key story 03 migrates) to a value that would defeat the limiter (an absurdly large permit count) -
       each such key's `Max` is chosen to keep the limiter meaningful, not merely non-crashing.
-- [ ] AC-09 (every settings change is logged NOW, not deferred): Given a successful PUT (write or
+- [x] AC-09 (every settings change is logged NOW, not deferred): Given a successful PUT (write or
       change an override) or DELETE (clear an override), when the call completes, then the service
       appends exactly one row to the operator action log via `IOperatorActionLog` (the seam
       `sysadmin-console/06` owns), recording the operator, the action (`settings.put` /
@@ -71,7 +71,7 @@ Design notes for the config-presence-vs-settings razor this story enforces.
       between this feature and Amendment 2); the STORE is `sysadmin-console/06`'s. Wire this through a
       thin internal seam (see Technical Notes) so building this story does not hard-block on
       `sysadmin-console/06` landing first.
-- [ ] AC-10 (a flipped kill switch or ceiling change is confirmation-gated): Given a PUT targets a key
+- [x] AC-10 (a flipped kill switch or ceiling change is confirmation-gated): Given a PUT targets a key
       marked `RequiresConfirmation` in its `SettingDefinition` (the `*.enabled` system flags this
       feature and story 02 register, and `ai.spend.monthlyCeilingUsd`), when the request body omits an
       explicit `confirm: true` field, then the endpoint rejects it with 400 and writes no override and

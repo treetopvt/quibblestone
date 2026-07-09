@@ -1,6 +1,6 @@
 # Story: One console, one auth
 
-**Feature:** Sys-Admin Console  ·  **Status:** In Review  ·  **Issue:** #198
+**Feature:** Sys-Admin Console  ·  **Status:** Complete  ·  **Issue:** #198
 
 ## Context
 ADR 0003 Layer 3 names this feature's first job: "one bundle, one auth." Today there are two
@@ -20,35 +20,35 @@ recorded in this feature's 2026-07-07 Decisions entry. See [feature.md](./featur
 [ADR 0003](../../adr/0003-admin-platform-and-family-accounts.md) Layer 3.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given `StripeModeController`'s `GET`/`POST /api/admin/stripe-mode` endpoints, when
+- [x] AC-01: Given `StripeModeController`'s `GET`/`POST /api/admin/stripe-mode` endpoints, when
       this story ships, then both require `[Authorize(Policy = OperatorSession.PolicyName)]` -
       the SAME `"Operator"` policy `AdminEntitlementsController` and `ReportedTalesController`
       already use - and neither reads or checks the `X-Operator-Secret` header any longer.
-- [ ] AC-02: Given `IOperatorGate`, `InterimSecretOperatorGate` (`api/src/Billing/IOperatorGate.cs`),
+- [x] AC-02: Given `IOperatorGate`, `InterimSecretOperatorGate` (`api/src/Billing/IOperatorGate.cs`),
       and the `Admin:ModeToggleSecret` configuration key, when this story ships, then all three
       are deleted (the interface, its implementation, its `Program.cs` DI registration, and any
       `appsettings*.json` / Key Vault reference to the config key) - there is no dead code path
       left behind "just in case."
-- [ ] AC-03: Given the kid-facing web bundle, when this story ships, then
+- [x] AC-03: Given the kid-facing web bundle, when this story ships, then
       `web/src/pages/AdminBillingMode.tsx` is deleted, the `/admin/billing-mode` route and its
       import are removed from `web/src/App.tsx`, and nothing in `web/src/` (the kid PWA) still
       references Stripe mode, the operator secret header, or any admin-only string - verified by
       a grep/bundle audit, the same discipline story 01 AC-04 established.
-- [ ] AC-04: Given the SEPARATE admin bundle (`web/src/admin/`, story 01), when an operator is
+- [x] AC-04: Given the SEPARATE admin bundle (`web/src/admin/`, story 01), when an operator is
       signed in, then a Stripe-mode panel is reachable there - showing the current active mode
       (Test/Live), when it last changed, and a control to flip it - authenticated the same way
       every other admin screen already is (the bearer credential / cookie from
       `operatorClient.ts`'s session, `PurchaserEntitlements.tsx`'s and `ReviewQueue.tsx`'s
       pattern), never a re-entered shared secret.
-- [ ] AC-05 (keep the asymmetric go-live friction): Given the new Stripe-mode panel, when an
+- [x] AC-05 (keep the asymmetric go-live friction): Given the new Stripe-mode panel, when an
       operator switches mode, then switching always goes through a confirmation naming both the
       current and target mode, and switching TO Live carries a materially stronger warning (real
       cards will be charged) than switching to Test - the exact asymmetry
       `AdminBillingMode.tsx`'s `ConfirmSwitchDialog` established, ported forward, not diluted.
-- [ ] AC-06 (no PII / operator-only data): Given the Stripe-mode panel, then it displays only the
+- [x] AC-06 (no PII / operator-only data): Given the Stripe-mode panel, then it displays only the
       active mode and its last-changed timestamp - no player, room, session, or purchaser data of
       any kind, consistent with `AdminBillingMode.tsx`'s AC-07 this story succeeds.
-- [ ] AC-07 (closes the tracked follow-up): Given this story ships, then it closes the
+- [x] AC-07 (closes the tracked follow-up): Given this story ships, then it closes the
       `billing-entitlements/07` "relocate the billing-mode toggle" follow-up recorded in this
       feature's 2026-07-07 Decisions entry - the builder adds one line to
       `billing-entitlements/feature.md`'s Decisions log noting the relocation landed (this

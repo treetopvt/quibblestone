@@ -24,7 +24,7 @@ Phase 4 "saved-story keepsakes", which this feature makes durable).
 <!-- Status: Not Started | In Progress | Complete | Blocked | Dropped -->
 | Story | Issue | Title | Status |
 |---|---|---|---|
-| 01 | #TBD | The vault: auto-save every completed reveal server-side | Not Started |
+| 01 | #196 | The vault: auto-save every completed reveal server-side | Complete |
 | 02 | #TBD | The device gallery becomes a view over the vault | Not Started |
 | 03 | #TBD | Claim and recovery | Not Started |
 | 04 | #TBD | Soft delete and restore | Not Started |

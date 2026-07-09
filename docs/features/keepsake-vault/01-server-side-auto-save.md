@@ -1,6 +1,6 @@
 # Story: The vault: auto-save every completed reveal server-side
 
-**Feature:** Keepsake Vault  ·  **Status:** In Review  ·  **Issue:** #196
+**Feature:** Keepsake Vault  ·  **Status:** Complete  ·  **Issue:** #196
 
 ## Context
 Today, a finished tale's ONLY durable copy is the device-local IndexedDB
