@@ -33,6 +33,16 @@ export interface RefreshDeviceTokenResult {
   ok: boolean;
   /** The rotated replacement token, present only on ok:true. */
   token?: string;
+  /**
+   * True ONLY when the server was reached AND authoritatively reported the token is
+   * dead (a 200 response whose body says ok:false - revoked / expired / unknown). The
+   * caller clears the stored token ONLY on this signal. A transient failure (network
+   * blip, 5xx, a 429 from the global throttle, an unparseable body) leaves this false
+   * so a still-valid token is NEVER discarded on a passing hiccup at app launch (a kid's
+   * device never signs in, so an accidental unlink would force a re-link - the exact
+   * "buy once, link once" promise this must not break).
+   */
+  dead: boolean;
 }
 
 const UNAVAILABLE_MESSAGE = "We couldn't reach the game just now - please try again in a moment.";
@@ -84,11 +94,18 @@ export async function redeemDeviceLinkCode(code: string): Promise<RedeemDeviceRe
 }
 
 /**
- * Silently rotates a stored family-device token (AC keeping the rolling TTL
- * alive), called once per app launch by useGameHub.ts when a token is present
- * and no purchaser is signed in. Resolves `{ ok: false }` on any failure
- * (including a revoked/expired/unknown token) - the caller then clears the
- * stored token, letting the device fall back to anonymous play. Never throws.
+ * Silently rotates a stored family-device token (keeping the rolling TTL alive),
+ * called once per app launch by useGameHub.ts when a token is present and no
+ * purchaser is signed in. Never throws. The result distinguishes:
+ *   - ok:true            -> rotated; the caller persists the new `token`.
+ *   - ok:false, dead:true  -> the server was reached and said the token is dead
+ *                             (revoked / expired / unknown); the caller clears it.
+ *   - ok:false, dead:false -> a TRANSIENT failure (network, 5xx, a 429 from the
+ *                             global throttle, an unparseable body); the caller
+ *                             KEEPS the token and simply tries again next launch.
+ * Only a definitive 200-with-ok:false is treated as dead, so a passing hiccup never
+ * unlinks a valid device (WR-001 - a kid's device cannot re-sign-in, so an accidental
+ * unlink would force a manual re-link).
  */
 export async function refreshFamilyDeviceToken(token: string): Promise<RefreshDeviceTokenResult> {
   try {
@@ -99,16 +116,24 @@ export async function refreshFamilyDeviceToken(token: string): Promise<RefreshDe
     });
 
     if (!response.ok) {
-      return { ok: false };
+      // Transport-level failure (5xx, a 429 from the redeem/refresh throttle, etc.) -
+      // NOT a signal that the token is dead. Keep it.
+      return { ok: false, dead: false };
     }
 
     const body: unknown = await response.json();
     const parsed = asRefreshResult(body);
     if (!parsed) {
-      return { ok: false };
+      // Reached the server but could not parse the body - treat as transient, keep the token.
+      return { ok: false, dead: false };
     }
-    return parsed;
+    if (parsed.ok && parsed.token) {
+      return { ok: true, token: parsed.token, dead: false };
+    }
+    // A parsed 200 body with ok:false is the ONLY definitive dead-token signal.
+    return { ok: false, dead: true };
   } catch {
-    return { ok: false };
+    // Network error / offline at launch - transient, keep the token.
+    return { ok: false, dead: false };
   }
 }

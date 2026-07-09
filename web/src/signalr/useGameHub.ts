@@ -909,10 +909,13 @@ export function useGameHub(): UseGameHub {
   // AFTER this has already fired does not retroactively cancel an in-flight
   // refresh, which is harmless either way (the resolver at CreateRoom already
   // prefers a purchaser session first). On success the rotated token is persisted
-  // and mirrored into the ref for the next connect/reconnect; on `{ ok: false }`
-  // (revoked / expired / unknown) the stored token is cleared so the device
-  // falls back to anonymous play, exactly like a never-linked device - never a
-  // hard failure blocking the app from loading.
+  // and mirrored into the ref for the next connect/reconnect; ONLY on a definitive
+  // dead-token signal (result.dead - the server was reached and said the token is
+  // revoked / expired / unknown) is the stored token cleared so the device falls back
+  // to anonymous play. A TRANSIENT failure (offline, 5xx, a 429 from the refresh
+  // throttle) leaves the token in place so a passing hiccup at launch never unlinks a
+  // valid device (WR-001) - a kid's device cannot re-sign-in, so it would otherwise
+  // force a manual re-link. Never a hard failure blocking the app from loading.
   useEffect(() => {
     const token = familyDeviceTokenRef.current;
     if (!token || credential !== null) return;
@@ -922,10 +925,11 @@ export function useGameHub(): UseGameHub {
       if (result.ok && result.token) {
         familyDeviceTokenRef.current = result.token;
         saveFamilyDeviceToken(result.token);
-      } else {
+      } else if (result.dead) {
         familyDeviceTokenRef.current = null;
         clearFamilyDeviceToken();
       }
+      // result.ok === false && result.dead === false -> transient: keep the token, retry next launch.
     });
     return () => {
       cancelled = true;
