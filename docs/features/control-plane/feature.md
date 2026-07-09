@@ -24,7 +24,7 @@ and-family-accounts.md`, "Layer 1 - control plane (`control-plane/01-03`)".
 | Story | Issue | Title | Status |
 |---|---|---|---|
 | 01 | #197 | The runtime settings service | Complete |
-| 02 | #213 | Capability scopes: system flags in the entitlement evaluation | Not Started |
+| 02 | #213 | Capability scopes: system flags in the entitlement evaluation | Complete |
 | 03 | #TBD | Knob migration | Not Started |
 
 ## Dependencies
