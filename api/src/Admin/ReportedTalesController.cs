@@ -73,7 +73,10 @@ public sealed record ReportedTaleActionResult(string Slug, bool Applied, string 
 
 [ApiController]
 [Route("api/admin/reported-tales")]
-[Authorize(Policy = OperatorSession.PolicyName)]
+// sysadmin-console/05 (#214): the CONTENT scope (moderation). Same Operator credential
+// boundary PLUS the Content scope - a no-op for today's all-scopes operator (AC-05); a
+// future content-only moderator is a config entry, not a rework (AC-06).
+[Authorize(Policy = OperatorScopePolicy.Content)]
 public sealed class ReportedTalesController : ControllerBase
 {
     private readonly IPublishedTaleStore _store;

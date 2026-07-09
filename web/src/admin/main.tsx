@@ -1,6 +1,7 @@
 // ----------------------------------------------------------------------------
 //  admin/main.tsx - entry point for the SEPARATE operator back office
-//  (sysadmin-console/01, issue #135; extended by sysadmin-console/03, issue #137).
+//  (sysadmin-console/01, issue #135; extended by /03 #137, /04, and /05's jobs
+//  shell reorganization, issue #214).
 //
 //  This is a SECOND, independent Vite entry (web/admin.html -> here), NOT part of
 //  the kid app's bundle (AC-04, load-bearing). It mounts the back office inside the
@@ -9,16 +10,21 @@
 //  It imports NOTHING from the kid app (pages / signalr / gallery / engine /
 //  components) and opens NO SignalR connection - the back office has no realtime.
 //
-//  THE MINIMAL POST-LOGIN SHELL (sysadmin-console/03, extended by /02): on load the
-//  shell checks for an established operator session (GET /api/admin/session, story
-//  01). Until it answers it shows a brief loader; then it renders EITHER <AdminLogin/>
-//  (no session) OR - once an operator session exists - a tiny three-tab back office
-//  switching between the <ReviewQueue/> reported-tales screen (story 03), the
-//  <PurchaserEntitlements/> grant / revoke screen (story 02, #136), and the
-//  <StripeModePanel/> live/test Stripe-mode screen (story 04, the interim third tab
-//  story 05 relocates into Operations). The tab is a single useState toggle, NOT a
-//  router - keeping the entry minimal keeps the admin bundle small and free of any
-//  kid-app code (AC-04 / AC-05).
+//  THE JOBS SHELL (sysadmin-console/05, AC-01): on load the shell checks for an
+//  established operator session (GET /api/admin/session, story 01). Until it
+//  answers it shows a brief loader; then it renders EITHER <AdminLogin/> (no
+//  session) OR - once an operator session exists - a three-tab back office
+//  organized around the JOBS an operator does (ADR 0003 Layer 3), not around
+//  which feature happened to ship a screen: Support (find a person, fix their
+//  problem - <PurchaserEntitlements/>, story 02, relocated as-is, AC-02),
+//  Content (moderation - <ReviewQueue/>, story 03, relocated as-is, AC-03), and
+//  Operations (settings/flags + Stripe mode - <OperationsPanel/>, composing
+//  story 04's Stripe-mode panel with the new dependency-tolerant settings view,
+//  AC-04). This replaces the prior flat 'review' | 'entitlements' | 'stripe-mode'
+//  shell. The tab is a single useState toggle, NOT a router - keeping the entry
+//  minimal keeps the admin bundle small and free of any kid-app code (AC-04 (of
+//  story 01) / AC-05). No role-management or operator-list UI is added anywhere
+//  here (AC-07 of story 05 - out of scope, parked in feature.md).
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -29,16 +35,14 @@ import { Box, CircularProgress, CssBaseline, Stack, Tab, Tabs, ThemeProvider } f
 import { AdminLogin } from './AdminLogin';
 import { ReviewQueue } from './ReviewQueue';
 import { PurchaserEntitlements } from './PurchaserEntitlements';
-import { StripeModePanel } from './StripeModePanel';
+import { OperationsPanel } from './OperationsPanel';
+import { ADMIN_TABS, type AdminTab } from './adminTabs';
 import { getOperatorSession, type OperatorSessionResult } from './operatorClient';
 import { theme } from '../theme';
 import './fontawesome';
 
 /** The shell's session-check phase: still checking, signed in, or not signed in. */
 type ShellPhase = 'checking' | 'signed-in' | 'signed-out';
-
-/** Which post-login back-office screen is showing (a plain toggle, not a route). */
-type AdminTab = 'review' | 'entitlements' | 'stripe-mode';
 
 /**
  * The back-office shell: checks for an operator session once on load and routes
@@ -49,7 +53,7 @@ type AdminTab = 'review' | 'entitlements' | 'stripe-mode';
 function AdminShell() {
   const [phase, setPhase] = useState<ShellPhase>('checking');
   const [operatorEmail, setOperatorEmail] = useState<string>('');
-  const [tab, setTab] = useState<AdminTab>('review');
+  const [tab, setTab] = useState<AdminTab>('support');
   // The short-lived operator credential handed up by AdminLogin's verify, held IN
   // MEMORY for the shell's lifetime (never persisted - mirrors the purchaser
   // PurchaserSession). It is the PRIMARY credential on a cross-ORIGIN deployment (web
@@ -107,7 +111,7 @@ function AdminShell() {
   if (phase === 'signed-in') {
     return (
       <Stack sx={{ minHeight: '100dvh' }}>
-        {/* The minimal back-office nav: a two-tab toggle, not a router (AC-05). */}
+        {/* The minimal back-office nav: a three-JOB toggle, not a router (AC-01/AC-05). */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs
             value={tab}
@@ -115,14 +119,19 @@ function AdminShell() {
             variant="fullWidth"
             sx={{ maxWidth: 720, mx: 'auto' }}
           >
-            <Tab value="review" label="Reported tales" sx={{ fontWeight: 800, minHeight: 56 }} />
-            <Tab value="entitlements" label="Entitlements" sx={{ fontWeight: 800, minHeight: 56 }} />
-            <Tab value="stripe-mode" label="Stripe mode" sx={{ fontWeight: 800, minHeight: 56 }} />
+            {ADMIN_TABS.map((descriptor) => (
+              <Tab
+                key={descriptor.value}
+                value={descriptor.value}
+                label={descriptor.label}
+                sx={{ fontWeight: 800, minHeight: 56 }}
+              />
+            ))}
           </Tabs>
         </Box>
-        {tab === 'review' && <ReviewQueue operatorEmail={operatorEmail} credential={credential} />}
-        {tab === 'entitlements' && <PurchaserEntitlements operatorEmail={operatorEmail} credential={credential} />}
-        {tab === 'stripe-mode' && <StripeModePanel operatorEmail={operatorEmail} credential={credential} />}
+        {tab === 'support' && <PurchaserEntitlements operatorEmail={operatorEmail} credential={credential} />}
+        {tab === 'content' && <ReviewQueue operatorEmail={operatorEmail} credential={credential} />}
+        {tab === 'ops' && <OperationsPanel operatorEmail={operatorEmail} credential={credential} />}
       </Stack>
     );
   }

@@ -43,7 +43,10 @@ public sealed record StripeModeChangeBody(string? Mode);
 
 [ApiController]
 [Route("api/admin/stripe-mode")]
-[Authorize(Policy = OperatorSession.PolicyName)]
+// sysadmin-console/05 (#214): the OPS scope (operations - settings / flags / Stripe mode).
+// Same Operator credential boundary PLUS the Ops scope - a no-op for today's all-scopes
+// operator (AC-05); a future ops-only operator is a config entry, not a rework (AC-06).
+[Authorize(Policy = OperatorScopePolicy.Ops)]
 public sealed class StripeModeController : ControllerBase
 {
     private readonly IActiveStripeContext _context;

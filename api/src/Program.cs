@@ -31,6 +31,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.SignalR;
 using QuibbleStone.Api.Accounts;
+using Microsoft.AspNetCore.Authorization;
 using QuibbleStone.Api.Admin;
 using QuibbleStone.Api.Ai;
 using QuibbleStone.Api.Billing;
@@ -964,7 +965,31 @@ builder.Services.AddAuthorization(options =>
         policy.AddAuthenticationSchemes(OperatorSession.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
     });
+
+    // sysadmin-console/05 (#214): the three SCOPED operator policies (Support / Content
+    // / Ops). Each pins the SAME Operator scheme + RequireAuthenticatedUser as the base
+    // policy (so only a valid operator credential authenticates - the story 01 boundary
+    // is unchanged) AND adds an OperatorScopeRequirement, so a de-scoped future operator
+    // is rejected at the policy layer (a 403), not by convention. TODAY the single
+    // operator holds all three scopes (ConfigurationOperatorAllowlist.ScopesFor's
+    // all-three default for an operator with no Operator:Scopes entry), so every scope
+    // requirement succeeds and the existing controller test suites pass UNMODIFIED
+    // (AC-05). This is additive metadata - the base "Operator" policy above still exists
+    // for the session echo and any un-scoped admin surface.
+    foreach (var scope in Enum.GetValues<OperatorScope>())
+    {
+        options.AddPolicy(OperatorScopePolicy.For(scope), policy =>
+        {
+            policy.AddAuthenticationSchemes(OperatorSession.AuthenticationScheme);
+            policy.RequireAuthenticatedUser();
+            policy.AddRequirements(new OperatorScopeRequirement(scope));
+        });
+    }
 });
+// The handler that resolves an operator's scope set (from the config-backed allowlist)
+// and evaluates each OperatorScopeRequirement (sysadmin-console/05). Singleton: it holds
+// only the singleton IOperatorAllowlist and is otherwise stateless.
+builder.Services.AddSingleton<IAuthorizationHandler, OperatorScopeHandler>();
 
 // Real-time hub. For production scale-out, chain .AddAzureSignalR(...):
 //   builder.Services.AddSignalR()

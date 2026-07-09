@@ -56,6 +56,26 @@ public sealed class ConfigurationOperatorAllowlist : IOperatorAllowlist
     /// </summary>
     public const string ConfigKey = "Operator:AllowedEmails";
 
+    /// <summary>
+    /// The configuration key holding the per-operator SCOPE lists (sysadmin-console/05,
+    /// AC-06), read in the SAME dual shape as <see cref="ConfigKey"/> and INDEX-ALIGNED
+    /// with it:
+    /// <list type="bullet">
+    /// <item>an indexed ARRAY (<c>Operator:Scopes:0</c>, <c>:1</c>, ...) - each entry a
+    /// comma-delimited scope list (<c>"support,content,ops"</c>) or the shorthand
+    /// <c>"all"</c>; entry <c>:n</c> is the scope list for <c>Operator:AllowedEmails:n</c>.</item>
+    /// <item>a single DELIMITED SCALAR (one Key Vault secret) - semicolon-separated
+    /// POSITIONS aligned with the semicolon-separated <see cref="ConfigKey"/> scalar,
+    /// each position's scopes plus-joined (<c>"support+content+ops;support"</c>).</item>
+    /// </list>
+    /// A MISSING key, a missing index, or an unparseable entry defaults that operator to
+    /// ALL THREE scopes (fail-open on WIDTH only - membership stays fail-closed). So an
+    /// operator with no entry is unrestricted (today's zero-config no-op), and adding a
+    /// restricted future entry is one config value, never a schema change. See
+    /// <see cref="ScopesFor"/>.
+    /// </summary>
+    public const string ScopesConfigKey = "Operator:Scopes";
+
     private readonly IConfiguration _configuration;
 
     public ConfigurationOperatorAllowlist(IConfiguration configuration)
@@ -93,6 +113,47 @@ public sealed class ConfigurationOperatorAllowlist : IOperatorAllowlist
         return false;
     }
 
+    /// <inheritdoc />
+    public IReadOnlySet<OperatorScope> ScopesFor(string? email)
+    {
+        var candidate = Normalize(email);
+        if (candidate.Length == 0)
+        {
+            // Fail closed on MEMBERSHIP: a blank candidate is never an operator, so it
+            // holds no scopes at all (the scope check never runs ahead of membership).
+            return OperatorScopes.None;
+        }
+
+        // Find the operator's POSITION in the configured allowlist - scopes are aligned
+        // by that index (Operator:Scopes:n is the scope list for AllowedEmails:n). The
+        // raw ordered list (blanks preserved for the array shape) is the alignment basis.
+        var emails = ReadConfiguredEmails().ToList();
+        var index = -1;
+        for (var i = 0; i < emails.Count; i++)
+        {
+            var normalized = Normalize(emails[i]);
+            if (normalized.Length > 0 && string.Equals(normalized, candidate, StringComparison.Ordinal))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+        {
+            // Not an allowlisted operator -> no scopes (membership fail-closed, AC-06).
+            return OperatorScopes.None;
+        }
+
+        // Read the scope entry at that index. A missing key, a missing index, or an
+        // unparseable entry defaults to ALL THREE scopes (fail-open on width, AC-06) -
+        // which is why today's single, un-configured operator keeps every scope and
+        // behavior is unchanged.
+        var scopeEntries = ReadConfiguredScopeEntries();
+        var entry = index < scopeEntries.Count ? scopeEntries[index] : null;
+        return ParseScopeEntry(entry);
+    }
+
     /// <summary>
     /// Reads the configured operator emails, supporting BOTH config shapes so one
     /// code path serves local dev, the tests, AND a Key Vault-backed deployment:
@@ -128,6 +189,90 @@ public sealed class ConfigurationOperatorAllowlist : IOperatorAllowlist
         return scalar.Split(
             [';', ','],
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    /// <summary>
+    /// Reads the per-operator scope ENTRIES positionally (sysadmin-console/05, AC-06),
+    /// supporting the SAME dual shape as the emails so one code path serves local dev,
+    /// tests, and a Key Vault-backed deployment. Position <c>n</c> of the returned list
+    /// is the raw scope entry for the operator at index <c>n</c> of
+    /// <see cref="ReadConfiguredEmails"/> (a null / absent position -> the all-three
+    /// default in <see cref="ParseScopeEntry"/>):
+    /// <list type="bullet">
+    /// <item>Array shape (<c>Operator:Scopes:0</c>, <c>:1</c>, ...): used verbatim, one
+    /// entry per index.</item>
+    /// <item>Scalar shape (one Key Vault secret): split on ";" ONLY, WITHOUT dropping
+    /// empties, so a blank position is preserved and still aligns by index (an empty
+    /// position defaults to all three). Internal scope joining (","/"+") is handled by
+    /// <see cref="ParseScopeEntry"/>.</item>
+    /// </list>
+    /// Returns an empty list when the key is unset - every operator then defaults to all
+    /// three scopes, the zero-config no-op.
+    /// </summary>
+    private IReadOnlyList<string?> ReadConfiguredScopeEntries()
+    {
+        // Array shape first, mirroring ReadConfiguredEmails so the two align by index.
+        var array = _configuration.GetSection(ScopesConfigKey).Get<string[]>();
+        if (array is { Length: > 0 })
+        {
+            return array;
+        }
+
+        // Fallback: a single delimited scalar (one Key Vault secret). Split on ";" only
+        // and DO NOT remove empty entries - positions must stay aligned with the emails
+        // scalar, and an empty position simply falls back to the all-three default.
+        var scalar = _configuration[ScopesConfigKey];
+        if (string.IsNullOrWhiteSpace(scalar))
+        {
+            return [];
+        }
+
+        return scalar.Split(';');
+    }
+
+    /// <summary>
+    /// Parses one raw scope entry into a concrete scope set (sysadmin-console/05, AC-06).
+    /// Tolerant of BOTH the array shape's comma delimiter and the scalar shape's plus
+    /// delimiter (split on either). The rules, all defaulting toward ALL THREE (fail-open
+    /// on width, never accidentally narrowing an operator to nothing):
+    /// <list type="bullet">
+    /// <item>null / blank / no recognizable tokens -> all three (the unconfigured /
+    /// unparseable default).</item>
+    /// <item>any token equal to "all" (case-insensitive) -> all three.</item>
+    /// <item>otherwise the set of recognized tokens; if AT LEAST ONE token is a valid
+    /// scope that restricted subset is honored (e.g. "support" -> just Support), and any
+    /// unrecognized tokens are ignored.</item>
+    /// </list>
+    /// </summary>
+    private static IReadOnlySet<OperatorScope> ParseScopeEntry(string? entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry))
+        {
+            return OperatorScopes.All;
+        }
+
+        var tokens = entry.Split(
+            [',', '+'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var scopes = new HashSet<OperatorScope>();
+        foreach (var token in tokens)
+        {
+            // The "all" shorthand short-circuits to every scope regardless of siblings.
+            if (string.Equals(token, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                return OperatorScopes.All;
+            }
+
+            if (OperatorScopes.TryParse(token, out var scope))
+            {
+                scopes.Add(scope);
+            }
+        }
+
+        // A fully-unparseable entry (no recognized token) defaults to all three rather
+        // than silently locking the operator out (fail-open on width, AC-06).
+        return scopes.Count > 0 ? scopes : OperatorScopes.All;
     }
 
     /// <summary>

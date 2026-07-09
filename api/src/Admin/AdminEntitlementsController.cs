@@ -105,7 +105,11 @@ public sealed record EntitlementActionResult(PurchaserLookupResult Purchaser, st
 
 [ApiController]
 [Route("api/admin/purchasers")]
-[Authorize(Policy = OperatorSession.PolicyName)]
+// sysadmin-console/05 (#214): the SUPPORT scope (find a person, fix their problem). This
+// pins the same Operator credential boundary as the base policy PLUS the Support scope -
+// today's single operator holds all scopes, so this is a no-op (AC-05); a future
+// support-only moderator is a config entry, not a controller rework (AC-06).
+[Authorize(Policy = OperatorScopePolicy.Support)]
 public sealed class AdminEntitlementsController : ControllerBase
 {
     private readonly IAccountStore _accounts;
