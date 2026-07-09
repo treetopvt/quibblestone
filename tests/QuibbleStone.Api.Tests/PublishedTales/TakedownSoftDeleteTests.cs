@@ -46,7 +46,7 @@ public sealed class TakedownSoftDeleteTests
 
     private static PublishedTalesController NewController(IPublishedTaleStore store)
     {
-        var controller = new PublishedTalesController(store, Safety, Config())
+        var controller = new PublishedTalesController(store, Safety, TestRuntimeSettings.Defaults(), Config())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
