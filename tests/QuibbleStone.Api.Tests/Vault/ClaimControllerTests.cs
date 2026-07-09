@@ -48,7 +48,8 @@ public sealed class ClaimControllerTests
         VaultController Controller,
         InMemoryVaultStore Store,
         PurchaserCredentialService Credential,
-        InMemoryAccountStore Accounts);
+        InMemoryAccountStore Accounts,
+        ClaimRedemptionCeiling Ceiling);
 
     // A shared store can be passed in so two harnesses (two devices) share the
     // SAME backing state - mirroring VaultControllerTests' NewHarness(store).
@@ -57,11 +58,12 @@ public sealed class ClaimControllerTests
         store ??= new InMemoryVaultStore();
         var credential = new PurchaserCredentialService(new EphemeralDataProtectionProvider());
         var accounts = new InMemoryAccountStore();
-        var controller = new VaultController(store, Safety, credential, accounts, new ClaimRedemptionCeiling())
+        var ceiling = new ClaimRedemptionCeiling();
+        var controller = new VaultController(store, Safety, credential, accounts, ceiling)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
-        return new Harness(controller, store, credential, accounts);
+        return new Harness(controller, store, credential, accounts, ceiling);
     }
 
     private static void PresentVaultId(Harness h, string vaultId)
@@ -232,6 +234,29 @@ public sealed class ClaimControllerTests
     public async Task Redeem_without_a_vault_id_header_is_400()
     {
         var h = NewHarness();
+        var result = await h.Controller.RedeemClaimCode(new RedeemClaimCodeRequest("ANYCODE12"), CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    // AC-03.2 (anti-DoS): a malformed request (no vault id) must be a 400 that does NOT
+    // consume the global-ceiling budget - otherwise cheap malformed requests could
+    // exhaust the shared budget and block legitimate recovery. The vault-id check runs
+    // BEFORE the ceiling, so even a fully-drained ceiling still yields 400 (not 429) for
+    // a header-less request.
+    [Fact]
+    public async Task Redeem_without_a_vault_id_is_400_even_when_the_global_ceiling_is_exhausted()
+    {
+        var h = NewHarness();
+
+        // Drain the whole global budget for this window.
+        for (var i = 0; i < ClaimRedemptionCeiling.GlobalRedemptionCeiling; i++)
+        {
+            Assert.True(h.Ceiling.TryAcquire());
+        }
+        Assert.False(h.Ceiling.TryAcquire());
+
+        // No X-Vault-Id header presented -> still a 400 (the vault-id guard precedes the
+        // ceiling), never a 429, so a malformed flood never spends the recovery budget.
         var result = await h.Controller.RedeemClaimCode(new RedeemClaimCodeRequest("ANYCODE12"), CancellationToken.None);
         Assert.IsType<BadRequestObjectResult>(result);
     }

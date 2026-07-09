@@ -167,7 +167,11 @@ export function VaultClaimPanel({ vaultId, isSignedIn, credential, onRecovered }
     }
   };
 
-  const showClaimCta = isSignedIn && vaultId !== null && status !== null && !status.claimed;
+  // Show the claim CTA whenever the vault is not KNOWN to be claimed - including when
+  // the status probe failed (status === null): a network hiccup on getVaultClaim must
+  // not hide the CTA from a signed-in family, since claiming can still succeed (and
+  // re-claiming an already-claimed vault just rotates the code, harmlessly).
+  const showClaimCta = isSignedIn && vaultId !== null && status?.claimed !== true;
   // Guard rather than assert (TS-strict convention): narrow through the claimed flag
   // so `code` is a real VaultClaimCode | null without a non-null `!` or a cast.
   const code: VaultClaimCode | null =

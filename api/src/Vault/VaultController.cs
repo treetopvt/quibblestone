@@ -480,19 +480,23 @@ public sealed class VaultController : ControllerBase
     [EnableRateLimiting(VaultRateLimit.RedeemPolicyName)]
     public async Task<IActionResult> RedeemClaimCode([FromBody] RedeemClaimCodeRequest? request, CancellationToken cancellationToken)
     {
-        // AC-03.2: the IP-agnostic global ceiling - the control that bounds a
-        // distributed, IP-rotating brute force the per-IP limiter cannot. Checked
-        // BEFORE any store work so a flood never reaches the reverse-index lookup.
-        if (!_redemptionCeiling.TryAcquire())
-        {
-            return StatusCode(StatusCodes.Status429TooManyRequests,
-                new { message = "Too many recovery attempts right now - please try again in a minute." });
-        }
-
+        // Validate the calling vault id FIRST - a malformed request is a 400 that must
+        // NOT consume the global-ceiling budget, or an attacker could exhaust AC-03.2's
+        // shared budget with cheap malformed requests and block legitimate recovery.
         var callingVaultId = ReadVaultId();
         if (callingVaultId is null)
         {
             return BadRequest(new { message = "A valid vault id is required." });
+        }
+
+        // AC-03.2: the IP-agnostic global ceiling - the control that bounds a
+        // distributed, IP-rotating brute force the per-IP limiter cannot. Consumed only
+        // by a well-formed redemption attempt, and BEFORE any store work so a flood
+        // never reaches the reverse-index lookup.
+        if (!_redemptionCeiling.TryAcquire())
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { message = "Too many recovery attempts right now - please try again in a minute." });
         }
 
         // Normalize the human-typed code to canonical form (tolerating hyphens /

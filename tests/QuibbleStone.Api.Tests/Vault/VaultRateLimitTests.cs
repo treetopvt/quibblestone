@@ -81,7 +81,7 @@ public sealed class VaultRateLimitTests
     }
 
     [Fact]
-    public void The_redeem_policys_partition_key_is_the_same_per_ip_scheme_as_save_and_read()
+    public void The_redeem_policy_partition_key_is_the_same_per_ip_scheme_as_save_and_read()
     {
         // The redeem endpoint reuses this SAME PartitionKey (no separate scheme) -
         // proven here by exercising it exactly as the save/read tests above do.

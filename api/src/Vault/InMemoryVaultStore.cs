@@ -118,8 +118,10 @@ public sealed class InMemoryVaultStore : IVaultStore
         }
 
         // Store under the CANONICAL vault id (an aliased device's tales join the
-        // claimed vault). The tale's own VaultId field is left as passed - the key is
-        // what determines placement, mirroring the Table store's PartitionKey.
+        // claimed vault): both the partition KEY and the stored record's VaultId are the
+        // resolved canonical id, so a later read returns the tale under the vault it
+        // actually lives in - mirroring the Table store, whose PartitionKey is likewise
+        // the canonical id.
         partition[tale.TaleId] = tale with { VaultId = vaultId };
         return Task.FromResult(VaultSaveOutcome.Saved);
     }

@@ -76,6 +76,14 @@ describe('getVaultClaim', () => {
     expect(result).toEqual({ claimed: true, code: CODE_VIEW });
   });
 
+  it('resolves null when claimed is true but the code shape is malformed', async () => {
+    // A claimed vault MUST carry a well-formed code; a malformed one is an
+    // unparseable body (resolves null), never { claimed: true, code: null } which
+    // would leave the UI with neither a claim CTA nor a code.
+    mockFetch(() => okJson({ claimed: true, code: { claimCode: 'K5Q-2NX-8CP' } }));
+    await expect(getVaultClaim(VAULT_ID)).resolves.toBeNull();
+  });
+
   it('resolves null (never throws) on a network failure', async () => {
     mockFetch(() => Promise.reject(new Error('offline')));
     await expect(getVaultClaim(VAULT_ID)).resolves.toBeNull();

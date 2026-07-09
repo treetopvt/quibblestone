@@ -71,7 +71,12 @@ function asClaimStatus(value: unknown): VaultClaimStatus | null {
   if (typeof value !== 'object' || value === null) return null;
   const r = value as Record<string, unknown>;
   if (typeof r.claimed !== 'boolean') return null;
-  return { claimed: r.claimed, code: r.claimed ? asClaimCode(r.code) : null };
+  if (!r.claimed) return { claimed: false, code: null };
+  // A claimed vault MUST carry a well-formed code; a malformed code shape means an
+  // unparseable body, which the contract resolves to null (never { claimed: true,
+  // code: null }, which would leave the UI with neither a CTA nor a code).
+  const code = asClaimCode(r.code);
+  return code === null ? null : { claimed: true, code };
 }
 
 /**
