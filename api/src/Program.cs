@@ -42,6 +42,7 @@ using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Rooms;
 using QuibbleStone.Api.Safety;
 using QuibbleStone.Api.Telemetry;
+using QuibbleStone.Api.Vault;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -417,6 +418,35 @@ builder.Services.AddRateLimiter(options =>
                 Window = EmailInviteRateLimit.Window,
                 QueueLimit = 0,
             }));
+
+    // keepsake-vault/01 (#196, AC-06): the anonymous keepsake-vault endpoints' per-IP
+    // guards, in this SAME registration alongside the policies above. UNLIKE the
+    // sibling keepsake surfaces (which limit their WRITE only), BOTH the vault write
+    // and the vault READ are limited - the vault's read is an anonymous, bearer-id-
+    // gated partition list a scripted caller could otherwise scrape. Only POST
+    // /api/vault/tales (VaultSave) and GET /api/vault/tales (VaultRead) opt in (via
+    // [EnableRateLimiting]); the mint endpoint and the whole game path are untouched.
+    // The write window is tighter than the read window. 429 on reject; per-IP behind
+    // App Service via the ForwardedHeaders config below. The residual (one attacker
+    // rotating IPs against one vault id) is covered by the per-vault cap (AC-07).
+    options.AddPolicy(VaultRateLimit.SavePolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: VaultRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = VaultRateLimit.SavePermitLimit,
+                Window = VaultRateLimit.Window,
+                QueueLimit = 0,
+            }));
+    options.AddPolicy(VaultRateLimit.ReadPolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: VaultRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = VaultRateLimit.ReadPermitLimit,
+                Window = VaultRateLimit.Window,
+                QueueLimit = 0,
+            }));
 });
 
 // keepsake-gallery/04 (shareable tale link): the published-tale store, chosen at
@@ -470,6 +500,37 @@ else
         new TableStorageCloudGalleryStore(
             cloudGalleryConnectionString,
             sp.GetRequiredService<ILogger<TableStorageCloudGalleryStore>>()));
+}
+
+// keepsake-vault/01 (anonymous server-side keepsake vault, #196): the vault store,
+// chosen at STARTUP by whether a storage connection string is configured - the
+// SAME config-presence idiom as the stores above, with a WORKING in-memory
+// fallback (LIKE the cloud-gallery store, NOT the published-tale disabled no-op)
+// because the vault is DEFAULT-ON for every anonymous player, so the whole
+// save -> list flow this and later stories build on must be exercisable with ZERO
+// Azure setup. This is an anonymous, vault-id-keyed surface (VaultController), kept
+// isolated from GameHub and the round lifecycle (the keepsake-gallery precedent).
+// WITH a connection string (supplied per-environment, NEVER a committed literal),
+// tales persist to the "VaultTales" table keyed PartitionKey = vaultId,
+// RowKey = tale id for a single-partition list (AC-02/AC-04); the TTL is computed
+// from CreatedUtc at read time (AC-03) and a per-vault cap bounds growth (AC-07).
+// WITHOUT one (local dev, CI, a fresh clone), the working in-memory store keeps the
+// flow live. A singleton either way (stateless past construction / holds the
+// process-local map). Access is gated by possession of the bearer vault id + the
+// AC-01 length/format floor + the AC-06 per-IP rate limits, never a disabled flag.
+// This is one of the ADR 0003 wave-1 Program.cs service registrations - it lands as
+// its own small, rebased PR, not batched with the sibling wave-1 edits.
+var vaultConnectionString = builder.Configuration["Vault:StorageConnectionString"];
+if (string.IsNullOrWhiteSpace(vaultConnectionString))
+{
+    builder.Services.AddSingleton<IVaultStore, InMemoryVaultStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IVaultStore>(sp =>
+        new TableStorageVaultStore(
+            vaultConnectionString,
+            sp.GetRequiredService<ILogger<TableStorageVaultStore>>()));
 }
 
 // keepsake-gallery/04 (W-001, deployment hardening): make the per-IP publish

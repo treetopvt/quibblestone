@@ -82,6 +82,12 @@ public sealed class PiiScrubbingTelemetryInitializer : ITelemetryInitializer
         "playerId", "sessionId", "connectionId",
         "word", "answer", "story", "storyText", "text",
         "ip", "ipAddress",
+        // keepsake-vault/01 (#196, ADR 0003 "Handles are secrets"): the vault id is a
+        // bearer credential - it must never ride telemetry through the Properties bag
+        // (it travels in the X-Vault-Id header, never a query string / path, so the
+        // path/query scrub above already covers the request URL; this is the
+        // belt-and-braces for a custom property).
+        "vaultId",
     };
 
     /// <summary>
