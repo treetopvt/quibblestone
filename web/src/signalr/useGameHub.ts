@@ -166,6 +166,24 @@
 //      existing staleness signal - so a rejection that resolves late never clobbers
 //      a newer room that already landed. It also sets `rejoinFailedNotice` (exposed
 //      below) so Home can explain the bounce instead of leaving it silent.
+//
+//  accounts-identity/09 extends the SAME accessTokenFactory (story 06) to also
+//  cover a kid's device that is never signed in (README section 6): it now
+//  prefers a live signed-in purchaser credential if present, ELSE falls back to
+//  a stored family-device token (../account/familyDeviceToken.ts - deliberately
+//  localStorage, surviving app restarts on the kid's own device, unlike the
+//  in-memory PurchaserSession), ELSE supplies nothing (anonymous, unchanged free
+//  play). `familyDeviceTokenRef` mirrors the CURRENT token the SAME way
+//  `purchaserCredentialRef` mirrors the purchaser credential - read by the
+//  factory getter on every (re)connection, never forcing one. Once per app
+//  launch (a mount-time effect, not per hub reconnect), when a device token is
+//  present and no purchaser is signed in, this hook calls the companion REST
+//  refresh endpoint (`../account/deviceRedeemClient.ts`) to keep the token's
+//  rolling TTL alive: on success the rotated replacement is persisted and
+//  mirrored into the ref (picked up by the very next connect/reconnect, no
+//  forced reconnect of its own); on `{ ok: false }` (a revoked/expired/unknown
+//  token) the stored token is cleared, so the device falls back to anonymous
+//  exactly as if it had never been linked - never a hard failure blocking play.
 // ----------------------------------------------------------------------------
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -179,6 +197,12 @@ import type { LengthPreference } from '../content/length';
 import type { ReactionCounts, ReactionType } from '../components/ReactionRow';
 import { clearReconnectHandle, loadReconnectHandle, saveReconnectHandle } from '../reconnect';
 import { usePurchaserSession } from '../account/PurchaserSession';
+import {
+  clearFamilyDeviceToken,
+  loadFamilyDeviceToken,
+  saveFamilyDeviceToken,
+} from '../account/familyDeviceToken';
+import { refreshFamilyDeviceToken } from '../account/deviceRedeemClient';
 
 const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
 
@@ -868,6 +892,46 @@ export function useGameHub(): UseGameHub {
   useEffect(() => {
     purchaserCredentialRef.current = credential;
   }, [credential]);
+  // accounts-identity/09: the stored family-device token (../account/familyDeviceToken.ts),
+  // read ONCE at mount into a ref - mirrors purchaserCredentialRef's shape so the
+  // accessTokenFactory getter below reads the CURRENT value with no rebuild of the
+  // one shared connection. Updated in place (never via setState - this never needs
+  // to trigger a render) by the refresh effect just below, and by a caller that
+  // saves a freshly redeemed token (RedeemDevice.tsx) picking it up on this
+  // device's NEXT app launch (this ref is seeded once per mount, not re-read live).
+  const familyDeviceTokenRef = useRef<string | null>(loadFamilyDeviceToken());
+  // accounts-identity/09: once per app launch (empty deps - never per hub
+  // reconnect), if this device holds a family-device token AND no purchaser is
+  // signed in, silently rotate it via the companion refresh endpoint to keep its
+  // rolling TTL alive (the story's Technical Notes: "the client calls it once per
+  // app launch, not per hub reconnect"). `credential` is read from the closure at
+  // the moment this effect first runs (mount); a purchaser who signs in only
+  // AFTER this has already fired does not retroactively cancel an in-flight
+  // refresh, which is harmless either way (the resolver at CreateRoom already
+  // prefers a purchaser session first). On success the rotated token is persisted
+  // and mirrored into the ref for the next connect/reconnect; on `{ ok: false }`
+  // (revoked / expired / unknown) the stored token is cleared so the device
+  // falls back to anonymous play, exactly like a never-linked device - never a
+  // hard failure blocking the app from loading.
+  useEffect(() => {
+    const token = familyDeviceTokenRef.current;
+    if (!token || credential !== null) return;
+    let cancelled = false;
+    void refreshFamilyDeviceToken(token).then((result) => {
+      if (cancelled) return;
+      if (result.ok && result.token) {
+        familyDeviceTokenRef.current = result.token;
+        saveFamilyDeviceToken(result.token);
+      } else {
+        familyDeviceTokenRef.current = null;
+        clearFamilyDeviceToken();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [room, setRoom] = useState<RoomState | null>(null);
   // Whether this client hosts the current room (set by createRoom / joinRoom,
@@ -1122,14 +1186,19 @@ export function useGameHub(): UseGameHub {
   useEffect(() => {
     const connection = new HubConnectionBuilder()
       .withUrl(HUB_URL, {
-        // accounts-identity/06 (AC-01): supply the signed-in purchaser's EXISTING
-        // credential (no new credential type is minted for this). A GETTER, not a
-        // snapshot - SignalR calls it before every (re)connection attempt, so it reads
-        // purchaserCredentialRef's CURRENT value; a purchaser who signs in after the
-        // connection is built is picked up on the next reconnect without a forced one.
-        // Empty string when signed out (the common case) - the server treats an absent/
-        // empty token as anonymous, so free play is byte-for-byte unchanged (AC-05).
-        accessTokenFactory: () => purchaserCredentialRef.current ?? '',
+        // accounts-identity/06 (AC-01), extended by accounts-identity/09: supply the
+        // signed-in purchaser's EXISTING credential (no new credential type is minted
+        // for this) if present, ELSE fall back to this device's stored family-device
+        // token (accounts-identity/09 - a kid's device that is never signed in but
+        // was linked from a parent's Account page), ELSE supply nothing (fully
+        // anonymous, unchanged free play). A GETTER, not a snapshot - SignalR calls it
+        // before every (re)connection attempt, so it reads both refs' CURRENT values;
+        // a purchaser who signs in, or a device that gets linked/rotated/revoked,
+        // after the connection is built is picked up on the next reconnect without a
+        // forced one. Empty string when neither is present - the server treats an
+        // absent/empty token as anonymous, so free play is byte-for-byte unchanged
+        // (AC-05 of story 06, AC-06 of story 09).
+        accessTokenFactory: () => purchaserCredentialRef.current ?? familyDeviceTokenRef.current ?? '',
       })
       // Jittered automatic reconnect: the default policy's fixed 0/2/10/30s
       // schedule makes every client stampede the hub in lockstep after a

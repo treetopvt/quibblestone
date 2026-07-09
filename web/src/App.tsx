@@ -4,8 +4,12 @@
 //  Routing model: real URLs via react-router, but REAL-TIME STATE STAYS THE
 //  AUTHORITY. The routes are '/' (Home), '/host' (HostSetup), '/join' +
 //  '/join/:code' (Join, deep-link pre-filled), '/solo', '/favorites',
-//  '/gallery', '/lobby', '/round', '/reveal', '/recap'. Entry screens ('/',
-//  '/host', '/join', '/solo', '/favorites', '/gallery') are user-driven. The
+//  '/gallery', '/account', '/link-device', '/lobby', '/round', '/reveal',
+//  '/recap'. Entry screens ('/', '/host', '/join', '/solo', '/favorites',
+//  '/gallery', '/account', '/link-device') are user-driven. accounts-identity/09
+//  adds '/link-device' (RedeemDevice.tsx): the ONE route reachable with no
+//  sign-in AND no live room, since a kid's device redeeming a parent-issued
+//  link code is never signed in (README section 6). The
 //  LIVE game screens are driven by the hub: a single effect
 //  derives the target path from hook state (reveal-recap > reveal > round >
 //  lobby - the same precedence the old `view` switch used) and navigates there,
@@ -131,6 +135,7 @@ import { Gallery } from './pages/Gallery';
 import { Account } from './pages/Account';
 import { GetMore } from './pages/GetMore';
 import { Support } from './pages/Support';
+import { RedeemDevice } from './pages/RedeemDevice';
 import type { FavoriteEntry } from './content/favorites';
 import { GroupRound } from './pages/GroupRound';
 import { findGroupMode } from './pages/modeRegistry';
@@ -1043,6 +1048,10 @@ export default function App() {
         }
       />
       <Route path="/account" element={<Account onBack={handleGoHome} />} />
+      {/* accounts-identity/09 (AC-02): reachable WITHOUT being signed in - a
+          kid's device is never signed in. A plain route change like /account,
+          no hub call, no room; free play never depends on it. */}
+      <Route path="/link-device" element={<RedeemDevice onBack={handleGoHome} />} />
       <Route path="/get-more" element={<GetMore onBack={handleGoHome} />} />
       <Route path="/support" element={<Support onBack={handleGoHome} />} />
       <Route

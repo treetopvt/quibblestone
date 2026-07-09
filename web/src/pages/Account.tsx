@@ -46,6 +46,15 @@
 //  string and passes it through to verify, so a sign-up link still creates the
 //  account after the email round-trip.
 //
+//  LINKED DEVICES (accounts-identity/09, AC-01/AC-04/AC-07): the signed-in
+//  state also gains "Link a device" (mints a short-lived code via
+//  ../account/linkedDevicesClient.ts for the parent to read onto a kid's
+//  device at /link-device, ../pages/RedeemDevice.tsx) and the linked-devices
+//  list (label + relative last-seen, a one-tap Revoke, and the AC-07 "Allow
+//  teen-plus content" adult-unlock toggle - default off, an explicit adult
+//  opt-in). Same auth boundary as everything else here: this section only
+//  renders once signed in, and free play never depends on it.
+//
 //  Styling: theme tokens ONLY (web/src/theme.ts) - no hex/raw-px in this file.
 //  Stone-tablet / Guardian visual language, big tap targets, kid-readable (the
 //  surface is adult-facing, but the app is ONE visual language). FontAwesome
@@ -59,7 +68,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Controller, useForm } from 'react-hook-form';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
-import { Box, Button, CircularProgress, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, CircularProgress, Stack, Switch, TextField, Typography } from '@mui/material';
 import { AppBar } from '../components';
 import {
   requestSignInLink,
@@ -69,6 +78,14 @@ import {
 import { fetchEntitlements, type OwnedEntitlement } from '../account/entitlementsClient';
 import { usePurchaserSession } from '../account/PurchaserSession';
 import { SeatPresetsManager } from '../account/SeatPresetsManager';
+import {
+  fetchLinkedDevices,
+  mintDeviceLinkCode,
+  revokeLinkedDevice,
+  setDeviceAdultConfirmed,
+  type LinkedDeviceSummary,
+} from '../account/linkedDevicesClient';
+import { formatRelativeLastSeen } from '../account/relativeLastSeen';
 import { CloudGallery } from './CloudGallery';
 
 export interface AccountProps {
@@ -208,6 +225,249 @@ function PurchaseList({ credential }: { credential: string }) {
           </Typography>
         </Stack>
       ))}
+    </Stack>
+  );
+}
+
+/**
+ * One row in the linked-devices list (accounts-identity/09, AC-04/AC-07): a
+ * short non-identifying label + a relative last-seen time, a one-tap Revoke,
+ * and the "Allow teen-plus content" adult-unlock toggle (AC-07, default off).
+ * NOTHING device-identifying is shown or requested (no IP, no user agent) - the
+ * server never sends it. A revoked device reads as revoked: dimmed, the
+ * toggle disabled, and the Revoke action replaced by a plain label.
+ */
+function LinkedDeviceRow({
+  device,
+  onRevoke,
+  onSetAdultConfirmed,
+  busy,
+}: {
+  device: LinkedDeviceSummary;
+  onRevoke: () => void;
+  onSetAdultConfirmed: (confirmed: boolean) => void;
+  busy: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <Stack
+      spacing={1.5}
+      sx={{
+        px: 2.5,
+        py: 2,
+        borderRadius: '14px',
+        bgcolor: 'background.default',
+        opacity: device.revoked ? 0.55 : 1,
+      }}
+    >
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Box sx={{ color: device.revoked ? 'text.secondary' : 'teal.main', fontSize: 16, display: 'flex' }}>
+          <FontAwesomeIcon icon={device.revoked ? 'circle-xmark' : 'circle-check'} />
+        </Box>
+        <Stack sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 800, color: 'text.primary', textTransform: 'capitalize' }}>
+            {device.label}
+          </Typography>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
+            {device.revoked ? 'Revoked' : formatRelativeLastSeen(device.lastUsedUtc)}
+          </Typography>
+        </Stack>
+        {!device.revoked && (
+          <Button
+            variant="text"
+            size="small"
+            onClick={onRevoke}
+            disabled={busy}
+            sx={{ fontWeight: 800, fontSize: 12.5, color: 'coral.main', minWidth: 0 }}
+          >
+            Revoke
+          </Button>
+        )}
+      </Stack>
+
+      {/* AC-07: the adult-unlock signal - default off, an explicit adult opt-in. */}
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Switch
+          size="small"
+          checked={device.isAdultConfirmedDevice}
+          disabled={device.revoked || busy}
+          onChange={(event) => onSetAdultConfirmed(event.target.checked)}
+          inputProps={{ 'aria-label': `Allow teen-plus content on ${device.label}` }}
+          sx={{
+            '& .MuiSwitch-switchBase.Mui-checked': {
+              color: theme.palette.common.white,
+              '& + .MuiSwitch-track': { backgroundColor: theme.palette.teal.main, opacity: 1 },
+            },
+            '& .MuiSwitch-track': { backgroundColor: theme.palette.stoneSlot.alt, opacity: 1 },
+          }}
+        />
+        <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'text.secondary' }}>
+          Allow teen-plus content on this device
+        </Typography>
+      </Stack>
+    </Stack>
+  );
+}
+
+/**
+ * The "Linked devices" section (accounts-identity/09, AC-01/AC-04/AC-07):
+ * "Link a device" mints a short-lived code the parent reads onto the kid's
+ * device (../pages/RedeemDevice.tsx redeems it), and the list below shows
+ * every device linked so far with revoke + the adult-unlock toggle. Renders
+ * only meaningful when signed in (this component is mounted ONLY inside the
+ * 'signed-in' phase below, where `credential` is in scope - the SAME posture
+ * PurchaseList and the cloud gallery already use).
+ */
+function LinkedDevicesSection({ credential }: { credential: string }) {
+  const theme = useTheme();
+  const [devices, setDevices] = useState<LinkedDeviceSummary[]>([]);
+  const [status, setStatus] = useState<'loading' | 'ok' | 'signed-out' | 'error'>('loading');
+  const [minting, setMinting] = useState(false);
+  const [linkCode, setLinkCode] = useState<string | null>(null);
+  const [linkCodeExpiresUtc, setLinkCodeExpiresUtc] = useState<string | null>(null);
+  const [mintError, setMintError] = useState<string | null>(null);
+  const [busyDeviceId, setBusyDeviceId] = useState<string | null>(null);
+
+  const loadDevices = async () => {
+    const result = await fetchLinkedDevices(credential);
+    setStatus(result.status);
+    setDevices(result.devices);
+  };
+
+  useEffect(() => {
+    let active = true;
+    void fetchLinkedDevices(credential).then((result) => {
+      if (!active) return;
+      setStatus(result.status);
+      setDevices(result.devices);
+    });
+    return () => {
+      active = false;
+    };
+  }, [credential]);
+
+  const handleMintCode = async () => {
+    setMinting(true);
+    setMintError(null);
+    const result = await mintDeviceLinkCode(credential);
+    setMinting(false);
+    if (result.status === 'ok' && result.code) {
+      setLinkCode(result.code);
+      setLinkCodeExpiresUtc(result.expiresUtc);
+    } else {
+      setMintError(
+        result.status === 'signed-out'
+          ? 'Your sign-in expired - request a fresh link and try again.'
+          : 'We could not make a link code just now - please try again in a moment.',
+      );
+    }
+  };
+
+  const handleRevoke = async (deviceTokenId: string) => {
+    setBusyDeviceId(deviceTokenId);
+    await revokeLinkedDevice(credential, deviceTokenId);
+    await loadDevices();
+    setBusyDeviceId(null);
+  };
+
+  const handleSetAdultConfirmed = async (deviceTokenId: string, confirmed: boolean) => {
+    setBusyDeviceId(deviceTokenId);
+    await setDeviceAdultConfirmed(credential, deviceTokenId, confirmed);
+    await loadDevices();
+    setBusyDeviceId(null);
+  };
+
+  return (
+    <Stack spacing={2.5} sx={{ width: '100%' }}>
+      <Typography sx={{ fontSize: 13, fontWeight: 800, color: 'text.secondary', textAlign: 'center' }}>
+        Linked devices
+      </Typography>
+
+      {linkCode ? (
+        <Stack
+          spacing={1.5}
+          alignItems="center"
+          sx={{
+            p: 3,
+            borderRadius: '18px',
+            bgcolor: alpha(theme.palette.teal.main, 0.1),
+            border: `2px solid ${theme.palette.teal.main}`,
+          }}
+        >
+          <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: 'text.secondary' }}>
+            Read this code onto the kid's device at /link-device
+          </Typography>
+          <Typography
+            sx={{
+              fontFamily: '"Fredoka", sans-serif',
+              fontWeight: 700,
+              fontSize: 30,
+              letterSpacing: '0.12em',
+              color: 'text.primary',
+            }}
+          >
+            {linkCode}
+          </Typography>
+          {linkCodeExpiresUtc && (
+            <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
+              Expires {new Date(linkCodeExpiresUtc).toLocaleTimeString()}
+            </Typography>
+          )}
+          <Button variant="text" size="small" onClick={() => setLinkCode(null)} sx={{ fontWeight: 800 }}>
+            Done
+          </Button>
+        </Stack>
+      ) : (
+        <Button
+          variant="outlined"
+          fullWidth
+          onClick={() => void handleMintCode()}
+          disabled={minting}
+          startIcon={<FontAwesomeIcon icon="link" style={{ width: 18, height: 18 }} />}
+        >
+          {minting ? 'Making a code...' : 'Link a device'}
+        </Button>
+      )}
+      {mintError && (
+        <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: 'error.main', textAlign: 'center' }}>
+          {mintError}
+        </Typography>
+      )}
+
+      {status === 'loading' && <CircularProgress size={20} sx={{ alignSelf: 'center' }} />}
+
+      {status === 'signed-out' && (
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
+          Your sign-in expired - request a fresh link to manage linked devices.
+        </Typography>
+      )}
+
+      {status === 'error' && (
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
+          We could not load your linked devices just now - please try again in a moment.
+        </Typography>
+      )}
+
+      {status === 'ok' && devices.length === 0 && (
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary', textAlign: 'center' }}>
+          No devices linked yet - tap "Link a device" and read the code onto a kid's device to
+          carry the family's unlocks there.
+        </Typography>
+      )}
+
+      {status === 'ok' && devices.length > 0 && (
+        <Stack spacing={1.5}>
+          {devices.map((device) => (
+            <LinkedDeviceRow
+              key={device.deviceTokenId}
+              device={device}
+              busy={busyDeviceId === device.deviceTokenId}
+              onRevoke={() => void handleRevoke(device.deviceTokenId)}
+              onSetAdultConfirmed={(confirmed) => void handleSetAdultConfirmed(device.deviceTokenId, confirmed)}
+            />
+          ))}
+        </Stack>
+      )}
     </Stack>
   );
 }
@@ -455,6 +715,10 @@ export function Account({ onBack }: AccountProps) {
                 managed ONLY from the adult Account page (never a kid's device) and an
                 anonymous player can never reach it. */}
             {session.credential && <SeatPresetsManager credential={session.credential} />}
+            {/* accounts-identity/09 (AC-01/AC-04/AC-07): "Linked devices" lives HERE,
+                in the signed-in state, where `credential` is in scope - the SAME
+                posture PurchaseList and the cloud gallery already use. */}
+            {session.credential && <LinkedDevicesSection credential={session.credential} />}
             {/* keepsake-gallery/05: the cloud-gallery affordance lives HERE, in
                 the signed-in state, where the purchaser `credential` is in scope
                 (AC-02: anonymous players can never reach it). Behind a tap so
