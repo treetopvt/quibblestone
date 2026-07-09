@@ -12,11 +12,13 @@
 //  THE MINIMAL POST-LOGIN SHELL (sysadmin-console/03, extended by /02): on load the
 //  shell checks for an established operator session (GET /api/admin/session, story
 //  01). Until it answers it shows a brief loader; then it renders EITHER <AdminLogin/>
-//  (no session) OR - once an operator session exists - a tiny two-tab back office
-//  switching between the <ReviewQueue/> reported-tales screen (story 03) and the
-//  <PurchaserEntitlements/> grant / revoke screen (story 02, #136). The tab is a
-//  single useState toggle, NOT a router - keeping the entry minimal keeps the admin
-//  bundle small and free of any kid-app code (AC-04 / AC-05).
+//  (no session) OR - once an operator session exists - a tiny three-tab back office
+//  switching between the <ReviewQueue/> reported-tales screen (story 03), the
+//  <PurchaserEntitlements/> grant / revoke screen (story 02, #136), and the
+//  <StripeModePanel/> live/test Stripe-mode screen (story 04, the interim third tab
+//  story 05 relocates into Operations). The tab is a single useState toggle, NOT a
+//  router - keeping the entry minimal keeps the admin bundle small and free of any
+//  kid-app code (AC-04 / AC-05).
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -27,6 +29,7 @@ import { Box, CircularProgress, CssBaseline, Stack, Tab, Tabs, ThemeProvider } f
 import { AdminLogin } from './AdminLogin';
 import { ReviewQueue } from './ReviewQueue';
 import { PurchaserEntitlements } from './PurchaserEntitlements';
+import { StripeModePanel } from './StripeModePanel';
 import { getOperatorSession, type OperatorSessionResult } from './operatorClient';
 import { theme } from '../theme';
 import './fontawesome';
@@ -35,7 +38,7 @@ import './fontawesome';
 type ShellPhase = 'checking' | 'signed-in' | 'signed-out';
 
 /** Which post-login back-office screen is showing (a plain toggle, not a route). */
-type AdminTab = 'review' | 'entitlements';
+type AdminTab = 'review' | 'entitlements' | 'stripe-mode';
 
 /**
  * The back-office shell: checks for an operator session once on load and routes
@@ -110,17 +113,16 @@ function AdminShell() {
             value={tab}
             onChange={(_, next: AdminTab) => setTab(next)}
             variant="fullWidth"
-            sx={{ maxWidth: 560, mx: 'auto' }}
+            sx={{ maxWidth: 720, mx: 'auto' }}
           >
             <Tab value="review" label="Reported tales" sx={{ fontWeight: 800, minHeight: 56 }} />
             <Tab value="entitlements" label="Entitlements" sx={{ fontWeight: 800, minHeight: 56 }} />
+            <Tab value="stripe-mode" label="Stripe mode" sx={{ fontWeight: 800, minHeight: 56 }} />
           </Tabs>
         </Box>
-        {tab === 'review' ? (
-          <ReviewQueue operatorEmail={operatorEmail} credential={credential} />
-        ) : (
-          <PurchaserEntitlements operatorEmail={operatorEmail} credential={credential} />
-        )}
+        {tab === 'review' && <ReviewQueue operatorEmail={operatorEmail} credential={credential} />}
+        {tab === 'entitlements' && <PurchaserEntitlements operatorEmail={operatorEmail} credential={credential} />}
+        {tab === 'stripe-mode' && <StripeModePanel operatorEmail={operatorEmail} credential={credential} />}
       </Stack>
     );
   }

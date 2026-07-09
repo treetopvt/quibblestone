@@ -1,28 +1,26 @@
 // ----------------------------------------------------------------------------
-//  stripeModeClient.ts - the web client for the OPERATOR-ONLY Stripe live/test
-//  mode surface (billing-entitlements/07, the UI half of story 06's endpoint).
-//  A thin REST client, NOT the feature: the mode-aware credential resolution,
-//  the persisted active-mode flag, and the guarded flip all live server-side
-//  (story 06 - api/src/Billing + a new admin-scoped controller). This module
-//  only GETs the current mode and POSTs a flip, both carrying the operator
-//  secret as the `X-Operator-Secret` header.
+//  stripeModeClient.ts - the OPERATOR-CONSOLE web client for the Stripe live/test
+//  mode surface (sysadmin-console/04). A thin REST client, NOT the feature: the
+//  mode-aware credential resolution, the persisted active-mode flag, and the
+//  guarded flip all live server-side (StripeModeController, behind story 01's
+//  "Operator" policy). This module only GETs the current mode and POSTs a flip.
 //
-//  INTERIM GATE (temporary, pending sysadmin-console/01 / #135): there is no
-//  operator login yet. Story 06 documents a thin server-side shared secret,
-//  compared with a constant-time check, required as a header on both admin
-//  endpoints. This client carries that secret ONLY in memory, for the one
-//  request it is making - the caller (AdminBillingMode.tsx) holds it in
-//  component state for the session and never persists it (no localStorage, no
-//  cookie, never a `VITE_*` var - CLAUDE.md section 4). Once the real operator
-//  auth boundary (#135) ships, this header goes away in favor of the real
-//  session credential - a client-side swap, not a rewrite (mirrors story 06's
-//  own "swappable IOperatorGate" plan).
+//  ONE CONSOLE, ONE AUTH (sysadmin-console/04): this REPLACES the interim
+//  billing/stripeModeClient.ts (deleted), which carried an X-Operator-Secret shared
+//  secret. There is NO secret header any longer: the operator is authenticated the
+//  SAME way every other admin screen is - the in-memory operator credential is
+//  presented as `Authorization: Bearer` (the PRIMARY path on a cross-ORIGIN
+//  deployment, where the HttpOnly SameSite cookie is never sent) AND
+//  `credentials: 'include'` keeps a same-site cookie riding along. Mirrors
+//  purchasersClient.ts / reportedTalesClient.ts exactly.
 //
-//  Mirrors web/src/billing/billingClient.ts + web/src/account/signInClient.ts:
-//  the API base URL comes from `import.meta.env.VITE_API_BASE_URL` (never
-//  hardcoded), and every call FAILS GRACEFULLY - a network error, non-OK
-//  status, or unparseable body resolves to a friendly typed result rather than
-//  throwing, so the operator screen never shows a raw error.
+//  SEPARATE ADMIN BUNDLE (from story 01): this file lives in the admin bundle and
+//  imports NOTHING from the kid app (pages / signalr / gallery / engine /
+//  components), and the kid app imports nothing from here. The API base URL comes
+//  from `import.meta.env.VITE_API_BASE_URL` (never hardcoded, never a secret). Every
+//  call FAILS GRACEFULLY - a network error, non-OK status, or unparseable body
+//  resolves to a friendly typed result rather than throwing, so the panel never
+//  shows a raw error and never guesses/defaults a mode silently.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -60,10 +58,11 @@ export interface StripeModeSwitchResult {
 /** Friendly fallback shown when the endpoint cannot be reached or the body is unparseable. */
 const UNAVAILABLE_MESSAGE = 'We could not reach the billing-mode service just now - please try again in a moment.';
 
-/** Friendly message for a 401 (missing/wrong operator secret). */
-const UNAUTHORIZED_MESSAGE = 'That operator secret was not accepted.';
+/** Friendly message for a 401 (no valid operator session). */
+const UNAUTHORIZED_MESSAGE = 'Your operator session was not accepted - please sign in again.';
 
-const base = () => import.meta.env.VITE_API_BASE_URL;
+/** The API base URL, from a NON-secret VITE_ var (the allowlist / keys are never here). */
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 /** The mode strings the server may return; anything else is treated as an error rather than trusted. */
 const KNOWN_MODES: readonly StripeMode[] = ['test', 'live'];
@@ -73,7 +72,9 @@ function asStripeMode(value: unknown): StripeMode | null {
 }
 
 /** Narrows an unknown parsed body from the GET status endpoint. */
-function asStatusBody(value: unknown): { activeMode: StripeMode; lastChangedUtc: string | null; enabled: boolean } | null {
+function asStatusBody(
+  value: unknown,
+): { activeMode: StripeMode; lastChangedUtc: string | null; enabled: boolean } | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
   const activeMode = asStripeMode(record.activeMode);
@@ -91,17 +92,26 @@ function asSwitchBody(value: unknown): { activeMode: StripeMode; lastChangedUtc:
   return { activeMode, lastChangedUtc: record.lastChangedUtc };
 }
 
+/** Builds the operator-credential headers shared by every call (bearer + optional content type). */
+function buildHeaders(credential: string | null, withBody: boolean): HeadersInit | undefined {
+  const headers: Record<string, string> = {};
+  if (withBody) headers['Content-Type'] = 'application/json';
+  if (credential) headers.Authorization = `Bearer ${credential}`;
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
 /**
- * Reads the currently active Stripe mode (GET /api/admin/stripe-mode), sending
- * `secret` as the `X-Operator-Secret` header. Resolves 'unauthorized' on a 401
- * (never a guessed/blank mode - AC-01), 'error' on any other failure (network,
- * non-OK status, or an unparseable body), and 'ok' with the parsed status
- * otherwise. Never throws.
+ * Reads the currently active Stripe mode (GET /api/admin/stripe-mode), presenting the
+ * operator credential as a bearer (cross-ORIGIN path) with the cookie riding along.
+ * Resolves 'unauthorized' on a 401 (never a guessed/blank mode), 'error' on any other
+ * failure (network, non-OK status, or an unparseable body), and 'ok' with the parsed
+ * status otherwise. Never throws.
  */
-export async function fetchStripeMode(secret: string): Promise<StripeModeStatusResult> {
+export async function fetchStripeMode(credential: string | null): Promise<StripeModeStatusResult> {
   try {
-    const response = await fetch(`${base()}/api/admin/stripe-mode`, {
-      headers: { 'X-Operator-Secret': secret },
+    const response = await fetch(`${API_BASE_URL}/api/admin/stripe-mode`, {
+      headers: buildHeaders(credential, false),
+      credentials: 'include',
     });
     if (response.status === 401) {
       return { outcome: 'unauthorized', message: UNAUTHORIZED_MESSAGE };
@@ -120,18 +130,18 @@ export async function fetchStripeMode(secret: string): Promise<StripeModeStatusR
 }
 
 /**
- * Switches the active Stripe mode (POST /api/admin/stripe-mode), sending
- * `secret` as the `X-Operator-Secret` header and `{ mode }` as the body. This
- * is the confirmed flip itself (AC-02) - the caller is responsible for showing
- * the confirmation step BEFORE calling this. Resolves 'unauthorized' on a 401,
- * 'error' on any other failure (including a 400 for an invalid mode), and 'ok'
- * with the new mode + timestamp otherwise. Never throws.
+ * Switches the active Stripe mode (POST /api/admin/stripe-mode), presenting the
+ * operator credential as a bearer and `{ mode }` as the body. This is the confirmed
+ * flip itself - the caller shows the confirmation step BEFORE calling this. Resolves
+ * 'unauthorized' on a 401, 'error' on any other failure (including a 400 for an invalid
+ * mode), and 'ok' with the new mode + timestamp otherwise. Never throws.
  */
-export async function setStripeMode(secret: string, mode: StripeMode): Promise<StripeModeSwitchResult> {
+export async function setStripeMode(credential: string | null, mode: StripeMode): Promise<StripeModeSwitchResult> {
   try {
-    const response = await fetch(`${base()}/api/admin/stripe-mode`, {
+    const response = await fetch(`${API_BASE_URL}/api/admin/stripe-mode`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Operator-Secret': secret },
+      headers: buildHeaders(credential, true),
+      credentials: 'include',
       body: JSON.stringify({ mode }),
     });
     if (response.status === 401) {

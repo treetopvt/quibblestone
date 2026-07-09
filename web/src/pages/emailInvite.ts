@@ -5,7 +5,7 @@
 //  server-side in api/src/Controllers/EmailInviteController.cs. This module only probes
 //  availability and POSTs { roomCode, toEmail }.
 //
-//  Mirrors web/src/gallery/publishTale.ts + web/src/billing/stripeModeClient.ts: the
+//  Mirrors web/src/gallery/publishTale.ts: the
 //  API base URL comes from `import.meta.env.VITE_API_BASE_URL` (never hardcoded,
 //  CLAUDE.md section 4), and every call FAILS GRACEFULLY - a network error, non-OK
 //  status, or unparseable body resolves to a typed result (availability -> false; a
