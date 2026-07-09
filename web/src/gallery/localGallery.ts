@@ -83,6 +83,17 @@ export interface TalePart {
  *     gallery (the server-minted tale id), so the UI can show "synced" and
  *     never re-upload the same local tale (upload dedupe). Absent = not yet
  *     synced from this device.
+ *
+ * keepsake-vault/02 addition (optional, backward-compatible, mirrors
+ * `cloudTaleId` exactly):
+ *   - `vaultTaleId`: the server-minted keepsake-vault tale id, set after a
+ *     successful vault round-trip, so the gallery merge (web/src/vault/
+ *     vaultGallery.ts) can dedupe this local record against its vault
+ *     counterpart and never double-list the same tale. Absent = not yet
+ *     linked to a vault tale (the merge then falls back to a content signature,
+ *     since story 01's fire-and-forget auto-save posts the SAME title/parts/
+ *     byline this record holds). An additive stamp, same posture as
+ *     `cloudTaleId`.
  */
 export interface TaleMeta {
   id: string;
@@ -91,6 +102,7 @@ export interface TaleMeta {
   bylineNames?: string;
   parts?: TalePart[];
   cloudTaleId?: string;
+  vaultTaleId?: string;
 }
 
 /** Input to {@link saveTale}: the rendered image plus its small display metadata. */
@@ -222,13 +234,14 @@ function createIndexedDbAdapter(): GalleryAdapter {
         request.onsuccess = () => {
           const records = request.result as StoredRecord[];
           resolve(
-            records.map(({ id, title, savedAt, bylineNames, parts, cloudTaleId }) => ({
+            records.map(({ id, title, savedAt, bylineNames, parts, cloudTaleId, vaultTaleId }) => ({
               id,
               title,
               savedAt,
               bylineNames,
               parts,
               cloudTaleId,
+              vaultTaleId,
             })),
           );
         };

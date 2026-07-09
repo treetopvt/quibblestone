@@ -9,13 +9,24 @@
 //  action that reuses story 02's Web-Share pattern via the shared
 //  ../gallery/shareImageFile.ts helper (AC-02).
 //
-//  This screen consumes ONLY what localGallery.ts already stored - the
+//  This screen consumes ONLY already-stored/already-filtered display data - the
 //  rendered image blob plus its small metadata record. It never re-renders
 //  from engine data (no `assemble()`, no `Template`, no `AssembledStory` in
 //  sight) - per the feature's Decisions log, story 03 is a pure "list of saved
 //  images" consumer of story 01's output, disjoint from `the-reveal` and the
 //  engine entirely. Re-sharing shares the STORED blob directly, never a fresh
 //  render.
+//
+//  keepsake-vault/02 (issue #212): the data source is now the MERGE of the
+//  device's local IndexedDB and the anonymous server-side keepsake vault
+//  (../vault/vaultGallery.ts) - the local cache is painted first (fast), then
+//  reconciled with the vault fetch when it resolves OR fails (offline-first,
+//  AC-02). A locally-evicted or never-written tale reappears from the vault
+//  (AC-03/AC-04). This is a DATA-SOURCE swap only: the grid, cards, detail
+//  view, and re-share action are unchanged (AC-06). A vault-sourced entry
+//  carries only the already-filtered story-01 shape (title, parts, byline,
+//  createdUtc) - no new free-text entry point, no PII (AC-05); the vault id
+//  stays a bearer secret in vaultClient's X-Vault-Id header, never surfaced.
 //
 //  Object URLs: each thumbnail/full image is rendered from a
 //  `URL.createObjectURL(blob)` - every URL created here is tracked and
@@ -45,7 +56,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { AppBar } from '../components';
-import { getTaleImage, listTales, type TaleMeta } from '../gallery/localGallery';
+import { getTaleImage, listTales } from '../gallery/localGallery';
+import { fetchVaultTales, mergeGalleryTales, type MergedTale } from '../vault/vaultGallery';
 import { shareImageFile, slugifyTitle } from '../gallery/shareImageFile';
 
 export interface GalleryProps {
@@ -94,7 +106,7 @@ function EmptyGallery() {
 }
 
 interface GalleryCardProps {
-  tale: TaleMeta;
+  tale: MergedTale;
   imageUrl?: string;
   onOpen: () => void;
 }
@@ -159,7 +171,7 @@ function GalleryCard({ tale, imageUrl, onOpen }: GalleryCardProps) {
 
 export function Gallery({ onBack }: GalleryProps) {
   const theme = useTheme();
-  const [tales, setTales] = useState<TaleMeta[]>([]);
+  const [tales, setTales] = useState<MergedTale[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resharing, setResharing] = useState(false);
@@ -171,29 +183,61 @@ export function Gallery({ onBack }: GalleryProps) {
   // WARN-01). Cleared whenever a fresh share is attempted or the view changes.
   const [reshareUnavailable, setReshareUnavailable] = useState(false);
 
-  // Load the saved tale list + each tale's image as an object URL. Every URL
-  // created is tracked in the effect-local `urls` map and revoked on cleanup
-  // (unmount, or a re-run) so this screen never leaks blob URLs. `cancelled`
-  // stops a stale load from setting state (or creating more URLs) after the
-  // effect has been torn down.
+  // Load the merged tale list (local IndexedDB + the keepsake vault) + each
+  // LOCAL tale's image as an object URL. Every URL created is tracked in the
+  // effect-local `urls` map and revoked on cleanup (unmount, or a re-run) so
+  // this screen never leaks blob URLs. `cancelled` stops a stale load from
+  // setting state (or creating more URLs) after the effect has been torn down.
+  //
+  // Offline-first ordering (keepsake-vault/02, AC-02): render the LOCAL list
+  // first (synchronous, fast - the device cache), then reconcile with the vault
+  // fetch when it resolves OR fails. The initial paint never blocks on the
+  // network; a vault fetch failure (fetchVaultTales resolves null) simply leaves
+  // the already-rendered local list in place (mergeGalleryTales' degrade path).
   useEffect(() => {
     let cancelled = false;
     const urls: Record<string, string> = {};
 
-    async function load() {
-      const metas = await listTales();
-      if (cancelled) return;
-      setTales(metas);
-
-      for (const meta of metas) {
-        const blob = await getTaleImage(meta.id);
+    // Load the rendered image for every LOCAL merged tale that does not yet have
+    // an object URL. Vault-only entries (source 'vault') hold no local image
+    // blob - their card renders the existing placeholder (no server-side render,
+    // out of scope), so we never look them up.
+    async function loadImages(merged: MergedTale[]) {
+      for (const tale of merged) {
+        if (cancelled) return;
+        if (tale.source !== 'local' || urls[tale.id]) continue;
+        const blob = await getTaleImage(tale.id);
         if (cancelled) return;
         if (blob) {
           const url = URL.createObjectURL(blob);
-          urls[meta.id] = url;
-          setImageUrls((current) => ({ ...current, [meta.id]: url }));
+          urls[tale.id] = url;
+          setImageUrls((current) => ({ ...current, [tale.id]: url }));
         }
       }
+    }
+
+    async function load() {
+      // 1. Local cache first - fast, synchronous read, painted immediately.
+      const local = await listTales();
+      if (cancelled) return;
+      const localOnly = mergeGalleryTales(local, null);
+      setTales(localOnly);
+
+      // Start the vault fetch NOW so it runs concurrently with the local image
+      // reads below - the reconcile is not serialized behind every IndexedDB
+      // blob load. The paint above already happened, so nothing here blocks it.
+      const vaultPromise = fetchVaultTales();
+      await loadImages(localOnly);
+      if (cancelled) return;
+
+      // 2. Reconcile with the vault (or its failure) - a null result degrades to
+      //    the local list already shown (AC-02); vault-only tales are added
+      //    (AC-03/AC-04).
+      const vault = await vaultPromise;
+      if (cancelled) return;
+      const merged = mergeGalleryTales(local, vault);
+      setTales(merged);
+      await loadImages(merged);
     }
     void load();
 
@@ -221,7 +265,14 @@ export function Gallery({ onBack }: GalleryProps) {
     setReshareUnavailable(false);
     try {
       const blob = await getTaleImage(selectedTale.id);
-      if (!blob) return;
+      // A vault-only tale (locally evicted or a failed local write) has no
+      // rendered image on this device to share - server-side rendering of one is
+      // out of scope for this story. Surface the existing "not here" note rather
+      // than let the tap be a silent dead end (no new UI, AC-06).
+      if (!blob) {
+        setReshareUnavailable(true);
+        return;
+      }
       const file = new File([blob], `${slugifyTitle(selectedTale.title)}.png`, { type: 'image/png' });
       // shareImageFile never throws; it resolves false when Web Share file
       // support is absent (or the share failed for a non-cancel reason). The
