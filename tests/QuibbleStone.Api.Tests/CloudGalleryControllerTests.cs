@@ -162,8 +162,8 @@ public class CloudGalleryControllerTests
     }
 
     // List a signed-in purchaser's tales THROUGH the controller (the public read
-    // path) rather than reaching into the store by owner key, which is derived from
-    // the internal AccountIdentity helper.
+    // path) rather than reaching into the store by owner key, which since
+    // accounts-identity/05 is the account's stable id (account.Id.ToString()).
     private static async Task<IReadOnlyList<CloudTaleView>> ListTales(Harness h)
         => ListOk(await h.Controller.List(CancellationToken.None)).Tales;
 

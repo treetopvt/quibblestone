@@ -3,18 +3,18 @@
 //  keepsake gallery (keepsake-gallery/05, issue #154).
 //
 //  THE AUTH BOUNDARY THIS STORE SITS BEHIND: every method here is keyed by an
-//  ownerKey - the SHA-256 hash of a PURCHASER account's email (AccountIdentity.
-//  KeyFor). The controller (CloudGalleryController) resolves the signed-in
-//  purchaser from their credential and passes the owner key; this store never sees
-//  a raw email, a nickname, a room, or a player. It imports NOTHING from
-//  api/src/Rooms and never touches GameHub or the round lifecycle - the same
-//  isolation precedent keepsake-gallery/04's published-tale store set, and the
-//  child-facing game flow never touches a purchaser credential (AC-01, the
-//  auth-boundary invariant).
+//  ownerKey - since accounts-identity/05 (#195) the PURCHASER account's STABLE id
+//  (account.Id.ToString(), a random GUID), no longer a hash of the mutable email.
+//  The controller (CloudGalleryController) resolves the signed-in purchaser from
+//  their credential and passes the owner key; this store never sees a raw email, a
+//  nickname, a room, or a player. It imports NOTHING from api/src/Rooms and never
+//  touches GameHub or the round lifecycle - the same isolation precedent
+//  keepsake-gallery/04's published-tale store set, and the child-facing game flow
+//  never touches a purchaser credential (AC-01, the auth-boundary invariant).
 //
 //  NO PII (AC-05): the stored CloudTale carries only the byline nickname(s) and
 //  the already-filtered story - no email, no real name. The purchaser identity is
-//  the OPAQUE hash owner key, so an operator listing keys sees hashes, not inboxes.
+//  the OPAQUE account-id owner key, so an operator listing keys sees ids, not inboxes.
 //
 //  TWO IMPLEMENTATIONS, chosen once at startup by whether a storage connection
 //  string is configured (see Program.cs), MIRRORING the account store's split
@@ -41,8 +41,8 @@ namespace QuibbleStone.Api.CloudGallery;
 
 /// <summary>
 /// Stores, lists, and deletes a purchaser's cloud-synced keepsake tales
-/// (keepsake-gallery/05), keyed by an opaque owner key (a SHA-256 hash of the
-/// purchaser email). One implementation writes to Azure Table Storage
+/// (keepsake-gallery/05), keyed by an opaque owner key (the account's stable id, a
+/// GUID - accounts-identity/05). One implementation writes to Azure Table Storage
 /// (PartitionKey = ownerKey, RowKey = taleId); the other is a working in-memory
 /// store used when no storage connection string is configured (local dev / CI).
 /// Holds no PII beyond the byline nickname(s) and no room / player reference
@@ -61,8 +61,8 @@ public interface ICloudGalleryStore
     /// <summary>
     /// Persists one already-vetted, already-filtered tale under its owner key +
     /// tale id (AC-01/AC-05). The caller mints the tale id (see SlugGenerator),
-    /// derives the owner key (AccountIdentity.KeyFor), and re-vets every part + the
-    /// byline BEFORE calling this - the store only stores.
+    /// derives the owner key (the account's stable id, accounts-identity/05), and
+    /// re-vets every part + the byline BEFORE calling this - the store only stores.
     /// </summary>
     Task SaveAsync(CloudTale tale, CancellationToken ct = default);
 

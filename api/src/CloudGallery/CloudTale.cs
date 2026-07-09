@@ -12,10 +12,12 @@
 //  NO PII BEYOND THE BYLINE NICKNAME(S) (AC-05, README section 6): the only
 //  identity attached to a synced tale is the in-session nickname(s) already shown
 //  on the roster and the reveal - NEVER a real name, an email, or any other PII
-//  from the purchaser account. The purchaser's identity lives ONLY in the
-//  OwnerKey, which is a SHA-256 hash of account.Email (AccountIdentity.KeyFor), so
-//  the raw email is never on the tale and an operator listing rows sees hashes,
-//  not inboxes - exactly like the account store keys itself.
+//  from the purchaser account. The purchaser's identity lives ONLY in the OwnerKey,
+//  which since accounts-identity/05 (#195) is the account's STABLE id
+//  (account.Id.ToString(), a random GUID) - so the raw email is never on the tale,
+//  an operator listing rows sees opaque ids, and an email change never orphans a
+//  purchaser's own gallery (the pre-ADR-0003 owner key was a hash of the mutable
+//  email, which did orphan it).
 //
 //  ISOLATION (deliberate): CloudGallery defines its OWN small CloudTalePart record
 //  and its own store contract rather than importing PublishedTales.TalePart, mirroring
@@ -52,16 +54,16 @@ public sealed record CloudTalePart(bool IsWord, string Text);
 /// <summary>
 /// A single cloud-synced keepsake tale owned by a purchaser account
 /// (keepsake-gallery/05). Immutable. Carries only what the gallery renders: the
-/// owner key (a hash of the purchaser email, never the raw email), a minted tale
-/// id, the title, the ordered body parts (literal text + coral player-words), the
-/// byline of in-session nicknames, and a created stamp. NO PII beyond the byline
-/// nickname(s) (AC-05).
+/// owner key (the account's stable id, never the raw email - accounts-identity/05),
+/// a minted tale id, the title, the ordered body parts (literal text + coral
+/// player-words), the byline of in-session nicknames, and a created stamp. NO PII
+/// beyond the byline nickname(s) (AC-05).
 /// </summary>
 /// <param name="OwnerKey">
-/// The owner partition key: the SHA-256 hash of the purchaser's normalized email
-/// (AccountIdentity.KeyFor). The raw email is NEVER stored on the tale - the tale
-/// is keyed to the purchaser only through this opaque hash, so it keys exactly
-/// like the account and grant stores.
+/// The owner partition key: the account's stable id (account.Id.ToString(), a
+/// random GUID - accounts-identity/05). The raw email is NEVER stored on the tale -
+/// the tale is keyed to the purchaser only through this opaque, durable id, so it
+/// keys exactly like the grant store and survives an email change.
 /// </param>
 /// <param name="TaleId">The minted, unguessable per-tale id (see SlugGenerator) - the row key within the owner partition.</param>
 /// <param name="Title">The tale title (already shown on the reveal; length-capped on save).</param>

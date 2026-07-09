@@ -10,10 +10,11 @@
 //  source = Operator, written through the SAME IEntitlementGrantStore the session-
 //  creation gate (StoredValueEntitlementService) reads - never a parallel write
 //  path. It resolves the purchaser to an Account FIRST and keys EVERY read and
-//  write off account.Email, so a write and the session-creation read funnel through
-//  the identical AccountIdentity.KeyFor partition (IEntitlementGrantStore's
-//  load-bearing contract). Keying a grant off any other field would silently make
-//  it unreadable at session-creation.
+//  write off account.Id (the stable AccountId, accounts-identity/05), so a write and
+//  the session-creation read land in the identical partition (IEntitlementGrantStore's
+//  load-bearing contract). Because the id never changes (an email change does not move
+//  it), keying off it is stable; keying a grant off any other field would silently
+//  make it unreadable at session-creation.
 //
 //  REVOKE IS A LAPSED LEASE, NOT A DELETE (AC-03): the grant store is UPSERT-only.
 //  Revoke writes the SAME capability key with a validThrough of "now", so the lease
@@ -167,12 +168,12 @@ public sealed class AdminEntitlementsController : ControllerBase
             return BadRequest(new { message = "That is not a grantable capability key." });
         }
 
-        // Resolve (create-or-get) the account, then key the grant off its CANONICAL
-        // normalized email - the load-bearing contract so this write and the session-
-        // creation read land in the SAME partition (IEntitlementGrantStore).
+        // Resolve (create-or-get) the account, then key the grant off its stable id
+        // (account.Id, accounts-identity/05) - the load-bearing contract so this write
+        // and the session-creation read land in the SAME partition (IEntitlementGrantStore).
         var account = await _accounts.CreateOrGetAsync(email, cancellationToken);
         var grant = new EntitlementGrant(capabilityKey, request.ValidThrough, GrantSource.Operator);
-        await _grants.PutGrantAsync(account.Email, grant, cancellationToken);
+        await _grants.PutGrantAsync(account.Id, grant, cancellationToken);
 
         var refreshed = await BuildLookupAsync(account.Email, cancellationToken);
         return Ok(new EntitlementActionResult(
@@ -209,9 +210,9 @@ public sealed class AdminEntitlementsController : ControllerBase
 
         // Lapse the lease: a validThrough of "now" makes IsActiveAt(now) false at the next
         // session-creation read (the lease end is exclusive), so the capability reads as
-        // locked. Keyed off account.Email so it replaces the SAME row the grant wrote.
+        // locked. Keyed off account.Id so it replaces the SAME row the grant wrote.
         var lapsed = new EntitlementGrant(capabilityKey, DateTimeOffset.UtcNow, GrantSource.Operator);
-        await _grants.PutGrantAsync(account.Email, lapsed, cancellationToken);
+        await _grants.PutGrantAsync(account.Id, lapsed, cancellationToken);
 
         var refreshed = await BuildLookupAsync(account.Email, cancellationToken);
         return Ok(new EntitlementActionResult(
@@ -221,7 +222,7 @@ public sealed class AdminEntitlementsController : ControllerBase
 
     /// <summary>
     /// Builds the purchaser lookup view for <paramref name="email"/>: resolve the account
-    /// (read-only, never creates), then read its grants off account.Email and project each
+    /// (read-only, never creates), then read its grants off account.Id and project each
     /// into a display DTO with its friendly label and current-active flag. When no account
     /// exists, returns the clear not-found state over the normalized email. Touches ONLY
     /// the account + grant stores (AC-04).
@@ -237,7 +238,7 @@ public sealed class AdminEntitlementsController : ControllerBase
         }
 
         var now = DateTimeOffset.UtcNow;
-        var grants = await _grants.GetGrantsAsync(account.Email, cancellationToken);
+        var grants = await _grants.GetGrantsAsync(account.Id, cancellationToken);
         var dtos = grants
             .Select(g => new PurchaserGrantDto(
                 CapabilityKey: g.CapabilityKey,

@@ -49,8 +49,10 @@ public class StoredValueEntitlementServiceTests
     public async Task Purchaser_identity_without_an_account_gets_only_the_baseline()
     {
         var grants = new InMemoryEntitlementGrantStore();
-        // A grant exists for the identity, but no account was ever created for it.
-        await grants.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
+        // A grant exists under SOME account id, but no account was ever created for the
+        // identity string. The session-creation read resolves NO account, so it does NOT
+        // apply that stray grant (the account lookup is the gate, AC-06).
+        await grants.PutGrantAsync(Guid.NewGuid(), new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
 
         var service = NewService(new InMemoryAccountStore(), grants);
 
@@ -61,14 +63,15 @@ public class StoredValueEntitlementServiceTests
     }
 
     // AC-04: an active grant (permanent / null validThrough) for a real purchaser
-    // unlocks its capability, on top of the baseline.
+    // unlocks its capability, on top of the baseline. The grant is keyed off the
+    // account's STABLE id (accounts-identity/05), the same value the read resolves.
     [Fact]
     public async Task Active_permanent_grant_unlocks_its_capability()
     {
         var accounts = new InMemoryAccountStore();
-        await accounts.CreateOrGetAsync(Purchaser);
+        var account = await accounts.CreateOrGetAsync(Purchaser);
         var grants = new InMemoryEntitlementGrantStore();
-        await grants.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
+        await grants.PutGrantAsync(account.Id, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
 
         var service = NewService(accounts, grants);
         var entitlements = await service.EvaluateForSession(Purchaser);
@@ -82,11 +85,11 @@ public class StoredValueEntitlementServiceTests
     public async Task Grant_lease_window_governs_unlock()
     {
         var accounts = new InMemoryAccountStore();
-        await accounts.CreateOrGetAsync(Purchaser);
+        var account = await accounts.CreateOrGetAsync(Purchaser);
         var grants = new InMemoryEntitlementGrantStore();
-        await grants.PutGrantAsync(Purchaser, new EntitlementGrant(
+        await grants.PutGrantAsync(account.Id, new EntitlementGrant(
             EntitlementCatalog.PlayRemote, DateTimeOffset.UtcNow.AddDays(30), GrantSource.Subscription));
-        await grants.PutGrantAsync(Purchaser, new EntitlementGrant(
+        await grants.PutGrantAsync(account.Id, new EntitlementGrant(
             EntitlementCatalog.PlayLargeGroup, DateTimeOffset.UtcNow.AddDays(-1), GrantSource.Subscription));
 
         var service = NewService(accounts, grants);
@@ -125,5 +128,8 @@ public class StoredValueEntitlementServiceTests
             GetByIdentityCalls++;
             return _inner.GetByIdentityAsync(emailIdentity, ct);
         }
+
+        public Task<Account?> GetByIdAsync(Guid accountId, CancellationToken ct = default)
+            => _inner.GetByIdAsync(accountId, ct);
     }
 }

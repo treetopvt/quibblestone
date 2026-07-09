@@ -58,9 +58,9 @@ public class RestoreViewTests
     public async Task SignedIn_purchaser_sees_active_grants_labeled()
     {
         var h = NewHarness();
-        await h.Accounts.CreateOrGetAsync(Purchaser);
-        await h.Grants.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
-        await h.Grants.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.Pack("spooky"), null, GrantSource.OneTime));
+        var account = await h.Accounts.CreateOrGetAsync(Purchaser);
+        await h.Grants.PutGrantAsync(account.Id, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
+        await h.Grants.PutGrantAsync(account.Id, new EntitlementGrant(EntitlementCatalog.Pack("spooky"), null, GrantSource.OneTime));
         SignIn(h, Purchaser);
 
         var result = Ok(await h.Controller.Entitlements(CancellationToken.None));
@@ -74,8 +74,8 @@ public class RestoreViewTests
     public async Task Expired_grant_is_not_listed()
     {
         var h = NewHarness();
-        await h.Accounts.CreateOrGetAsync(Purchaser);
-        await h.Grants.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.PlayRemote, DateTimeOffset.UtcNow.AddDays(-1), GrantSource.Subscription));
+        var account = await h.Accounts.CreateOrGetAsync(Purchaser);
+        await h.Grants.PutGrantAsync(account.Id, new EntitlementGrant(EntitlementCatalog.PlayRemote, DateTimeOffset.UtcNow.AddDays(-1), GrantSource.Subscription));
         SignIn(h, Purchaser);
 
         var result = Ok(await h.Controller.Entitlements(CancellationToken.None));
@@ -113,8 +113,8 @@ public class RestoreViewTests
     public async Task Unauthenticated_caller_gets_401()
     {
         var h = NewHarness();
-        await h.Accounts.CreateOrGetAsync(Purchaser);
-        await h.Grants.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
+        var account = await h.Accounts.CreateOrGetAsync(Purchaser);
+        await h.Grants.PutGrantAsync(account.Id, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
         // No Authorization header set.
 
         var action = await h.Controller.Entitlements(CancellationToken.None);
@@ -141,8 +141,8 @@ public class RestoreViewTests
     public async Task Payload_contains_no_player_or_session_data()
     {
         var h = NewHarness();
-        await h.Accounts.CreateOrGetAsync(Purchaser);
-        await h.Grants.PutGrantAsync(Purchaser, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
+        var account = await h.Accounts.CreateOrGetAsync(Purchaser);
+        await h.Grants.PutGrantAsync(account.Id, new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
         SignIn(h, Purchaser);
 
         var result = Ok(await h.Controller.Entitlements(CancellationToken.None));

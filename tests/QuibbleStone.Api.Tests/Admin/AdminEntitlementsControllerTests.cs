@@ -88,7 +88,7 @@ public sealed class AdminEntitlementsControllerTests
         var (controller, accounts, grants, _) = NewSut();
         var account = await accounts.CreateOrGetAsync(Buyer, CancellationToken.None);
         await grants.PutGrantAsync(
-            account.Email,
+            account.Id,
             new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.Operator),
             CancellationToken.None);
 
@@ -222,7 +222,7 @@ public sealed class AdminEntitlementsControllerTests
 
         var account = await accounts.GetByIdentityAsync(Buyer, CancellationToken.None);
         Assert.NotNull(account);
-        var stored = await grants.GetGrantsAsync(account!.Email, CancellationToken.None);
+        var stored = await grants.GetGrantsAsync(account!.Id, CancellationToken.None);
         // Upsert by capability key - exactly one row, not a pile.
         Assert.Single(stored);
         Assert.Equal(EntitlementCatalog.AiOnDemand, Assert.Single(stored).CapabilityKey);

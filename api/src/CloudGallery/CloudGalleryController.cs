@@ -30,9 +30,11 @@
 //
 //  NO PII (AC-05): only the already-vetted in-session nickname(s) (the byline) and
 //  the already-filtered story are ever stored. The purchaser identity lives ONLY in
-//  the owner key (AccountIdentity.KeyFor(account.Email), a SHA-256 hash) - never a
-//  raw email / real name on a tale a child might see. There is no new free-text
-//  entry point: content is re-vetted, not re-authored.
+//  the owner key, which since accounts-identity/05 (#195) is the account's STABLE id
+//  (account.Id.ToString(), a random GUID) - never a raw email / real name on a tale a
+//  child might see, and no longer a hash of the (mutable) email (so an email change
+//  never orphans a purchaser's own gallery). There is no new free-text entry point:
+//  content is re-vetted, not re-authored.
 //
 //  CHILD SAFETY, SERVER-SIDE RE-VET (AC-05, mirrored from PublishedTalesController):
 //  on SAVE, EVERY non-empty part (coral player-words AND "literal" template runs)
@@ -171,7 +173,7 @@ public sealed class CloudGalleryController : ControllerBase
             return locked;
         }
 
-        var ownerKey = AccountIdentity.KeyFor(account.Email);
+        var ownerKey = account.Id.ToString();
         var tales = await _store.ListByOwnerAsync(ownerKey, cancellationToken);
         var view = tales
             .Select(t => new CloudTaleView(
@@ -204,10 +206,10 @@ public sealed class CloudGalleryController : ControllerBase
             return Unauthorized();
         }
 
-        // Resolve the canonical account so the tale keys off account.Email exactly
-        // like the gallery read does (the load-bearing key alignment - a save keyed
-        // off any other value would silently list back empty). No account -> a valid
-        // credential with no purchase behind it may not create cloud state.
+        // Resolve the canonical account so the tale keys off account.Id exactly like
+        // the gallery read does (the load-bearing key alignment - a save keyed off any
+        // other value would silently list back empty). No account -> a valid credential
+        // with no purchase behind it may not create cloud state.
         var account = await _accounts.GetByIdentityAsync(email, cancellationToken);
         if (account is null)
         {
@@ -309,7 +311,7 @@ public sealed class CloudGalleryController : ControllerBase
         }
 
         var tale = new CloudTale(
-            OwnerKey: AccountIdentity.KeyFor(account.Email),
+            OwnerKey: account.Id.ToString(),
             TaleId: SlugGenerator.Generate(),
             Title: title,
             Parts: parts,
@@ -350,7 +352,7 @@ public sealed class CloudGalleryController : ControllerBase
             return locked;
         }
 
-        var ownerKey = AccountIdentity.KeyFor(account.Email);
+        var ownerKey = account.Id.ToString();
         await _store.DeleteAsync(ownerKey, taleId, cancellationToken);
         return NoContent();
     }
@@ -382,7 +384,7 @@ public sealed class CloudGalleryController : ControllerBase
             return locked;
         }
 
-        var ownerKey = AccountIdentity.KeyFor(account.Email);
+        var ownerKey = account.Id.ToString();
         await _store.DeleteAllForOwnerAsync(ownerKey, cancellationToken);
         return NoContent();
     }

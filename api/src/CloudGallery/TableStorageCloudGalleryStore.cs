@@ -12,8 +12,8 @@
 //  scans are cheap and search / sort run client-side over one owner's bounded set.
 //
 //  KEY / SCHEMA DESIGN (AC-01/AC-05):
-//    - PartitionKey = ownerKey (the SHA-256 hash of account.Email, AccountIdentity.
-//      KeyFor), RowKey = taleId (a minted, unguessable id). So list-by-owner is a
+//    - PartitionKey = ownerKey (the account's stable id, account.Id.ToString() -
+//      accounts-identity/05), RowKey = taleId (a minted, unguessable id). So list-by-owner is a
 //      SINGLE-partition query (all rows with PartitionKey = ownerKey), delete-one
 //      is a point delete (partition + row), and delete-all is a single-partition
 //      sweep. Owner isolation is structural: a query / delete only ever touches
@@ -39,8 +39,8 @@ namespace QuibbleStone.Api.CloudGallery;
 
 /// <summary>
 /// The Azure Table Storage cloud-gallery store (keepsake-gallery/05). Stores one
-/// entity per synced tale, keyed PartitionKey = ownerKey (a hash of the purchaser
-/// email) and RowKey = taleId, so list-by-owner is a single-partition query and
+/// entity per synced tale, keyed PartitionKey = ownerKey (the account's stable id, a
+/// GUID) and RowKey = taleId, so list-by-owner is a single-partition query and
 /// owners are isolated by partition (AC-01). Carries NO PII beyond the byline
 /// nickname(s) (AC-05). Used only when a storage connection string is configured
 /// (else InMemoryCloudGalleryStore is registered).
