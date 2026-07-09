@@ -50,6 +50,15 @@ public static class VaultRateLimit
     public const string ReadPolicyName = "VaultRead";
 
     /// <summary>
+    /// The named policy the claim-code REDEEM action opts into (keepsake-vault/03,
+    /// AC-03.1). The FIRST of redemption's three anti-brute-force controls: a per-IP
+    /// fixed-window limiter. On its own it is defeated by an attacker rotating source
+    /// IPs - which is exactly why the global ceiling (ClaimRedemptionCeiling, AC-03.2)
+    /// and the per-code failed-attempt burn (VaultClaim, AC-03.3) sit alongside it.
+    /// </summary>
+    public const string RedeemPolicyName = "VaultClaimRedeem";
+
+    /// <summary>
     /// Permitted saves per <see cref="Window"/> per client IP. A device auto-saves
     /// one tale per finished reveal, so this is tight - generous for a real family's
     /// pace, low enough to blunt a scripted storage-bloat flood.
@@ -63,7 +72,16 @@ public static class VaultRateLimit
     /// </summary>
     public const int ReadPermitLimit = 60;
 
-    /// <summary>The fixed window both permit limits apply over.</summary>
+    /// <summary>
+    /// Permitted claim-code redemptions per <see cref="Window"/> per client IP
+    /// (keepsake-vault/03, AC-03.1). Tight - a legitimate family recovers a vault a
+    /// handful of times, so a single IP making many redemption attempts is a guesser.
+    /// Bounds one source; the global ceiling bounds the whole endpoint across rotated
+    /// IPs (AC-03.2).
+    /// </summary>
+    public const int RedeemPermitLimit = 10;
+
+    /// <summary>The fixed window all three permit limits apply over.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
     /// <summary>

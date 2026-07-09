@@ -25,8 +25,10 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.Safety;
 using QuibbleStone.Api.Vault;
 
@@ -45,7 +47,8 @@ public class VaultControllerTests
     private static Harness NewHarness(InMemoryVaultStore? store = null)
     {
         store ??= new InMemoryVaultStore();
-        var controller = new VaultController(store, Safety)
+        var credential = new PurchaserCredentialService(new EphemeralDataProtectionProvider());
+        var controller = new VaultController(store, Safety, credential, new InMemoryAccountStore(), new ClaimRedemptionCeiling())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
