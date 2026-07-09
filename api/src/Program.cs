@@ -165,6 +165,10 @@ else
 // one change - story 04 reads the rates) is registered for the whole gate to inject.
 var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
 builder.Services.AddSingleton(aiOptions);
+// control-plane/02 (#213): the AI config-presence boolean this branch already computes,
+// extracted (not re-derived a second way) so the SystemConfigPresence value registered
+// below can AND it against the ai.enabled system flag - config-presence is the floor.
+var aiConfigured = !string.IsNullOrWhiteSpace(aiOptions.Endpoint);
 if (string.IsNullOrWhiteSpace(aiOptions.Endpoint))
 {
     builder.Services.AddSingleton<IAiCompletionClient, NoOpAiCompletionClient>();
@@ -467,6 +471,10 @@ builder.Services.AddRateLimiter(options =>
 // A singleton: stateless after construction (a TableClient or nothing). The share
 // link is FREE - no entitlement check anywhere on this path (AC-04).
 var talesConnectionString = builder.Configuration["PublishedTales:StorageConnectionString"];
+// control-plane/02 (#213): the publishing config-presence boolean, extracted from the
+// SAME expression this branch already uses so SystemConfigPresence can AND it against the
+// publishing.enabled system flag (reserved - no consuming capability key yet).
+var publishingConfigured = !string.IsNullOrWhiteSpace(talesConnectionString);
 if (string.IsNullOrWhiteSpace(talesConnectionString))
 {
     builder.Services.AddSingleton<IPublishedTaleStore, DisabledPublishedTaleStore>();
@@ -616,6 +624,13 @@ builder.Services.AddSingleton<SeatGraceService>();
 // (null purchaser - every alpha session) get exactly the baseline, so behavior is
 // unchanged today.
 builder.Services.AddSingleton<DefaultUnlockedEntitlementService>();
+// control-plane/02 (#213): the system-scope flag evaluator - the post-compose kill-switch
+// filter StoredValueEntitlementService runs AFTER its baseline + grant composition. Bundles
+// the IRuntimeSettingsService (the *.enabled flags, registered below) and the
+// SystemConfigPresence floor (registered after the email options bind). A singleton so it
+// shares the settings service's short read cache. Registration order is irrelevant here -
+// every dependency is a singleton resolved lazily at first session-creation.
+builder.Services.AddSingleton<SystemFlagEvaluator>();
 builder.Services.AddSingleton<IEntitlementService, StoredValueEntitlementService>();
 
 // billing-entitlements/01 (#70): the purchaser entitlement-grant store, chosen at
@@ -831,6 +846,10 @@ builder.Services.AddSingleton<IMagicLinkTokenService>(sp =>
 // Vault-backed via an app setting, NEVER committed and NEVER a VITE_* var (AC-05).
 var emailOptions = builder.Configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>() ?? new EmailOptions();
 builder.Services.AddSingleton(emailOptions);
+// control-plane/02 (#213): the email config-presence boolean, extracted from the SAME
+// EmailOptions.IsConfigured expression this branch already uses so SystemConfigPresence
+// can AND it against the email.enabled system flag (reserved - no consuming key yet).
+var emailConfigured = emailOptions.IsConfigured;
 if (!emailOptions.IsConfigured)
 {
     builder.Services.AddSingleton<IEmailSender, NoOpEmailSender>();
@@ -840,6 +859,18 @@ else
     builder.Services.AddSingleton<IEmailSender>(sp =>
         new AcsEmailSender(emailOptions, sp.GetRequiredService<ILogger<AcsEmailSender>>()));
 }
+
+// control-plane/02 (#213): the config-presence FLOOR for the system-scope capability
+// flags, constructed ONCE here - now that all three options are bound (AI ~line 167,
+// publishing ~469, email above) - from the SAME expressions their config-presence
+// branches already computed (never re-derived a second way). SystemFlagEvaluator ANDs
+// each field against the matching *.enabled settings flag so an operator can force a
+// CONFIGURED capability OFF but can never enable one whose infra is not wired up (ADR
+// 0003 Layer 1 - config-presence is the floor). A singleton alongside the branches above.
+builder.Services.AddSingleton(new SystemConfigPresence(
+    AiConfigured: aiConfigured,
+    PublishingConfigured: publishingConfigured,
+    EmailConfigured: emailConfigured));
 
 // accounts-identity/03 + platform-devops/08 (durable key ring, #199): ASP.NET Core
 // Data Protection, used by PurchaserCredentialService to mint the SHORT-LIVED

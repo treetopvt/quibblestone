@@ -34,11 +34,13 @@ the razor and the cross-feature hazard this story carries.
 
 ## Acceptance Criteria
 - [ ] AC-01: Given `SettingsCatalog` (story 01) registers `ai.enabled`, `publishing.enabled`, and
-      `email.enabled` as boolean settings keys (code default `true`), when GET /api/admin/settings is
-      called, then each appears with an EFFECTIVE value computed as (the existing config-presence check
-      for that infrastructure - AI endpoint configured, published-tales storage configured, an email
-      provider configured) AND (the settings flag) - never `true` when the underlying infrastructure is
-      not configured.
+      `email.enabled` as boolean settings keys (code default `true`), when `SystemFlagEvaluator` computes
+      each key's EFFECTIVE value as (the existing config-presence check for that infrastructure - AI
+      endpoint configured, published-tales storage configured, an email provider configured) AND (the
+      settings flag), then it is never `true` when the underlying infrastructure is not configured, for
+      every configured/unconfigured combination of all three keys (surfacing this computed effective
+      value in the GET /api/admin/settings response is deferred with the rest of the console UI - see Out
+      of Scope - so that endpoint's raw override-or-default response is unchanged by this story).
 - [ ] AC-02: Given `ai.enabled` is at its code default (`true`) and AI is configured, when a room is
       created (`GameHub.CreateRoom`), then the resulting `SessionEntitlements.IsUnlocked("ai.onDemand")`
       is UNCHANGED from today's shipped behavior (still governed solely by the existing default-
@@ -73,7 +75,9 @@ the razor and the cross-feature hazard this story carries.
   session-scoped publish or email capability exists.
 - Any change to `EntitlementCatalog`'s existing capability keys or their default-unlocked/grant
   behavior beyond inserting the system-flag composition step.
-- A console UI for these flags (`sysadmin-console`'s Operations tab).
+- A console UI for these flags (`sysadmin-console`'s Operations tab), and surfacing the AC-01 computed
+  effective value in the GET /api/admin/settings response - both deferred together; the admin GET (story
+  01's `SettingsController`) keeps returning its raw override-or-default view, unmodified by this story.
 - RBAC / scoped operator authorization (parked in `feature.md`).
 
 ## Technical Notes

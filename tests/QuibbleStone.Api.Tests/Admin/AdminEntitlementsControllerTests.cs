@@ -56,7 +56,7 @@ public sealed class AdminEntitlementsControllerTests
         var accounts = new InMemoryAccountStore();
         var grants = new InMemoryEntitlementGrantStore();
         var entitlements = new StoredValueEntitlementService(
-            new DefaultUnlockedEntitlementService(), accounts, grants);
+            new DefaultUnlockedEntitlementService(), accounts, grants, TestSystemFlags.AllEnabled());
         return (new AdminEntitlementsController(accounts, grants), accounts, grants, entitlements);
     }
 
