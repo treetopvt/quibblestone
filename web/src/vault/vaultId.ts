@@ -81,6 +81,19 @@ function readStored(): string | null {
   }
 }
 
+/**
+ * Reads this device's persisted vault id WITHOUT minting one (keepsake-vault/02).
+ * Returns the stored id only when it still meets the entropy/format floor, or
+ * null when the device holds no (valid) vault id. Unlike {@link getVaultId},
+ * this NEVER mints or persists - a read-only surface (the gallery merge) must
+ * not create a vault just by being opened, so browsing with no saved tale leaves
+ * the device vault-id-less. Swallows any storage-access failure (private mode,
+ * blocked) as absence.
+ */
+export function readStoredVaultId(): string | null {
+  return readStored();
+}
+
 /** Persists the vault id durably, swallowing any storage-access failure. */
 function writeStored(vaultId: string): void {
   try {
