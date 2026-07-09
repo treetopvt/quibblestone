@@ -62,15 +62,21 @@ public sealed class StripeWebhookController : ControllerBase
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook(CancellationToken cancellationToken)
     {
-        // Each configured mode's signing secret, distinct + non-empty (AC-04). The flat
-        // fallback means an old single-mode wiring collapses to one secret. No secret in
-        // any mode => billing is not configured; this path is not reached in practice
-        // (Stripe is not wired to call an unconfigured app).
-        var signingSecrets = new[] { _options.ForMode(StripeMode.Test).WebhookSigningSecret, _options.ForMode(StripeMode.Live).WebhookSigningSecret }
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Distinct(StringComparer.Ordinal)
+        // Each configured mode's signing secret paired with its mode (billing-entitlements/08:
+        // we must remember WHICH mode verified, to stamp the grant's provenance - AC-02). The
+        // flat fallback means an old single-mode wiring resolves both modes to the same secret;
+        // we try Test FIRST and break on the first match, so a shared-secret wiring attributes
+        // to Test - factually correct, since Stripe Live has never been active in such an
+        // environment (ADR 0003 Decision 4). No secret in any mode => billing is not configured;
+        // this path is not reached in practice (Stripe is not wired to call an unconfigured app).
+        var candidates = new[]
+        {
+            (Mode: StripeMode.Test, Secret: _options.ForMode(StripeMode.Test).WebhookSigningSecret),
+            (Mode: StripeMode.Live, Secret: _options.ForMode(StripeMode.Live).WebhookSigningSecret),
+        }
+            .Where(c => !string.IsNullOrWhiteSpace(c.Secret))
             .ToArray();
-        if (signingSecrets.Length == 0)
+        if (candidates.Length == 0)
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
@@ -94,11 +100,13 @@ public sealed class StripeWebhookController : ControllerBase
         // - the handler unit tests operate on the normalized BillingEvent, downstream of
         // ConstructEvent, so they could not surface this.)
         Event? stripeEvent = null;
-        foreach (var secret in signingSecrets)
+        var verifiedMode = StripeMode.Test;
+        foreach (var (mode, secret) in candidates)
         {
             try
             {
                 stripeEvent = EventUtility.ConstructEvent(payload, signature, secret, throwOnApiVersionMismatch: false);
+                verifiedMode = mode;
                 break;
             }
             catch (StripeException)
@@ -115,8 +123,10 @@ public sealed class StripeWebhookController : ControllerBase
             return BadRequest();
         }
 
+        // Pass the mode that ACTUALLY verified this event (billing-entitlements/08 AC-02)
+        // so every grant records its own true provenance - NOT the currently-active mode.
         var billingEvent = StripeEventMapper.ToBillingEvent(stripeEvent);
-        var outcome = await _handler.HandleAsync(billingEvent, cancellationToken);
+        var outcome = await _handler.HandleAsync(billingEvent, verifiedMode, cancellationToken);
         _logger.LogDebug("Handled Stripe event {Kind} -> {Outcome}.", billingEvent.Kind, outcome);
         return Ok(new { outcome = outcome.ToString() });
     }

@@ -13,6 +13,7 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
+using QuibbleStone.Api.Billing;
 using QuibbleStone.Api.Entitlements;
 
 namespace QuibbleStone.Api.Tests;
@@ -37,6 +38,51 @@ public class EntitlementGrantStoreTests
         Assert.Equal(EntitlementCatalog.PlayRemote, grant.CapabilityKey);
         Assert.Equal(validThrough, grant.ValidThrough);
         Assert.Equal(GrantSource.Subscription, grant.Source);
+    }
+
+    // billing-entitlements/08 AC-01: the recovery / support metadata (GrantId, PlanId,
+    // StripeSubscriptionId, Mode) round-trips through the store unchanged.
+    [Fact]
+    public async Task Grant_round_trips_with_the_recovery_metadata_intact()
+    {
+        var store = new InMemoryEntitlementGrantStore();
+        var validThrough = DateTimeOffset.UtcNow.AddDays(30);
+        var written = new EntitlementGrant(
+            EntitlementCatalog.PlayRemote, validThrough, GrantSource.Subscription,
+            PlanId: "family-plan", StripeSubscriptionId: "sub_123", Mode: StripeMode.Live);
+
+        await store.PutGrantAsync(AccountId, written);
+
+        var grant = Assert.Single(await store.GetGrantsAsync(AccountId));
+        Assert.Equal(written.GrantId, grant.GrantId);
+        Assert.Equal("family-plan", grant.PlanId);
+        Assert.Equal("sub_123", grant.StripeSubscriptionId);
+        Assert.Equal(StripeMode.Live, grant.Mode);
+    }
+
+    // AC-01: a fresh GrantId is minted per construction (identifies THIS write) - two
+    // grants built the same way still get distinct, non-empty ids.
+    [Fact]
+    public void GrantId_is_freshly_minted_per_construction()
+    {
+        var a = new EntitlementGrant(EntitlementCatalog.PlayRemote, null, GrantSource.OneTime);
+        var b = new EntitlementGrant(EntitlementCatalog.PlayRemote, null, GrantSource.OneTime);
+
+        Assert.NotEqual(Guid.Empty, a.GrantId);
+        Assert.NotEqual(Guid.Empty, b.GrantId);
+        Assert.NotEqual(a.GrantId, b.GrantId);
+    }
+
+    // AC-01: a defaulted grant (the shape the operator grant/revoke + tip paths build)
+    // carries null plan / subscription / mode - metadata is opt-in, not required.
+    [Fact]
+    public void Metadata_defaults_are_null_for_a_bare_grant()
+    {
+        var grant = new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.Operator);
+
+        Assert.Null(grant.PlanId);
+        Assert.Null(grant.StripeSubscriptionId);
+        Assert.Null(grant.Mode);
     }
 
     [Fact]

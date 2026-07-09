@@ -187,7 +187,10 @@ public sealed class BillingController : ControllerBase
             SuccessUrl: _options.ClientBaseUrl.TrimEnd('/') + successPath,
             CancelUrl: _options.ClientBaseUrl.TrimEnd('/') + cancelPath,
             CapabilityKeys: product.CapabilityKeys,
-            PurchaserEmail: purchaserEmail);
+            PurchaserEmail: purchaserEmail,
+            // billing-entitlements/08: carry the product id so the grant records its
+            // PlanId (a one-line addition - the product is already resolved here).
+            ProductId: product.ProductId);
 
         var session = await _checkout.CreateCheckoutSessionAsync(checkoutRequest, ct);
         return new CheckoutStartResult(session.Enabled, session.Url, Message: null);

@@ -18,7 +18,19 @@
 //      per (account, capability), so a subscription renewal UPSERTS - extends the
 //      lease in place - rather than piling up rows.
 //    - Stored PROPERTIES: ValidThrough (nullable - null = a permanent one-time
-//      pack) and Source (the GrantSource name). No PII, no player / room reference.
+//      pack), Source (the GrantSource name), and (billing-entitlements/08) the
+//      recovery / support metadata columns GrantId, PlanId, StripeSubscriptionId,
+//      and Mode. No PII, no player / room reference.
+//
+//  ADDITIVE, BACK-COMPAT COLUMNS (billing-entitlements/08 AC-03): the four metadata
+//  columns are new. A row written by the already-shipped code has none of them, so
+//  FromEntity DEGRADES a missing column rather than throwing - mirroring the existing
+//  defensive Source handling: a missing GrantId mints a fresh Guid, a missing PlanId /
+//  StripeSubscriptionId reads as null, and a missing Mode reads as Test (the FACTUAL
+//  default - no grant in this store predates Stripe Live ever going active, ADR 0003
+//  Decision 4). An operator comp (Mode intentionally null) is persisted with an
+//  explicit sentinel so it round-trips back to null rather than colliding with the
+//  legacy "missing column" default. IsActiveAt is byte-for-byte unchanged.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -26,6 +38,7 @@
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Logging;
+using QuibbleStone.Api.Billing;
 
 namespace QuibbleStone.Api.Entitlements;
 
@@ -43,6 +56,17 @@ public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
 
     private const string ValidThroughColumn = "ValidThrough";
     private const string SourceColumn = "Source";
+
+    // billing-entitlements/08 recovery / support metadata columns (all additive).
+    private const string GrantIdColumn = "GrantId";
+    private const string PlanIdColumn = "PlanId";
+    private const string StripeSubscriptionIdColumn = "StripeSubscriptionId";
+    private const string ModeColumn = "Mode";
+
+    // The Mode column value for a grant whose Mode is intentionally null (a
+    // GrantSource.Operator comp - AC-01). A NON-null sentinel so it is distinguishable
+    // from a legacy row that has NO Mode column at all (which defaults to Test - AC-03).
+    private const string ModeNoneSentinel = "none";
 
     private readonly TableClient _table;
     private readonly ILogger<TableStorageEntitlementGrantStore> _logger;
@@ -75,7 +99,7 @@ public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
             var query = _table.QueryAsync<TableEntity>(e => e.PartitionKey == partition, cancellationToken: ct);
             await foreach (var entity in query)
             {
-                grants.Add(FromEntity(entity));
+                grants.Add(FromEntity(entity, _logger));
             }
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
@@ -94,17 +118,31 @@ public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
         var partition = accountId.ToString();
         await EnsureTableAsync(ct);
 
-        var entity = new TableEntity(partition, grant.CapabilityKey)
-        {
-            // Only the lease + source (AC-05). No PII, no player / room reference.
-            [ValidThroughColumn] = grant.ValidThrough,
-            [SourceColumn] = grant.Source.ToString(),
-        };
-
         // UPSERT (Replace): one row per capability, so a renewal extends the lease in
         // place rather than adding a duplicate (story 03's invoice.paid path).
-        await _table.UpsertEntityAsync(entity, TableUpdateMode.Replace, ct);
+        await _table.UpsertEntityAsync(ToEntity(partition, grant), TableUpdateMode.Replace, ct);
     }
+
+    /// <summary>
+    /// Projects a grant to its stored <see cref="TableEntity"/> (the schema, one place):
+    /// the lease + source (AC-05) plus billing-entitlements/08's recovery / support
+    /// metadata columns. No PII, no player / room reference. Public + static so the schema
+    /// round-trip is unit-testable without an Azure connection (AC-01), mirroring
+    /// StripeCheckoutService.BuildSessionOptions.
+    /// </summary>
+    public static TableEntity ToEntity(string partitionKey, EntitlementGrant grant) =>
+        new(partitionKey, grant.CapabilityKey)
+        {
+            [ValidThroughColumn] = grant.ValidThrough,
+            [SourceColumn] = grant.Source.ToString(),
+            [GrantIdColumn] = grant.GrantId.ToString(),
+            [PlanIdColumn] = grant.PlanId,
+            [StripeSubscriptionIdColumn] = grant.StripeSubscriptionId,
+            // A real mode is stored as its wire value; an intentionally-null mode (an
+            // operator comp) as the sentinel, so it round-trips to null rather than to
+            // the legacy "missing column -> Test" default on read (AC-01 / AC-03).
+            [ModeColumn] = grant.Mode?.ToWire() ?? ModeNoneSentinel,
+        };
 
     // Create the table ONCE (lazy); after the first success the guard skips the
     // extra round-trip on every subsequent write.
@@ -117,11 +155,17 @@ public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
         }
     }
 
-    // Rebuild the domain record from a stored entity. Defensive on the stored fields
-    // so a partially-written / legacy row degrades to sane values rather than throwing:
-    // a missing/unparseable source falls back to OneTime (the most conservative -
-    // permanent-shaped - source is never assumed; the lease still governs activeness).
-    private EntitlementGrant FromEntity(TableEntity entity)
+    /// <summary>
+    /// Rebuilds the domain record from a stored entity (billing-entitlements/08 AC-03).
+    /// Public + static so a legacy / partially-written row's degradation is unit-testable
+    /// without Azure. Defensive on every stored field so a pre-story row degrades to sane
+    /// values rather than throwing: a missing/unparseable Source falls back to OneTime (the
+    /// most conservative - permanent-shaped - source; the lease still governs activeness), a
+    /// missing GrantId mints a fresh id, a missing PlanId / StripeSubscriptionId reads null,
+    /// and a missing Mode reads Test (the FACTUAL default - no grant here predates Stripe
+    /// Live going active). IsActiveAt is byte-for-byte unchanged from a full row.
+    /// </summary>
+    public static EntitlementGrant FromEntity(TableEntity entity, ILogger logger)
     {
         GrantSource source;
         if (Enum.TryParse(entity.GetString(SourceColumn), ignoreCase: true, out source))
@@ -135,13 +179,47 @@ public sealed class TableStorageEntitlementGrantStore : IEntitlementGrantStore
             // wrongly UNLOCK anything) but warn so real drift is visible rather than
             // silently mislabeling the source story 05's restore view would display.
             source = GrantSource.OneTime;
-            _logger.LogWarning(
+            logger.LogWarning(
                 "Entitlement grant row {RowKey} has a missing/unparseable Source; defaulting to OneTime for display.",
                 entity.RowKey);
         }
         return new EntitlementGrant(
             CapabilityKey: entity.RowKey,
             ValidThrough: entity.GetDateTimeOffset(ValidThroughColumn),
-            Source: source);
+            Source: source,
+            PlanId: entity.GetString(PlanIdColumn),
+            StripeSubscriptionId: entity.GetString(StripeSubscriptionIdColumn),
+            Mode: ModeFromEntity(entity, logger))
+        {
+            // A legacy row (no GrantId column) mints a fresh id rather than throwing
+            // (AC-03); a stored id is preserved so the write's identity survives a read.
+            GrantId = Guid.TryParse(entity.GetString(GrantIdColumn), out var grantId) ? grantId : Guid.NewGuid(),
+        };
+    }
+
+    // Rebuild the grant's Mode defensively (AC-03): a MISSING column is a pre-story /
+    // legacy row -> Test (the FACTUAL default: no grant here predates Stripe Live going
+    // active); the explicit sentinel -> null (an operator comp, AC-01); a wire value ->
+    // that mode; anything else is schema drift -> Test with a warning (never throws).
+    private static StripeMode? ModeFromEntity(TableEntity entity, ILogger logger)
+    {
+        var raw = entity.GetString(ModeColumn);
+        if (raw is null)
+        {
+            return StripeMode.Test; // legacy row - no Mode column (AC-03)
+        }
+        if (string.Equals(raw, ModeNoneSentinel, StringComparison.OrdinalIgnoreCase))
+        {
+            return null; // an operator comp: Mode intentionally absent (AC-01)
+        }
+        var parsed = StripeModeText.TryParse(raw);
+        if (parsed is null)
+        {
+            logger.LogWarning(
+                "Entitlement grant row {RowKey} has an unparseable Mode; defaulting to Test.",
+                entity.RowKey);
+            return StripeMode.Test;
+        }
+        return parsed;
     }
 }

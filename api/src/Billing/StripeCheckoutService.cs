@@ -11,10 +11,11 @@
 //  never logged. Because the active mode can be flipped at runtime, the client is built
 //  per call from the currently-active secret key rather than captured once at construction.
 //
-//  METADATA SEAM: the capability keys + purchaser email ride into the session's
-//  Metadata (read back on checkout.session.completed) AND, for a subscription, into
-//  SubscriptionData.Metadata (so renewal / past_due / canceled lifecycle events can
-//  resolve the same capabilities). See BillingMetadata + StripeEventMapper.
+//  METADATA SEAM: the capability keys + purchaser email + product id (billing-
+//  entitlements/08) ride into the session's Metadata (read back on
+//  checkout.session.completed) AND, for a subscription, into SubscriptionData.Metadata
+//  (so renewal / past_due / canceled lifecycle events - and a per-account resync -
+//  can resolve the same capabilities + product). See BillingMetadata + StripeEventMapper.
 //
 //  The session-options building is a pure static (BuildSessionOptions) so the
 //  mode/metadata mapping is unit-testable without a Stripe network call (AC-02); the
@@ -88,6 +89,9 @@ public sealed class StripeCheckoutService : IStripeCheckoutService
         {
             [BillingMetadata.CapabilitiesKey] = BillingMetadata.JoinCapabilities(request.CapabilityKeys),
             [BillingMetadata.PurchaserKey] = request.PurchaserEmail ?? string.Empty,
+            // billing-entitlements/08: the product id rides in the same way, so the
+            // webhook (and a later resync) can record which product produced a grant.
+            [BillingMetadata.ProductKey] = request.ProductId ?? string.Empty,
         };
 
         var options = new SessionCreateOptions

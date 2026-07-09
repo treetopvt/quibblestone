@@ -12,8 +12,12 @@
 //    - customer.subscription.updated     -> SubscriptionPastDue when status == past_due
 //    - customer.subscription.deleted     -> SubscriptionCanceled
 //    - anything else                     -> Ignored
-//  Capability keys + purchaser email come from the metadata the checkout STAMPED
-//  (BillingMetadata) onto the session and (for subscriptions) the subscription.
+//  Capability keys + purchaser email + product id (billing-entitlements/08's
+//  qs_product) come from the metadata the checkout STAMPED (BillingMetadata) onto the
+//  session and (for subscriptions) the subscription. The Stripe subscription id is
+//  read off each event shape: Session.Subscription (checkout.session.completed in
+//  subscription mode), Invoice's subscription line (invoice.paid), and Subscription.Id
+//  directly (customer.subscription.updated / .deleted).
 //
 //  NOTE: the exact Stripe.* property surface is verified at build time against the
 //  pinned Stripe.net version; the correctness of the live mapping is manual /
@@ -61,7 +65,11 @@ public static class StripeEventMapper
                     // immediately-following invoice.paid sets the real lease end. The
                     // handler falls back to a grace-window lease in the meantime, so a
                     // subscription is never granted as permanent.
-                    PeriodEnd: null);
+                    PeriodEnd: null,
+                    PlanId: ProductOf(session.Metadata),
+                    // SubscriptionId is set for a subscription-mode checkout, null for a
+                    // one-time payment (billing-entitlements/08).
+                    StripeSubscriptionId: session.SubscriptionId);
             }
 
             case "invoice.paid" when stripeEvent.Data.Object is Invoice invoice:
@@ -72,7 +80,11 @@ public static class StripeEventMapper
                     GrantSource.Subscription,
                     PurchaserOf(invoice.Metadata, invoice.CustomerEmail),
                     CapabilitiesOf(invoice.Metadata),
-                    PeriodEnd: PeriodEndOf(invoice));
+                    PeriodEnd: PeriodEndOf(invoice),
+                    PlanId: ProductOf(invoice.Metadata),
+                    // The subscription id moved under Parent.SubscriptionDetails in newer
+                    // Stripe API versions (billing-entitlements/08).
+                    StripeSubscriptionId: invoice.Parent?.SubscriptionDetails?.SubscriptionId);
             }
 
             case "customer.subscription.updated" when stripeEvent.Data.Object is Subscription updated
@@ -84,7 +96,9 @@ public static class StripeEventMapper
                     GrantSource.Subscription,
                     PurchaserOf(updated.Metadata, customerEmail: null),
                     CapabilitiesOf(updated.Metadata),
-                    PeriodEnd: null);
+                    PeriodEnd: null,
+                    PlanId: ProductOf(updated.Metadata),
+                    StripeSubscriptionId: updated.Id);
             }
 
             case "customer.subscription.deleted" when stripeEvent.Data.Object is Subscription deleted:
@@ -95,7 +109,9 @@ public static class StripeEventMapper
                     GrantSource.Subscription,
                     PurchaserOf(deleted.Metadata, customerEmail: null),
                     CapabilitiesOf(deleted.Metadata),
-                    PeriodEnd: null);
+                    PeriodEnd: null,
+                    PlanId: ProductOf(deleted.Metadata),
+                    StripeSubscriptionId: deleted.Id);
             }
 
             default:
@@ -121,6 +137,18 @@ public static class StripeEventMapper
             return BillingMetadata.SplitCapabilities(joined);
         }
         return [];
+    }
+
+    // The ProductCatalog product id the checkout stamped (billing-entitlements/08's
+    // qs_product), or null when absent/blank - a legacy checkout, or an event with no
+    // product metadata. The handler records it as the grant's PlanId.
+    private static string? ProductOf(IDictionary<string, string>? metadata)
+    {
+        if (metadata is not null && metadata.TryGetValue(BillingMetadata.ProductKey, out var product) && !string.IsNullOrWhiteSpace(product))
+        {
+            return product;
+        }
+        return null;
     }
 
     // The renewal period end from the invoice's line items (the latest line's period

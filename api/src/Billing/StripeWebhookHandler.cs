@@ -28,6 +28,12 @@
 //  lease - if a subscription event somehow lacks a period end, it falls back to a
 //  grace-window lease, so a subscription can never accidentally become permanent.
 //
+//  GRANT METADATA (billing-entitlements/08): every grant this handler writes carries a
+//  fresh GrantId, the PlanId + Stripe subscription id the event supplied, and the Mode
+//  that VERIFIED this specific event (passed in by the controller's dual-secret verify -
+//  the event's own true provenance, NEVER "whichever mode is currently active"). The
+//  lease math is the shared BillingLeaseMath the resync service also uses (not duplicated).
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
@@ -67,7 +73,17 @@ public sealed class StripeWebhookHandler
     /// Idempotent per event id (AC-05). Never throws on a benign / unrecognized event -
     /// it is acknowledged as <see cref="WebhookOutcome.Ignored"/>.
     /// </summary>
-    public async Task<WebhookOutcome> HandleAsync(BillingEvent billingEvent, CancellationToken ct = default)
+    /// <param name="billingEvent">The verified, normalized event to apply.</param>
+    /// <param name="mode">
+    /// The Stripe mode that VERIFIED this specific event's signature (billing-entitlements/08
+    /// AC-02) - stamped onto every grant this event writes. This is the event's own true
+    /// provenance (the controller's dual-secret verify already knows which secret matched);
+    /// it is NEVER inferred from "whichever mode is currently active", because the two can
+    /// differ (a Live event can arrive while Test is the active mode). Defaults to Test so the
+    /// existing single-mode / test-only call sites and tests are unaffected.
+    /// </param>
+    /// <param name="ct">Cancellation for the storage writes.</param>
+    public async Task<WebhookOutcome> HandleAsync(BillingEvent billingEvent, StripeMode mode = StripeMode.Test, CancellationToken ct = default)
     {
         if (billingEvent.Kind == BillingEventKind.Ignored)
         {
@@ -100,10 +116,10 @@ public sealed class StripeWebhookHandler
         {
             case BillingEventKind.CheckoutCompleted:
             case BillingEventKind.SubscriptionRenewed:
-                var validThrough = ResolveLeaseEnd(billingEvent.Source, billingEvent.PeriodEnd, now);
+                var validThrough = BillingLeaseMath.ResolveLeaseEnd(billingEvent.Source, billingEvent.PeriodEnd, now, _options.PastDueGraceDays);
                 foreach (var capability in billingEvent.CapabilityKeys)
                 {
-                    await _grants.PutGrantAsync(account.Id, new EntitlementGrant(capability, validThrough, billingEvent.Source), ct);
+                    await _grants.PutGrantAsync(account.Id, NewGrant(billingEvent, capability, validThrough, billingEvent.Source, mode), ct);
                 }
                 break;
 
@@ -127,7 +143,7 @@ public sealed class StripeWebhookHandler
                 {
                     var currentEnd = byCapability.TryGetValue(capability, out var cur) ? cur.ValidThrough : null;
                     var extended = currentEnd is { } end && end > graceEnd ? end : graceEnd;
-                    await _grants.PutGrantAsync(account.Id, new EntitlementGrant(capability, extended, GrantSource.Subscription), ct);
+                    await _grants.PutGrantAsync(account.Id, NewGrant(billingEvent, capability, extended, GrantSource.Subscription, mode), ct);
                 }
                 break;
 
@@ -137,7 +153,7 @@ public sealed class StripeWebhookHandler
                 // billing-01 AC-03).
                 foreach (var capability in billingEvent.CapabilityKeys)
                 {
-                    await _grants.PutGrantAsync(account.Id, new EntitlementGrant(capability, now, GrantSource.Subscription), ct);
+                    await _grants.PutGrantAsync(account.Id, NewGrant(billingEvent, capability, now, GrantSource.Subscription, mode), ct);
                 }
                 break;
         }
@@ -147,17 +163,15 @@ public sealed class StripeWebhookHandler
     }
 
     /// <summary>
-    /// The lease end for a fresh grant / renewal: a one-time purchase is PERMANENT
-    /// (null), a subscription lasts until its period end - and a subscription with a
-    /// missing period end falls back to a grace-window lease, so a subscription is
-    /// NEVER accidentally written as permanent.
+    /// Builds an <see cref="EntitlementGrant"/> for a webhook write (billing-entitlements/08),
+    /// stamping the recovery / support metadata every grant now carries: the plan id +
+    /// Stripe subscription id carried through the event, and the <paramref name="mode"/> that
+    /// verified this event (its true provenance, AC-02). A fresh GrantId is auto-minted by the
+    /// record. Keeps the three write sites above from repeating the metadata plumbing.
     /// </summary>
-    private DateTimeOffset? ResolveLeaseEnd(GrantSource source, DateTimeOffset? periodEnd, DateTimeOffset now)
-    {
-        if (source != GrantSource.Subscription)
-        {
-            return null; // one-time pack: permanent
-        }
-        return periodEnd ?? now.AddDays(_options.PastDueGraceDays);
-    }
+    private static EntitlementGrant NewGrant(BillingEvent billingEvent, string capability, DateTimeOffset? validThrough, GrantSource source, StripeMode mode) =>
+        new(capability, validThrough, source,
+            PlanId: billingEvent.PlanId,
+            StripeSubscriptionId: billingEvent.StripeSubscriptionId,
+            Mode: mode);
 }
