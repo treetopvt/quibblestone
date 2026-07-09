@@ -6,7 +6,7 @@
 
 # Story: Capability scopes: system flags in the entitlement evaluation
 
-**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Not Started  ·  **Issue:** #213
+**Feature:** Control Plane (`docs/features/control-plane/feature.md`)  ·  **Status:** Complete  ·  **Issue:** #213
 
 ## Context
 `IEntitlementService.EvaluateForSession` (`api/src/Entitlements/IEntitlementService.cs`) today composes
@@ -33,7 +33,7 @@ zero observed behavior until an operator explicitly overrides one. See `feature.
 the razor and the cross-feature hazard this story carries.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given `SettingsCatalog` (story 01) registers `ai.enabled`, `publishing.enabled`, and
+- [x] AC-01: Given `SettingsCatalog` (story 01) registers `ai.enabled`, `publishing.enabled`, and
       `email.enabled` as boolean settings keys (code default `true`), when `SystemFlagEvaluator` computes
       each key's EFFECTIVE value as (the existing config-presence check for that infrastructure - AI
       endpoint configured, published-tales storage configured, an email provider configured) AND (the
@@ -41,25 +41,25 @@ the razor and the cross-feature hazard this story carries.
       every configured/unconfigured combination of all three keys (surfacing this computed effective
       value in the GET /api/admin/settings response is deferred with the rest of the console UI - see Out
       of Scope - so that endpoint's raw override-or-default response is unchanged by this story).
-- [ ] AC-02: Given `ai.enabled` is at its code default (`true`) and AI is configured, when a room is
+- [x] AC-02: Given `ai.enabled` is at its code default (`true`) and AI is configured, when a room is
       created (`GameHub.CreateRoom`), then the resulting `SessionEntitlements.IsUnlocked("ai.onDemand")`
       is UNCHANGED from today's shipped behavior (still governed solely by the existing default-
       unlocked/grant composition) - zero regression.
-- [ ] AC-03: Given an operator overrides `ai.enabled` to `false`, when a NEW room is created after the
+- [x] AC-03: Given an operator overrides `ai.enabled` to `false`, when a NEW room is created after the
       settings cache window (story 01) elapses, then `SessionEntitlements.IsUnlocked("ai.onDemand")` is
       `false` for that session regardless of any active purchaser grant for that capability - the
       system flag's force-off PRECEDES account grants in precedence (wins over any grant), implemented
       as a post-compose filter step that runs after the baseline+grant composition, not as a branch that
       skips grant evaluation.
-- [ ] AC-04: Given an operator overrides `ai.enabled` to `false` AFTER a room already exists, when that
+- [x] AC-04: Given an operator overrides `ai.enabled` to `false` AFTER a room already exists, when that
       already-created room's captured `SessionEntitlements` is read again, then it is unaffected (it
       still reflects whatever was captured at its own creation) - the flip only changes sessions
       created after the change, never an in-flight one (capture-once, unchanged).
-- [ ] AC-05: Given AI is NOT configured at all (no `Ai:Endpoint`), when `ai.enabled` is left at its
+- [x] AC-05: Given AI is NOT configured at all (no `Ai:Endpoint`), when `ai.enabled` is left at its
       default or explicitly set to `true`, then the effective system flag still reads `false` - a
       settings override can never enable a capability whose underlying infrastructure is not
       configured (config-presence remains the floor, per ADR 0003).
-- [ ] AC-06: Given `IEntitlementService.EvaluateForSession`'s public signature and the capture-once
+- [x] AC-06: Given `IEntitlementService.EvaluateForSession`'s public signature and the capture-once
       discipline, when this story ships, then no consumer (`GameHub.CreateRoom`,
       `CloudGalleryController`) changes its call shape - only the internal composition order inside
       `StoredValueEntitlementService` changes.

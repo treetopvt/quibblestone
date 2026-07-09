@@ -1,6 +1,6 @@
 # Story: The device gallery becomes a view over the vault
 
-**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #212
+**Feature:** Keepsake Vault  ·  **Status:** Complete  ·  **Issue:** #212
 
 ## Context
 `keepsake-gallery/03`'s "Tales we've carved" screen reads ONLY the device's
@@ -18,32 +18,32 @@ rather than the only copy. See [feature.md](./feature.md) and
 "the device IndexedDB gallery becomes a cache/offline view over the vault").
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a device holding a vault id, when the "Tales we've carved"
+- [x] AC-01: Given a device holding a vault id, when the "Tales we've carved"
       gallery loads, then it fetches the vault's tales (`GET`, story 01) and
       merges them with the device's local IndexedDB list into a single,
       deduplicated, recency-ordered list - a tale saved on this device never
       appears twice even though it exists in both places.
-- [ ] AC-02: Given the vault is unreachable (offline, a network failure, a
+- [x] AC-02: Given the vault is unreachable (offline, a network failure, a
       slow response), then the gallery still renders the local IndexedDB copy
       immediately - a vault fetch failure degrades gracefully (the gallery
       simply shows what it has locally) and never blocks, errors, or delays
       the screen beyond a normal loading state.
-- [ ] AC-03: Given the local gallery's 30-tale cap (`GALLERY_CAP` in
+- [x] AC-03: Given the local gallery's 30-tale cap (`GALLERY_CAP` in
       `localGallery.ts`) would otherwise evict a tale, then that eviction is
       no longer data loss for a vault-backed device: the evicted tale remains
       listed (it is re-populated into the merged view from the vault, the
       server-side source of truth, the next time the gallery is opened online).
-- [ ] AC-04: Given `saveTale()`'s existing silent-failure posture (a local
+- [x] AC-04: Given `saveTale()`'s existing silent-failure posture (a local
       IndexedDB write that fails for any reason - quota, blocked, private
       browsing), then that failure also stops being data loss for a
       vault-backed device, because the SAME tale already landed server-side
       via story 01's independent auto-save call.
-- [ ] AC-05 (child-safety): Given a tale merged into the gallery view from the
+- [x] AC-05 (child-safety): Given a tale merged into the gallery view from the
       vault, then it is the exact already-filtered content story 01 stored
       (title, parts, byline nicknames) - this story introduces no new
       free-text entry point and no new PII surface; only the merge/read logic
       changes.
-- [ ] AC-06: Given the "Tales we've carved" gallery screen, then there is no
+- [x] AC-06: Given the "Tales we've carved" gallery screen, then there is no
       visual redesign - the same grid/list, cards, and full-image/detail view
       from `keepsake-gallery/03` render unchanged; only the data source
       feeding them becomes vault-backed with local IndexedDB as a cache.

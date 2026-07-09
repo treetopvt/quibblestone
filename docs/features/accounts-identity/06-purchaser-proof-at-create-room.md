@@ -1,6 +1,6 @@
 # Story: Purchaser proof at CreateRoom (ADR 0002 Decision F, finally wired)
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #210
+**Feature:** Accounts & Identity  ·  **Status:** Complete  ·  **Issue:** #210
 
 ## Context
 [ADR 0002](../../adr/0002-accounts-subscriptions-and-admin.md) Decision F named
@@ -17,13 +17,13 @@ story wires it, finally, using plumbing that already exists
 which this story's ACs are reviewed against.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in purchaser (accounts-identity/03's `PurchaserSession`,
+- [x] AC-01: Given a signed-in purchaser (accounts-identity/03's `PurchaserSession`,
       held in-memory on their device) creates or rejoins a room, when the web
       client establishes its SignalR hub connection, then it supplies that
       EXISTING session credential to the hub via SignalR's standard
       `accessTokenFactory` option on `HubConnectionBuilder` - no new credential
       type is minted for this purpose.
-- [ ] AC-02: Given that credential arrives on the connection, when
+- [x] AC-02: Given that credential arrives on the connection, when
       `GameHub.OnConnectedAsync` runs (a NEW override this story adds - `GameHub`
       has no `OnConnectedAsync` today, only `OnDisconnectedAsync` at
       `GameHub.cs:~827`), then the server validates the token using the
@@ -33,7 +33,7 @@ which this story's ACs are reviewed against.
       with that identity, right there in `OnConnectedAsync` - there is no second
       credential-verification implementation, and the identity string is never
       carried past this one call (see AC-04).
-- [ ] AC-03: Given the `SessionEntitlements` capability set produced by that one
+- [x] AC-03: Given the `SessionEntitlements` capability set produced by that one
       `OnConnectedAsync`-time call, then it - and ONLY it, plus an `AdultUnlocked`
       boolean this story reserves a slot for and always sets `false` (story 09
       populates the real adult-signal logic; see accounts-identity/09) - is
@@ -46,7 +46,7 @@ which this story's ACs are reviewed against.
       so a purchaser holding an active family-plan grant (accounts-identity/05's
       re-keyed grant store, billing-entitlements/01) actually unlocks the room's
       session entitlements for the first time.
-- [ ] AC-04 (the invariant, non-negotiable): Given the resolved purchaser
+- [x] AC-04 (the invariant, non-negotiable): Given the resolved purchaser
       identity, then the identity string itself (email or any purchaser/
       account/device identifier) is NEVER stored anywhere past the single
       `EvaluateForSession` call that consumes it in `OnConnectedAsync` - not on
@@ -57,22 +57,22 @@ which this story's ACs are reviewed against.
       no identity-shaped field at all - only a `SessionEntitlements` and a
       `bool`, exactly as `Room.Entitlements` already enforces the same discipline
       on `Room` (accounts-identity/01 AC-02).
-- [ ] AC-05: Given a connection that supplies NO credential (every anonymous
+- [x] AC-05: Given a connection that supplies NO credential (every anonymous
       player, and a signed-out or never-signed-in host), when it connects and
       creates or joins a room, then it behaves exactly as today -
       `EvaluateForSession(null)` returns the default-unlocked baseline, with
       zero observable change to free play.
-- [ ] AC-06: Given a credential that is malformed, expired, or tampered, when
+- [x] AC-06: Given a credential that is malformed, expired, or tampered, when
       the hub attempts to resolve it, then the connection is treated as if no
       credential were supplied (falls back to the default-unlocked baseline)
       rather than rejecting the connection or throwing - a stale or corrupted
       purchaser token must never break a family's ability to play.
-- [ ] AC-07 (no PII travels to other players): Given the purchaser credential
+- [x] AC-07 (no PII travels to other players): Given the purchaser credential
       is exchanged only between the purchaser's own device and the server, then
       it is never relayed to, or visible from, any other connection in the same
       room - no roster field, no broadcast payload references it, matching
       README section 6's minimal-PII-on-the-play-plane posture.
-- [ ] AC-08 (no identity keyed by ConnectionId, alongside the roster): Given the
+- [x] AC-08 (no identity keyed by ConnectionId, alongside the roster): Given the
       new per-connection singleton, then at no point is an identity string
       (email, `AccountId`, device-token id) ever a value keyed by
       `Context.ConnectionId` - the singleton's map holds only the resolved

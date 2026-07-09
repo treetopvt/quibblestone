@@ -40,7 +40,7 @@ even if the UI is minimal").
 | 05 | #74 | Restore / manage entitlements | Complete |
 | 06 | TBD | Live/test Stripe mode - mode-aware config + toggle endpoint | Complete (interim gate) |
 | 07 | TBD | Live/test Stripe mode - operator toggle UI | Complete (interim gate) |
-| 08 | #215 | Grant metadata + Stripe reconciliation | Not Started |
+| 08 | #215 | Grant metadata + Stripe reconciliation | Complete |
 
 ## Dependencies
 - accounts-identity (a purchase needs the lightweight purchaser account from
