@@ -26,8 +26,8 @@ Phase 4 "saved-story keepsakes", which this feature makes durable).
 |---|---|---|---|
 | 01 | #196 | The vault: auto-save every completed reveal server-side | Complete |
 | 02 | #212 | The device gallery becomes a view over the vault | Complete |
-| 03 | #230 | Claim and recovery | Not Started |
-| 04 | #231 | Soft delete and restore | Not Started |
+| 03 | #230 | Claim and recovery | Complete |
+| 04 | #231 | Soft delete and restore | Complete |
 
 ## Dependencies
 - `accounts-identity/05` (the stable `AccountId` spine) and `accounts-identity/07`
