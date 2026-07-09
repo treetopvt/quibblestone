@@ -1,103 +1,130 @@
 <!--
-  Runbook: the two-lane deployment model (platform-devops story 07). Turns the one
-  auto-deploying UAT environment into: QA (auto from main) in front of BETA (the
-  existing site, promoted only on a version tag). Companion to the story
-  docs/features/platform-devops/07-qa-promotion-lane.md and the original
-  docs/runbooks/deploy-to-uat.md (Part 1 OIDC bootstrap still applies).
+  Runbook: the two-lane deployment model (platform-devops story 07). QA (auto from
+  main) sits in front of BETA (the existing site, promoted only on a version tag).
+  This is the OPERATING GUIDE - read the "How to deploy" section before shipping.
+  Companion to docs/features/platform-devops/07-qa-promotion-lane.md and the original
+  docs/runbooks/deploy-to-uat.md (the OIDC bootstrap in its Part 1 still applies).
 
-  Owner-run parts (Azure Owner/RBAC-admin rights) are Part 1 only; after that QA is
-  automatic and beta is a tag push. Prose uses hyphens, colons, parentheses - never
-  em dashes.
+  Prose uses hyphens, colons, parentheses - never em dashes.
 -->
 
 # Runbook: QA lane + tag-based promotion to beta
 
+**Status: LIVE as of 2026-07-08.** Both lanes are running; beta was cut over to
+tag-only (legacy `deploy.yml` removed, PR #200). The one-time bootstrap (Part 2) is
+done - it is kept here for reproducibility. Day to day, you only need "How to deploy".
+
 ## The model
 
 ```
-main merges ─(auto)─▶  QA  (Playground/PAYG: quibblestone-qa-rg + quibblestone-ai-qa-rg)
-                        │
-                  git tag v* ─(deliberate)─▶  BETA  (student sub: quibblestone-uat-rg + quibblestone.com)
+main merges ─(auto)─▶  QA  (Playground/PAYG: quibblestone-qa-rg westus2 + quibblestone-ai-qa-rg eastus2)
+                        │                        https://qa.quibblestone.com  (F1, $0)
+                  git tag v* ─(deliberate)─▶  BETA  (student sub: quibblestone-uat-rg eastus2)
+                                                 https://quibblestone.com  (B1)
 ```
 
-- **QA** auto-deploys on every push to `main` (`.github/workflows/deploy-qa.yml`).
-  Its whole footprint lives on the **Playground PAYG subscription**
-  (`quibblestone-qa-rg` for the app, `quibblestone-ai-qa-rg` for AI) - the student
-  sub that hosts beta cannot fit a second App Service plan (see Cost). Its own
-  Storage / Key Vault / App Insights + its own AI budget are fully isolated, so the
-  infra overhaul is shaken out here and cannot touch testers.
-- **BETA** is today's site, physically unchanged (still `environmentName=uat` in
-  `quibblestone-uat-rg`, keeps `quibblestone.com`). It deploys ONLY when you push a
-  `v*` tag (`.github/workflows/promote-beta.yml`), which checks out the tagged
-  commit - so beta ships exactly what you validated in QA, not whatever `main` is
-  at promotion time.
-- Both lanes share one engine, `.github/workflows/deploy-env.yml` (the reusable
-  core), so the CORS / AI / Stripe / email wiring can never drift between them.
+- **QA** auto-deploys on every push to `main` (`.github/workflows/deploy-qa.yml`). Its
+  whole footprint is on the **Playground PAYG subscription** and fully isolated (own
+  Storage / Key Vault / App Insights + own AI budget), so the infra overhaul is shaken
+  out here and cannot touch testers.
+- **BETA** is the existing site, physically unchanged (`environmentName=uat` in
+  `quibblestone-uat-rg`, `quibblestone.com`). It deploys ONLY when you push a `v*` tag
+  (`.github/workflows/promote-beta.yml`), which checks out the tagged commit - so beta
+  ships exactly what you validated in QA, not whatever `main` is at promotion time.
+- Both lanes share one engine, `.github/workflows/deploy-env.yml` (the reusable core),
+  so the CORS / AI / Stripe / email wiring can never drift between them.
 
-> **Do Part 1 BEFORE merging this branch.** Until the QA resource groups, the CI
-> role grants, and the `environment:qa` OIDC subject exist, the first
-> `Deploy QA` run will fail at Azure login (harmlessly - it never touches beta).
-> Beta keeps auto-deploying from `main` via the legacy `deploy.yml` until you do
-> the cutover in Part 4, so nothing about the testers' site changes until you say so.
+## How to deploy (quick reference)
+
+- **Ship to QA** (staging / proving ground): just **merge to `main`**. `Deploy QA` runs
+  automatically and updates `https://qa.quibblestone.com`. (F1 = ~40s cold start on the
+  first hit after idle.)
+- **Promote to BETA** (the friends-and-family site) - a deliberate release. Promote the
+  exact commit you validated in QA:
+  ```bash
+  git tag v0.2.0 <sha-validated-in-qa>   # semver; bump from the last tag
+  git push origin v0.2.0                 # fires "Promote to Beta"
+  ```
+  (Or cut a GitHub Release with a new `v*` tag - creating the tag fires the same run.)
+  Then smoke-check `https://quibblestone.com` (`/` 200, hub shows "Connected") and the
+  API `/health`.
+- **Roll back / re-promote beta:** GitHub -> Actions -> **Promote to Beta** -> Run
+  workflow -> set `ref` to an earlier tag/SHA (e.g. `v0.1.0`). Beta redeploys that ref;
+  no tags move.
+- **Scale a lane's SKU / region:** beta uses **Provision UAT** (`provision.yml`). QA's
+  SKU is preserved across deploys, so change it with a one-off
+  `az appservice plan update --sku B1 -g quibblestone-qa-rg -n quibblestone-qa-plan --subscription <playground>`.
+- Last beta baseline tag: **`v0.1.0`** (2026-07-08).
 
 ## Cost at a glance
 
-QA's app runs on the **Playground PAYG subscription**, not the student sub that
-hosts beta - because the student sub caps App Service at ONE plan (B1 quota is 1,
-held by beta; F1 quota is 0), so any second plan fails preflight with
-`SubscriptionIsOverQuotaForSku`. On Playground, QA defaults to **`F1` (Free, $0)**,
-so it costs nothing to stand up. F1 has no Always On (cold starts) and a 5-WebSocket
-cap (a 6-player room cannot form) - fine for validating the lane, the pipeline, and
-infra changes. To load-test real multiplayer on QA, bump its `APP_SERVICE_PLAN_SKU`
-var to `B1` (PAYG allows it, ~$13/mo). QA AI has its own small budget (default
-`$10`/mo, separate from beta's `$20`); everything else (SWA, SignalR, Storage, Key
-Vault) is Free/near-zero.
+QA's app runs on the **Playground PAYG subscription**, not the student sub that hosts
+beta - because the student sub caps App Service at ONE plan (B1 quota 1, held by beta;
+F1 quota 0), so any second plan fails preflight with `SubscriptionIsOverQuotaForSku`. On
+Playground, QA runs **`F1` (Free, $0)**. F1 has no Always On (cold starts) and a
+5-WebSocket cap (a 6-player room cannot form) - fine for validating the lane, the
+pipeline, and infra changes; bump `APP_SERVICE_PLAN_SKU` to `B1` (~$13/mo) for a real
+6-player load test. QA AI has its own small budget (default `$10`/mo, separate from
+beta's `$20`); everything else (SWA, SignalR, Storage, Key Vault) is Free/near-zero.
 
-## Part 1 - One-time QA bootstrap (owner-only)
+## Part 1 - Verify a QA deploy (after any merge)
+
+- The `Deploy QA` run is green; `https://qa.quibblestone.com` loads and shows
+  **Connected** (the SignalR hub handshake).
+- `GET https://<qa-api-host>/health` returns healthy (the app route responds on any SKU;
+  App Service's own health-check *monitoring* is paid-tier only, so on F1 the route works
+  but Azure does not auto-probe it).
+- CORS on the QA API lists the qa origins - `Cors__AllowedOrigins__0` = the raw SWA host,
+  `__1` = `https://qa.quibblestone.com`. The "Set API CORS origins" step rebuilds this
+  each run from the SWA default host + every Ready custom domain, so it self-maintains.
+
+## Part 2 - One-time bootstrap (owner-only; DONE 2026-07-08, kept for reproducibility)
 
 Prerequisite: the original OIDC bootstrap from
-[`deploy-to-uat.md`](./deploy-to-uat.md) Part 1 is already done (the app
-registration `quibblestone-github-oidc` and the three repo secrets). We add QA's
-two resource groups - both on the **Playground PAYG sub**, since the student sub
-that hosts beta cannot fit a second App Service plan - plus the role grants there
-and one federated subject. Beta is untouched.
+[`deploy-to-uat.md`](./deploy-to-uat.md) Part 1 (the app registration
+`quibblestone-github-oidc` + the three repo secrets). QA adds two resource groups on
+the **Playground PAYG sub**, the role grants there, one federated subject, a provider
+registration, and the QA GitHub Environment. Beta is untouched.
 
-> Windows note: with two subscriptions in play, isolate the local `az` session so a
-> parallel shell cannot flip your active subscription mid-run
-> (`AZURE_CONFIG_DIR=$(mktemp -d)` before `az login`), and run `az` from PowerShell
-> if any argument starts with `/` (Git Bash mangles those). See the memory note
-> `az-cli-on-windows-gotchas`.
+> Windows note: with two subscriptions in play, run `az` from PowerShell if any argument
+> starts with `/` (Git Bash mangles those), and beware the shared active-subscription -
+> pass `--subscription` explicitly. See memory note `az-cli-on-windows-gotchas`.
+
+> **App Service quota on Playground is REGIONAL** (even though the preflight error shows
+> a blank location): `eastus2`/`eastus` = 0, but **westus2, centralus, westeurope,
+> eastasia** have quota. QA's app RG is therefore in **westus2**, and an RG must be
+> created in the SAME region as its resources (else `az group create -l westus2` fails
+> "RG already exists in eastus2"). The AI RG stays in **eastus2** (gpt-5-mini
+> GlobalStandard has Cognitive-Services quota there - a separate quota from App Service).
 
 ```bash
-# The app registration GitHub logs in as (its appId == the AZURE_CLIENT_ID secret)
-# and its service-principal object id (the grant target).
 APP_ID="$(az ad app list --display-name quibblestone-github-oidc --query '[0].appId' -o tsv)"
 SP_ID="$(az ad sp show --id "$APP_ID" --query id -o tsv)"
-
 PLAY="52bec743-..."   # Playground (PAYG) - hosts the ENTIRE QA footprint (app + AI)
 
-# --- 1a. QA app footprint RG (Playground) --------------------------------------
-az group create -n quibblestone-qa-rg -l eastus2 --subscription "$PLAY"
-# Contributor to create the resources; RBAC-admin because main.bicep assigns the API
+# 1a. QA app footprint RG - WESTUS2 (App Service quota; see the note above)
+az group create -n quibblestone-qa-rg -l westus2 --subscription "$PLAY"
+# Contributor to create resources; RBAC-admin because main.bicep assigns the API
 # identity "Key Vault Secrets User" (a role assignment needs role-grant rights).
 az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
-  --role "Contributor" \
-  --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-qa-rg"
+  --role "Contributor" --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-qa-rg"
 az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
-  --role "Role Based Access Control Administrator" \
-  --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-qa-rg"
+  --role "Role Based Access Control Administrator" --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-qa-rg"
 
-# --- 1b. QA AI cost-gate RG (Playground) ---------------------------------------
+# 1b. QA AI cost-gate RG - EASTUS2 (Cognitive Services quota for the model)
 az group create -n quibblestone-ai-qa-rg -l eastus2 --subscription "$PLAY"
 az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
-  --role "Contributor" \
-  --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-ai-qa-rg"
+  --role "Contributor" --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-ai-qa-rg"
 az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
-  --role "Role Based Access Control Administrator" \
-  --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-ai-qa-rg"
+  --role "Role Based Access Control Administrator" --scope "/subscriptions/${PLAY}/resourceGroups/quibblestone-ai-qa-rg"
 
-# --- 1c. Trust GitHub Actions running in the QA environment --------------------
-# (beta reuses the existing environment:uat subject, so it needs no new subject.)
+# 1c. Register the resource provider Playground was missing (main.bicep provisions Azure
+#     SignalR). The rest (Storage/KeyVault/Insights/OperationalInsights/Web/CognitiveServices)
+#     were already registered. Registration is async (~1-2 min to "Registered").
+az provider register -n Microsoft.SignalRService --subscription "$PLAY"
+
+# 1d. Trust GitHub Actions running in the QA environment (beta reuses the existing
+#     environment:uat subject, so it needs no new subject).
 az ad app federated-credential create --id "$APP_ID" --parameters '{
   "name": "quibblestone-env-qa",
   "issuer": "https://token.actions.githubusercontent.com",
@@ -106,100 +133,63 @@ az ad app federated-credential create --id "$APP_ID" --parameters '{
 }'
 ```
 
-### 1d. The QA GitHub Environment + its vars
+### 1e. The QA GitHub Environment + its vars
 
-GitHub -> Settings -> Environments -> **New environment** named `qa`. Then add
-these **Environment variables** (Settings -> Environments -> qa -> Environment
-variables). They override the repo-level defaults ONLY for the QA lane:
+GitHub -> Settings -> Environments -> **New environment** `qa`, then add these
+**Environment variables** (they override the repo-level defaults for the QA lane only):
 
 | Variable | Value | Why |
 |---|---|---|
-| `APP_SERVICE_PLAN_SKU` | `F1` | Free/$0 on Playground (PAYG). F1 has no Always On + a 5-WebSocket cap - fine for lane/pipeline validation. Bump to `B1` (~$13/mo) for a real 6-player load test |
-| `STRIPE_ENABLED` | `false` | QA stays minimal - overrides the repo-level `true` so QA needs no Stripe Key Vault secrets |
-| `EMAIL_ENABLED` | `false` | Same - no magic-link/ACS email footprint in QA (overrides repo `true`) |
-| `AI_MONTHLY_BUDGET_USD` | `10` | QA's own smaller AI budget, isolated from beta's $20 |
-| `VITE_GA4_MEASUREMENT_ID` | `" "` (single space) | Disables GA4 on qa (the build's `readId` trims it to empty) so qa test traffic never pollutes the shared analytics |
-| `VITE_CLARITY_PROJECT_ID` | `" "` (single space) | Same - disables Clarity session recording on qa |
+| `AZURE_LOCATION` | `westus2` | Playground App Service quota is regional; westus2 has it (eastus2 = 0) |
+| `APP_SERVICE_PLAN_SKU` | `F1` | Free/$0. Bump to `B1` (~$13/mo) for a real 6-player load test |
+| `STRIPE_ENABLED` | `false` | QA stays minimal - overrides the repo `true` so QA needs no Stripe KV secrets |
+| `EMAIL_ENABLED` | `false` | Same - no magic-link/ACS email footprint in QA |
+| `AI_MONTHLY_BUDGET_USD` | `10` | QA's own AI budget, isolated from beta's $20 |
+| `VITE_GA4_MEASUREMENT_ID` | `" "` (single space) | Disables GA4 on qa (`readId` trims it to empty) so qa test traffic never pollutes analytics |
+| `VITE_CLARITY_PROJECT_ID` | `" "` (single space) | Same - disables Clarity on qa |
 
-Everything else (the three `AZURE_*` secrets, `AI_SUBSCRIPTION_ID`,
-`AI_ALERT_EMAIL`) is repo-level and shared - QA inherits it automatically. The QA
-AI RG is fixed by the workflow (`quibblestone-ai-qa-rg`), not a var.
+Everything else (`AZURE_*` secrets, `AI_SUBSCRIPTION_ID`, `AI_ALERT_EMAIL`) is repo-level
+and shared - QA inherits it. `deploy-qa.yml` fixes the app + AI subscription/RG for the
+lane (Playground), so those are not vars.
 
-**Part 1 met** when: both QA resource groups exist, the CI identity has the grants
-above, the `environment:qa` federated credential exists, and the `qa` Environment
-has its six vars.
+## Part 3 - The cutover (DONE 2026-07-08)
 
-## Part 2 - First QA deploy + smoke check
+Beta was cut over to tag-only by removing the legacy `deploy.yml` (PR #200), after the
+QA lane was proven and the first `v0.1.0` tag deployed beta cleanly via `promote-beta`.
+`main` now deploys ONLY to QA; beta moves ONLY on a `v*` tag. `provision.yml` remains
+beta's SKU/scale lever. (To reverse: restore a push-triggered deploy for the uat RG.)
 
-Trigger it: merge to `main`, or GitHub -> Actions -> **Deploy QA** -> Run workflow.
-The first run auto-provisions the whole QA footprint (same first-deploy behavior
-UAT had) and deploys. Then check:
+## The QA custom domain (qa.quibblestone.com) - DONE 2026-07-08
 
-- The `Deploy QA` run is green; its environment URL (the QA SWA hostname) loads and
-  shows **Connected** (the SignalR hub handshake).
-- `GET https://<qa-api-host>/health` returns healthy (the app route responds on any
-  SKU; App Service's own health-check *monitoring* is paid-tier only, so on F1 the
-  route works but Azure does not auto-probe it).
-- Two phones/tabs can create + join a QA room and complete a round.
-- **Verify CORS** on the QA API (a saved note once claimed only `__0` was set):
-  ```bash
-  az webapp config appsettings list -g quibblestone-qa-rg -n <qa-api-name> \
-    --query "[?starts_with(name,'Cors__AllowedOrigins__')].{n:name,v:value}" -o table
-  ```
-  Expect the QA SWA origin (and any bound custom domain). If only `__0` shows,
-  update the memory note / the CORS step - do not carry the stale assumption into beta.
-
-From here, every merge to `main` redeploys QA automatically.
-
-## Part 3 - Promote a release to beta
-
-Once a `main` commit is proven in QA, promote that exact commit:
+DNS is at Cloudflare (zone `7231a83313b728556cf469546c8df29a`); it was added via the CF
+API (token in memory note `cloudflare-dns-token`). To add another subdomain (`play.`,
+`dev.`, ...) later, the recipe is:
 
 ```bash
-git tag v1.0.0 <sha-validated-in-qa>
-git push origin v1.0.0
+# 1. Cloudflare CNAME, DNS-only (grey cloud - required for SWA's managed cert):
+curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/7231a83313b728556cf469546c8df29a/dns_records" \
+  -H "Authorization: Bearer <cf-token>" -H "Content-Type: application/json" \
+  --data '{"type":"CNAME","name":"<sub>","content":"<swa-default-host>","ttl":1,"proxied":false}'
+# 2. Bind + validate (SWA issues the TLS cert; goes Validating -> Ready in a few min):
+az staticwebapp hostname set -n <swa-name> -g <rg> --subscription <sub> --hostname <sub>.quibblestone.com
+# 3. CORS: the deploy auto-discovers Ready SWA custom domains, or set it directly:
+az webapp config appsettings set -g <rg> -n <api-name> --subscription <sub> \
+  --settings Cors__AllowedOrigins__1=https://<sub>.quibblestone.com
 ```
 
-(or cut a GitHub Release with a new `v*` tag - creating the tag fires the same
-workflow). **Promote to Beta** runs against the tagged commit and ships beta. It
-reuses the existing `uat` Environment + physical names, so beta behaves exactly as
-it does today - just gated behind your deliberate tag instead of every merge.
-
-Smoke-check beta the same way (its URL is `quibblestone.com`).
-
-**Rollback / re-promote:** GitHub -> Actions -> **Promote to Beta** -> Run workflow
--> set `ref` to an earlier tag or SHA (e.g. `v0.9.0`). Beta redeploys that ref; no
-tags move.
-
-## Part 4 - Cutover: freeze beta from `main` (do this last)
-
-This is the switch that actually protects testers from the overhaul. Until now,
-the legacy `.github/workflows/deploy.yml` still auto-deploys beta on every merge
-(so nothing regressed while you built the QA lane). Once QA is proven AND you have
-cut at least one `v*` tag through **Promote to Beta** (so beta's promote path is
-exercised), retire the legacy auto-deploy:
-
-```bash
-git rm .github/workflows/deploy.yml   # promote-beta.yml now owns beta (tag-gated)
-```
-
-After this: `main` -> QA only (auto); beta -> `v*` tags only (deliberate). Start the
-infra overhaul. Provision UAT (`provision.yml`) still works as the beta SKU/scale
-button and is unaffected.
+Free SWA = 2 custom-domain slots, but PER-SWA: qa's SWA (1 used) is independent of beta's
+(apex + www, both used).
 
 ## Notes / gotchas
 
-- **Why beta was not renamed.** Renaming to `environmentName=beta` would re-provision
-  new resources and force re-binding `quibblestone.com` + re-seeding Key Vault right
-  before testers arrive. "beta" is a lane label; the site stays physically `uat`.
-  Rename later in a quiet window if desired.
-- **AI principal is discovered, not committed.** The core reads the lane's API
-  managed-identity principal at deploy time and passes it to `ai.bicep`, so QA and
-  beta grant their own identities with no hardcoded GUID (`ai.qa.bicepparam` omits it).
-- **QA quota fits.** GlobalStandard gpt-5-mini quota is 500 TPM on the PAYG sub;
-  beta + QA each deploy capacity 10, so 20 total - no conflict.
-- **Turning QA knobs on later.** To test Stripe or email in QA, set that lane's
-  `STRIPE_ENABLED`/`EMAIL_ENABLED` var to `true` and add the required secrets to
-  QA's OWN Key Vault (see `enable-stripe-billing.md` / `enable-magic-link-email.md`).
-- **A pretty QA URL** (`qa.quibblestone.com`) is optional: bind it as a custom domain
-  on the QA SWA (Cloudflare CNAME, DNS-only) - CORS auto-discovers it, no code change.
+- **AI principal is discovered, not committed.** The core reads the lane's API managed
+  identity at deploy time and passes it to `ai.bicep`, so QA and beta grant their own
+  identities with no hardcoded GUID.
+- **QA AI quota fits.** gpt-5-mini GlobalStandard = 500 TPM on the PAYG sub; beta + QA
+  each deploy capacity 10.
+- **Turning QA knobs on later.** To test Stripe/email in QA, flip that lane's
+  `STRIPE_ENABLED`/`EMAIL_ENABLED` var to `true` and add the secrets to QA's OWN Key
+  Vault (see `enable-stripe-billing.md` / `enable-magic-link-email.md`).
+- **Rename beta later (optional).** Beta is still physically `environmentName=uat`;
+  renaming to `beta` means re-provisioning + re-binding `quibblestone.com`, so it was
+  deferred. Do it in a quiet window if the naming bothers you.

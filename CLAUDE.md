@@ -34,8 +34,9 @@ Snapshot (2026-07-07 - see the roadmap for detail):
   observability + anonymous usage (App Insights, PII-scrubbed), child safety
   (always-on filter + family-safe), the AI cost gate + Fresh Runes AI jumble,
   accounts (magic-link + real email) + billing (Stripe test mode, tip jar, gated
-  purchase) + the operator/sys-admin console. One UAT environment, auto-deployed
-  on merge (no separate cloud dev).
+  purchase) + the operator/sys-admin console. Two cloud lanes (`platform-devops/07`):
+  **qa** (auto-deployed on merge, `qa.quibblestone.com`, Playground/PAYG) in front of
+  **beta** (`quibblestone.com`, promoted by a `v*` tag); no separate cloud dev.
 - **Notable gap:** the "alpha gate" fix list in the roadmap (disconnect recovery,
   UAT SKU, grace-window tuning, error boundary) blocks the friends-and-family
   test; group play still lacks Progressive Story (needs its own broadcast story);
@@ -182,6 +183,17 @@ but the specs assert against the live hub, so the **API must be up on `:5180`**
 (start it first); Playwright's Chromium is pre-provisioned (do **not** run
 `playwright install`). See `.claude/agents/testing-agent.md` for strategy and
 `web/README.md` for details.
+
+### Deploying (qa auto, beta by tag)
+
+Two cloud lanes (`platform-devops/07`): every merge to `main` auto-deploys to **qa**
+(`qa.quibblestone.com`, Playground/PAYG); **beta** (`quibblestone.com`, the
+friends-and-family site) deploys ONLY on a pushed `v*` tag. **Before any deploy or
+promotion, read [`docs/runbooks/deploy-qa-and-promote-beta.md`](docs/runbooks/deploy-qa-and-promote-beta.md).**
+Ship to qa: merge to `main`. Promote to beta:
+`git tag vX.Y.Z <sha-validated-in-qa> && git push origin vX.Y.Z` (rollback: run
+**Promote to Beta** with an older `ref`). `deploy-qa.yml` + `promote-beta.yml` call the
+shared `deploy-env.yml` core; the old `deploy.yml` is retired.
 
 ## 10. Things that look wrong but aren't
 
