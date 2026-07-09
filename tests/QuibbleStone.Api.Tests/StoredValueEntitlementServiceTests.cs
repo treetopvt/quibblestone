@@ -252,6 +252,33 @@ public class StoredValueEntitlementServiceTests
         Assert.False(entitlements.IsUnlocked(EntitlementCatalog.AiOnDemand));
     }
 
+    // The ai.enabled floor (forced off, or unconfigured) subtracts ONLY the ai.* family - it must
+    // not over-subtract a SIBLING default-unlocked baseline key. gallery.cloudSync is in the same
+    // baseline (EntitlementCatalog.DefaultUnlockedCapabilities) but is owned by no system flag here.
+    [Fact]
+    public async Task Ai_floor_does_not_over_subtract_sibling_baseline_keys()
+    {
+        var forcedOff = new StoredValueEntitlementService(
+            new DefaultUnlockedEntitlementService(),
+            new InMemoryAccountStore(),
+            new InMemoryEntitlementGrantStore(),
+            Flags(aiConfigured: true, aiEnabledOverride: false));
+        var unconfigured = new StoredValueEntitlementService(
+            new DefaultUnlockedEntitlementService(),
+            new InMemoryAccountStore(),
+            new InMemoryEntitlementGrantStore(),
+            Flags(aiConfigured: false));
+
+        var forcedOffSession = await forcedOff.EvaluateForSession(purchaserIdentity: null);
+        var unconfiguredSession = await unconfigured.EvaluateForSession(purchaserIdentity: null);
+
+        // ai.onDemand is gone in both, but gallery.cloudSync (a sibling baseline key) survives.
+        Assert.False(forcedOffSession.IsUnlocked(EntitlementCatalog.AiOnDemand));
+        Assert.True(forcedOffSession.IsUnlocked(EntitlementCatalog.GalleryCloudSync));
+        Assert.False(unconfiguredSession.IsUnlocked(EntitlementCatalog.AiOnDemand));
+        Assert.True(unconfiguredSession.IsUnlocked(EntitlementCatalog.GalleryCloudSync));
+    }
+
     // A minimal IAccountStore that counts read lookups, wrapping the working in-memory
     // store so behavior is real (AC-06: delegates, no duplicate identity logic).
     private sealed class CountingAccountStore : IAccountStore
