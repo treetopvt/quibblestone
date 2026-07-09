@@ -89,7 +89,11 @@ public sealed class TableStorageConsumedNonceStore : IConsumedNonceStore
             // Conflict server-side. That conflict is the atomic, cross-instance replay
             // check - if it succeeds this is the token's first use.
             await _table.AddEntityAsync(entity, ct);
-            PruneExpiredIfDue(expiry);
+            // Prune against the REAL clock (UtcNow), NEVER the token's future expiry: the
+            // sweep deletes rows whose ExpiresAt is in the past, so a future cutoff would
+            // delete markers for tokens that have NOT yet expired - reopening the very
+            // single-use replay AC-07 closes. UtcNow deletes only truly-expired rows.
+            PruneExpiredIfDue(DateTimeOffset.UtcNow);
             return true;
         }
         catch (RequestFailedException ex) when (ex.Status == 409)

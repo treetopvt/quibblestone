@@ -605,12 +605,25 @@ resource tokenSigningKeyScript 'Microsoft.Resources/deploymentScripts@2023-08-01
     // subscription id / resource group name.
     scriptContent: '''
       set -euo pipefail
-      existing=$(az keyvault secret list --vault-name "$VAULT_NAME" --query "[?name=='$SECRET_NAME'] | [0].name" -o tsv 2>/dev/null || true)
+      # RBAC data-plane propagation can lag ARM ordering by seconds-to-minutes on a
+      # first deploy, so a data-plane call may 403 briefly even though dependsOn put the
+      # role assignment first. Retry the read/write with backoff rather than failing the
+      # whole deploy on a transient propagation gap.
+      retry() {
+        local n=0
+        until "$@"; do
+          n=$((n + 1))
+          if [ "$n" -ge 6 ]; then return 1; fi
+          echo "attempt $n failed (likely RBAC propagation); retrying in $((n * 10))s..."
+          sleep $((n * 10))
+        done
+      }
+      existing=$(retry az keyvault secret list --vault-name "$VAULT_NAME" --query "[?name=='$SECRET_NAME'] | [0].name" -o tsv || true)
       if [ -n "$existing" ]; then
         echo "Secret $SECRET_NAME already present - leaving it unchanged (idempotent; never overwrite a live signing key)."
       else
         value=$(openssl rand -base64 32)
-        az keyvault secret set --vault-name "$VAULT_NAME" --name "$SECRET_NAME" --value "$value" --output none
+        retry az keyvault secret set --vault-name "$VAULT_NAME" --name "$SECRET_NAME" --value "$value" --output none
         echo "Created $SECRET_NAME from a CSPRNG value (openssl rand)."
       fi
     '''
