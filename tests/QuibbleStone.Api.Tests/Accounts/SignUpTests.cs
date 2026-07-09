@@ -70,8 +70,13 @@ public class SignUpTests
         // (Copilot review). It does not otherwise send - behaves like the no-op sender.
         var email = new RecordingEmailSender();
 
+        var deviceTokens = new InMemoryFamilyDeviceTokenStore();
         var controller = new AccountsController(
-            tokens, store, credential, email, new EmailOptions(), environment, NullLogger<AccountsController>.Instance,
+            tokens, store, credential, email, new EmailOptions(), environment,
+            new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), deviceTokens),
+            deviceTokens,
+            new FamilyDeviceRedeemGlobalThrottle(),
+            NullLogger<AccountsController>.Instance,
             new InMemorySeatPresetStore(), new ContentSafetyFilter())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },

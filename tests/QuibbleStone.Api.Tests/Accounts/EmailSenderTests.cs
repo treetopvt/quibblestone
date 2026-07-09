@@ -229,6 +229,7 @@ public class EmailSenderTests
         var credential = new PurchaserCredentialService(new EphemeralDataProtectionProvider());
         var environment = new FakeWebHostEnvironment(development ? "Development" : "Production");
         var options = new EmailOptions { LinkBaseUrl = LinkBaseUrl };
+        var deviceTokens = new InMemoryFamilyDeviceTokenStore();
         return new AccountsController(
             tokens,
             store ?? new InMemoryAccountStore(),
@@ -236,6 +237,9 @@ public class EmailSenderTests
             sender,
             options,
             environment,
+            new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), deviceTokens),
+            deviceTokens,
+            new FamilyDeviceRedeemGlobalThrottle(),
             logger ?? NullLogger<AccountsController>.Instance,
             new InMemorySeatPresetStore(),
             new ContentSafetyFilter())
