@@ -50,7 +50,8 @@ public class StoredValueEntitlementServiceTests
     {
         var grants = new InMemoryEntitlementGrantStore();
         // A grant exists under SOME account id, but no account was ever created for the
-        // identity string, so the session-creation read resolves no account and applies it.
+        // identity string. The session-creation read resolves NO account, so it does NOT
+        // apply that stray grant (the account lookup is the gate, AC-06).
         await grants.PutGrantAsync(Guid.NewGuid(), new EntitlementGrant(EntitlementCatalog.LibraryFull, null, GrantSource.OneTime));
 
         var service = NewService(new InMemoryAccountStore(), grants);

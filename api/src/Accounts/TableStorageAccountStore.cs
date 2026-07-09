@@ -30,8 +30,10 @@
 //      on a miss it mints a fresh AccountId, writes the PRIMARY row, then Adds the
 //      INDEX row. A concurrent create that loses the INDEX Add race (409 Conflict)
 //      re-reads the index and returns the winner, so two racing sign-ups resolve to
-//      ONE account (the loser's just-written primary row is left unreferenced -
-//      harmless orphan, never returned, since nothing points to it).
+//      ONE account. The loser's just-written primary row is unreferenced (nothing
+//      indexes it, so no read ever returns it); we best-effort DELETE it in the 409
+//      path so a storm of racing creates cannot accumulate dead rows, and if that
+//      cleanup fails the row is still harmless.
 //    - GetByIdentityAsync is READ ONLY BY EMAIL: index -> primary; a missing email
 //      is an ordinary null and NEVER creates a row (story 03's "no create on miss").
 //    - GetByIdAsync is READ ONLY BY AccountId (AC-04): a single primary point read,
@@ -140,14 +142,16 @@ public sealed class TableStorageAccountStore : IAccountStore
         }
         catch (RequestFailedException ex) when (ex.Status == 409)
         {
-            // A concurrent sign-up for the SAME email won the INDEX Add race. Re-read
-            // the index and return the WINNER so create-or-get stays idempotent (one
-            // account per email). Our own just-written primary row is now an
-            // unreferenced orphan (a different, losing id) - harmless: nothing indexes
-            // it, so no read ever returns it, and grants/gallery only key off ids that
-            // an index points at. Log at Debug (the hashed key only - never the raw
-            // email or any secret): a benign, expected race, not an error.
-            _logger.LogDebug(ex, "Concurrent account create lost the index Add race (409); re-reading the winning account.");
+            // A concurrent sign-up for the SAME email won the INDEX Add race. Our own
+            // just-written primary row (a different, losing id) is now unreferenced -
+            // nothing indexes it, so no read ever returns it. Best-effort DELETE it so a
+            // storm of racing creates cannot accumulate dead rows in PurchaserAccounts
+            // (Copilot review); the delete is best-effort because an undeleted row is
+            // still harmless. Then re-read the index and return the WINNER so
+            // create-or-get stays idempotent (one account per email). Log at Debug (the
+            // hashed key only - never the raw email or any secret): a benign, expected race.
+            _logger.LogDebug(ex, "Concurrent account create lost the index Add race (409); cleaning up the orphaned primary row and re-reading the winner.");
+            await TryDeletePrimaryAsync(accountId, ct);
             var winner = await ReadByEmailHashAsync(emailHash, ct);
             if (winner is not null)
             {
@@ -200,6 +204,22 @@ public sealed class TableStorageAccountStore : IAccountStore
             return null;
         }
         return await ReadPrimaryAsync(accountId, ct);
+    }
+
+    // Best-effort delete of a PRIMARY row we wrote but then lost the index Add race
+    // for (see CreateOrGetAsync's 409 path). Swallows failures: an undeleted orphan is
+    // harmless (unreferenced), so cleanup must never turn a benign race into a thrown
+    // error. A 404 (already gone) is likewise a no-op. Uses ETag.All (unconditional).
+    private async Task TryDeletePrimaryAsync(Guid accountId, CancellationToken ct)
+    {
+        try
+        {
+            await _table.DeleteEntityAsync(PrimaryPartition, accountId.ToString(), ETag.All, ct);
+        }
+        catch (RequestFailedException ex)
+        {
+            _logger.LogDebug(ex, "Best-effort cleanup of an orphaned primary account row failed; leaving it (harmless, unreferenced).");
+        }
     }
 
     // Point-read one PRIMARY account row by its stable id, or null if absent.
