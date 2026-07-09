@@ -50,6 +50,20 @@ describe('fetchAdminSettings', () => {
     expect(result.outcome).toBe('unavailable');
   });
 
+  it('resolves unavailable when the 2xx body cannot be parsed as JSON', async () => {
+    // A 200 whose body throws / rejects on .json() (malformed JSON, truncated stream) -
+    // the client's .catch(() => null) must collapse it to 'unavailable', never throw.
+    mockFetch(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+      } as Response),
+    );
+    const result = await fetchAdminSettings('token');
+    expect(result.outcome).toBe('unavailable');
+  });
+
   it('resolves available with parsed settings on a 200 array body', async () => {
     const fetchFn = mockFetch(() =>
       okJson([

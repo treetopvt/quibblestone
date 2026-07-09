@@ -30,6 +30,7 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
+using System.Collections.Frozen;
 using Microsoft.AspNetCore.Authorization;
 
 namespace QuibbleStone.Api.Admin;
@@ -60,12 +61,17 @@ public enum OperatorScope
 /// </summary>
 public static class OperatorScopes
 {
+    // FROZEN, not a plain HashSet: these are shared, authorization-critical statics, so
+    // they are truly immutable - a cast to ISet + Add throws rather than silently
+    // mutating the set every scope decision reads. FrozenSet also gives the fastest
+    // Contains for a tiny read-only set (the exact access pattern the handler uses).
+
     /// <summary>The all-three scope set - the backward-compatible default for an operator with no Operator:Scopes entry (AC-06).</summary>
     public static readonly IReadOnlySet<OperatorScope> All =
-        new HashSet<OperatorScope> { OperatorScope.Support, OperatorScope.Content, OperatorScope.Ops };
+        new[] { OperatorScope.Support, OperatorScope.Content, OperatorScope.Ops }.ToFrozenSet();
 
     /// <summary>The empty scope set - what a NON-operator resolves to (the scope check never runs ahead of the membership check).</summary>
-    public static readonly IReadOnlySet<OperatorScope> None = new HashSet<OperatorScope>();
+    public static readonly IReadOnlySet<OperatorScope> None = FrozenSet<OperatorScope>.Empty;
 
     /// <summary>The stable, lowercase wire token for a scope (used by config parsing and any diagnostics).</summary>
     public static string ToWire(OperatorScope scope) => scope switch

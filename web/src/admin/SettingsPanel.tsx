@@ -18,8 +18,11 @@
 //
 //  SEPARATE ADMIN BUNDLE (from story 01): imports NOTHING from the kid app
 //  (pages / signalr / gallery / engine / components); opens no SignalR
-//  connection. Styling is theme-driven only (no hex / raw-px literals);
-//  FontAwesome icons only.
+//  connection. COLORS are theme-driven only (palette tokens - text.secondary,
+//  card.main, stoneEdge - never a hex literal); glyph / spacing SIZING uses the
+//  same raw fontSize / borderRadius / boxShadow house style the sibling admin
+//  panels use (StripeModePanel, PurchaserEntitlements), kept consistent across the
+//  bundle rather than reinvented per file. FontAwesome icons only.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
