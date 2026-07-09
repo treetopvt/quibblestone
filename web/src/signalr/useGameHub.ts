@@ -178,6 +178,7 @@ import {
 import type { LengthPreference } from '../content/length';
 import type { ReactionCounts, ReactionType } from '../components/ReactionRow';
 import { clearReconnectHandle, loadReconnectHandle, saveReconnectHandle } from '../reconnect';
+import { usePurchaserSession } from '../account/PurchaserSession';
 
 const HUB_URL = import.meta.env.VITE_SIGNALR_HUB_URL;
 
@@ -852,6 +853,21 @@ export interface UseGameHub {
 
 export function useGameHub(): UseGameHub {
   const connectionRef = useRef<HubConnection | null>(null);
+  // accounts-identity/06 (ADR 0002 Decision F, #210): the live purchaser credential
+  // (accounts-identity/03's in-memory PurchaserSession) that a SIGNED-IN host supplies
+  // to the hub via SignalR's standard accessTokenFactory, so GameHub.OnConnectedAsync
+  // can resolve their family-plan grant once at connect time. This hook stays generic:
+  // it reads ONLY the session's current credential string here - it renders no purchaser
+  // UI and does not otherwise depend on sign-in (free play is unchanged when signed out,
+  // where the credential is null and the factory sends an empty token). Mirrored into a
+  // ref so the accessTokenFactory getter (SignalR calls it before EVERY (re)connection)
+  // reads the CURRENT value without rebuilding the one shared connection - a purchaser
+  // who signs in mid-app-life is picked up on the next reconnect, no forced reconnect.
+  const { credential } = usePurchaserSession();
+  const purchaserCredentialRef = useRef<string | null>(credential);
+  useEffect(() => {
+    purchaserCredentialRef.current = credential;
+  }, [credential]);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [room, setRoom] = useState<RoomState | null>(null);
   // Whether this client hosts the current room (set by createRoom / joinRoom,
@@ -1105,7 +1121,16 @@ export function useGameHub(): UseGameHub {
 
   useEffect(() => {
     const connection = new HubConnectionBuilder()
-      .withUrl(HUB_URL)
+      .withUrl(HUB_URL, {
+        // accounts-identity/06 (AC-01): supply the signed-in purchaser's EXISTING
+        // credential (no new credential type is minted for this). A GETTER, not a
+        // snapshot - SignalR calls it before every (re)connection attempt, so it reads
+        // purchaserCredentialRef's CURRENT value; a purchaser who signs in after the
+        // connection is built is picked up on the next reconnect without a forced one.
+        // Empty string when signed out (the common case) - the server treats an absent/
+        // empty token as anonymous, so free play is byte-for-byte unchanged (AC-05).
+        accessTokenFactory: () => purchaserCredentialRef.current ?? '',
+      })
       // Jittered automatic reconnect: the default policy's fixed 0/2/10/30s
       // schedule makes every client stampede the hub in lockstep after a
       // restart (the herd that pegged the UAT B1 to ~98-99% CPU - see
