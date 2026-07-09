@@ -456,6 +456,22 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             }));
 
+    // keepsake-vault/03 (#230, AC-03.1): the per-IP guard on the anonymous claim-code
+    // REDEEM endpoint (POST /api/vault/claim-code/redeem opts in via
+    // [EnableRateLimiting]). This is only the FIRST of redemption's three controls -
+    // an attacker rotating source IPs defeats a per-IP limiter, so it sits alongside
+    // the IP-agnostic global ceiling (ClaimRedemptionCeiling, checked in the action)
+    // and the per-code failed-attempt burn (in the vault store). 429 on reject.
+    options.AddPolicy(VaultRateLimit.RedeemPolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: VaultRateLimit.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = VaultRateLimit.RedeemPermitLimit,
+                Window = VaultRateLimit.Window,
+                QueueLimit = 0,
+            }));
+
     // billing-entitlements/08 (#215, AC-06d): the OPERATOR-only Stripe-resync endpoint's
     // guard, in this SAME registration alongside the policies above. UNLIKE the per-IP
     // siblings, this partitions on a CONSTANT GLOBAL key - the abuse scenario is repeated
@@ -563,6 +579,14 @@ else
             vaultConnectionString,
             sp.GetRequiredService<ILogger<TableStorageVaultStore>>()));
 }
+
+// keepsake-vault/03 (#230, AC-03.2): the GLOBAL, IP-agnostic redemption ceiling for
+// the claim-code redeem endpoint - a SINGLETON so its one fixed-window budget is
+// shared across every caller (a fresh request cannot hold window state). This is the
+// control that bounds a distributed, IP-rotating brute force the per-IP limiter above
+// cannot; the redeem action checks it before touching the store. Stateless past its
+// counter; no storage, no config.
+builder.Services.AddSingleton<ClaimRedemptionCeiling>();
 
 // keepsake-gallery/04 (W-001, deployment hardening): make the per-IP publish
 // limiter actually per-IP behind App Service. The platform terminates TLS at its

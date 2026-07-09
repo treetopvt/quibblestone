@@ -1,36 +1,39 @@
 // ----------------------------------------------------------------------------
 //  TableStorageVaultStore - the Azure Table Storage store for the anonymous
-//  server-side keepsake vault (keepsake-vault/01, issue #196). Mirrors the shape
-//  and posture of TableStorageCloudGalleryStore (the reference pattern):
-//  Azure.Data.Tables (already a project dependency - NO new NuGet), a
-//  CreateIfNotExists-once guard, and the same connection-string-at-startup split
-//  (the "absent" half here is the WORKING InMemoryVaultStore, not a no-op).
+//  server-side keepsake vault (keepsake-vault/01, extended by keepsake-vault/03,
+//  issues #196/#230). Mirrors the shape and posture of TableStorageCloudGalleryStore
+//  (the reference pattern): Azure.Data.Tables (already a project dependency - NO new
+//  NuGet), a CreateIfNotExists-once guard, and the same connection-string-at-startup
+//  split (the "absent" half here is the WORKING InMemoryVaultStore, not a no-op).
 //
 //  KEY / SCHEMA DESIGN (AC-02/AC-04):
-//    - PartitionKey = vaultId (a device-held random handle, never PII),
-//      RowKey = taleId (a minted, unguessable id). So list is a SINGLE-partition
-//      query (all rows with PartitionKey = vaultId). Vault isolation is
-//      structural: a query only ever touches one vault's partition.
-//    - The ordered body parts serialize to ONE JSON string property (PartsJson),
-//      exactly like the sibling stores - a tale is a short story, well under Table
-//      Storage's 32KB string-property ceiling, and one blob keeps a row a single
-//      entity with no per-part fan-out.
-//    - Only anonymous, already-vetted fields land here (Title, PartsJson,
-//      BylineNames, CreatedUtc). There is NO PII property - no email, no real
-//      name, no room / session id (AC-04). The vault is identified ONLY by the
-//      opaque random partition key.
+//    - TALE rows: PartitionKey = vaultId, RowKey = taleId (a 12-glyph slug). So a
+//      list is a SINGLE-partition query. Vault isolation is structural.
+//    - CLAIM row (keepsake-vault/03): PartitionKey = vaultId, RowKey = the reserved
+//      ClaimRowKey sentinel ("__claim__"). It carries the vault's claim companion
+//      state (AccountId, ClaimCode, expiry, failed-attempt count, ClaimedUtc) - the
+//      TaleModeration "tiny companion row keyed by the same partition" scheme, so
+//      claiming NEVER rewrites a tale row. The sentinel cannot collide with a real
+//      taleId (a 12-glyph slug never contains '_'); ListAsync skips it explicitly.
+//    - CLAIM-CODE INDEX row: PartitionKey = ClaimCodeIndexPartition ("__claimcode__"),
+//      RowKey = the canonical code. Value = VaultId. A point read resolves a
+//      submitted code to its vault on redemption (O(1), no scan).
+//    - ALIAS row (keepsake-vault/03): PartitionKey = AliasPartition ("__alias__"),
+//      RowKey = a redeemed device's vault id. Value = the canonical claimed vault id.
+//      Reads / saves under the alias resolve to the canonical vault (AC-02).
+//    The sentinel partitions are short strings; a real vaultId is >= 36 chars
+//    (VaultId.MinLength), so a tale/claim partition query (PartitionKey = vaultId)
+//    can never collide with them.
 //
-//  TTL (AC-03), COMPUTED NOT STORED: there is NO ExpiresUtc column. This is
-//  DELIBERATELY NOT a mirror of TableStoragePublishedTaleStore.GetAsync (which
-//  stores ExpiresUtc and checks ONE row by slug - a single-link public-read shape,
-//  not this feature's per-vault list). Expiry is computed as CreatedUtc + TtlDays
-//  (VaultTale.IsExpired) WHILE enumerating the PartitionKey = vaultId query in
-//  ListAsync: each expired row found is omitted from the result and best-effort
-//  deleted to reclaim it. No stored expiry can be spoofed, and a TtlDays change
-//  applies retroactively to every existing tale.
+//  NO PII (AC-06): only anonymous, already-vetted fields land here. A claim adds ONLY
+//  the non-PII family AccountId GUID (never an email / name) and the opaque claim code
+//  - never a kid-profile / seat-preset id (AC-04). No property here is ever logged or
+//  put in an exception message (the telemetry scrubber cannot clean message text).
 //
-//  CAP (AC-07): SaveAsync counts the vault's partition before writing and rejects
-//  a save that would exceed MaxTalesPerVault (no eviction - a durable archive).
+//  TTL (AC-03/AC-05), COMPUTED NOT STORED: there is NO ExpiresUtc column. Expiry is
+//  computed as CreatedUtc + TtlDays (VaultTale.IsExpired) while enumerating the
+//  partition in ListAsync. A CLAIMED vault's tales are EXEMPT (AC-05): when a claim
+//  row is present, the TTL filter is skipped entirely.
 //
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
@@ -43,20 +46,37 @@ using Microsoft.Extensions.Logging;
 namespace QuibbleStone.Api.Vault;
 
 /// <summary>
-/// The Azure Table Storage keepsake-vault store (keepsake-vault/01). Stores one
-/// entity per saved tale, keyed PartitionKey = vaultId and RowKey = taleId, so a
-/// list is a single-partition query and vaults are isolated by partition
-/// (AC-02). Carries NO PII beyond the byline nickname(s) (AC-04). Enforces the
-/// per-vault cap on save (AC-07) and the computed TTL on list (AC-03). Used only
-/// when a storage connection string is configured (else InMemoryVaultStore).
+/// The Azure Table Storage keepsake-vault store (keepsake-vault/01, extended by
+/// keepsake-vault/03). Stores tale rows keyed PartitionKey = vaultId / RowKey =
+/// taleId, plus sentinel-keyed claim, claim-code-index, and device-alias companion
+/// rows for the claim + recovery flow. Carries NO PII beyond the byline nickname(s)
+/// and the non-PII family AccountId on a claim (AC-04/AC-06). Enforces the per-vault
+/// cap on save (AC-07), the computed TTL on list with a claimed-vault exemption
+/// (AC-03/AC-05), and the recovery code's validity window / burn / rotation
+/// (AC-03/AC-07). Used only when a storage connection string is configured (else
+/// InMemoryVaultStore).
 /// </summary>
 public sealed class TableStorageVaultStore : IVaultStore
 {
-    /// <summary>The table name vault tales land in (created on first write if absent).</summary>
+    /// <summary>The table name vault tales (and companion rows) land in (created on first write if absent).</summary>
     public const string TableName = "VaultTales";
+
+    /// <summary>
+    /// The reserved RowKey of a vault's CLAIM companion row (keepsake-vault/03), under
+    /// PartitionKey = vaultId. A 12-glyph tale slug never contains '_', so it cannot
+    /// collide with a real taleId; ListAsync skips it explicitly.
+    /// </summary>
+    public const string ClaimRowKey = "__claim__";
+
+    /// <summary>The reserved PartitionKey of the claim-code -> vaultId reverse-index rows (keepsake-vault/03).</summary>
+    public const string ClaimCodeIndexPartition = "__claimcode__";
+
+    /// <summary>The reserved PartitionKey of the device-alias -> canonical-vaultId rows (keepsake-vault/03).</summary>
+    public const string AliasPartition = "__alias__";
 
     private readonly TableClient _table;
     private readonly ILogger<TableStorageVaultStore> _logger;
+    private readonly TimeProvider _clock;
 
     // Ensure-once guard (same rationale as the sibling Table stores): CreateIfNotExists
     // is a network round-trip we only need on the FIRST write. A benign race is harmless
@@ -72,11 +92,13 @@ public sealed class TableStorageVaultStore : IVaultStore
     /// at startup; the table is created lazily on the first save.
     /// </summary>
     /// <param name="connectionString">The Azure Storage connection string (supplied per-environment).</param>
-    /// <param name="logger">Logs list / delete failures server-side (never any PII, never the vault id).</param>
-    public TableStorageVaultStore(string connectionString, ILogger<TableStorageVaultStore> logger)
+    /// <param name="logger">Logs list / delete failures server-side (never any PII, never the vault id / claim code).</param>
+    /// <param name="clock">The time source for TTL / claim-code expiry; defaults to <see cref="TimeProvider.System"/>.</param>
+    public TableStorageVaultStore(string connectionString, ILogger<TableStorageVaultStore> logger, TimeProvider? clock = null)
     {
         _table = new TableClient(connectionString, TableName);
         _logger = logger;
+        _clock = clock ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
@@ -84,30 +106,26 @@ public sealed class TableStorageVaultStore : IVaultStore
     {
         await EnsureTableAsync(ct);
 
-        // AC-07: bound per-vault growth. Count the vault's partition first and
-        // reject at or above the cap (no eviction - a durable archive). Counting
-        // rows (RowKey only) before the write keeps this a cheap single-partition
-        // scan at toy per-vault volume. The check-then-write race under concurrency
-        // can only ever admit a handful of extra rows far below any storage
-        // concern, which is acceptable for a coarse anti-bloat bound.
-        if (await CountAsync(tale.VaultId, ct) >= IVaultStore.MaxTalesPerVault)
+        // Resolve any alias so a recovered device's saves land in the canonical vault.
+        var vaultId = await ResolveCanonicalAsync(tale.VaultId, ct);
+
+        // AC-07: bound per-vault growth. Count the vault's TALE partition first and
+        // reject at or above the cap (no eviction - a durable archive).
+        if (await CountTalesAsync(vaultId, ct) >= IVaultStore.MaxTalesPerVault)
         {
             return VaultSaveOutcome.RejectedCapExceeded;
         }
 
-        var entity = new TableEntity(tale.VaultId, tale.TaleId)
+        var entity = new TableEntity(vaultId, tale.TaleId)
         {
             // Anonymous, already-vetted fields only - no PII beyond the byline (AC-04).
-            // NOTE (AC-03): no ExpiresUtc column - expiry is computed from CreatedUtc
-            // at read time, never stored.
+            // NOTE (AC-03): no ExpiresUtc column - expiry is computed from CreatedUtc.
             ["Title"] = tale.Title,
             ["PartsJson"] = JsonSerializer.Serialize(tale.Parts),
             ["BylineNames"] = tale.BylineNames,
             ["CreatedUtc"] = tale.CreatedUtc,
         };
 
-        // Upsert so a re-save of the same (vaultId, taleId) is idempotent rather
-        // than a 409 - a fresh taleId is unique per save anyway, so this is defensive.
         await _table.UpsertEntityAsync(entity, TableUpdateMode.Replace, ct);
         return VaultSaveOutcome.Saved;
     }
@@ -120,25 +138,35 @@ public sealed class TableStorageVaultStore : IVaultStore
             return [];
         }
 
-        var now = DateTimeOffset.UtcNow;
+        // keepsake-vault/03: resolve any device-alias to the canonical claimed vault
+        // (AC-02) and read the claim row once so a claimed vault's TTL is exempt (AC-05).
+        var canonicalId = await ResolveCanonicalAsync(vaultId, ct);
+        var isClaimed = await ReadClaimEntityAsync(canonicalId, ct) is not null;
+
+        var now = _clock.GetUtcNow();
         var tales = new List<VaultTale>();
         var expired = new List<string>();
         try
         {
-            // Single-partition query (PartitionKey = vaultId): the whole access
-            // pattern this feature is built for. Vault isolation is structural - a
-            // query only ever returns this vault's rows. The strongly-typed
+            // Single-partition query (PartitionKey = canonicalId). The strongly-typed
             // predicate overload (not a raw OData string) is injection-proof by
             // construction, matching the sibling stores' precedent.
             var query = _table.QueryAsync<TableEntity>(
-                e => e.PartitionKey == vaultId,
+                e => e.PartitionKey == canonicalId,
                 cancellationToken: ct);
             await foreach (var entity in query)
             {
+                // Skip the claim companion row (RowKey = the sentinel) - it shares the
+                // partition but is not a tale.
+                if (entity.RowKey == ClaimRowKey)
+                {
+                    continue;
+                }
+
                 var tale = FromEntity(entity);
-                // AC-03: apply the computed TTL as the partition is enumerated -
-                // omit an expired row and mark it for a best-effort reclaim delete.
-                if (tale.IsExpired(now))
+                // AC-05: a claimed vault's tales never expire. AC-03: an unclaimed
+                // vault's expired rows are omitted and marked for a reclaim delete.
+                if (!isClaimed && tale.IsExpired(now))
                 {
                     expired.Add(tale.TaleId);
                     continue;
@@ -158,19 +186,278 @@ public sealed class TableStorageVaultStore : IVaultStore
         // retry, rather than silently reading as "no tales" on a transient fault.
 
         // Best-effort reclaim of the expired rows found above (AC-03). A failure to
-        // delete never affects the read result - the rows are already omitted, and a
-        // later list retries the reclaim.
+        // delete never affects the read result.
         foreach (var taleId in expired)
         {
-            await TryDeleteAsync(vaultId, taleId, ct);
+            await TryDeleteAsync(canonicalId, taleId, ct);
         }
 
         return tales;
     }
 
-    // Count the rows in one vault partition (RowKey only) for the per-vault cap
-    // check (AC-07). A missing table (nothing ever saved) is zero rows.
-    private async Task<int> CountAsync(string vaultId, CancellationToken ct)
+    /// <inheritdoc />
+    public async Task<VaultClaim> ClaimAsync(string vaultId, Guid accountId, CancellationToken ct = default)
+    {
+        await EnsureTableAsync(ct);
+        var canonicalId = await ResolveCanonicalAsync(vaultId, ct);
+
+        var now = _clock.GetUtcNow();
+        var existing = await ReadClaimAsync(canonicalId, ct);
+
+        // Re-claiming preserves the original ClaimedUtc; a first claim stamps it now.
+        var claimedUtc = existing?.ClaimedUtc ?? now;
+        var baseClaim = new VaultClaim(
+            VaultId: canonicalId,
+            AccountId: accountId,
+            ClaimCode: string.Empty,   // replaced by MintFreshCodeAsync
+            ClaimCodeExpiresUtc: now,  // replaced by MintFreshCodeAsync
+            ClaimCodeFailedAttempts: 0,
+            ClaimedUtc: claimedUtc);
+
+        return await MintFreshCodeAsync(baseClaim, existing?.ClaimCode, now, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<VaultClaim?> RegenerateClaimCodeAsync(string vaultId, CancellationToken ct = default)
+    {
+        var canonicalId = await ResolveCanonicalAsync(vaultId, ct);
+        var existing = await ReadClaimAsync(canonicalId, ct);
+        if (existing is null)
+        {
+            // Nothing to regenerate - the vault was never claimed.
+            return null;
+        }
+
+        return await MintFreshCodeAsync(existing, existing.ClaimCode, _clock.GetUtcNow(), ct);
+    }
+
+    /// <inheritdoc />
+    public async Task<VaultRedeemOutcome> RedeemClaimCodeAsync(string claimCode, string callingDeviceVaultId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(claimCode))
+        {
+            return VaultRedeemOutcome.InvalidOrExpired;
+        }
+
+        // Resolve the submitted code to a vault via the reverse-index point read.
+        var canonicalId = await ReadCodeIndexAsync(claimCode, ct);
+        if (canonicalId is null)
+        {
+            // A blind miss - not attributable to any one code (AC-03.3); bounded by the
+            // per-IP limiter + the global ceiling (AC-03.1/AC-03.2).
+            return VaultRedeemOutcome.InvalidOrExpired;
+        }
+
+        var claim = await ReadClaimAsync(canonicalId, ct);
+        if (claim is null || !string.Equals(claim.ClaimCode, claimCode, StringComparison.Ordinal))
+        {
+            // The index pointed at a code the claim no longer holds (a concurrent
+            // rotate) - treat as a miss.
+            return VaultRedeemOutcome.InvalidOrExpired;
+        }
+
+        var now = _clock.GetUtcNow();
+        if (claim.IsClaimCodeExpired(now) || claim.IsClaimCodeBurned)
+        {
+            // Resolves to this vault but unusable: an ATTRIBUTABLE failed attempt
+            // (AC-03.3). Count it and burn + rotate at the threshold.
+            await RegisterFailedAttemptAsync(claim, now, ct);
+            return VaultRedeemOutcome.InvalidOrExpired;
+        }
+
+        // Valid: alias the calling device to this vault (AC-02) and reset the count.
+        if (!string.IsNullOrEmpty(callingDeviceVaultId) &&
+            !string.Equals(callingDeviceVaultId, canonicalId, StringComparison.Ordinal))
+        {
+            await WriteAliasAsync(callingDeviceVaultId, canonicalId, ct);
+        }
+        if (claim.ClaimCodeFailedAttempts != 0)
+        {
+            await WriteClaimAsync(claim with { ClaimCodeFailedAttempts = 0 }, ct);
+        }
+        return VaultRedeemOutcome.Redeemed;
+    }
+
+    /// <inheritdoc />
+    public async Task<VaultClaim?> GetClaimAsync(string vaultId, CancellationToken ct = default)
+    {
+        var canonicalId = await ResolveCanonicalAsync(vaultId, ct);
+        var claim = await ReadClaimAsync(canonicalId, ct);
+        if (claim is null)
+        {
+            return null;
+        }
+
+        // AC-07 auto-rotation: refresh an expired / burned code on read so the gallery
+        // always shows a live, working code.
+        var now = _clock.GetUtcNow();
+        if (claim.IsClaimCodeExpired(now) || claim.IsClaimCodeBurned)
+        {
+            claim = await MintFreshCodeAsync(claim, claim.ClaimCode, now, ct);
+        }
+
+        return claim;
+    }
+
+    // ---- claim helpers --------------------------------------------------------
+
+    // Increment a claim's failed-attempt count and, at the burn threshold (AC-03.3),
+    // invalidate the current code and mint a fresh one (which resets the count).
+    // NOTE (store-parity caveat): this is an unguarded read-then-upsert, so under
+    // SIMULTANEOUS failed redemptions increments are last-write-wins and the burn
+    // count can accrue a hair slower than the lock-serialized InMemoryVaultStore. That
+    // is a coarse-bound race on a family toy, already bounded by the global ceiling +
+    // the 7-day window (the same benign-race posture SaveAsync's cap check takes), not
+    // a correctness gap - a per-code burn is defence-in-depth behind two hard bounds.
+    private async Task RegisterFailedAttemptAsync(VaultClaim claim, DateTimeOffset now, CancellationToken ct)
+    {
+        var bumped = claim with { ClaimCodeFailedAttempts = claim.ClaimCodeFailedAttempts + 1 };
+        if (bumped.IsClaimCodeBurned)
+        {
+            await MintFreshCodeAsync(bumped, bumped.ClaimCode, now, ct);
+        }
+        else
+        {
+            await WriteClaimAsync(bumped, ct);
+        }
+    }
+
+    // Mint a fresh code for a claim: draw a unique code, drop the old code-index row,
+    // add the new one, reset the count + expiry window, and persist the claim row.
+    private async Task<VaultClaim> MintFreshCodeAsync(VaultClaim claim, string? oldCode, DateTimeOffset now, CancellationToken ct)
+    {
+        await EnsureTableAsync(ct);
+
+        // Draw a code not already indexed (astronomically rare collision).
+        string code;
+        while (true)
+        {
+            code = ClaimCodeGenerator.Generate();
+            if (await ReadCodeIndexAsync(code, ct) is null)
+            {
+                break;
+            }
+        }
+
+        var updated = claim with
+        {
+            ClaimCode = code,
+            ClaimCodeExpiresUtc = now.AddDays(VaultClaim.ClaimCodeValidityDays),
+            ClaimCodeFailedAttempts = 0,
+        };
+
+        await WriteClaimAsync(updated, ct);
+        await WriteCodeIndexAsync(code, claim.VaultId, ct);
+        if (!string.IsNullOrEmpty(oldCode))
+        {
+            await TryDeleteAsync(ClaimCodeIndexPartition, oldCode, ct);
+        }
+
+        return updated;
+    }
+
+    private async Task<VaultClaim?> ReadClaimAsync(string vaultId, CancellationToken ct)
+    {
+        var entity = await ReadClaimEntityAsync(vaultId, ct);
+        return entity is null ? null : ClaimFromEntity(entity);
+    }
+
+    private async Task<TableEntity?> ReadClaimEntityAsync(string vaultId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(vaultId))
+        {
+            return null;
+        }
+        try
+        {
+            var response = await _table.GetEntityAsync<TableEntity>(vaultId, ClaimRowKey, cancellationToken: ct);
+            return response.Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+    }
+
+    private async Task WriteClaimAsync(VaultClaim claim, CancellationToken ct)
+    {
+        await EnsureTableAsync(ct);
+        var entity = new TableEntity(claim.VaultId, ClaimRowKey)
+        {
+            ["AccountId"] = claim.AccountId.ToString(),
+            ["ClaimCode"] = claim.ClaimCode,
+            ["ClaimCodeExpiresUtc"] = claim.ClaimCodeExpiresUtc,
+            ["ClaimCodeFailedAttempts"] = claim.ClaimCodeFailedAttempts,
+            ["ClaimedUtc"] = claim.ClaimedUtc,
+        };
+        await _table.UpsertEntityAsync(entity, TableUpdateMode.Replace, ct);
+    }
+
+    private static VaultClaim ClaimFromEntity(TableEntity entity)
+    {
+        _ = Guid.TryParse(entity.GetString("AccountId"), out var accountId);
+        return new VaultClaim(
+            VaultId: entity.PartitionKey,
+            AccountId: accountId,
+            ClaimCode: entity.GetString("ClaimCode") ?? string.Empty,
+            ClaimCodeExpiresUtc: entity.GetDateTimeOffset("ClaimCodeExpiresUtc") ?? DateTimeOffset.MinValue,
+            ClaimCodeFailedAttempts: entity.GetInt32("ClaimCodeFailedAttempts") ?? 0,
+            ClaimedUtc: entity.GetDateTimeOffset("ClaimedUtc") ?? DateTimeOffset.MinValue);
+    }
+
+    // ---- code-index + alias helpers ------------------------------------------
+
+    private async Task<string?> ReadCodeIndexAsync(string code, CancellationToken ct)
+    {
+        try
+        {
+            var response = await _table.GetEntityAsync<TableEntity>(ClaimCodeIndexPartition, code, cancellationToken: ct);
+            var vaultId = response.Value.GetString("VaultId");
+            return string.IsNullOrWhiteSpace(vaultId) ? null : vaultId;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+    }
+
+    private async Task WriteCodeIndexAsync(string code, string vaultId, CancellationToken ct)
+    {
+        var entity = new TableEntity(ClaimCodeIndexPartition, code) { ["VaultId"] = vaultId };
+        await _table.UpsertEntityAsync(entity, TableUpdateMode.Replace, ct);
+    }
+
+    // Resolve any device-alias link to the canonical claimed vault id (AC-02). One hop
+    // (aliases are never chained): a single point read suffices.
+    private async Task<string> ResolveCanonicalAsync(string vaultId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(vaultId))
+        {
+            return vaultId;
+        }
+        try
+        {
+            var response = await _table.GetEntityAsync<TableEntity>(AliasPartition, vaultId, cancellationToken: ct);
+            var canonical = response.Value.GetString("CanonicalVaultId");
+            return string.IsNullOrWhiteSpace(canonical) ? vaultId : canonical;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return vaultId;
+        }
+    }
+
+    private async Task WriteAliasAsync(string aliasVaultId, string canonicalVaultId, CancellationToken ct)
+    {
+        var entity = new TableEntity(AliasPartition, aliasVaultId) { ["CanonicalVaultId"] = canonicalVaultId };
+        await _table.UpsertEntityAsync(entity, TableUpdateMode.Replace, ct);
+    }
+
+    // ---- tale helpers (keepsake-vault/01) ------------------------------------
+
+    // Count the TALE rows in one vault partition (RowKey only) for the per-vault cap
+    // check (AC-07), excluding the claim sentinel row. A missing table is zero rows.
+    private async Task<int> CountTalesAsync(string vaultId, CancellationToken ct)
     {
         var count = 0;
         try
@@ -179,9 +466,12 @@ public sealed class TableStorageVaultStore : IVaultStore
                 e => e.PartitionKey == vaultId,
                 select: ["RowKey"],
                 cancellationToken: ct);
-            await foreach (var _ in query)
+            await foreach (var entity in query)
             {
-                count++;
+                if (entity.RowKey != ClaimRowKey)
+                {
+                    count++;
+                }
             }
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
@@ -191,27 +481,26 @@ public sealed class TableStorageVaultStore : IVaultStore
         return count;
     }
 
-    // Delete one (vault, tale) row for the expiry-reclaim path, swallowing a
-    // not-found (idempotent) and logging any other failure - never throws to the
-    // caller (the row is already omitted from the read result).
-    private async Task TryDeleteAsync(string vaultId, string taleId, CancellationToken ct)
+    // Delete one (partition, row) entity, swallowing a not-found (idempotent) and
+    // logging any other failure - never throws to the caller.
+    private async Task TryDeleteAsync(string partitionKey, string rowKey, CancellationToken ct)
     {
         try
         {
-            await _table.DeleteEntityAsync(vaultId, taleId, ETag.All, ct);
+            await _table.DeleteEntityAsync(partitionKey, rowKey, ETag.All, ct);
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
-            // Already gone - the reclaim is idempotent.
+            // Already gone - the delete is idempotent.
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Vault expiry-reclaim delete failed for a tale (swallowed).");
+            _logger.LogWarning(ex, "Vault companion-row delete failed (swallowed).");
         }
     }
 
     // Create the table ONCE (lazy); after the first success the guard skips the
-    // extra round-trip on every subsequent save.
+    // extra round-trip on every subsequent write.
     private async Task EnsureTableAsync(CancellationToken ct)
     {
         if (!_tableEnsured)
@@ -221,8 +510,8 @@ public sealed class TableStorageVaultStore : IVaultStore
         }
     }
 
-    // Rebuild the domain record from a stored entity. Defensive on the parts JSON:
-    // a malformed / empty blob yields an empty body rather than throwing on a read.
+    // Rebuild the domain record from a stored tale entity. Defensive on the parts
+    // JSON: a malformed / empty blob yields an empty body rather than throwing.
     private static VaultTale FromEntity(TableEntity entity)
     {
         var partsJson = entity.GetString("PartsJson");
@@ -244,6 +533,8 @@ public sealed class TableStorageVaultStore : IVaultStore
             Title: entity.GetString("Title") ?? string.Empty,
             Parts: parts,
             BylineNames: entity.GetString("BylineNames") ?? string.Empty,
+            // CreatedUtc is always present on a real row; the fallback only guards a
+            // corrupt row and never keys a real TTL decision.
             CreatedUtc: entity.GetDateTimeOffset("CreatedUtc") ?? DateTimeOffset.UtcNow);
     }
 }

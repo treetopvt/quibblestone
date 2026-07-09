@@ -44,11 +44,30 @@
 //  never joined to any identity. There is no new free-text entry point - content
 //  is re-vetted, not re-authored.
 //
+//  CLAIM + RECOVERY (keepsake-vault/03, issue #230): four more endpoints turn a
+//  vault durable and recoverable. POST /api/vault/claim attaches the SIGNED-IN
+//  FAMILY ACCOUNT (the family credential reused exactly, mirroring
+//  CloudGalleryController's PurchaserCredentialService pattern - NOT a second auth
+//  scheme) so the vault's tales stop expiring (AC-05) and follow the account across
+//  devices (AC-01). A human-friendly recovery claim code (ClaimCodeGenerator, a
+//  bearer secret carried in the REQUEST BODY on redemption, never a route/query)
+//  lets a family recover the SAME vault onto a new device WITHOUT an account
+//  (AC-02): POST /api/vault/claim-code/redeem aliases the calling device to the
+//  claimed vault; GET /api/vault/claim surfaces the live code + expiry (auto-rotated
+//  on open, AC-07); POST /api/vault/claim-code/regenerate is the account-free
+//  explicit revoke. Redemption carries THREE anti-brute-force controls (AC-03): the
+//  per-IP limiter, the IP-agnostic global ceiling (ClaimRedemptionCeiling), and the
+//  per-code failed-attempt burn (in the store). A claimed vault is tied to the
+//  FAMILY only, never a kid profile (AC-04, ADR 0003 Decision 1). The claim code and
+//  the AccountId are bearer/account-plane secrets - never logged, never in an
+//  exception message, and the response never carries the AccountId (AC-06).
+//
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using QuibbleStone.Api.Accounts;
 using QuibbleStone.Api.PublishedTales;
 using QuibbleStone.Api.Safety;
 
@@ -97,6 +116,47 @@ public sealed record SavedVaultTaleResult(string TaleId);
 /// <summary>Response for POST /api/vault/mint: a fresh server-minted vault id (AC-01 fallback).</summary>
 public sealed record MintVaultIdResult(string VaultId);
 
+/// <summary>
+/// The live claim-code view returned by POST /api/vault/claim, POST
+/// /api/vault/claim-code/regenerate, and GET /api/vault/claim (keepsake-vault/03).
+/// Carries ONLY the human-facing recovery code (grouped for display, AC-02) and its
+/// expiry (AC-07) - never the AccountId or any PII (AC-06). A device holding the
+/// vault id shows this so the family can recover the vault onto a new device.
+/// </summary>
+/// <param name="ClaimCode">The current active recovery code, grouped for display (e.g. "K5Q-2NX-8CP").</param>
+/// <param name="ClaimCodeExpiresUtc">When the current code stops working (AC-07); a fresh one is auto-minted on the next gallery open.</param>
+public sealed record VaultClaimCodeView(string ClaimCode, DateTimeOffset ClaimCodeExpiresUtc);
+
+/// <summary>
+/// Response for GET /api/vault/claim (keepsake-vault/03): whether the vault is claimed
+/// and, if so, its live recovery code + expiry (AC-02/AC-07). An unclaimed vault
+/// returns <see cref="Claimed"/> false and a null <see cref="Code"/> - the gallery
+/// then shows the "claim this vault" affordance instead of a code. Carries no
+/// AccountId / PII (AC-06).
+/// </summary>
+/// <param name="Claimed">True when the vault has been claimed into a family account (AC-01).</param>
+/// <param name="Code">The live recovery code view when claimed; null otherwise.</param>
+public sealed record VaultClaimStatusResult(bool Claimed, VaultClaimCodeView? Code);
+
+/// <summary>
+/// Request body for POST /api/vault/claim-code/redeem (keepsake-vault/03, AC-02): the
+/// human-typed recovery code, carried in the BODY - never a route segment or query
+/// string (a claim code is a bearer secret, ADR 0003 "Handles are secrets"). The
+/// calling device's own vault id travels in the X-Vault-Id header, never here.
+/// </summary>
+/// <param name="Code">The recovery code as typed by a human (any grouping / case); normalized server-side.</param>
+public sealed record RedeemClaimCodeRequest(string? Code);
+
+/// <summary>
+/// Response for POST /api/vault/claim-code/redeem (keepsake-vault/03). Deliberately
+/// minimal (AC-06): only whether the calling device was attached to a vault. On
+/// success the device re-fetches its tales under its OWN (now-aliased) vault id - it
+/// never learns the canonical vault id. A uniform 200 either way so redemption is not
+/// an enumeration oracle.
+/// </summary>
+/// <param name="Redeemed">True when the code was valid and the device is now aliased to the claimed vault (AC-02).</param>
+public sealed record RedeemClaimCodeResult(bool Redeemed);
+
 [ApiController]
 [Route("api/vault")]
 public sealed class VaultController : ControllerBase
@@ -122,11 +182,22 @@ public sealed class VaultController : ControllerBase
 
     private readonly IVaultStore _store;
     private readonly IContentSafetyFilter _safety;
+    private readonly PurchaserCredentialService _credential;
+    private readonly IAccountStore _accounts;
+    private readonly ClaimRedemptionCeiling _redemptionCeiling;
 
-    public VaultController(IVaultStore store, IContentSafetyFilter safety)
+    public VaultController(
+        IVaultStore store,
+        IContentSafetyFilter safety,
+        PurchaserCredentialService credential,
+        IAccountStore accounts,
+        ClaimRedemptionCeiling redemptionCeiling)
     {
         _store = store;
         _safety = safety;
+        _credential = credential;
+        _accounts = accounts;
+        _redemptionCeiling = redemptionCeiling;
     }
 
     /// <summary>
@@ -298,6 +369,154 @@ public sealed class VaultController : ControllerBase
         return Ok(new SavedVaultTaleResult(tale.TaleId));
     }
 
+    /// <summary>
+    /// POST /api/vault/claim -> { claimCode, claimCodeExpiresUtc }. Claims the vault
+    /// (X-Vault-Id header) into the SIGNED-IN FAMILY ACCOUNT (keepsake-vault/03, AC-01):
+    /// requires the family credential (mirrors CloudGalleryController's reuse of
+    /// PurchaserCredentialService - NOT a second auth scheme), resolves it to the
+    /// stable, non-PII AccountId, and associates the vault with it so its tales become
+    /// permanent (no TTL, AC-05) and reachable from any device signed into that
+    /// account. Mints and returns a fresh recovery claim code (AC-02). 401 when not
+    /// signed in / no account behind the credential; 400 on a missing / malformed
+    /// vault id. The claimed vault is tied to the FAMILY only, never a kid profile
+    /// (AC-04).
+    /// </summary>
+    [HttpPost("claim")]
+    public async Task<IActionResult> Claim(CancellationToken cancellationToken)
+    {
+        var vaultId = ReadVaultId();
+        if (vaultId is null)
+        {
+            return BadRequest(new { message = "A valid vault id is required." });
+        }
+
+        // Reuse the family credential exactly (AC-01): resolve it to an email, then to
+        // the canonical account so the claim keys off the STABLE AccountId GUID, never
+        // an email (accounts-identity/05). No valid credential / no account -> 401, so
+        // an anonymous player can never claim a vault into an account.
+        var email = _credential.ResolvePurchaserEmail(ReadCredential());
+        if (email is null)
+        {
+            return Unauthorized();
+        }
+
+        var account = await _accounts.GetByIdentityAsync(email, cancellationToken);
+        if (account is null)
+        {
+            return Unauthorized();
+        }
+
+        var claim = await _store.ClaimAsync(vaultId, account.Id, cancellationToken);
+        return Ok(ToCodeView(claim));
+    }
+
+    /// <summary>
+    /// GET /api/vault/claim -> { claimed, code? }. The gallery reads this (X-Vault-Id
+    /// header) to surface the live recovery code + its expiry when the vault is claimed
+    /// (AC-02/AC-07), or { claimed: false } when it is not (the gallery then shows the
+    /// "claim this vault" affordance). Any device holding / aliased to the vault id may
+    /// read it - no account required. AUTO-ROTATION (AC-07): an expired / burned code
+    /// is refreshed here so the family always sees a working code. Rate limited per IP
+    /// (the read policy). Carries no AccountId / PII (AC-06).
+    /// </summary>
+    [HttpGet("claim")]
+    [EnableRateLimiting(VaultRateLimit.ReadPolicyName)]
+    public async Task<IActionResult> GetClaim(CancellationToken cancellationToken)
+    {
+        var vaultId = ReadVaultId();
+        if (vaultId is null)
+        {
+            return BadRequest(new { message = "A valid vault id is required." });
+        }
+
+        var claim = await _store.GetClaimAsync(vaultId, cancellationToken);
+        return Ok(claim is null
+            ? new VaultClaimStatusResult(Claimed: false, Code: null)
+            : new VaultClaimStatusResult(Claimed: true, Code: ToCodeView(claim)));
+    }
+
+    /// <summary>
+    /// POST /api/vault/claim-code/regenerate -> { claimCode, claimCodeExpiresUtc }. The
+    /// account-free explicit revoke / regenerate (keepsake-vault/03, AC-07): any device
+    /// already holding (or aliased to) the vault id (X-Vault-Id header) can immediately
+    /// invalidate the current code and mint a fresh one - NO account required. 404 when
+    /// the vault has never been claimed (there is no code to regenerate); 400 on a
+    /// missing / malformed vault id. Rate limited per IP (the read policy - a rare,
+    /// deliberate action).
+    /// </summary>
+    [HttpPost("claim-code/regenerate")]
+    [EnableRateLimiting(VaultRateLimit.ReadPolicyName)]
+    public async Task<IActionResult> RegenerateClaimCode(CancellationToken cancellationToken)
+    {
+        var vaultId = ReadVaultId();
+        if (vaultId is null)
+        {
+            return BadRequest(new { message = "A valid vault id is required." });
+        }
+
+        var claim = await _store.RegenerateClaimCodeAsync(vaultId, cancellationToken);
+        if (claim is null)
+        {
+            return NotFound(new { message = "This vault has not been claimed, so it has no recovery code." });
+        }
+
+        return Ok(ToCodeView(claim));
+    }
+
+    /// <summary>
+    /// POST /api/vault/claim-code/redeem -> { redeemed }. Recovers a claimed vault onto
+    /// this NEW device (keepsake-vault/03, AC-02): the recovery code is in the request
+    /// BODY (never a route / query - a bearer secret), the calling device's own vault
+    /// id is in the X-Vault-Id header. A valid, unexpired code aliases this device to
+    /// the claimed vault so a later GET /api/vault/tales under this device's OWN id
+    /// returns the same tales - WITHOUT an account and without the device ever learning
+    /// the canonical vault id (AC-06). NOT single-use (AC-07). Protected by all THREE
+    /// anti-brute-force controls (AC-03): the per-IP limiter ([EnableRateLimiting]),
+    /// the IP-agnostic global ceiling (checked first here), and the per-code
+    /// failed-attempt burn (in the store). A uniform 200 { redeemed } either way so it
+    /// is not an enumeration oracle.
+    /// </summary>
+    [HttpPost("claim-code/redeem")]
+    [EnableRateLimiting(VaultRateLimit.RedeemPolicyName)]
+    public async Task<IActionResult> RedeemClaimCode([FromBody] RedeemClaimCodeRequest? request, CancellationToken cancellationToken)
+    {
+        // Validate the calling vault id FIRST - a malformed request is a 400 that must
+        // NOT consume the global-ceiling budget, or an attacker could exhaust AC-03.2's
+        // shared budget with cheap malformed requests and block legitimate recovery.
+        var callingVaultId = ReadVaultId();
+        if (callingVaultId is null)
+        {
+            return BadRequest(new { message = "A valid vault id is required." });
+        }
+
+        // AC-03.2: the IP-agnostic global ceiling - the control that bounds a
+        // distributed, IP-rotating brute force the per-IP limiter cannot. Consumed only
+        // by a well-formed redemption attempt, and BEFORE any store work so a flood
+        // never reaches the reverse-index lookup.
+        if (!_redemptionCeiling.TryAcquire())
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { message = "Too many recovery attempts right now - please try again in a minute." });
+        }
+
+        // Normalize the human-typed code to canonical form (tolerating hyphens /
+        // spaces / case). A malformed shape is a failed redemption, not a 400 - a
+        // uniform outcome keeps the endpoint from being a code-shape oracle.
+        var code = ClaimCodeGenerator.Normalize(request?.Code);
+        if (code is null)
+        {
+            return Ok(new RedeemClaimCodeResult(Redeemed: false));
+        }
+
+        var outcome = await _store.RedeemClaimCodeAsync(code, callingVaultId, cancellationToken);
+        return Ok(new RedeemClaimCodeResult(Redeemed: outcome == VaultRedeemOutcome.Redeemed));
+    }
+
+    // Map a claim to its human-facing code view: the code is GROUPED for display
+    // (AC-02) and only the code + expiry cross the wire - never the AccountId (AC-06).
+    private static VaultClaimCodeView ToCodeView(VaultClaim claim) =>
+        new(ClaimCodeGenerator.Format(claim.ClaimCode), claim.ClaimCodeExpiresUtc);
+
     // Read + validate the vault id from the X-Vault-Id HEADER (never a route
     // segment, AC-02). Returns the id when it meets the AC-01 length/format floor
     // (VaultId.IsWellFormed), or null when the header is missing / malformed / weak
@@ -307,5 +526,24 @@ public sealed class VaultController : ControllerBase
     {
         var value = Request.Headers[VaultIdHeader].ToString();
         return VaultId.IsWellFormed(value) ? value : null;
+    }
+
+    // The family credential: prefer the Authorization: Bearer value (the cross-origin
+    // path the SPA holds from sign-in), fall back to the HttpOnly cookie (same-site
+    // deployment). Mirrored from CloudGalleryController (the reused guard, NOT a second
+    // auth scheme) - the SAME credential accounts-identity/07's family sign-in mints.
+    private string? ReadCredential()
+    {
+        var authorization = Request.Headers.Authorization.ToString();
+        const string bearerPrefix = "Bearer ";
+        if (authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var value = authorization[bearerPrefix.Length..].Trim();
+            if (value.Length > 0)
+            {
+                return value;
+            }
+        }
+        return Request.Cookies.TryGetValue(PurchaserCredentialService.CookieName, out var cookie) ? cookie : null;
     }
 }

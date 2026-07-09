@@ -1,6 +1,6 @@
 # Story: Claim and recovery
 
-**Feature:** Keepsake Vault  ·  **Status:** Not Started  ·  **Issue:** #230
+**Feature:** Keepsake Vault  ·  **Status:** Complete  ·  **Issue:** #230
 
 ## Context
 A vault (`keepsake-vault/01`) is anonymous and device-bound by default: it
@@ -25,12 +25,12 @@ free family account) exists, which itself depends on `accounts-identity/05`
 though this story only calls `07` directly.
 
 ## Acceptance Criteria
-- [ ] AC-01: Given a signed-in family account (`accounts-identity/07`) on a
+- [x] AC-01: Given a signed-in family account (`accounts-identity/07`) on a
       device holding a vault id, when they claim that vault, then the vault's
       tales become permanently associated with the family account (no TTL -
       see AC-05) and are visible from ANY device subsequently signed into that
       same family account, not just the claiming device.
-- [ ] AC-02: Given a claimed vault, then a human-friendly claim code is shown
+- [x] AC-02: Given a claimed vault, then a human-friendly claim code is shown
       in the gallery (a short, typeable code - see the Technical Notes for the
       chosen length/alphabet - distinct from and not reusing the room
       join-code alphabet's live keyspace) so the family can recover the SAME
@@ -43,7 +43,7 @@ though this story only calls `07` directly.
       parameter (the same bearer-credential rule `keepsake-vault/01` AC-02
       establishes for the vault id itself - a claim code is likewise a bearer
       secret and gets the same treatment).
-- [ ] AC-03 (anti-brute-force): Given the claim-code redemption endpoint
+- [x] AC-03 (anti-brute-force): Given the claim-code redemption endpoint
       (`POST /api/vault/claim-code/redeem`), then it is protected by THREE
       independent controls, not per-IP rate limiting alone:
       1. **Per-IP rate limit** (as before): mirrors the fixed-window pattern
@@ -65,23 +65,23 @@ though this story only calls `07` directly.
       window/rotation (AC-07), these make the claim code's keyspace
       infeasible to brute-force by any single scripted caller OR a
       distributed, IP-rotating one.
-- [ ] AC-04 (child-safety / kid-profile boundary): Given a claimed vault's
+- [x] AC-04 (child-safety / kid-profile boundary): Given a claimed vault's
       tales, then they are tied to the FAMILY account only, NEVER to an
       individual kid profile or seat preset - there is no per-kid gallery and
       no per-kid tale history, ever (ADR 0003 Decision 1, the firm,
       non-negotiable edge). If a future idea wants per-kid anything, that
       requires its own ADR, not a slide in this story.
-- [ ] AC-05: Given an unclaimed vault approaching or past its TTL
+- [x] AC-05: Given an unclaimed vault approaching or past its TTL
       (`keepsake-vault/01`, default 90 days), when it is claimed into a
       family account, then that TTL no longer applies - a claimed vault's
       tales do not expire; claiming is the durability upgrade path the whole
       feature exists to offer.
-- [ ] AC-06 (no PII): Given a claim code, then it is an opaque, unguessable
+- [x] AC-06 (no PII): Given a claim code, then it is an opaque, unguessable
       handle that carries no identity of its own - redeeming it only ever
       re-links a vault id to whichever device enters it; it is never an
       email, an account id, or any other PII, and the redemption endpoint
       itself requires no account.
-- [ ] AC-07 (validity window, rotation, explicit revocation): Given a claim
+- [x] AC-07 (validity window, rotation, explicit revocation): Given a claim
       code, then it carries a bounded **validity window (default 7 days)**
       from minting - past that window it stops working and a fresh code is
       minted automatically the next time the claiming device's gallery screen
@@ -195,6 +195,16 @@ though this story only calls `07` directly.
   touches a purchaser/family credential).
 
 ## Tests
+Landed in `tests/QuibbleStone.Api.Tests/Vault/`: `ClaimCodeGeneratorTests.cs`
+(alphabet/length, `Format` grouping, `Normalize`), `ClaimRedemptionCeilingTests.cs`
+(AC-03.2 global ceiling), `ClaimStoreTests.cs` (AC-01/02/05/07 + AC-03.3 per-code
+burn, over the in-memory store with an injected clock), `ClaimControllerTests.cs`
+(family-credential auth, no-PII response, code-in-body redeem), and additions to
+`VaultRateLimitTests.cs` (AC-03.1 per-IP redeem policy). Web: `web/src/vault/
+vaultClaimClient.test.ts` (header/body posture, graceful failure). Manual end-to-end
+claim -> account-less recovery -> alias read -> per-IP-limiter walkthrough verified
+against a running API.
+
 | AC | Test |
 |---|---|
 | AC-01 | xUnit + manual: claim a vault under a family account; fetch its tales from a second device signed into the same account; confirm they appear |

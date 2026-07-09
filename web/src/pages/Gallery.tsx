@@ -28,6 +28,18 @@
 //  createdUtc) - no new free-text entry point, no PII (AC-05); the vault id
 //  stays a bearer secret in vaultClient's X-Vault-Id header, never surfaced.
 //
+//  keepsake-vault/03 (issue #230): the list view now also renders
+//  ../vault/VaultClaimPanel.tsx above the tale grid - the claim (family-account,
+//  AC-01), claim-code display (AC-02/AC-07), and recover-onto-this-device
+//  (AC-02, account-free) affordances. This screen reads its OWN device vault id
+//  with `readStoredVaultId()` (NEVER minting one - a read-only surface must not
+//  create a vault just by being opened) and reads `usePurchaserSession()` only
+//  to decide whether the claim CTA is in scope (mirrors the auth-boundary
+//  invariant keepsake-gallery/05 established: the child-facing reveal never
+//  touches a family credential - this screen is a purchaser-reachable Home
+//  entry, so it may). A successful recovery re-runs the same merged-tale load
+//  effect so recovered tales appear immediately.
+//
 //  Object URLs: each thumbnail/full image is rendered from a
 //  `URL.createObjectURL(blob)` - every URL created here is tracked and
 //  revoked on unmount (or when the tale list is reloaded) so this screen never
@@ -51,13 +63,16 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { AppBar } from '../components';
+import { usePurchaserSession } from '../account/PurchaserSession';
 import { getTaleImage, listTales } from '../gallery/localGallery';
 import { fetchVaultTales, mergeGalleryTales, type MergedTale } from '../vault/vaultGallery';
+import { readStoredVaultId } from '../vault/vaultId';
+import { VaultClaimPanel } from '../vault/VaultClaimPanel';
 import { shareImageFile, slugifyTitle } from '../gallery/shareImageFile';
 
 export interface GalleryProps {
@@ -182,6 +197,14 @@ export function Gallery({ onBack }: GalleryProps) {
   // honest "not here" message is the right graceful degrade (keepsake/03 review
   // WARN-01). Cleared whenever a fresh share is attempted or the view changes.
   const [reshareUnavailable, setReshareUnavailable] = useState(false);
+  // This device's own vault id, read WITHOUT minting (keepsake-vault/03): a
+  // read-only surface must not create a vault just by being opened. Null when
+  // this device has never saved/recovered a tale.
+  const [deviceVaultId, setDeviceVaultId] = useState<string | null>(() => readStoredVaultId());
+  // Bumped after a successful claim-code redemption to re-run the load effect
+  // below so recovered tales appear without a full page reload.
+  const [reloadKey, setReloadKey] = useState(0);
+  const { credential, isSignedIn } = usePurchaserSession();
 
   // Load the merged tale list (local IndexedDB + the keepsake vault) + each
   // LOCAL tale's image as an object URL. Every URL created is tracked in the
@@ -249,6 +272,17 @@ export function Gallery({ onBack }: GalleryProps) {
       cancelled = true;
       Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
     };
+  }, [reloadKey]);
+
+  // Re-runs the merged-tale load effect above (keepsake-vault/03): called after a
+  // successful claim-code redemption so recovered tales appear without a full
+  // page reload.
+  const handleRecovered = useCallback(() => {
+    // Redemption minted + stored this device's own vault id (the alias target), so
+    // re-read it: the panel's claim-code card can now resolve through the alias, and
+    // the load effect below re-runs so the recovered tales appear (no page reload).
+    setDeviceVaultId(readStoredVaultId());
+    setReloadKey((key) => key + 1);
   }, []);
 
   // Clear any "sharing not available" note when switching tales / leaving the
@@ -351,6 +385,14 @@ export function Gallery({ onBack }: GalleryProps) {
           <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.secondary', textAlign: 'center' }}>
             Every tale you've saved as an image on this device, newest first.
           </Typography>
+
+          <VaultClaimPanel
+            vaultId={deviceVaultId}
+            isSignedIn={isSignedIn}
+            credential={credential}
+            onRecovered={handleRecovered}
+          />
+
           {tales.length === 0 ? (
             <EmptyGallery />
           ) : (
