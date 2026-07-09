@@ -36,6 +36,12 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
     private Dictionary<string, SettingOverride>? _cache;
     private DateTime _cachedAtUtc;
 
+    // Bumped on every write. A reader captures this before it loads from the store and only
+    // publishes its snapshot if the generation is unchanged when it returns - so a reader that
+    // began loading BEFORE a concurrent write can never clobber the cache with a pre-write
+    // snapshot (AC-02's "immediately on the node that wrote it").
+    private long _generation;
+
     /// <summary>Constructs the service over the override store. Defaults come from the static catalog.</summary>
     public RuntimeSettingsService(IRuntimeSettingsStore store)
     {
@@ -149,36 +155,50 @@ public sealed class RuntimeSettingsService : IRuntimeSettingsService
         overrides.TryGetValue(key, out var over) ? over : null;
 
     // Returns the cached resolved override set, reloading from the store when the cache is stale
-    // or was invalidated by a write. Load happens outside the lock; only the swap is guarded.
+    // or was invalidated by a write. Load happens outside the lock; only the swap is guarded. A
+    // generation check makes the swap safe against a concurrent write: a snapshot loaded before a
+    // write bumped the generation is returned to THIS caller but NOT published to the shared cache,
+    // so it cannot mask the just-written change for the next reader (AC-02).
     private async ValueTask<IReadOnlyDictionary<string, SettingOverride>> GetOverridesAsync(CancellationToken ct)
     {
+        long generationAtLoad;
         lock (_gate)
         {
             if (_cache is not null && DateTime.UtcNow - _cachedAtUtc < CacheTtl)
             {
                 return _cache;
             }
+
+            generationAtLoad = _generation;
         }
 
         var all = await _store.GetAllOverridesAsync(ct);
         var dict = all.ToDictionary(o => o.Key, StringComparer.Ordinal);
         lock (_gate)
         {
-            _cache = dict;
-            _cachedAtUtc = DateTime.UtcNow;
+            // Publish only if no write landed while we were loading - otherwise this snapshot is
+            // already stale and the writing path (which nulled the cache) must win, so the next
+            // read reloads fresh and sees the write.
+            if (_generation == generationAtLoad)
+            {
+                _cache = dict;
+                _cachedAtUtc = DateTime.UtcNow;
+            }
         }
 
         return dict;
     }
 
-    // Drop the cache so the next read reloads from the store. Called after every write so the
-    // flipping node sees its own change immediately (AC-02), the same write-through posture as
+    // Drop the cache and bump the generation so the next read reloads from the store and any
+    // in-flight reader's pre-write snapshot is refused publication. Called after every write so the
+    // flipping node sees its own change immediately (AC-02), the write-through reset posture of
     // ActiveStripeContext.SetModeAsync.
     private void InvalidateCache()
     {
         lock (_gate)
         {
             _cache = null;
+            _generation++;
         }
     }
 }

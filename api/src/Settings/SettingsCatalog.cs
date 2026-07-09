@@ -87,6 +87,32 @@ public static class SettingsCatalog
     ];
 
     /// <summary>
+    /// Validates the catalog's internal coherence once at type load: a <see cref="SettingBounds"/>
+    /// may only sit on a numeric key (a bound on a Bool / String key would be silently ignored at
+    /// PUT time, so fail fast instead), and every key is unique. This guards a mis-declaration
+    /// story 02 / 03 could introduce when they append keys - a bad definition breaks startup with a
+    /// clear message rather than passing unnoticed. It does NOT enforce "every numeric key has
+    /// Bounds" - that stays a review blocker in story 02 / 03, not a runtime policy here.
+    /// </summary>
+    static SettingsCatalog()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var def in All)
+        {
+            if (!seen.Add(def.Key))
+            {
+                throw new InvalidOperationException($"Duplicate settings key '{def.Key}' in the catalog.");
+            }
+
+            if (def.Bounds is not null && !def.IsNumeric)
+            {
+                throw new InvalidOperationException(
+                    $"Settings key '{def.Key}' declares Bounds but is {def.Type} - bounds apply to numeric keys only.");
+            }
+        }
+    }
+
+    /// <summary>
     /// Looks up a definition by exact (ordinal) key. Returns null for an unknown key, which the
     /// controller turns into a 400 (a PUT / DELETE never invents a key outside the catalog).
     /// </summary>
