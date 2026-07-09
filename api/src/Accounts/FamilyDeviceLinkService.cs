@@ -296,18 +296,26 @@ public sealed class FamilyDeviceLinkService
         return $"{TokenVersion}.{accountId:N}.{deviceTokenId:N}.{secretText}";
     }
 
-    // Parse the two ids out of a presented token. Strict: exactly four dot-separated parts,
-    // the version tag, and two parseable GUIDs. Any deviation returns false (no throw, AC-06).
+    // A generous upper bound on a well-formed token's length: v1 + two 32-char GUIDs + a
+    // 43-char base64url secret + 3 separators is ~112 chars. The token is attacker-
+    // controllable query input (the hub access_token), so reject anything past this cap
+    // BEFORE splitting - bounding the allocation a hostile, dot-laden blob could force.
+    private const int MaxRawTokenLength = 256;
+
+    // Parse the two ids out of a presented token. Strict: a bounded length, exactly four
+    // dot-separated parts (Split is capped at 5 results so a token stuffed with dots cannot
+    // force an unbounded substring allocation - a 5th part fails the ==4 check), the version
+    // tag, and two parseable GUIDs. Any deviation returns false (no throw, AC-06).
     private static bool TryParseToken(string? rawToken, out Guid accountId, out Guid deviceTokenId)
     {
         accountId = Guid.Empty;
         deviceTokenId = Guid.Empty;
-        if (string.IsNullOrEmpty(rawToken))
+        if (string.IsNullOrEmpty(rawToken) || rawToken.Length > MaxRawTokenLength)
         {
             return false;
         }
 
-        var parts = rawToken.Split('.');
+        var parts = rawToken.Split('.', 5);
         if (parts.Length != 4 || !string.Equals(parts[0], TokenVersion, StringComparison.Ordinal))
         {
             return false;

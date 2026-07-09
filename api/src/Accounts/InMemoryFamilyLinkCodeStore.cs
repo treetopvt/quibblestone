@@ -58,6 +58,14 @@ public sealed class InMemoryFamilyLinkCodeStore : IFamilyLinkCodeStore
         var key = Normalize(code);
         lock (_gate)
         {
+            // Opportunistic self-clean (Copilot review): TryRedeem only ever purges the
+            // ONE code it is handed, so a minted code that is never redeemed / attempted
+            // would otherwise linger past its expiry forever, growing the ledger unbounded
+            // under a stream of mints. Sweep expired entries here so the store bounds itself
+            // to roughly the codes live within one TTL window. O(n) under the lock is cheap:
+            // mints are authenticated + low-volume and codes live only minutes.
+            PruneExpiredLocked();
+
             _codes[key] = new Entry
             {
                 AccountId = accountId,
@@ -65,6 +73,30 @@ public sealed class InMemoryFamilyLinkCodeStore : IFamilyLinkCodeStore
                 AttemptsRemaining = MaxAttemptsPerCode,
                 Consumed = false,
             };
+        }
+    }
+
+    // Remove every entry past its expiry. Caller MUST hold _gate. Collects the expired keys
+    // first (a Dictionary cannot be mutated mid-enumeration), then removes them. Consumed-
+    // but-unexpired entries are KEPT (they still burn-count replays until they expire here).
+    private void PruneExpiredLocked()
+    {
+        var now = DateTimeOffset.UtcNow;
+        List<string>? expired = null;
+        foreach (var (key, entry) in _codes)
+        {
+            if (entry.ExpiresUtc <= now)
+            {
+                (expired ??= []).Add(key);
+            }
+        }
+        if (expired is null)
+        {
+            return;
+        }
+        foreach (var key in expired)
+        {
+            _codes.Remove(key);
         }
     }
 

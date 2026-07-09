@@ -900,6 +900,14 @@ export function useGameHub(): UseGameHub {
   // saves a freshly redeemed token (RedeemDevice.tsx) picking it up on this
   // device's NEXT app launch (this ref is seeded once per mount, not re-read live).
   const familyDeviceTokenRef = useRef<string | null>(loadFamilyDeviceToken());
+  // accounts-identity/09: a single-fire guard so the once-per-launch token refresh
+  // rotates the token AT MOST ONCE per app launch. Token rotation is NON-idempotent
+  // (each refresh invalidates the old token server-side), so React 18 StrictMode's
+  // dev double-invoke of the effect below - or any re-run - must not fire a SECOND
+  // refresh with the now-stale old token: that second call would see the (just-rotated)
+  // old token as dead and clear it, unlinking a valid device. A useRef survives
+  // StrictMode's setup/cleanup/setup on the same instance, so this blocks the re-fire.
+  const deviceRefreshStartedRef = useRef(false);
   // accounts-identity/09: once per app launch (empty deps - never per hub
   // reconnect), if this device holds a family-device token AND no purchaser is
   // signed in, silently rotate it via the companion refresh endpoint to keep its
@@ -919,9 +927,15 @@ export function useGameHub(): UseGameHub {
   useEffect(() => {
     const token = familyDeviceTokenRef.current;
     if (!token || credential !== null) return;
-    let cancelled = false;
+    // Fire the (non-idempotent) rotation at most once per launch - see the ref's comment.
+    if (deviceRefreshStartedRef.current) return;
+    deviceRefreshStartedRef.current = true;
+    // Deliberately NO cancel-on-unmount guard: the server may have already rotated the
+    // token by the time this resolves, so we MUST persist the replacement (or clear a
+    // genuinely-dead token) even if the component has since unmounted - both writes go to
+    // localStorage + a ref, not React state, so they are safe after unmount. Dropping a
+    // successful rotation would lose the only valid copy of the token.
     void refreshFamilyDeviceToken(token).then((result) => {
-      if (cancelled) return;
       if (result.ok && result.token) {
         familyDeviceTokenRef.current = result.token;
         saveFamilyDeviceToken(result.token);
@@ -931,9 +945,6 @@ export function useGameHub(): UseGameHub {
       }
       // result.ok === false && result.dead === false -> transient: keep the token, retry next launch.
     });
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');

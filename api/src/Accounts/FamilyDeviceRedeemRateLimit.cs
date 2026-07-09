@@ -27,10 +27,13 @@ using Microsoft.AspNetCore.Http;
 namespace QuibbleStone.Api.Accounts;
 
 /// <summary>
-/// Rate-limit tunables + partition keys for the family-device redeem / refresh
-/// endpoints (accounts-identity/09). Program.cs registers both policies; the two
-/// actions opt into both via [EnableRateLimiting]. Kept here as one source of truth,
-/// unit-testable without the middleware.
+/// Rate-limit tunables + partition key for the family-device redeem / refresh
+/// endpoints (accounts-identity/09). Program.cs registers the PER-IP policy
+/// (<see cref="PerIpPolicyName"/>) and the two actions opt into it via
+/// [EnableRateLimiting]; the GLOBAL ceiling (<see cref="GlobalPermitLimit"/>) is
+/// enforced IN-CODE by <see cref="FamilyDeviceRedeemGlobalThrottle"/> rather than a
+/// second policy, because ASP.NET allows only one [EnableRateLimiting] per endpoint.
+/// Kept here as one source of truth, unit-testable without the middleware.
 /// </summary>
 public static class FamilyDeviceRedeemRateLimit
 {

@@ -193,7 +193,22 @@ export function RedeemDevice({ onBack }: RedeemDeviceProps) {
             >
               Link another device
             </Button>
-            <Button variant="text" onClick={onBack} sx={{ fontWeight: 800, fontSize: 13 }}>
+            <Button
+              variant="text"
+              onClick={() => {
+                // accounts-identity/09 (Copilot review): the family-device token is
+                // resolved into the session's capabilities + adult-unlock signal at hub
+                // CONNECT time (GameHub.OnConnectedAsync). The single SignalR connection
+                // was already established (as anonymous) BEFORE this device redeemed, so a
+                // client-side navigation home would keep playing on that stale connection
+                // and the freshly linked grants would not apply until the next app launch.
+                // A hard navigation to Home reboots the SPA so useGameHub rebuilds the
+                // connection and its accessTokenFactory picks up the just-stored token -
+                // "Start playing" then genuinely carries the family's unlocks this session.
+                window.location.assign('/');
+              }}
+              sx={{ fontWeight: 800, fontSize: 13 }}
+            >
               Start playing
             </Button>
           </Stack>
