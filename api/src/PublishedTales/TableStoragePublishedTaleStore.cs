@@ -388,8 +388,17 @@ public sealed class TableStoragePublishedTaleStore : IPublishedTaleStore
 
     // Point-read one tale body row REGARDLESS of its takedown / expiry state (used by
     // ConfirmHiddenAsync / RestoreFromTakedownAsync, which must see a taken-down row
-    // that GetAsync deliberately hides). Returns null when the row - or the table -
-    // does not exist, or on a storage blip (logged).
+    // that GetAsync deliberately hides). Returns null ONLY when the row - or the
+    // table - genuinely does not exist.
+    //
+    // A NON-404 storage fault PROPAGATES (it is NOT swallowed as "absent"): this
+    // helper feeds the operator WRITE paths (ConfirmHiddenAsync / RestoreFromTakedown-
+    // Async), and a transient read blip read as "absent" would be a MODERATION BYPASS
+    // - ConfirmHiddenAsync would skip stamping DeletedUtc yet still drop the moderation
+    // row, letting operator-confirmed-hidden content start serving again. Failing the
+    // operation instead keeps the tale hidden and lets the rare operator action retry.
+    // (This is the vault store's propagate-non-404 stance, NOT the public GetAsync's
+    // degrade-to-404 stance - a public visitor tolerates "gone", a takedown must not.)
     private async Task<PublishedTale?> ReadTaleRawAsync(string slug, CancellationToken cancellationToken)
     {
         try
@@ -397,9 +406,9 @@ public sealed class TableStoragePublishedTaleStore : IPublishedTaleStore
             var response = await _table.GetEntityIfExistsAsync<TableEntity>(slug, slug, cancellationToken: cancellationToken);
             return response.HasValue && response.Value is not null ? FromEntity(response.Value) : null;
         }
-        catch (Exception ex)
+        catch (RequestFailedException ex) when (ex.Status == 404)
         {
-            _logger.LogWarning(ex, "Published-tale raw read failed for a slug (treated as absent).");
+            // The table itself does not exist yet - genuinely absent, not a fault.
             return null;
         }
     }
