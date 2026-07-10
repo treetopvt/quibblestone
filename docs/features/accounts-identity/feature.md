@@ -37,6 +37,7 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
 | 07 | #211 | The free family account | Complete |
 | 08 | #228 | Kid seat presets | Complete |
 | 09 | #229 | Family device link | Complete |
+| 10 | #247 | Solo play's teen-plus gate | Not Started |
 
 ## Dependencies
 - session-engine (the existing anonymous join contract this feature formalizes:
@@ -113,11 +114,14 @@ section 3 (COPPA / GDPR-K). CLAUDE.md section 6 (Monetization seam).
   client-driven with no server session today, so its teen-plus tier stays
   client-gated and bypassable (clear storage / modified client), the same root
   cause finding #1 named. This is a KNOWN, recorded gap, not covered by story
-  09: closing it is a real design choice (move solo content selection
+  09: closing it was a real design choice (move solo content selection
   server-side, gate the library download behind the adult signal, or mint a
-  lightweight solo session) and wants its own story. Story 09's guarantee is
-  scoped to group play until it lands. Not pulled into the current slice; sized
-  when the alpha shows whether solo teen-plus exposure is a real risk.
+  lightweight solo session). It is now **story 10 (#247)**: the owner chose the
+  C-lite identity-aware client gate (2026-07-10) - a small read-only adult-signal
+  endpoint reusing the group resolver, forcing family-safe when no adult signal
+  resolves, with an escalate-to-Option-B trigger recorded if the teen-plus tier
+  ever grows beyond mild content. Story 09's guarantee stays scoped to group play
+  until story 10 lands.
 
 ## Decisions
 - 2026-07-01: Scoped to exactly the three stories above (anonymous contract,
