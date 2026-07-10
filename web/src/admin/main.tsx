@@ -16,7 +16,8 @@
 //  session) OR - once an operator session exists - a three-tab back office
 //  organized around the JOBS an operator does (ADR 0003 Layer 3), not around
 //  which feature happened to ship a screen: Support (find a person, fix their
-//  problem - <PurchaserEntitlements/>, story 02, relocated as-is, AC-02),
+//  problem - <SupportLookup/>, sysadmin-console/07, the account lookup + verbs that
+//  folds in story 02's grant/revoke via the SAME purchasersClient plumbing, AC-02),
 //  Content (moderation - <ReviewQueue/>, story 03, relocated as-is, AC-03), and
 //  Operations (settings/flags + Stripe mode - <OperationsPanel/>, composing
 //  story 04's Stripe-mode panel with the new dependency-tolerant settings view,
@@ -34,7 +35,7 @@ import { createRoot } from 'react-dom/client';
 import { Box, CircularProgress, CssBaseline, Stack, Tab, Tabs, ThemeProvider } from '@mui/material';
 import { AdminLogin } from './AdminLogin';
 import { ReviewQueue } from './ReviewQueue';
-import { PurchaserEntitlements } from './PurchaserEntitlements';
+import { SupportLookup } from './SupportLookup';
 import { OperationsPanel } from './OperationsPanel';
 import { ADMIN_TABS, type AdminTab } from './adminTabs';
 import { getOperatorSession, type OperatorSessionResult } from './operatorClient';
@@ -129,7 +130,7 @@ function AdminShell() {
             ))}
           </Tabs>
         </Box>
-        {tab === 'support' && <PurchaserEntitlements operatorEmail={operatorEmail} credential={credential} />}
+        {tab === 'support' && <SupportLookup operatorEmail={operatorEmail} credential={credential} />}
         {tab === 'content' && <ReviewQueue operatorEmail={operatorEmail} credential={credential} />}
         {tab === 'ops' && <OperationsPanel operatorEmail={operatorEmail} credential={credential} />}
       </Stack>

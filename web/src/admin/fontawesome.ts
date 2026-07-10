@@ -46,6 +46,17 @@ import {
   // clipboard-list reads "operator action log" on the header and the empty /
   // unavailable fallback rows.
   faClipboardList,
+  // sysadmin-console/07 (#243) - the Support lookup + verbs: the user reads
+  // "account"; the box-archive reads the vault/tale count; the mobile screen reads the
+  // linked-device count; the clock is the extend-a-tale-link-TTL verb; the trash-arrow-up
+  // is the restore-a-deleted-keepsake verb (distinct from the moderation rotate-left); the
+  // arrows-rotate is the Stripe resync verb.
+  faUser,
+  faBoxArchive,
+  faMobileScreen,
+  faClock,
+  faTrashArrowUp,
+  faArrowsRotate,
 } from '@fortawesome/free-solid-svg-icons';
 
 library.add(
@@ -64,4 +75,10 @@ library.add(
   faCreditCard,
   faGear,
   faClipboardList,
+  faUser,
+  faBoxArchive,
+  faMobileScreen,
+  faClock,
+  faTrashArrowUp,
+  faArrowsRotate,
 );
