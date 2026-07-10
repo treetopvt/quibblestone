@@ -130,6 +130,20 @@ Phase 4 "saved-story keepsakes", which this feature makes durable).
   vault belongs to exactly one family (or sits unclaimed on one device),
   mirroring `keepsake-gallery/05`'s "no public gallery / discovery" stance.
 
+## Review follow-ups (surfaced 2026-07-09, Waves 3-4)
+- **Recovered-device soft-delete/restore alias gap (keepsake-vault/04).** `IVaultStore.SoftDeleteAsync`
+  / `RestoreAsync` operate on the RAW vault id and do NOT resolve a device alias to the canonical
+  claimed vault (unlike `SaveAsync` / `ListAsync`, which do). A recovered/aliased device therefore
+  gets a clean 404 on delete/restore of a tale that lives in the canonical vault - benign (no data
+  loss, no cross-partition write), but it cannot manage the tales it can see. Decide whether recovered
+  devices should delete/restore (resolve the alias in those two methods) and add a characterization
+  test either way. Surfaced by the #237 merge review.
+- **Account -> vault COUNT projection for the support console (sysadmin-console/07 AC-02).** The vault
+  has no account -> vaults index, so the support console's vault/tale count renders "not available
+  yet" via the `UnavailableVaultAccountSummary` sentinel. Expose a real, byline-free
+  `IVaultAccountSummary.CountForAccountAsync(accountId) -> int` and swap the one DI registration in
+  `Program.cs` - no support-controller change (its narrow contract already fits).
+
 ## Decisions
 - 2026-07-08: Feature created per ADR 0003 (accepted 2026-07-08), decomposing
   its "Layer 2 - recovery and support data" section into four build-ready

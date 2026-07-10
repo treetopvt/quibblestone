@@ -92,6 +92,15 @@ features also touch (`Program.cs`, `api/src/Rooms/SeatGraceService.cs`, `api/src
   feature's endpoints sit behind the existing single Operator policy, same as every other admin
   endpoint today; `sysadmin-console`'s Layer 3 work is the one that introduces scopes.
 
+## Review follow-ups (surfaced 2026-07-09)
+- **Invert the settings call site to log-before-act (control-plane/01).** `SettingsController`'s
+  put/delete append their operator-action-log row AFTER the effectful `SetOverrideAsync` write, so a
+  settings change that commits while its log append fails would leave no trail - the exact log-after-act
+  gap ADR 0003 Amendment 2 warns about. The five money/moderation call sites (sysadmin-console/06) all
+  log BEFORE their effect; the settings call site should match (validate -> append -> write). Surfaced
+  by the #238 (sysadmin-console/06) merge review; out of scope for that story (control-plane/01's own
+  footprint).
+
 ## Decisions
 - **2026-07-08** - ADR 0003 accepted; this feature folder created as its Layer 1 decomposition
   (`control-plane/01-03`). See `docs/adr/0003-admin-platform-and-family-accounts.md`.

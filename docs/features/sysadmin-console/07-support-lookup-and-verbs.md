@@ -1,6 +1,15 @@
 # Story: Support lookup + verbs
 
-**Feature:** Sys-Admin Console  ·  **Status:** Not Started  ·  **Issue:** #243
+**Feature:** Sys-Admin Console  ·  **Status:** Complete (2026-07-09)  ·  **Issue:** #243
+
+> **Shipped note (2026-07-09):** merged as PR #245 on owner sign-off (flagged cross-plane seam).
+> Two AC sections ship behind their dependency-tolerant seams and degrade honestly: AC-02's
+> vault/tale COUNT renders "not available yet" via the `UnavailableVaultAccountSummary` sentinel
+> until keepsake-vault exposes an account -> count projection (a real `IVaultAccountSummary.
+> CountForAccountAsync` -> swap the one DI line, no controller change); subscription "last webhook
+> event" is likewise not surfaced (no store for it yet). AC-05 restore + AC-07 resync are live over
+> the merged keepsake-vault/04 and billing-entitlements/08 seams. The AC-08 firewall is structural
+> (verified by reflection + source-scan tests), not asserted.
 
 ## Context
 This is the Support job's real payload - ADR 0003 Layer 3's "find a person, fix their problem,"
@@ -36,14 +45,14 @@ account that produced it. See [feature.md](./feature.md) and
 section ("the support console cannot bridge the planes").
 
 ## Acceptance Criteria
-- [ ] AC-01 (lookup - REVISED 2026-07-08, email/AccountId ONLY): Given a signed-in operator on the
+- [x] AC-01 (lookup - REVISED 2026-07-08, email/AccountId ONLY): Given a signed-in operator on the
       Support tab, when they search by purchaser email (or, once `accounts-identity/05` lands, an
       `AccountId`), then the matching account resolves to a summary (`AccountId`, created-at, email)
       - or a clear "no match" state. A vault claim code and a public-tale slug are NOT valid search
       inputs on this screen and never resolve to an account, on this surface or any extension of it
       (see AC-08). The search never requires or displays a player nickname, room code, session id,
       tale byline, or tale timestamp.
-- [ ] AC-02: Given a resolved account, when its detail panel loads, then it shows: current
+- [x] AC-02: Given a resolved account, when its detail panel loads, then it shows: current
       entitlement grants (capability key, source, `validThrough` - the SAME data story 02's
       `AdminEntitlementsController` already returns), subscription state (plan, status,
       `validThrough`, Stripe subscription id, last webhook event - once `billing-entitlements/08`
@@ -54,7 +63,7 @@ section ("the support console cannot bridge the planes").
       "not available yet" placeholder otherwise, never an error or a blank detail panel. No section
       of this panel, present or future, ever renders a tale's byline, a tale's timestamp, or a list
       of the account's individual tales/vaults - counts only.
-- [ ] AC-03 (resend magic link - REVISED 2026-07-08, shares the public throttle): Given a resolved
+- [x] AC-03 (resend magic link - REVISED 2026-07-08, shares the public throttle): Given a resolved
       account, when the operator clicks "resend magic link," then a fresh magic-link email is issued
       through the SAME `accounts-identity/04` email-sending seam the purchaser sign-in flow already
       uses (no new email-delivery path), the action is written to the action log (story 06) with the
@@ -66,11 +75,11 @@ section ("the support console cannot bridge the planes").
       operator IP triggers it - closing the review-flagged email-bomb vector where an operator
       surface calling the sender directly, unthrottled, could flood one inbox regardless of the
       public endpoint's own IP-based limiter.
-- [ ] AC-04: Given a public tale's slug, when the operator extends its TTL, then the tale's expiry is
+- [x] AC-04: Given a public tale's slug, when the operator extends its TTL, then the tale's expiry is
       pushed out through the existing `IPublishedTaleStore` write path (`keepsake-gallery/04`, no
       parallel store), the response/UI includes ONLY the slug and the new expiry (never the tale's
       byline or content), and the action is logged with the slug as the target.
-- [ ] AC-05 (restore, with asymmetric friction - REVISED 2026-07-08): Given a user's OWN
+- [x] AC-05 (restore, with asymmetric friction - REVISED 2026-07-08): Given a user's OWN
       accidentally-deleted keepsake within its recovery window (once `keepsake-vault/04`'s
       self-delete/restore seam exists), when the operator restores it from the Support tab, then it
       resumes normal serving through that feature's restore path with a single, light confirmation,
@@ -83,11 +92,11 @@ section ("the support console cannot bridge the planes").
       (a courtesy action with no safety implication). This story does not merge the two into one
       generic "restore" control, on the Support tab or anywhere else - they remain two distinct
       verbs behind two distinct friction levels, pairing with `keepsake-vault/04`.
-- [ ] AC-06: Given a purchaser needing a comp or an entitlement extension, when the operator grants
+- [x] AC-06: Given a purchaser needing a comp or an entitlement extension, when the operator grants
       or extends a capability from this screen, then it reuses story 02's EXACT grant plumbing
       (`AdminEntitlementsController` / `IEntitlementGrantStore`, `source = Operator`) - no second
       write path - and the action is logged.
-- [ ] AC-07 (resync, rate-limited/debounced per account - REVISED 2026-07-08): Given a purchaser
+- [x] AC-07 (resync, rate-limited/debounced per account - REVISED 2026-07-08): Given a purchaser
       whose subscription state looks out of sync with Stripe (once `billing-entitlements/08`'s
       per-account resync service exists), when the operator triggers a resync for that account, then
       the resync service is invoked at most once per account within a minimum interval (rate-limited
@@ -96,7 +105,7 @@ section ("the support console cannot bridge the planes").
       until that service ships, this verb's control is visibly disabled with a "not available yet"
       state. `billing-entitlements/08` owns resync's mode-safety (Test/Live isolation on the grant
       store side); this verb owns not spamming the call.
-- [ ] AC-08 (the firewall, structural - REWRITTEN 2026-07-08 from an assertion into a guarantee):
+- [x] AC-08 (the firewall, structural - REWRITTEN 2026-07-08 from an assertion into a guarantee):
       Given this controller's shape, then it is STRUCTURALLY incapable of bridging the play/account
       plane to the content plane, not merely reviewed for it:
       - It does NOT resolve a public-tale slug or a vault claim code to an account email, on this
