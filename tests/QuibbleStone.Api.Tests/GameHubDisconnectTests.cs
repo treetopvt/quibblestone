@@ -41,7 +41,7 @@ public class GameHubDisconnectTests
         // SAME registry, so an OnDisconnected schedules a hold whose deferred eviction
         // never fires during these synchronous assertions (the DEFERRED half is covered
         // by SeatGraceServiceTests with a tiny window).
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), new AdultSignalResolutionService(new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore())), NullLogger<GameHub>.Instance);
         var clients = new RecordingClients();
         hub.Clients = clients;
         hub.Groups = new NoopGroups();
@@ -132,7 +132,7 @@ public class GameHubDisconnectTests
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
         Assert.True(room.TryAddPlayer("Maple", "gold", "conn-joiner"));
 
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), new AdultSignalResolutionService(new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore())), NullLogger<GameHub>.Instance);
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
         hub.Clients = clients;
@@ -214,7 +214,7 @@ public class GameHubDisconnectTests
         room.StartRound("tmpl", "classic-blind", blankCount: 4);
         Assert.Equal("prompting", room.CurrentRound!.Phase);
 
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), new AdultSignalResolutionService(new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore())), NullLogger<GameHub>.Instance);
         hub.Clients = new RecordingClients();
         hub.Groups = new RecordingGroups();
         hub.Context = new FakeHubCallerContext("conn-joiner");
@@ -233,7 +233,7 @@ public class GameHubDisconnectTests
         var registry = new RoomRegistry();
         var room = registry.CreateRoom("conn-host", "Mossy", "teal");
 
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), new AdultSignalResolutionService(new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore())), NullLogger<GameHub>.Instance);
         var clients = new RecordingClients();
         hub.Clients = clients;
         hub.Groups = new RecordingGroups();
@@ -252,7 +252,7 @@ public class GameHubDisconnectTests
         var registry = new RoomRegistry();
         registry.CreateRoom("conn-host", "Mossy", "teal");
 
-        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), NullLogger<GameHub>.Instance);
+        var hub = new GameHub(registry, new ContentSafetyFilter(), new TemplateCatalog(), new FamilySafeContentSelector(), new LengthContentSelector(), new FreshnessContentSelector(), new FakeTelemetrySink(), TestTelemetry.NoOp, new DefaultUnlockedEntitlementService(), TestSeatGrace.NoOp(registry), new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new ConnectionEntitlementStore(), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()), new InMemoryAccountStore(), new AdultSignalResolutionService(new PurchaserCredentialService(new EphemeralDataProtectionProvider()), new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore())), NullLogger<GameHub>.Instance);
         var clients = new RecordingClients();
         hub.Clients = clients;
         hub.Groups = new RecordingGroups();

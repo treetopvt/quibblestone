@@ -61,6 +61,18 @@
 //  The family-safe toggle only narrows which curated templates each mode offers;
 //  it never touches the profanity filter.
 //
+//  accounts-identity/10 (#247) - solo's teen-plus gate: the family-safe toggle is
+//  UI-only state a kid could flip, so on its own it can NEVER unlock the teen-plus
+//  tier. On mount this screen resolves a SERVER-SIDE adult signal (a purchaser
+//  credential or an adult-confirmed family-device token - the SAME resolver group
+//  play uses) into `adultUnlocked`, DEFAULTING to false, and every content-selection
+//  call site uses `effectiveFamilySafe = adultUnlocked ? familySafe : true` - the
+//  client-side mirror of group play's `room.AdultUnlocked ? familySafe : true`. This
+//  is an identity-aware NUDGE, not a structural guarantee (the teen-plus templates
+//  stay bundled + cached, so a determined kid could still override the client boolean
+//  - see adultSignalClient.ts's header + the story's Option-B escalation). The
+//  fail-safe is non-negotiable: a failed / offline / slow resolution stays false.
+//
 //  Selection pipeline (story-selection/02 + /03): the SOLO length choice
 //  ("Quick tale" / "Full tale", defaulting to 'full', AC-01/AC-06) sits beside
 //  the family-safe toggle and mode picker. The pick composes ALL content-
@@ -140,6 +152,9 @@ import {
 import { getBlanks, type Template } from '../engine/template';
 import { listRemixableBlanks } from '../engine/remixHelpers';
 import { checkWord } from '../safety/checkWord';
+import { resolveAdultSignal } from '../account/adultSignalClient';
+import { usePurchaserSession } from '../account/PurchaserSession';
+import { loadFamilyDeviceToken } from '../account/familyDeviceToken';
 import { createAiJumbleRequester } from '../ai/jumbleClient';
 import { getOrCreateSessionId, recordSoloServe } from '../telemetry/serveLog';
 import { recordSoloRoundCompleted, recordSoloRoundStarted } from '../telemetry/usageBeacon';
@@ -238,6 +253,7 @@ function PersonalSummary({ filledCount }: { filledCount: number }) {
  */
 function SoloSetup({
   familySafe,
+  effectiveFamilySafe,
   onFamilySafeChange,
   lengthPref,
   onLengthPrefChange,
@@ -246,7 +262,15 @@ function SoloSetup({
   onStart,
   onExit,
 }: {
+  /** The RAW toggle position - what the player set. Drives the toggle + summary display ONLY. */
   familySafe: boolean;
+  /**
+   * The EFFECTIVE, adult-signal-gated family-safe value (accounts-identity/10):
+   * `familySafe` when an adult signal is present, else forced true. ModePicker's mode
+   * eligibility uses THIS (not the raw toggle) so a mode is never enabled on the
+   * strength of teen-plus content a no-signal device will not actually be served.
+   */
+  effectiveFamilySafe: boolean;
   onFamilySafeChange: (checked: boolean) => void;
   lengthPref: LengthPreference;
   onLengthPrefChange: (value: LengthPreference) => void;
@@ -369,7 +393,7 @@ function SoloSetup({
           modes={SOLO_MODES}
           selectedId={mode.config.id}
           onSelect={onModeChange}
-          familySafe={familySafe}
+          familySafe={effectiveFamilySafe}
           label="Choose a mode"
         />
       </GameSettingsSheet>
@@ -380,6 +404,43 @@ function SoloSetup({
 export function Solo({ onExit, initialFavorite }: SoloProps) {
   const [phase, setPhase] = useState<SoloPhase>('setup');
   const [familySafe, setFamilySafe] = useState(FAMILY_SAFE_DEFAULT);
+  // accounts-identity/10 (#247): solo play's teen-plus gate. The family-safe toggle
+  // above is UI-only state a kid could flip, so on its own it can NEVER unlock the
+  // teen-plus tier. `adultUnlocked` is the SERVER-RESOLVED adult signal (a purchaser
+  // credential or an adult-confirmed family-device token, resolved by the shared
+  // resolver GameHub also uses) - it DEFAULTS TO false and flips true ONLY if a
+  // positive, fresh response arrives (see the mount effect below). The whole gate is
+  // the `effectiveFamilySafe` computation further down: `adultUnlocked ? familySafe :
+  // true`, the client-side mirror of group play's `room.AdultUnlocked ? familySafe :
+  // true`. The DEFAULT state (false) IS the safe state (AC-04's fail-safe), so a
+  // slow / failed / offline resolution never has to actively "turn anything off."
+  //
+  // HONEST SCOPE (AC-07): this is an identity-aware nudge, not a structural "can
+  // never" - the teen-plus templates stay bundled in the build and cached offline, so
+  // a determined kid could still override this boolean or read the cached bundle. That
+  // residual gap is the story's Option-B escalation, deliberately out of scope here.
+  const [adultUnlocked, setAdultUnlocked] = useState(false);
+  // The credential the hub's accessTokenFactory would send (purchaser preferred), read
+  // here to ask the adult-signal endpoint the SAME "what does this device hold" question
+  // (usePurchaserSession's in-memory credential; loadFamilyDeviceToken's stored token).
+  const { credential } = usePurchaserSession();
+  useEffect(() => {
+    // Resolve the adult signal ONCE on mount. Prefer the live purchaser credential,
+    // else the stored family-device token, else nothing (anonymous -> the server
+    // resolves false). Only a positive `true` flips the state; every failure path is
+    // already handled inside resolveAdultSignal (it never throws, never returns true on
+    // an error), so there is nothing to "turn off" here - the default stays safe.
+    let cancelled = false;
+    const deviceToken = loadFamilyDeviceToken();
+    void resolveAdultSignal(credential ?? deviceToken).then((unlocked) => {
+      if (!cancelled && unlocked) {
+        setAdultUnlocked(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [credential]);
   // story-selection/02, AC-01/AC-06: defaults to 'full' so a session that never
   // touches the length choice behaves exactly like before this story existed.
   const [lengthPref, setLengthPref] = useState<LengthPreference>('full');
@@ -442,12 +503,22 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   // and it must survive the fill -> reveal transition without re-triggering one.
   const roundStartRef = useRef<number | null>(null);
 
+  // accounts-identity/10 (#247), the gate itself: the EFFECTIVE family-safe value
+  // every content-selection call site uses. Honors the player's own toggle ONLY once
+  // an adult signal has been resolved (`adultUnlocked`); otherwise it is forced true
+  // (family-safe), REGARDLESS of the toggle's position. This is the client-side mirror
+  // of group play's server-side `room.AdultUnlocked ? familySafe : true`. familySafe.ts
+  // itself is untouched (Out of Scope) - only what the caller passes in changes.
+  const effectiveFamilySafe = adultUnlocked ? familySafe : true;
+
   const handleFamilySafeChange = (checked: boolean) => {
     setFamilySafe(checked);
     // If the current mode has no eligible template at the new family-safe
     // position, fall back to Classic blind (always eligible) so the picker
-    // never sits on an unstartable mode (AC-04).
-    if (mode.eligibleTemplates(seedLibrary, checked).length === 0) {
+    // never sits on an unstartable mode (AC-04). Use the EFFECTIVE value (not the raw
+    // toggle) so this eligibility check matches what pickTemplate will actually draw
+    // from - with no adult signal the effective value is true whatever `checked` is.
+    if (mode.eligibleTemplates(seedLibrary, adultUnlocked ? checked : true).length === 0) {
       setMode(DEFAULT_SOLO_MODE);
     }
   };
@@ -514,7 +585,7 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   const pickTemplate = () =>
     pickRandomTemplate(
       selectFreshOrRecycle(
-        selectByLengthOrFallback(mode.eligibleTemplates(seedLibrary, familySafe), lengthPref),
+        selectByLengthOrFallback(mode.eligibleTemplates(seedLibrary, effectiveFamilySafe), lengthPref),
         loadPlayedIds(),
       ),
     );
@@ -553,14 +624,16 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
   // serve/thumbs telemetry). A missing or ineligible favorite (a library
   // drift, or the family-safe toggle excluding it) falls back to the normal
   // setup screen gracefully rather than erroring. Depends only on
-  // `initialFavorite` deliberately - `familySafe` reads its mount-time default
-  // (FAMILY_SAFE_DEFAULT) here, matching the setup screen's own initial value.
+  // `initialFavorite` deliberately - `effectiveFamilySafe` reads its mount-time value
+  // here, which is family-safe (true) until the adult signal resolves - the safe
+  // default for a favorite replay too (accounts-identity/10, AC-04): a not-family-safe
+  // favorite is not auto-started on a device with no resolved adult signal.
   const consumedInitialFavorite = useRef(false);
   useEffect(() => {
     if (!initialFavorite || consumedInitialFavorite.current) return;
     consumedInitialFavorite.current = true;
     const found = seedLibrary.find((t) => t.id === initialFavorite.templateId);
-    const eligible = found ? selectTemplates([found], familySafe) : [];
+    const eligible = found ? selectTemplates([found], effectiveFamilySafe) : [];
     if (found && eligible.length > 0) {
       beginRound(found, { record: false });
     }
@@ -575,6 +648,7 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     return (
       <SoloSetup
         familySafe={familySafe}
+        effectiveFamilySafe={effectiveFamilySafe}
         onFamilySafeChange={handleFamilySafeChange}
         lengthPref={lengthPref}
         onLengthPrefChange={setLengthPref}
@@ -659,8 +733,12 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
       // AI "Fresh runes" for Word Bank (game-modes/07 AC-03): solo has no room,
       // so the gate meters on the anonymous device-local telemetry session id.
       // The button falls back to the free reshuffle whenever the gate does.
+      // Pass the EFFECTIVE family-safe value (accounts-identity/10): AI-generated
+      // word-bank content is content served to the player, so it obeys the same
+      // adult-signal gate - a device with no adult signal never generates
+      // teen-plus jumble words, whatever the raw toggle says.
       requestAiJumble: createAiJumbleRequester({
-        familySafe,
+        familySafe: effectiveFamilySafe,
         themes: template.tags.themes,
         sessionId: getOrCreateSessionId(),
       }),

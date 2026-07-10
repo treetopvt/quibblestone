@@ -239,6 +239,7 @@ public class EmailSenderTests
             environment,
             new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), deviceTokens),
             deviceTokens,
+            new AdultSignalResolutionService(credential, new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), deviceTokens)),
             new FamilyDeviceRedeemGlobalThrottle(),
             logger ?? NullLogger<AccountsController>.Instance,
             new InMemorySeatPresetStore(),

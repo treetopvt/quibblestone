@@ -1001,6 +1001,15 @@ builder.Services.AddSingleton<IFamilyLinkCodeStore, InMemoryFamilyLinkCodeStore>
 // resolver, which resolves a presented device token to its family + adult-unlock signal).
 builder.Services.AddSingleton<FamilyDeviceLinkService>();
 
+// accounts-identity/10 (#247): the SHARED adult-signal resolver (AC-06, "one resolver,
+// not a fork"). The connect-time "adult unlock" decision (purchaser -> true; family-device
+// token -> its IsAdultConfirmedDevice flag; else false) extracted out of GameHub's inline
+// OnConnectedAsync branching so BOTH the hub (group play) and solo play's new
+// GET /api/accounts/adult-signal endpoint route through ONE definition and can never drift.
+// Returns ONLY the bool (identity discarded inside), fail-safe to false on any error (AC-04).
+// A singleton over the purchaser + device-link resolvers it already reuses.
+builder.Services.AddSingleton<IAdultSignalResolver, AdultSignalResolutionService>();
+
 // accounts-identity/09: the GLOBAL redeem/refresh ceiling (ADR 0003 security posture - a
 // per-IP-only limiter is defeated by IP rotation). In-code rather than a second rate-limit
 // policy because ASP.NET allows only one [EnableRateLimiting] per endpoint (the per-IP

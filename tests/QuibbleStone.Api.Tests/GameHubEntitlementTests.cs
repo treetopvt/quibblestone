@@ -79,6 +79,11 @@ public class GameHubEntitlementTests
         var deviceTokens = new InMemoryFamilyDeviceTokenStore();
         var deviceLinks = new FamilyDeviceLinkService(linkCodes, deviceTokens);
         var accounts = new InMemoryAccountStore();
+        // accounts-identity/10 (AC-06): the SHARED adult-signal resolver, built over the
+        // SAME purchaser + device-link instances the hub uses, so a purchaser token or
+        // family-device token minted in a test resolves the SAME adult signal inside
+        // OnConnectedAsync that the resolver would return to solo play's endpoint.
+        var adultSignal = new AdultSignalResolutionService(credentials, deviceLinks);
         var hub = new GameHub(
             registry,
             new ContentSafetyFilter(),
@@ -94,6 +99,7 @@ public class GameHubEntitlementTests
             store,
             deviceLinks,
             accounts,
+            adultSignal,
             NullLogger<GameHub>.Instance);
 
         hub.Groups = new NoOpGroups();

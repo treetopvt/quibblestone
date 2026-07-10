@@ -62,6 +62,9 @@ public class GameHubRejoinTests
             new ConnectionEntitlementStore(),
             new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore()),
             new InMemoryAccountStore(),
+            new AdultSignalResolutionService(
+                new PurchaserCredentialService(new EphemeralDataProtectionProvider()),
+                new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), new InMemoryFamilyDeviceTokenStore())),
             NullLogger<GameHub>.Instance);
         var clients = new RecordingClients();
         var groups = new RecordingGroups();
