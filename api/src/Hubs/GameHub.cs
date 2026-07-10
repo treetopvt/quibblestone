@@ -565,6 +565,16 @@ public sealed class GameHub : Hub
             // identity for EvaluateForSession, which the adult resolver deliberately does
             // not surface). A neither-branch connection stores nothing, so this bool is
             // simply unused there (and is false regardless).
+            //
+            // KNOWN, BENIGN COST of the bool-only contract: on the FAMILY-DEVICE path the
+            // token is resolved twice per connect - once here (for the bool) and once in
+            // the capability branch below (for the family identity) - so the device row's
+            // best-effort rolling-TTL touch happens twice. That is idempotent (both slides
+            // set the same ExpiresUtc, the calls are sequential, and a failed touch is
+            // swallowed) and connect-path-only; the alternative (surfacing the identity
+            // from the resolver, or re-inlining the device->flag decision here) would
+            // either leak identity or re-fork the AC-06 decision, so the extra write is the
+            // accepted trade-off. The common purchaser / anonymous paths resolve once.
             var adultUnlocked = await _adultSignal.ResolveAdultSignalAsync(token, Context.ConnectionAborted);
 
             // 1. Try the purchaser credential.

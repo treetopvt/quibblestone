@@ -67,9 +67,32 @@ describe('resolveAdultSignal', () => {
     expect(await resolveAdultSignal(CRED)).toBe(false);
   });
 
-  it('FAILS SAFE to false on a timeout / abort (never throws)', async () => {
+  it('FAILS SAFE to false on an aborted request (never throws)', async () => {
     mockFetch(() => Promise.reject(new DOMException('aborted', 'AbortError')));
     expect(await resolveAdultSignal(CRED)).toBe(false);
+  });
+
+  it('FAILS SAFE to false when the request stalls past the timeout (the AbortController fires)', async () => {
+    vi.useFakeTimers();
+    try {
+      // A fetch that never settles on its own, but honors the abort signal the client
+      // attaches - so only the client's own REQUEST_TIMEOUT_MS deadline ends it.
+      mockFetch(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError')),
+            );
+          }),
+      );
+
+      const pending = resolveAdultSignal(CRED);
+      // Advance past the client deadline; the AbortController fires and the catch resolves false.
+      await vi.advanceTimersByTimeAsync(6000);
+      await expect(pending).resolves.toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([401, 403, 429, 500, 503])('FAILS SAFE to false on a non-2xx (%i)', async (code) => {

@@ -42,6 +42,13 @@
 //  Prose: hyphens / colons / parentheses, never em dashes.
 // ----------------------------------------------------------------------------
 
+// A tight client-side deadline (AC-04 defence in depth): the gate defaults to false,
+// so a stalled server already keeps solo family-safe - but bounding the request means a
+// hung endpoint resolves to the safe default PROMPTLY (via an AbortError the catch below
+// turns into false) instead of leaving the promise pending for the browser's own long
+// default timeout. Short, because this runs once on the solo setup screen's mount.
+const REQUEST_TIMEOUT_MS = 5000;
+
 /** Narrows an unknown response body to its boolean adultUnlocked field, or null if malformed. */
 function readAdultUnlocked(value: unknown): boolean | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -58,6 +65,11 @@ function readAdultUnlocked(value: unknown): boolean | null {
  * resolves to `false` (family-safe, AC-04). Never throws.
  */
 export async function resolveAdultSignal(credential: string | null): Promise<boolean> {
+  // Bound the request so a stalled server resolves to the safe default promptly (the
+  // abort surfaces as an AbortError the catch turns into false). clearTimeout in finally
+  // so a fast response never leaves a dangling timer.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     // The bearer rides the Authorization header (never the URL); credentials:'include'
     // lets a same-site HttpOnly purchaser cookie serve as the fallback the server reads.
@@ -70,6 +82,7 @@ export async function resolveAdultSignal(credential: string | null): Promise<boo
       method: 'GET',
       headers,
       credentials: 'include',
+      signal: controller.signal,
     });
 
     // A non-2xx (401 / 429 / 5xx) is NOT an adult signal - fail safe to family-safe.
@@ -83,5 +96,7 @@ export async function resolveAdultSignal(credential: string | null): Promise<boo
   } catch {
     // Network error / offline / timeout / abort - the safe default, never a throw (AC-04).
     return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }

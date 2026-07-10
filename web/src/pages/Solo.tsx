@@ -432,7 +432,10 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     // an error), so there is nothing to "turn off" here - the default stays safe.
     let cancelled = false;
     const deviceToken = loadFamilyDeviceToken();
-    void resolveAdultSignal(credential ?? deviceToken).then((unlocked) => {
+    // Prefer the purchaser credential, else the stored device token (|| not ??, so an
+    // empty-string credential still falls through to the device token) - mirroring the
+    // hub's accessTokenFactory intent. A device with neither sends nothing (anonymous).
+    void resolveAdultSignal(credential || deviceToken).then((unlocked) => {
       if (!cancelled && unlocked) {
         setAdultUnlocked(true);
       }
@@ -566,8 +569,11 @@ export function Solo({ onExit, initialFavorite }: SoloProps) {
     // story-selection/04 (anonymous serve log, AC-02): fire-and-forget one
     // anonymous "template served" event. It never awaits, never retries, and
     // never blocks the transition to 'fill' (AC-03), and carries no PII - just
-    // the template + the current family-safe toggle (AC-04).
-    recordSoloServe({ template: chosen, familySafe });
+    // the template + the family-safe posture (AC-04). Record the EFFECTIVE value
+    // (accounts-identity/10): on a no-signal device with the toggle off, the content
+    // actually served was family-safe, so the serve log should reflect what was served,
+    // not the raw toggle position the gate overrode.
+    recordSoloServe({ template: chosen, familySafe: effectiveFamilySafe });
     // story-selection/03 (freshness rotation, AC-01): record this template as
     // played on THIS device, AFTER the pick, so the NEXT pickTemplate() call
     // excludes it until the eligible pool runs dry.
