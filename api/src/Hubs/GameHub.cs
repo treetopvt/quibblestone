@@ -417,6 +417,7 @@ public sealed class GameHub : Hub
     private readonly IConnectionEntitlementStore _connectionEntitlements;
     private readonly FamilyDeviceLinkService _deviceLinks;
     private readonly IAccountStore _accounts;
+    private readonly IAdultSignalResolver _adultSignal;
     private readonly ILogger<GameHub> _logger;
 
     public GameHub(
@@ -434,6 +435,7 @@ public sealed class GameHub : Hub
         IConnectionEntitlementStore connectionEntitlements,
         FamilyDeviceLinkService deviceLinks,
         IAccountStore accounts,
+        IAdultSignalResolver adultSignal,
         ILogger<GameHub> logger)
     {
         _rooms = rooms;
@@ -487,6 +489,12 @@ public sealed class GameHub : Hub
         // resolved AccountId into the family identity string EvaluateForSession expects
         // (the account email), consumed for that one call and discarded (AC-03/AC-04).
         _accounts = accounts;
+        // accounts-identity/10 (#247): the SHARED adult-signal resolver (AC-06, "one
+        // resolver, not a fork"). OnConnectedAsync's connect-time AdultUnlocked decision
+        // used to be branched inline here; it now lives in ONE service that solo play's
+        // GET /api/accounts/adult-signal endpoint ALSO calls, so the two can never drift.
+        // It returns ONLY the bool - identity is discarded inside the service.
+        _adultSignal = adultSignal;
         _logger = logger;
     }
 
@@ -540,12 +548,34 @@ public sealed class GameHub : Hub
             // purchaser credential. So we try purchaser first, then a device token:
             //
             //   1. PURCHASER credential -> capabilities from the purchaser identity, and
-            //      AdultUnlocked = TRUE unconditionally (adult-by-construction: only an
-            //      adult completes a magic-link sign-in, ADR 0002 Decision A / AC-07a).
+            //      AdultUnlocked = TRUE (adult-by-construction: only an adult completes a
+            //      magic-link sign-in, ADR 0002 Decision A / AC-07a).
             //   2. Else a FAMILY-DEVICE token (accounts-identity/09) -> capabilities from
             //      the family's account identity, and AdultUnlocked = that device row's
             //      IsAdultConfirmedDevice flag (AC-07b: false is the family-safe default).
             //   3. Else (neither) -> store nothing; CreateRoom falls back to the baseline.
+
+            // accounts-identity/10 (#247), AC-06: the AdultUnlocked decision (the exact
+            // "purchaser -> true; device -> its flag; else false" logic above) now lives
+            // in ONE shared resolver that solo play's REST endpoint ALSO calls, so group
+            // and solo can never fork on what "an adult signal is present" means. Resolve
+            // it ONCE here and reuse it in whichever capture branch below fires. It never
+            // throws and returns ONLY the bool (identity discarded inside the service);
+            // the capability resolution below stays its own concern (it needs the resolved
+            // identity for EvaluateForSession, which the adult resolver deliberately does
+            // not surface). A neither-branch connection stores nothing, so this bool is
+            // simply unused there (and is false regardless).
+            //
+            // KNOWN, BENIGN COST of the bool-only contract: on the FAMILY-DEVICE path the
+            // token is resolved twice per connect - once here (for the bool) and once in
+            // the capability branch below (for the family identity) - so the device row's
+            // best-effort rolling-TTL touch happens twice. That is idempotent (both slides
+            // set the same ExpiresUtc, the calls are sequential, and a failed touch is
+            // swallowed) and connect-path-only; the alternative (surfacing the identity
+            // from the resolver, or re-inlining the device->flag decision here) would
+            // either leak identity or re-fork the AC-06 decision, so the extra write is the
+            // accepted trade-off. The common purchaser / anonymous paths resolve once.
+            var adultUnlocked = await _adultSignal.ResolveAdultSignalAsync(token, Context.ConnectionAborted);
 
             // 1. Try the purchaser credential.
             string? purchaserIdentity;
@@ -570,10 +600,11 @@ public sealed class GameHub : Hub
 
                 // Store ONLY the capability set + the adult-unlock bool - never the identity
                 // (AC-04 / AC-08). purchaserIdentity goes out of scope here. A signed-in
-                // purchaser is adult-by-construction, so AdultUnlocked = true (AC-07a).
+                // purchaser is adult-by-construction, so the shared resolver returned true
+                // for this credential (AC-07a / accounts-identity/10 AC-06).
                 _connectionEntitlements.Set(
                     Context.ConnectionId,
-                    new ResolvedConnectionIdentity(capabilities, AdultUnlocked: true));
+                    new ResolvedConnectionIdentity(capabilities, adultUnlocked));
             }
             else
             {
@@ -617,11 +648,12 @@ public sealed class GameHub : Hub
 
                     // A family-device token ALWAYS resolves the family's PAID capabilities,
                     // independent of the adult-unlock signal (AC-03): the two axes are captured
-                    // together but never conflated. AdultUnlocked mirrors the device row's flag
-                    // (false is the family-safe default a freshly linked device carries, AC-07b).
+                    // together but never conflated. AdultUnlocked is the shared resolver's bool -
+                    // this device row's IsAdultConfirmedDevice flag (false is the family-safe
+                    // default a freshly linked device carries, AC-07b / accounts-identity/10).
                     _connectionEntitlements.Set(
                         Context.ConnectionId,
-                        new ResolvedConnectionIdentity(capabilities, resolvedDevice.IsAdultConfirmedDevice));
+                        new ResolvedConnectionIdentity(capabilities, adultUnlocked));
                 }
                 // 3. Neither purchaser nor device token: store nothing. CreateRoom's miss
                 //    path evaluates the same default-unlocked baseline (AC-05), and

@@ -184,6 +184,16 @@ public sealed record RefreshDeviceResult(bool Ok, string? Token);
 /// <param name="Confirmed">True to opt this device into the teen-plus tier (AC-07), false to return it to family-safe.</param>
 public sealed record AdultConfirmBody(bool Confirmed);
 
+/// <summary>
+/// Response for GET /api/accounts/adult-signal (accounts-identity/10, AC-05): EXACTLY
+/// one boolean field and nothing else - no account id, email, device-token id, or
+/// capability list. The value is resolved ENTIRELY server-side from whatever credential
+/// the request presents (header or cookie); there is no request field a client can set
+/// to assert it - the boolean is resolved, never accepted as input.
+/// </summary>
+/// <param name="AdultUnlocked">True only on a positive, freshly resolved adult signal (a purchaser credential or an adult-confirmed device); false otherwise, including every failure (AC-04 fail-safe).</param>
+public sealed record AdultSignalResult(bool AdultUnlocked);
+
 [ApiController]
 [Route("api/accounts")]
 public sealed class AccountsController : ControllerBase
@@ -246,6 +256,7 @@ public sealed class AccountsController : ControllerBase
     private readonly IWebHostEnvironment _environment;
     private readonly FamilyDeviceLinkService _deviceLinks;
     private readonly IFamilyDeviceTokenStore _deviceTokens;
+    private readonly IAdultSignalResolver _adultSignal;
     private readonly FamilyDeviceRedeemGlobalThrottle _globalThrottle;
     private readonly ILogger<AccountsController> _logger;
     // accounts-identity/08: the kid-seat-preset store (account-plane, keyed by the
@@ -263,6 +274,7 @@ public sealed class AccountsController : ControllerBase
         IWebHostEnvironment environment,
         FamilyDeviceLinkService deviceLinks,
         IFamilyDeviceTokenStore deviceTokens,
+        IAdultSignalResolver adultSignal,
         FamilyDeviceRedeemGlobalThrottle globalThrottle,
         ILogger<AccountsController> logger,
         ISeatPresetStore presets,
@@ -279,6 +291,10 @@ public sealed class AccountsController : ControllerBase
         // adult-confirm toggle - all plain row updates behind the account holder's own auth).
         _deviceLinks = deviceLinks;
         _deviceTokens = deviceTokens;
+        // accounts-identity/10 (#247): the SHARED adult-signal resolver (AC-06). The SAME
+        // service GameHub.OnConnectedAsync uses - solo play's GET /api/accounts/adult-signal
+        // routes through it rather than forking a second copy of the decision.
+        _adultSignal = adultSignal;
         // accounts-identity/09: the GLOBAL redeem/refresh ceiling (per-IP is defeated by IP
         // rotation, ADR 0003) - checked before any store work on those two endpoints.
         _globalThrottle = globalThrottle;
@@ -671,6 +687,39 @@ public sealed class AccountsController : ControllerBase
             await _deviceTokens.UpdateAsync(device with { IsAdultConfirmedDevice = confirmed }, cancellationToken);
         }
         return NoContent();
+    }
+
+    /// <summary>
+    /// GET /api/accounts/adult-signal -> { adultUnlocked } (accounts-identity/10, #247):
+    /// the READ-ONLY, ANONYMOUS-ACCESSIBLE endpoint solo play calls once on mount to learn
+    /// whether THIS device carries an adult-unlock signal. It resolves the SAME signal
+    /// GameHub.OnConnectedAsync resolves for group play, through the SAME shared resolver
+    /// (AC-06) - a purchaser credential (adult-by-construction) or a family-device token
+    /// whose row is adult-confirmed -> true; anything else (no credential, an unconfirmed
+    /// device, a bad/expired token, any error) -> false (AC-01/AC-03/AC-04 fail-safe).
+    ///
+    /// The credential is read via <see cref="ReadCredential"/> - the Authorization: Bearer
+    /// header, falling back to the HttpOnly cookie - EXACTLY like the other account
+    /// endpoints, NEVER from a query string or path segment: a bearer credential in a URL
+    /// leaks to access logs / App Insights / the Referer header (ADR 0003's "handles are
+    /// secrets" rule). There is no request body and no request field a client can set to
+    /// assert the bool - it is resolved server-side, never accepted as input (AC-05).
+    ///
+    /// HONEST SCOPE (AC-07): this is an identity-aware CLIENT NUDGE, not a structural
+    /// "can never." The teen-plus templates stay bundled in the web build and cached
+    /// offline regardless of this signal, so a determined, technically capable kid can
+    /// still reach them by overriding the client-held boolean or reading the cached
+    /// bundle directly - the same bundled-content caveat group play's Room-based gate
+    /// does NOT have to make (its gate is server-side). Closing that residual gap is the
+    /// Option-B content-supply escalation the story tracks, deliberately out of scope
+    /// here; this endpoint exists so solo's toggle cannot, by itself, unlock teen-plus on
+    /// a device with no adult signal - not to make teen-plus structurally unreachable.
+    /// </summary>
+    [HttpGet("adult-signal")]
+    public async Task<IActionResult> GetAdultSignal(CancellationToken cancellationToken)
+    {
+        var adultUnlocked = await _adultSignal.ResolveAdultSignalAsync(ReadCredential(), cancellationToken);
+        return Ok(new AdultSignalResult(adultUnlocked));
     }
 
     /// <summary>

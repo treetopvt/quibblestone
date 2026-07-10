@@ -1,6 +1,6 @@
 # Story: Solo play's teen-plus gate
 
-**Feature:** Accounts & Identity  ·  **Status:** Not Started  ·  **Issue:** #247
+**Feature:** Accounts & Identity  ·  **Status:** In Review (2026-07-10 - implemented + validated on the branch; flagged child-safety seam, owner sign-off required before merge)  ·  **Issue:** #247
 
 ## Context
 accounts-identity/09 built the child-safety fix for GROUP play: the teen-plus
@@ -58,28 +58,28 @@ accounts-identity/09 (the resolver and the device-link/purchaser-credential
 plumbing this story reuses rather than forks).
 
 ## Acceptance Criteria
-- [ ] AC-01 (anonymous solo is safe by default): Given a device with no
+- [x] AC-01 (anonymous solo is safe by default): Given a device with no
       purchaser session and no family-device token (the overwhelming common
       case - a kid's own tablet, a fresh browser, an incognito window), when
       solo play starts, then the resolved adult signal is `false` and solo is
       served family-safe content REGARDLESS of the family-safe toggle's
       position - the toggle cannot, by itself, unlock teen-plus on a device
       with no adult signal at all.
-- [ ] AC-02 (an adult signal unlocks the toggle): Given a device carrying
+- [x] AC-02 (an adult signal unlocks the toggle): Given a device carrying
       EITHER a signed-in purchaser session (accounts-identity/03,
       adult-by-construction) OR a family-device token whose row has
       `IsAdultConfirmedDevice = true` (accounts-identity/09, an adult opt-in
       from the Account page), when solo play starts and the resolved adult
       signal is `true`, then the family-safe toggle behaves exactly as it
       does today - the player's own toggle position is honored, on or off.
-- [ ] AC-03 (a linked-but-unconfirmed device stays safe): Given a device
+- [x] AC-03 (a linked-but-unconfirmed device stays safe): Given a device
       holding a family-device token whose row has `IsAdultConfirmedDevice =
       false` (the default for every freshly redeemed device, accounts-
       identity/09 AC-02), when solo play starts, then the resolved adult
       signal is `false` and solo is family-safe regardless of the toggle -
       the same "redeemed device defaults to SAFE" posture story 09's AC-07b
       established for group play, mirrored here rather than re-decided.
-- [ ] AC-04 (fail-safe, non-negotiable): Given the adult-signal endpoint is
+- [x] AC-04 (fail-safe, non-negotiable): Given the adult-signal endpoint is
       unreachable, times out, or returns an error (offline play, a transient
       network failure, a cold PWA cache with no connectivity), when solo
       resolves its adult signal, then it treats the signal as `false` and
@@ -87,21 +87,21 @@ plumbing this story reuses rather than forks).
       defaults to teen-plus. Only a POSITIVE, freshly resolved `true` value
       unlocks the toggle; every other outcome (miss, error, timeout, offline)
       is treated identically to "no adult signal."
-- [ ] AC-05 (no PII, server-resolved only): Given the adult-signal endpoint,
+- [x] AC-05 (no PII, server-resolved only): Given the adult-signal endpoint,
       then its response body carries EXACTLY `{ adultUnlocked: boolean }` and
       nothing else - no account id, no email, no device-token identifier, no
       capability list. The value is computed entirely server-side from
       whatever credential the request presents; there is no request
       parameter or body field the client can set to directly assert
       `adultUnlocked` - the boolean is resolved, never accepted as input.
-- [ ] AC-06 (one resolver, not a fork): Given the adult-signal endpoint's
+- [x] AC-06 (one resolver, not a fork): Given the adult-signal endpoint's
       resolution logic, then it is the SAME resolver `GameHub.OnConnectedAsync`
       already calls for group play (purchaser credential first, adult-by-
       construction; else a family-device token's `IsAdultConfirmedDevice`;
       else `false`) - not a second, parallel implementation that could drift
       from it. A code-level check confirms both call sites route through one
       shared resolution path.
-- [ ] AC-07 (honest scope - a nudge, not a structural fix): Given this
+- [x] AC-07 (honest scope - a nudge, not a structural fix): Given this
       story's design, then it is documented, in-product-comment and here,
       as an identity-aware CLIENT nudge rather than story 09's structural
       group-play "can never" guarantee: the teen-plus templates remain

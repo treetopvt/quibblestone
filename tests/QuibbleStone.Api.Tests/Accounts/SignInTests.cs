@@ -66,6 +66,7 @@ public class SignInTests
             tokens, store, credential, email, new EmailOptions(), environment,
             new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), deviceTokens),
             deviceTokens,
+            new AdultSignalResolutionService(credential, new FamilyDeviceLinkService(new InMemoryFamilyLinkCodeStore(), deviceTokens)),
             new FamilyDeviceRedeemGlobalThrottle(),
             NullLogger<AccountsController>.Instance,
             new InMemorySeatPresetStore(), new ContentSafetyFilter())
