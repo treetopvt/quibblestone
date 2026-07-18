@@ -62,17 +62,35 @@ stage seam, and an adversarial critique **before** any code is written - and aut
   stage can be stopped, resumed, or handed to a different session (or person) with no context loss.
 - **It scales down.** Small changes skip the heavy path and go straight to the build tools, so the
   ceremony only appears where it earns its keep.
-- **It is portable.** Nothing in the method is QuibbleStone-specific; the artifacts and checkpoints
-  drop into any repository (see the adoption guide).
+- **It is portable in structure - with named assumptions to adapt.** The artifacts and checkpoints
+  drop into any repository, but six things are load-bearing and must be adapted, not assumed:
+  greenfield-vs-coupled codebase, solo-vs-team review latency, whether the design compresses to one
+  architectural bet, file-disjointness of stories, fast-vs-slow CI, and an owner who can eyeball the
+  running app. Part IV walks each. Portable does not mean drop-in.
 
-## The proof
+## The proof (and its limits)
 
-QuibbleStone is a **solo, roughly ten-hours-a-week build**. Using this process it shipped a full
-alpha: real-time rooms with roster and host migration, four game modes on a single shared engine,
-a metered AI cost gate, anonymous-player accounts with billing, an operator console, and a
-two-lane (qa/beta) deploy pipeline - hundreds of passing tests, a green trunk, and a child-safety and
-anonymity posture that held across every feature. It did that without losing momentum, because the
-process front-loads the thinking and automates the building.
+QuibbleStone shipped a full alpha using this process - real-time rooms with roster and host migration,
+four game modes on one shared engine, a metered AI cost gate, anonymous accounts with billing, an
+operator console, and a two-lane deploy - with hundreds of passing tests, a green trunk, and a
+child-safety / anonymity posture that held across every feature.
+
+State the result honestly. The often-quoted "126 PRs in 8-11 days" is **calendar time on a ~10
+hrs/week budget - roughly 15-20 labor-hours**. Calendar compression is a fact about **agent
+parallelism, not human throughput**, and it must not be read as "126 human-reviewed changes per day."
+Treat every claim in this document as a hypothesis **proven once, under these conditions**:
+
+| Confound | Value here | Why it matters |
+|---|---|---|
+| Team size | Solo | Every "human checkpoint" is the same person; no review latency, no handoff loss |
+| Codebase age | Greenfield | Stories own disjoint files by construction; parallelism is free |
+| Roles | Owner = author = reviewer = verifier | The adversarial review critiques its author's own plan |
+| CI | Fast, local-mirrorable | The three-gate model is cheap only because CI is cheap |
+| Design | One clean architectural bet | Not every domain compresses to one sentence |
+
+Nothing here proves the process **at team scale, on a legacy codebase, or under slow CI**. The
+adoption guide (Part IV) is where those adaptations live; the executive claims above inherit these
+caveats.
 
 ## The one-line version
 

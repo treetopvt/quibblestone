@@ -33,7 +33,9 @@ You are explicitly invited to disagree. The most useful critique targets:
   highest-effort stage. On a low-risk internal tool it may collapse to a single lens; on anything
   touching money, safety, or untrusted input it earns its keep.
 - **Does the three-gate model fit your CI reality?** The gates assume a fast local check that mirrors
-  remote CI. If your build is slow, the local gates change shape.
+  remote CI. If your build is slow, **Gate 1 must collapse to an affected-tests subset** (see the
+  formal process, Stage 4 gate model); the full suite moves to Gates 2-3. A three-gate model over a
+  30-minute pipeline is not a lighter version - it is three times the wait.
 - **Is docs-as-code right for your team?** The whole process assumes the spec belongs in the repo. A
   team married to an external tracker as the source of truth will feel friction here - resolve it
   deliberately (see the checklist's "tracker" row) rather than half-adopting.
@@ -60,6 +62,14 @@ Each step is useful on its own.
 
 A team can stop at any step and have a better process than they started with. Steps 1-3 alone (charter,
 ADRs, docs-as-code stories) are a large improvement with almost no tooling.
+
+**What a real sibling project reveals.** When this process is run against an existing repo, the parts
+that take root **without a mandate** are the generic ones - the charter (step 1) and docs-as-code
+stories with Gherkin ACs (step 3), which are prior art and immediately useful. The parts that need a
+**deliberate mandate, a non-author reviewer, and CI budget** - the Stage-2 adversarial ADR (step 6)
+and the `implementation.md` bridge (step 4) - are the ones a busy team quietly skips or reinvents as a
+lighter manual table. Adopt steps 1 and 3 expecting them to stick; adopt steps 4 and 6 expecting to
+**defend** them, or they will not.
 
 **When adapting a pattern from another repo (including this one), record the adaptation.** The single
 best habit to copy is [`../ADOPTION_NOTES.md`](../ADOPTION_NOTES.md): a written record of what you

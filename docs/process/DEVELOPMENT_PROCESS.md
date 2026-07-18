@@ -52,6 +52,26 @@ straight to the build tools - see the scope rule in section 2).
 
 ---
 
+## 0.5. What this borrows (prior art)
+
+Little here is invented; most is assembled. Naming the lineage is honest and lets an adopter reuse
+decades of refinement instead of rediscovering it.
+
+| This process's part | Prior art it descends from | What to steal from the original |
+|---|---|---|
+| ADR + Stage-2 challenge | Design docs / RFCs (Nygard ADRs; Rust/Python RFC process) | Comment window, a named decision rule (lazy consensus), a shepherd |
+| The one architectural bet | Architecture principles / fitness functions (evolutionary architecture) | Automate the bet as a test where possible, not just a review checklist item |
+| Thin vertical slice | Walking skeleton (Cockburn) | Ship the skeleton end-to-end on day one, then thicken |
+| Adversarial lenses | Pre-mortem (Klein) | Frame as "assume it failed - why?"; rotate who runs it |
+| Three gates | Staged CI pipelines | Test-impact analysis so the early gate is a subset, not the whole suite |
+| Two-lane deploy | Trunk-based dev + progressive delivery | Feature flags to decouple deploy from release |
+
+The genuinely net-new contribution is narrower and worth stating plainly: **`implementation.md` as a
+disposable planning-to-fan-out bridge**, and **findings-as-binding-ACs**. Everything else is good
+assembly of known parts.
+
+---
+
 ## 1. The shape in one picture
 
 ```
@@ -81,6 +101,10 @@ straight to the build tools - see the scope rule in section 2).
      |  -- checkpoint: offer to promote; the owner tags deliberately --
      v
   SHIPPED  (and the ROADMAP + story Status fields updated to say so)
+     |
+     v
+  [ STAGE 5b ] Operate .................. incidents / hotfix lane / rollback + feature flags
+                                          (the paths that do NOT re-enter at Stage 1)
 ```
 
 Two rules give the picture its power:
@@ -109,7 +133,9 @@ a pile of locally-correct diffs.
    fresh from `main`. This is context hygiene and resumability, not bureaucracy.
 3. **Challenge before you build.** No non-trivial plan reaches code without an adversarial pass
    against it (Stage 2). Findings are not advice - they become **binding requirements** named on the
-   specific stories that must satisfy them.
+   specific stories that must satisfy them. The review must be run by an actor **other than the ADR's
+   author** (a second person, or - solo - a distinctly-prompted agent whose sole mandate is "attack
+   this plan; default to rejecting"). A plan cannot red-team itself.
 4. **The story is the spec.** Build to the acceptance criteria; ACs drive the tests. Behavior not in
    an AC is either a new story or silent scope creep - the code reviewer flags it either way.
 5. **A charter-level architectural bet, stated once.** Every project has one load-bearing design idea
@@ -211,10 +237,19 @@ proven here:
   does it hide a stateful gotcha (for example, a SignalR hub is rebuilt per invocation, so a resolved
   identity cannot be a hub field)?
 
+**Independence rule.** The lenses are only as good as the distance between reviewer and author. Run
+the review as a separate session with a separate actor and an explicit adversarial mandate; where
+reviewer and author are the same human, that human must at minimum switch roles deliberately and
+record which lens caught what. Log the review's catch rate and periodic false-negative spot-audits -
+the adversarial claim should rest on data, not on one memorable finding.
+
 The output is a set of **numbered findings**, and this is the crucial mechanic: **findings become
 binding requirements written onto the specific stories that must satisfy them.** They are not a
 review comment that evaporates; they are a "Security posture" section in the ADR that every named
-story is reviewed against, forever.
+story is reviewed against - until a later ADR explicitly retires or supersedes the requirement, using
+the same cross-link honesty ADRs already apply to amendments. "Forever" without a retirement path
+turns yesterday's finding into tomorrow's cargo-cult constraint; a binding requirement can be
+un-bound, on the record.
 
 > Real example: [`docs/adr/0003-admin-platform-and-family-accounts.md`](../adr/0003-admin-platform-and-family-accounts.md)
 > ran "a five-lens adversarial review (invariant, abuse/security, wave-plan, scope, cold-builder)
@@ -246,9 +281,10 @@ and design notes. One folder per feature.
 
 ### 5.2 `NN-<story>.md` - the stories (order-prefixed, one PR-sized unit each)
 
-Each story is a single, INVEST-quality unit (Independent, Negotiable, Valuable, Estimable, Small,
-Testable) - small enough to hand a coding agent one at a time. The template is fixed (README section
-11) and every story carries:
+Each story is a single, INVEST-oriented unit (Independent, Negotiable, Valuable, Estimable, Small,
+Testable) - small enough to hand a coding agent one at a time - noting that stories are ordered by the
+wave DAG, so "Independent" means **independently testable**, not free of dependency. The template is
+fixed (README section 11) and every story carries:
 
 - **Context** (why it exists), a link back to `feature.md`.
 - **Acceptance Criteria** - Given / When / Then, one observable behavior each, 3-7 per story. "If you
@@ -263,23 +299,41 @@ Testable) - small enough to hand a coding agent one at a time. The template is f
 ### 5.3 `implementation.md` - the planning-to-orchestration bridge (the net-new artifact)
 
 The single most important structural invention of this process. It is what makes the build phase
-parallelizable without a second analysis pass. Three parts:
+parallelizable without a second analysis pass.
+
+**Lifespan: disposable after merge.** The reuse map and wave plan are valuable at planning time and
+valueless once the feature lands and the code moves. Do not maintain them post-merge, and do not
+backfill them onto shipped features - a rotted wave plan has no readers. Only the ADR and the stories
+are durable.
+
+Three parts:
 
 1. **Per-story tech notes** - approach, key files, what each story exports that others import.
 2. **Reuse map** - the existing components/hooks/utilities each story must reuse instead of
    reinventing. This is what keeps N parallel builders consistent with each other and faithful to the
    architectural bet.
-3. **A DAG-ready Wave Plan** - a table giving, per story: `Files it owns | Depends-on | Can-run-with |
-   Wave | Effort`. Sized by **file-footprint disjointness**, so a wave can fan out with no further
-   analysis. Foundation first; any producer-to-consumer chain (here, an API/hub signature and the web
-   code that calls it) is serialized because the contract is hand-kept, not generated.
+3. **A DAG-ready Wave Plan** - a table giving, per story: `Files it owns | Depends-on | Coupling
+   surface | Can-run-with | Wave | Effort`. Sized by **two axes, not one**: **file-footprint
+   disjointness** (no working-tree collision) and **semantic coupling** (shared types, runtime
+   protocols, migrations, config, DI registration). Disjoint files can still be coupled through a
+   contract, and that coupling - not the file overlap - is what breaks at integration. On a greenfield
+   repo the two axes nearly coincide and waves fan wide; on a coupled or legacy repo they diverge
+   sharply, most stories share hotspots, and expected parallelism width scales inversely with codebase
+   coupling. There, the first feature's real job is often to **create seams before fan-out pays off** -
+   plan for near-serial early waves and say so. Foundation first; any producer-to-consumer chain (here,
+   an API/hub signature and the web code that calls it) is serialized because the contract is
+   hand-kept, not generated.
 
-### 5.4 The tracker mirror
+### 5.4 The tracker mirror (one-way, or not at all)
 
-The markdown is canonical; the tracker mirrors it for visibility. The live model is a three-level
-**sub-issue hierarchy**: an **Epic** (one per build phase) contains **Feature** issues, which contain
-**Story** issues. Status is carried in the markdown `**Status:**` line (canonical) and mirrored by a
-`status:*` label on the issue. Full mapping and commands: [`../GITHUB_TRACKER.md`](../GITHUB_TRACKER.md).
+The markdown is canonical; the tracker is **generated from it, one-way**, for visibility - never
+hand-maintained in parallel. Double-entry bookkeeping between markdown and issues dies the first time
+discipline slips (the doc's own "when they disagree, the repo wins" is an admission that they *will*
+disagree). If you cannot script the mirror, **drop the tracker** rather than maintain two sources by
+hand. The live model is a three-level **sub-issue hierarchy**: an **Epic** (one per build phase)
+contains **Feature** issues, which contain **Story** issues. Status is carried in the markdown
+`**Status:**` line (canonical) and mirrored by a `status:*` label on the issue. Full mapping and
+commands: [`../GITHUB_TRACKER.md`](../GITHUB_TRACKER.md).
 
 **Checkpoint (the most important seam in the process):** the planning docs are opened as their own
 **planning-docs PR, reviewed, and merged** before any building starts. Planning and building are
@@ -341,15 +395,23 @@ on the pushed branch. Nothing becomes a ready-for-review PR until all three pass
 redundant: Gate 1 keeps junk out of the merge cheaply; Gate 2 is the one that catches integration
 breakage.
 
+**When CI is slow (> ~10 min), the gates change shape - this is required, not optional.** Gate 1 runs
+a **fast subset only**: lint, type-check, and the tests affected by the builder's diff (test-impact
+analysis), not the full suite. The full suite and the security scans run once, at Gate 2
+(post-integration) and Gate 3 (remote). Running a 30-minute pipeline per builder at Gate 1 makes the
+wave loop CI-bound and silently kills the parallelism the process exists to buy.
+
 ### 6.3 Verification checkpoint (the wave boundary)
 
 At each wave boundary the **main session** (which holds the long-running dev servers) boots the app
-against the latest umbrella code and **walks the wave's user journeys with the owner** through a real
-browser. Real-time and multi-device stories are driven with **two browser contexts** (one creates,
-one joins) to prove the scary part - live sync across devices - actually works. Unrelated surfaces are
-checked for regression. Feedback folds into fix items or the next wave, and into the feature's
-Decisions log. **The wave does not proceed without the owner's sign-off.** This is the human-in-the-loop
-that keeps a fast, parallel build honest.
+against the latest umbrella code and **walks the wave's user journeys**. The scary paths - real-time,
+multi-device - are driven with **two browser contexts** (one creates, one joins). Wherever a journey
+can be automated, it lands as a **Playwright e2e test in the same PR** - verification then produces a
+**durable regression asset** instead of an ephemeral manual ritual, consistent with the docs-as-code
+principle the rest of the process obeys. Manual owner sign-off is reserved for genuinely novel UX that
+is not yet worth automating. Unrelated surfaces are checked for regression. Feedback folds into fix
+items or the next wave, and into the feature's Decisions log. **The wave does not proceed without the
+owner's sign-off.** This is the human-in-the-loop that keeps a fast, parallel build honest.
 
 **Artifacts produced:** merged, gated, verified code on the `feat/{slug}` umbrella; updated story
 Status; a draft PR accumulating `Closes #<issue>` links.
@@ -374,6 +436,29 @@ Status; a draft PR accumulating `Closes #<issue>` links.
 
 **Artifact produced:** deployed software, an updated roadmap, and closed stories - and, when the
 feature surfaces something new, a fresh idea re-entering the pipeline at Stage 1.
+
+---
+
+## 7.5. Stage 5b - Operate (the path the happy path forgets)
+
+Not every change is a planned feature, and not every deploy stays up. This stage names the three paths
+the pipeline otherwise drops on the floor.
+
+- **Feature flags decouple merge from release.** Incomplete work integrates to trunk **behind a flag**
+  rather than hoarding on a long-lived umbrella branch. A wave can land dark; the flag flips when
+  verification signs off. This is what makes continuous integration safe and keeps the umbrella
+  short-lived (see the branch-age rule below).
+- **Hotfix lane.** A production incident does **not** re-enter at Stage 1. Branch from the current
+  production tag, make the minimal fix, run the one gate that matters (fast checks + a targeted
+  review), tag, and promote. Backfill the story/ADR **after** the fire is out, never before.
+- **Rollback is a first-class action.** Every `v*` promotion has a defined reverse: revert-and-re-tag,
+  or flip the flag off. The runbook states the rollback step next to the promote step. "We'll figure
+  it out live" is not a rollback plan.
+- **Umbrella branch-age rule.** `feat/{slug}` is a convenience, not a home. It rebases onto `main` at
+  every wave boundary and lives no longer than the feature; anything expected to outlive a few waves
+  integrates to trunk behind a flag instead. A long-lived feature branch is the exact failure
+  trunk-based development exists to prevent, and it is invisible only because a solo greenfield trunk
+  barely moves.
 
 ---
 
@@ -441,6 +526,9 @@ The templates for the Stage 3 artifacts live in `docs/features/_template/`.
 - **Overclaiming a guarantee.** The process records what it does NOT cover as explicitly as what it
   does (for example, "the group-play teen gate is fixed; the solo path is a known, tracked gap"). A
   guarantee stated once and quietly broken later is worse than a scoped one.
+- **The forgotten operate path.** Treating a production incident as a fresh Stage-1 idea, shipping
+  without a defined rollback, or hoarding a feature on an umbrella branch instead of integrating behind
+  a flag. The pipeline is not done at "merged" - it is done at "running, and reversible" (Stage 5b).
 
 ---
 

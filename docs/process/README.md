@@ -45,7 +45,22 @@ To get the process critiqued, extended, or adopted by other sessions or engineer
 The process took QuibbleStone from an empty repo to a full shippable alpha in **~8-11 calendar days**
 (2026-06-30 to 2026-07-10), **126 merged PRs**, one solo developer. Delivery burn-up chart:
 <https://claude.ai/code/artifact/cf54f9a7-cde1-4da1-97b3-90b5a44299fe>. These are GitHub calendar
-timestamps, not logged effort-hours - the compression (agent orchestration) is the point.
+timestamps, not logged effort-hours (roughly **15-20 labor-hours** at the ~10 hrs/week budget) - the
+calendar compression is a fact about **agent parallelism, not human throughput**. The proof holds
+under one set of conditions (solo, greenfield, one architectural bet, fast CI); see
+`EXECUTIVE_SUMMARY.md` "The proof (and its limits)" before quoting the number.
+
+## Revisions
+
+- **2026-07-18 - v1 authored.** The five stages, evolution, adoption guide, and shareable overview,
+  reverse-engineered from this repo's ADRs, backlog, and orchestration artifacts.
+- **2026-07-18 - cadence-review hardening.** An adversarial review from the `cadence` repo (the process
+  applied to itself) produced 11 findings, all folded in: honest labor-hours + conditions-of-proof box,
+  reviewer-not-author independence rule, a **coupling model** replacing pure file-disjointness, a new
+  **Operate stage** (incidents / hotfix / rollback / feature flags), a **prior-art** table, one-way
+  tracker mirror + disposable-artifact lifespan, verification-as-durable-e2e, a slow-CI gate variant, a
+  binding-requirement retirement path, and portability-with-named-assumptions. A `pulse` review is
+  **still pending** (not yet vetted).
 
 ## The process in one line
 

@@ -198,10 +198,11 @@ adversarial review, then the deploy lanes. Each step is useful on its own and se
 
 The process continues to evolve at its own seams. The natural next steps visible in the tree:
 
-- **Backfilling `implementation.md`** onto the earliest features (they predate the convention).
 - **Cross-project alignment** - carrying this process to sibling projects (cadence, pulse, the cobra
   prototypes) and reconciling their process artifacts against it. The portable checklist for that lives
-  in [`ADOPTION_GUIDE.md`](ADOPTION_GUIDE.md).
+  in [`ADOPTION_GUIDE.md`](ADOPTION_GUIDE.md). (This is already underway: a cadence-repo adversarial
+  review hardened this process - see the revision note in [`README.md`](README.md); a pulse review is
+  still pending.)
 - **Tightening the adversarial-review lenses into a reusable checklist** so the five lenses are run the
   same way every time rather than reconstructed per ADR.
 
