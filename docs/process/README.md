@@ -39,6 +39,10 @@ To get the process critiqued, extended, or adopted by other sessions or engineer
 - [`REVIEW_PROMPT.md`](REVIEW_PROMPT.md) - a **ready-to-paste intro prompt** that casts the receiving
   session as an adversarial reviewer and asks for structured add/refute/modify feedback. Paste it with
   the package.
+- [`REVIEW_PROMPT_PULSE.md`](REVIEW_PROMPT_PULSE.md) - a **pulse-specific kickoff** for the next
+  cross-project pass: run it inside a pulse session so the reviewer characterizes pulse's real
+  conditions (team, coupling, CI) and confirms or contradicts the cadence findings from a different
+  vantage. The cadence review is folded in; pulse is pending.
 
 ## The evidence (case study)
 
