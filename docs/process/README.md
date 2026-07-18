@@ -29,6 +29,24 @@ outside the repo to read and comment on):
 page's share menu). It is a snapshot of `EXECUTIVE_SUMMARY.md` + the five-stage pipeline; the markdown
 here is canonical.
 
+## Sharing this for review
+
+To get the process critiqued, extended, or adopted by other sessions or engineers:
+
+- [`PROCESS_PACKAGE.md`](PROCESS_PACKAGE.md) - a **self-contained bundle** of the four docs (Parts I-IV,
+  repo-internal headers stripped, provenance + timeline preamble added) that stands on its own outside
+  this repo. This is the thing to hand to another session or project.
+- [`REVIEW_PROMPT.md`](REVIEW_PROMPT.md) - a **ready-to-paste intro prompt** that casts the receiving
+  session as an adversarial reviewer and asks for structured add/refute/modify feedback. Paste it with
+  the package.
+
+## The evidence (case study)
+
+The process took QuibbleStone from an empty repo to a full shippable alpha in **~8-11 calendar days**
+(2026-06-30 to 2026-07-10), **126 merged PRs**, one solo developer. Delivery burn-up chart:
+<https://claude.ai/code/artifact/cf54f9a7-cde1-4da1-97b3-90b5a44299fe>. These are GitHub calendar
+timestamps, not logged effort-hours - the compression (agent orchestration) is the point.
+
 ## The process in one line
 
 > Challenge the idea before you build it, make the spec the contract, let parallel agents build to it
