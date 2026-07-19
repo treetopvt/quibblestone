@@ -23,6 +23,7 @@ templates) so the process can be explained, evolved, and carried to other projec
 | How it grew into its current shape | [`PROCESS_EVOLUTION.md`](PROCESS_EVOLUTION.md) | 10 min |
 | To adopt it on another project + a portable alignment checklist | [`ADOPTION_GUIDE.md`](ADOPTION_GUIDE.md) | 10 min |
 | **The stack-agnostic, repeatable method** (hardened by the cadence + pulse reviews) | [`methodology/METHODOLOGY.md`](methodology/METHODOLOGY.md) + [`methodology/`](methodology/) | 15 min |
+| **A partner / customer pitch + resume source** (one document, two uses) | [`CAPABILITY_STATEMENT.md`](CAPABILITY_STATEMENT.md) | 6 min |
 
 > **If you are here to adopt the process on a new project, start with
 > [`methodology/`](methodology/), not this folder.** The docs here are the QuibbleStone case study; the
@@ -48,7 +49,11 @@ To get the process critiqued, extended, or adopted by other sessions or engineer
 - [`REVIEW_PROMPT_PULSE.md`](REVIEW_PROMPT_PULSE.md) - a **pulse-specific kickoff** for the next
   cross-project pass: run it inside a pulse session so the reviewer characterizes pulse's real
   conditions (team, coupling, CI) and confirms or contradicts the cadence findings from a different
-  vantage. The cadence review is folded in; pulse is pending.
+  vantage. (Done: the pulse review is folded in and generalized into `methodology/`.)
+- [`PULSE_CI_KICKOFF.md`](PULSE_CI_KICKOFF.md) - a **remediation kickoff**: paste it into a pulse
+  session to generate a real minimal PR-gating CI workflow from pulse's actual build files, closing
+  pulse's top finding (no gating CI; an ungated backend stack). Canonical template:
+  [`methodology/templates/ci-minimal.yml`](methodology/templates/ci-minimal.yml).
 
 ## The evidence (case study)
 
