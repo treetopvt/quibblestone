@@ -1,0 +1,70 @@
+# Minimal PR-gating CI (the floor) - stack-agnostic template.
+#
+# This is generalization 3: a gate must EXIST and run ON THE PULL REQUEST before any second contributor
+# (human or unattended agent) touches the repo. Every stack gets a job; none orphaned. Deploy is a
+# SEPARATE workflow that assumes-green - quality gates that run only inside deploy are not gates.
+#
+# Copy to .github/workflows/ci.yml and replace each <stack> job with your real stacks. Keep one job per
+# stack so a failure names the stack. Add path filters if you want per-stack jobs to run only when that
+# stack changed (that is the "affected stack" optimization - safe to add once the gate is real).
+#
+# Prose/comments style: hyphens, colons, parentheses - never em dashes.
+
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  # also run on the trunk so main's status is always known:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same PR so the gate stays fast under agent-fleet churn.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- One job per stack. EVERY stack in the repo appears here. ----
+
+  frontend:
+    runs-on: ubuntu-latest
+    # Optional "affected stack" filter (add only once the gate is real and demonstrably slow):
+    # if: contains(github.event.pull_request.labels.*.name, 'stack:frontend') || true
+    steps:
+      - uses: actions/checkout@v4
+      # - <set up the toolchain: node/pnpm, etc.>
+      - name: Install
+        run: <install command>          # e.g. npm ci
+      - name: Lint
+        run: <lint command>             # e.g. npm run lint
+      - name: Typecheck
+        run: <typecheck command>        # e.g. npm run typecheck
+      - name: Build
+        run: <build command>            # e.g. npm run build
+      - name: Test
+        run: <test command>             # e.g. npm run test:unit
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # - <set up the toolchain: the backend runtime/SDK>
+      - name: Build
+        run: <build command>            # e.g. dotnet build
+      - name: Test
+        run: <test command>             # e.g. dotnet test  (do NOT leave this stack ungated)
+
+  # infra:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Validate
+  #       run: <validate command>       # e.g. bicep build / terraform validate
+
+  # ---- Aggregate gate: a single required check the branch-protection rule points at. ----
+  # Make THIS the required status check, so adding a stack cannot silently un-gate the branch.
+  gate:
+    needs: [frontend, backend]          # add every stack job here
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "all stack gates passed"

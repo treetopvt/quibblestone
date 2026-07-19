@@ -51,8 +51,11 @@ stage seam, and an adversarial critique **before** any code is written - and aut
 - **Quality is designed in, not bolted on.** The adversarial review catches the class of bug that
   reaches production elsewhere (a security gate a user can defeat, a plan whose "parallel" stories
   collide) while it is still a paragraph, not a deploy.
-- **Speed without chaos.** Parallel builders compress a multi-story feature into a few gated waves,
-  and the wave plan makes the parallelism safe rather than hopeful.
+- **Conflict-free integration and clean review boundaries.** Parallel builders turn a multi-story
+  feature into a set of small, separately-reviewable diffs that do not collide at the seam, and the
+  wave plan makes that safe rather than hopeful. (Note the honest claim: wall-clock *speed* from
+  fan-out is unproven without genuine concurrent runners - the proven payoff is clean integration, not
+  faster.)
 - **The most expensive mistake is made impossible.** A wrong plan is caught at a cheap review
   checkpoint, never after N builders have already built it.
 - **Everything is transparent and auditable.** The decision, the critique, the spec, and the code are

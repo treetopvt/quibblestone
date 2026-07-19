@@ -22,6 +22,12 @@ templates) so the process can be explained, evolved, and carried to other projec
 | The full method, stage by stage | [`DEVELOPMENT_PROCESS.md`](DEVELOPMENT_PROCESS.md) | 15 min |
 | How it grew into its current shape | [`PROCESS_EVOLUTION.md`](PROCESS_EVOLUTION.md) | 10 min |
 | To adopt it on another project + a portable alignment checklist | [`ADOPTION_GUIDE.md`](ADOPTION_GUIDE.md) | 10 min |
+| **The stack-agnostic, repeatable method** (hardened by the cadence + pulse reviews) | [`methodology/METHODOLOGY.md`](methodology/METHODOLOGY.md) + [`methodology/`](methodology/) | 15 min |
+
+> **If you are here to adopt the process on a new project, start with
+> [`methodology/`](methodology/), not this folder.** The docs here are the QuibbleStone case study; the
+> `methodology/` subtree is the portable, multi-project-hardened method (Step 0, the six generalizations
+> the cadence + pulse reviews forced, templates, an adoption checklist, and a proven-vs-unproven ledger).
 
 There is also a **shareable one-page visual overview** (the executive summary rendered for engineers
 outside the repo to read and comment on):
@@ -63,8 +69,16 @@ under one set of conditions (solo, greenfield, one architectural bet, fast CI); 
   reviewer-not-author independence rule, a **coupling model** replacing pure file-disjointness, a new
   **Operate stage** (incidents / hotfix / rollback / feature flags), a **prior-art** table, one-way
   tracker mirror + disposable-artifact lifespan, verification-as-durable-e2e, a slow-CI gate variant, a
-  binding-requirement retirement path, and portability-with-named-assumptions. A `pulse` review is
-  **still pending** (not yet vetted).
+  binding-requirement retirement path, and portability-with-named-assumptions.
+- **2026-07-19 - pulse-review generalization.** A second adversarial review, from the `pulse` repo,
+  **contradicted** QuibbleStone on two axes (independence is cheap via a separate agent/bot context,
+  not a second human; and "no gating CI" - not "slow CI" - was the real risk) and strengthened the
+  seams-before-fan-out and proportional-operate stances. Rather than only patch the case-study docs,
+  this pass **extracted the stack-agnostic method** into [`methodology/`](methodology/): `METHODOLOGY.md`
+  (Step 0 + the six generalizations), templates (coupling-aware wave plan, two-tier gates, stack-agnostic
+  DoD, minimal PR-gating CI, proportional Operate), an adoption checklist keyed to confounds, and a
+  conditions ledger that marks **multi-human review latency** and **production operate/rollback** as
+  still unproven. The QuibbleStone docs here now point at the methodology as the more general source.
 
 ## The process in one line
 

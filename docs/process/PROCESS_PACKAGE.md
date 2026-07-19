@@ -7,23 +7,20 @@
 >
 > **Read the compression honestly:** "126 PRs in 8-11 days" is calendar time on a ~10 hrs/week budget,
 > roughly **15-20 labor-hours**. It is a fact about **agent parallelism, not human throughput**, and it
-> is proven once, under one set of conditions (solo, greenfield, one architectural bet, fast CI). See
+> is proven once, under one set of conditions (solo, greenfield, one architectural bet, gating CI). See
 > Part II, "The proof (and its limits)."
 >
-> It is shared as a **proposal to pressure-test, not a finished standard.** You are invited to add to
-> it, refute it, and modify it. A ready-to-use review prompt accompanies this package; if you were
-> handed this without one, treat every claim as a hypothesis and critique it on completeness, failure
-> modes, cost, evidence, portability, and prior art.
+> **This is the case-study narrative.** It has since been hardened by two adversarial reviews (`cadence`,
+> then `pulse`) and generalized into a **stack-agnostic method** with templates and an adoption checklist
+> - see `docs/process/methodology/METHODOLOGY.md`. If you are adopting the process on a new project,
+> read that; if you are critiquing the process itself, this package is the right target. The pulse review
+> contradicted two claims here (independence is cheap via a separate agent/bot context, not a second
+> human; the real CI risk is no-gating-CI, not slow CI) - the methodology supersedes them.
 >
-> This revision incorporates an adversarial review from the sibling `cadence` repo (11 findings). A
-> `pulse` review is still pending. Provenance: the process lineage is COBRA prototype -> cadence /
-> pulse -> QuibbleStone.
+> Provenance: the process lineage is COBRA prototype -> cadence / pulse -> QuibbleStone.
 >
 > The four parts below were written as separate repository documents; internal cross-links (for
-> example "see Part II") refer to the corresponding Part of this package. Where a link points at an
-> operating manual not included here (the orchestration playbook, the tracker cheat sheet, the feature
-> templates), that is repo-specific detail deliberately left out of this portable package - the four
-> parts stand on their own.
+> example "see Part II") refer to the corresponding Part of this package.
 
 ---
 
@@ -48,6 +45,15 @@
 QuibbleStone: a solo, nights-and-weekends build that nonetheless shipped a full alpha (rooms, roster,
 host migration, four game modes on one engine, an AI cost gate, accounts + billing, an operator
 console, and two cloud lanes) without losing momentum or coherence.
+
+> **This is the QuibbleStone-specific narrative (the worked example).** The **stack-agnostic,
+> multi-project-hardened generalization** - folding in the `cadence` and `pulse` adversarial reviews -
+> lives in [`methodology/METHODOLOGY.md`](methodology/METHODOLOGY.md). Where the two differ, the
+> methodology is the more general and current source. In particular the pulse review **contradicted**
+> two claims below and the methodology supersedes them: independence is cheap because the reviewer is a
+> separate *agent/bot context* (not a second human), and the real CI risk is **no gating CI at all**
+> (not "slow CI"); and wave fan-out's proven benefit is **conflict-free integration**, not wall-clock
+> speed.
 
 This document is the **formal, end-to-end description** of the process. It is deliberately
 project-neutral in its bones so it can be lifted into other repositories, but every example is real
@@ -649,8 +655,11 @@ stage seam, and an adversarial critique **before** any code is written - and aut
 - **Quality is designed in, not bolted on.** The adversarial review catches the class of bug that
   reaches production elsewhere (a security gate a user can defeat, a plan whose "parallel" stories
   collide) while it is still a paragraph, not a deploy.
-- **Speed without chaos.** Parallel builders compress a multi-story feature into a few gated waves,
-  and the wave plan makes the parallelism safe rather than hopeful.
+- **Conflict-free integration and clean review boundaries.** Parallel builders turn a multi-story
+  feature into a set of small, separately-reviewable diffs that do not collide at the seam, and the
+  wave plan makes that safe rather than hopeful. (Note the honest claim: wall-clock *speed* from
+  fan-out is unproven without genuine concurrent runners - the proven payoff is clean integration, not
+  faster.)
 - **The most expensive mistake is made impossible.** A wrong plan is caught at a cheap review
   checkpoint, never after N builders have already built it.
 - **Everything is transparent and auditable.** The decision, the critique, the spec, and the code are

@@ -19,6 +19,15 @@ QuibbleStone: a solo, nights-and-weekends build that nonetheless shipped a full 
 host migration, four game modes on one engine, an AI cost gate, accounts + billing, an operator
 console, and two cloud lanes) without losing momentum or coherence.
 
+> **This is the QuibbleStone-specific narrative (the worked example).** The **stack-agnostic,
+> multi-project-hardened generalization** - folding in the `cadence` and `pulse` adversarial reviews -
+> lives in [`methodology/METHODOLOGY.md`](methodology/METHODOLOGY.md). Where the two differ, the
+> methodology is the more general and current source. In particular the pulse review **contradicted**
+> two claims below and the methodology supersedes them: independence is cheap because the reviewer is a
+> separate *agent/bot context* (not a second human), and the real CI risk is **no gating CI at all**
+> (not "slow CI"); and wave fan-out's proven benefit is **conflict-free integration**, not wall-clock
+> speed.
+
 This document is the **formal, end-to-end description** of the process. It is deliberately
 project-neutral in its bones so it can be lifted into other repositories, but every example is real
 and lives in this tree. The companion documents are the executable detail:
